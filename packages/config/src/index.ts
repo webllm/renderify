@@ -17,6 +17,9 @@ export interface RenderifyConfigValues {
   strictSecurity: boolean;
   securityProfile: SecurityProfileConfig;
   tenantQuotaPolicy: TenantQuotaPolicyConfig;
+  runtimeEnforceModuleManifest: boolean;
+  runtimeAllowIsolationFallback: boolean;
+  runtimeSupportedSpecVersions: string[];
   [key: string]: unknown;
 }
 
@@ -42,6 +45,9 @@ export class DefaultRenderifyConfig implements RenderifyConfig {
       strictSecurity: true,
       llmUseStructuredOutput: true,
       securityProfile: "balanced",
+      runtimeEnforceModuleManifest: true,
+      runtimeAllowIsolationFallback: false,
+      runtimeSupportedSpecVersions: ["runtime-plan/v1"],
       tenantQuotaPolicy: {
         maxExecutionsPerMinute: 120,
         maxConcurrentExecutions: 4,
@@ -87,12 +93,23 @@ function getEnvironmentValues(): Partial<RenderifyConfigValues> {
   }
 
   const values: Partial<RenderifyConfigValues> = {
-    llmUseStructuredOutput: process.env.RENDERIFY_LLM_USE_STRUCTURED_OUTPUT !== "false",
+    llmUseStructuredOutput:
+      process.env.RENDERIFY_LLM_USE_STRUCTURED_OUTPUT !== "false",
     strictSecurity: process.env.RENDERIFY_STRICT_SECURITY !== "false",
-    securityProfile: parseSecurityProfile(process.env.RENDERIFY_SECURITY_PROFILE),
+    securityProfile: parseSecurityProfile(
+      process.env.RENDERIFY_SECURITY_PROFILE,
+    ),
+    runtimeEnforceModuleManifest:
+      process.env.RENDERIFY_RUNTIME_ENFORCE_MANIFEST !== "false",
+    runtimeAllowIsolationFallback:
+      process.env.RENDERIFY_RUNTIME_ALLOW_ISOLATION_FALLBACK === "true",
+    runtimeSupportedSpecVersions: parseSpecVersions(
+      process.env.RENDERIFY_RUNTIME_SPEC_VERSIONS,
+    ),
     tenantQuotaPolicy: {
       maxExecutionsPerMinute:
-        parsePositiveInt(process.env.RENDERIFY_MAX_EXECUTIONS_PER_MINUTE) ?? 120,
+        parsePositiveInt(process.env.RENDERIFY_MAX_EXECUTIONS_PER_MINUTE) ??
+        120,
       maxConcurrentExecutions:
         parsePositiveInt(process.env.RENDERIFY_MAX_CONCURRENT_EXECUTIONS) ?? 4,
     },
@@ -139,7 +156,9 @@ function parsePositiveInt(value: string | undefined): number | undefined {
   return parsed;
 }
 
-function parseSecurityProfile(value: string | undefined): SecurityProfileConfig {
+function parseSecurityProfile(
+  value: string | undefined,
+): SecurityProfileConfig {
   if (value === "strict" || value === "balanced" || value === "relaxed") {
     return value;
   }
@@ -153,4 +172,17 @@ function parseLlmProvider(value: string | undefined): LLMProviderConfig {
   }
 
   return "mock";
+}
+
+function parseSpecVersions(value: string | undefined): string[] {
+  if (!value || value.trim().length === 0) {
+    return ["runtime-plan/v1"];
+  }
+
+  const parsed = value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+
+  return parsed.length > 0 ? parsed : ["runtime-plan/v1"];
 }

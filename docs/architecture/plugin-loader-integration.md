@@ -93,6 +93,9 @@ const runtime = new DefaultRuntimeManager({
 For TSX/JSX runtime source modules, the loader resolver is used to rewrite bare
 import specifiers to executable URLs. `@renderify/runtime-jspm` provides this behavior.
 
+For production determinism, include `moduleManifest` in `RuntimePlan` and map each
+bare specifier to a pinned `resolvedUrl` (and optionally `integrity`).
+
 ## 3. Apply Security Policy Profiles
 
 Configure policy through `RenderifyConfig` key `securityPolicy`.
@@ -228,4 +231,12 @@ RENDERIFY_LLM_API_KEY=<your_key>
 RENDERIFY_LLM_MODEL=gpt-4.1-mini
 RENDERIFY_LLM_BASE_URL=https://api.openai.com/v1
 RENDERIFY_LLM_TIMEOUT_MS=30000
+```
+
+Runtime protocol/runtime safety env:
+
+```bash
+RENDERIFY_RUNTIME_ENFORCE_MANIFEST=true
+RENDERIFY_RUNTIME_ALLOW_ISOLATION_FALLBACK=false
+RENDERIFY_RUNTIME_SPEC_VERSIONS=runtime-plan/v1
 ```

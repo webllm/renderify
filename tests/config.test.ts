@@ -11,6 +11,11 @@ test("config loads default security profile and tenant quotas", async () => {
   assert.equal(config.get("llmModel"), "gpt-4.1-mini");
   assert.equal(config.get("llmBaseUrl"), "https://api.openai.com/v1");
   assert.equal(config.get("llmRequestTimeoutMs"), 30000);
+  assert.equal(config.get("runtimeEnforceModuleManifest"), true);
+  assert.equal(config.get("runtimeAllowIsolationFallback"), false);
+  assert.deepEqual(config.get("runtimeSupportedSpecVersions"), [
+    "runtime-plan/v1",
+  ]);
   assert.deepEqual(config.get("tenantQuotaPolicy"), {
     maxExecutionsPerMinute: 120,
     maxConcurrentExecutions: 4,
@@ -75,5 +80,37 @@ test("config reads llm provider values from env", async () => {
     restoreEnv("RENDERIFY_LLM_MODEL", previousModel);
     restoreEnv("RENDERIFY_LLM_BASE_URL", previousBaseUrl);
     restoreEnv("RENDERIFY_LLM_TIMEOUT_MS", previousTimeout);
+  }
+});
+
+test("config reads runtime policy values from env", async () => {
+  const previousEnforceManifest =
+    process.env.RENDERIFY_RUNTIME_ENFORCE_MANIFEST;
+  const previousIsolationFallback =
+    process.env.RENDERIFY_RUNTIME_ALLOW_ISOLATION_FALLBACK;
+  const previousSpecVersions = process.env.RENDERIFY_RUNTIME_SPEC_VERSIONS;
+
+  process.env.RENDERIFY_RUNTIME_ENFORCE_MANIFEST = "false";
+  process.env.RENDERIFY_RUNTIME_ALLOW_ISOLATION_FALLBACK = "true";
+  process.env.RENDERIFY_RUNTIME_SPEC_VERSIONS =
+    "runtime-plan/v1,runtime-plan/v2-draft";
+
+  try {
+    const config = new DefaultRenderifyConfig();
+    await config.load();
+
+    assert.equal(config.get("runtimeEnforceModuleManifest"), false);
+    assert.equal(config.get("runtimeAllowIsolationFallback"), true);
+    assert.deepEqual(config.get("runtimeSupportedSpecVersions"), [
+      "runtime-plan/v1",
+      "runtime-plan/v2-draft",
+    ]);
+  } finally {
+    restoreEnv("RENDERIFY_RUNTIME_ENFORCE_MANIFEST", previousEnforceManifest);
+    restoreEnv(
+      "RENDERIFY_RUNTIME_ALLOW_ISOLATION_FALLBACK",
+      previousIsolationFallback,
+    );
+    restoreEnv("RENDERIFY_RUNTIME_SPEC_VERSIONS", previousSpecVersions);
   }
 });

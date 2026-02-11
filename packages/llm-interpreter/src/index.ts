@@ -30,7 +30,7 @@ export interface LLMInterpreter {
   configure(options: Record<string, unknown>): void;
   generateResponse(req: LLMRequest): Promise<LLMResponse>;
   generateStructuredResponse?<T = unknown>(
-    req: LLMStructuredRequest
+    req: LLMStructuredRequest,
   ): Promise<LLMStructuredResponse<T>>;
   setPromptTemplate(templateName: string, templateContent: string): void;
   getPromptTemplate(templateName: string): string | undefined;
@@ -64,7 +64,7 @@ export class DefaultLLMInterpreter implements LLMInterpreter {
   }
 
   async generateStructuredResponse<T = unknown>(
-    req: LLMStructuredRequest
+    req: LLMStructuredRequest,
   ): Promise<LLMStructuredResponse<T>> {
     if (req.format !== "runtime-plan") {
       return {
@@ -113,13 +113,16 @@ export class DefaultLLMInterpreter implements LLMInterpreter {
   }
 
   private buildRuntimePlanCandidate(
-    req: LLMStructuredRequest
+    req: LLMStructuredRequest,
   ): Record<string, unknown> {
-    const prompt = req.prompt.trim().length > 0 ? req.prompt.trim() : "Untitled";
+    const specVersion = "runtime-plan/v1";
+    const prompt =
+      req.prompt.trim().length > 0 ? req.prompt.trim() : "Untitled";
     const planId = `plan_${Date.now().toString(36)}`;
 
     if (/\bcounter\b/i.test(prompt)) {
       return {
+        specVersion,
         id: planId,
         version: 1,
         capabilities: {
@@ -158,6 +161,7 @@ export class DefaultLLMInterpreter implements LLMInterpreter {
     }
 
     return {
+      specVersion,
       id: planId,
       version: 1,
       capabilities: {

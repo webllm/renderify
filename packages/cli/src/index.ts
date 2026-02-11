@@ -1,20 +1,16 @@
-import fs from "fs";
-import http, {
-  type IncomingMessage,
-  type ServerResponse,
-} from "http";
-import type { AddressInfo } from "net";
-import path from "path";
 import { DefaultApiIntegration } from "@renderify/api-integration";
 import { DefaultCodeGenerator } from "@renderify/codegen";
-import { DefaultRenderifyConfig, type LLMProviderConfig } from "@renderify/config";
+import {
+  DefaultRenderifyConfig,
+  type LLMProviderConfig,
+} from "@renderify/config";
 import { DefaultContextManager } from "@renderify/context";
 import {
-  RenderifyApp,
   createRenderifyApp,
+  type ExecutionAuditRecord,
   InMemoryExecutionAuditLog,
   InMemoryPlanRegistry,
-  type ExecutionAuditRecord,
+  type RenderifyApp,
   type RenderPlanResult,
   type RenderPromptResult,
 } from "@renderify/core";
@@ -37,6 +33,10 @@ import { DefaultRuntimeManager } from "@renderify/runtime";
 import { JspmModuleLoader } from "@renderify/runtime-jspm";
 import { DefaultSecurityChecker } from "@renderify/security";
 import { DefaultUIRenderer } from "@renderify/ui";
+import fs from "fs";
+import http, { type IncomingMessage, type ServerResponse } from "http";
+import type { AddressInfo } from "net";
+import path from "path";
 
 interface CliSessionData {
   plans: RuntimePlan[];
@@ -126,6 +126,13 @@ async function main() {
     moduleLoader: new JspmModuleLoader({
       cdnBaseUrl: config.get<string>("jspmCdnUrl"),
     }),
+    enforceModuleManifest:
+      config.get<boolean>("runtimeEnforceModuleManifest") !== false,
+    allowIsolationFallback:
+      config.get<boolean>("runtimeAllowIsolationFallback") === true,
+    supportedPlanSpecVersions: config.get<string[]>(
+      "runtimeSupportedSpecVersions",
+    ),
   });
 
   const renderifyApp = createRenderifyApp({
@@ -152,7 +159,7 @@ async function main() {
   const persistSession = async (): Promise<void> => {
     await saveSessionData(sessionPath, {
       plans: flattenPlans(renderifyApp.listPlans(), (planId, version) =>
-        renderifyApp.getPlan(planId, version)
+        renderifyApp.getPlan(planId, version),
       ),
       audits: renderifyApp.listAudits(),
       states: collectStates(renderifyApp),
@@ -162,12 +169,16 @@ async function main() {
   try {
     switch (args.command) {
       case "run": {
-        const result = await renderifyApp.renderPrompt(args.prompt ?? DEFAULT_PROMPT);
+        const result = await renderifyApp.renderPrompt(
+          args.prompt ?? DEFAULT_PROMPT,
+        );
         console.log(result.html);
         break;
       }
       case "plan": {
-        const result = await renderifyApp.renderPrompt(args.prompt ?? DEFAULT_PROMPT);
+        const result = await renderifyApp.renderPrompt(
+          args.prompt ?? DEFAULT_PROMPT,
+        );
         console.log(JSON.stringify(result.plan, null, 2));
         break;
       }
@@ -206,7 +217,7 @@ async function main() {
         printHistory(
           renderifyApp.listPlans(),
           renderifyApp.listAudits(50),
-          collectStates(renderifyApp)
+          collectStates(renderifyApp),
         );
         break;
       }
@@ -214,7 +225,10 @@ async function main() {
         if (!args.planId || args.version === undefined) {
           throw new Error("rollback requires <planId> <version>");
         }
-        const result = await renderifyApp.rollbackPlan(args.planId, args.version);
+        const result = await renderifyApp.rollbackPlan(
+          args.planId,
+          args.version,
+        );
         console.log(result.html);
         break;
       }
@@ -254,9 +268,15 @@ function parseArgs(argv: string[]): CliArgs {
     case undefined:
       return { command: "run", prompt: DEFAULT_PROMPT };
     case "run":
-      return { command: "run", prompt: rest.join(" ").trim() || DEFAULT_PROMPT };
+      return {
+        command: "run",
+        prompt: rest.join(" ").trim() || DEFAULT_PROMPT,
+      };
     case "plan":
-      return { command: "plan", prompt: rest.join(" ").trim() || DEFAULT_PROMPT };
+      return {
+        command: "plan",
+        prompt: rest.join(" ").trim() || DEFAULT_PROMPT,
+      };
     case "render-plan":
       return { command: "render-plan", planFile: rest[0] };
     case "event":
@@ -315,10 +335,7 @@ function parsePort(rawValue?: string): number | undefined {
 }
 
 function resolvePlaygroundPort(): number {
-  const candidates = [
-    process.env.RENDERIFY_PLAYGROUND_PORT,
-    process.env.PORT,
-  ];
+  const candidates = [process.env.RENDERIFY_PLAYGROUND_PORT, process.env.PORT];
 
   for (const candidate of candidates) {
     const port = parsePortFromEnv(candidate);
@@ -418,7 +435,7 @@ async function loadSessionData(filePath: string): Promise<CliSessionData> {
 
 async function saveSessionData(
   filePath: string,
-  data: CliSessionData
+  data: CliSessionData,
 ): Promise<void> {
   await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, JSON.stringify(data, null, 2), "utf8");
@@ -426,7 +443,10 @@ async function saveSessionData(
 
 function flattenPlans(
   summaries: Array<{ planId: string; versions: number[] }>,
-  getter: (planId: string, version: number) => { plan: RuntimePlan } | undefined
+  getter: (
+    planId: string,
+    version: number,
+  ) => { plan: RuntimePlan } | undefined,
 ): RuntimePlan[] {
   const plans: RuntimePlan[] = [];
 
@@ -443,7 +463,7 @@ function flattenPlans(
 }
 
 function collectStates(
-  app: Pick<RenderifyApp, "listPlans" | "getPlanState">
+  app: Pick<RenderifyApp, "listPlans" | "getPlanState">,
 ): Record<string, RuntimeStateSnapshot> {
   const states: Record<string, RuntimeStateSnapshot> = {};
 
@@ -458,9 +478,13 @@ function collectStates(
 }
 
 function printHistory(
-  planSummaries: Array<{ planId: string; latestVersion: number; versions: number[] }>,
+  planSummaries: Array<{
+    planId: string;
+    latestVersion: number;
+    versions: number[];
+  }>,
   audits: ExecutionAuditRecord[],
-  states: Record<string, RuntimeStateSnapshot>
+  states: Record<string, RuntimeStateSnapshot>,
 ): void {
   console.log("[plans]");
   if (planSummaries.length === 0) {
@@ -468,7 +492,7 @@ function printHistory(
   } else {
     for (const plan of planSummaries) {
       console.log(
-        `  ${plan.planId} latest=${plan.latestVersion} versions=${plan.versions.join(",")}`
+        `  ${plan.planId} latest=${plan.latestVersion} versions=${plan.versions.join(",")}`,
       );
     }
   }
@@ -481,7 +505,7 @@ function printHistory(
       const eventLabel = audit.event ? ` event=${audit.event.type}` : "";
       const tenantLabel = audit.tenantId ? ` tenant=${audit.tenantId}` : "";
       console.log(
-        `  ${audit.traceId} mode=${audit.mode} status=${audit.status} plan=${audit.planId ?? "-"}@${audit.planVersion ?? "-"}${tenantLabel}${eventLabel}`
+        `  ${audit.traceId} mode=${audit.mode} status=${audit.status} plan=${audit.planId ?? "-"}@${audit.planVersion ?? "-"}${tenantLabel}${eventLabel}`,
       );
     }
   }
@@ -498,7 +522,7 @@ function printHistory(
 }
 
 async function runPlaygroundServer(
-  options: PlaygroundServerOptions
+  options: PlaygroundServerOptions,
 ): Promise<void> {
   const { app, port, persistSession } = options;
 
@@ -561,7 +585,7 @@ async function handlePlaygroundRequest(
   req: IncomingMessage,
   res: ServerResponse,
   app: RenderifyApp,
-  persistSession: () => Promise<void>
+  persistSession: () => Promise<void>,
 ): Promise<void> {
   const method = (req.method ?? "GET").toUpperCase();
   const parsedUrl = new URL(req.url ?? "/", "http://127.0.0.1");
@@ -708,7 +732,7 @@ async function handlePlaygroundRequest(
 }
 
 function serializeRenderResult(
-  result: RenderPlanResult | RenderPromptResult
+  result: RenderPlanResult | RenderPromptResult,
 ): Record<string, unknown> {
   return {
     traceId: result.traceId,
@@ -723,7 +747,9 @@ function serializeRenderResult(
   };
 }
 
-async function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+async function readJsonBody(
+  req: IncomingMessage,
+): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
   let totalBytes = 0;
 
@@ -754,7 +780,7 @@ async function readJsonBody(req: IncomingMessage): Promise<Record<string, unknow
 }
 
 function normalizePayload(
-  value: unknown
+  value: unknown,
 ): Record<string, JsonValue> | undefined {
   if (!isRecord(value)) {
     return undefined;
@@ -771,7 +797,7 @@ function normalizePayload(
 function sendJson(
   res: ServerResponse,
   statusCode: number,
-  payload: unknown
+  payload: unknown,
 ): void {
   const body = JSON.stringify(payload);
   res.writeHead(statusCode, {

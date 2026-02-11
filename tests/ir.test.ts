@@ -5,14 +5,17 @@ import {
   collectComponentModules,
   createComponentNode,
   createElementNode,
+  createTextNode,
+  getValueByPath,
   isRuntimeCapabilities,
+  isRuntimeModuleDescriptor,
+  isRuntimeModuleManifest,
+  isRuntimeNode,
   isRuntimePlan,
   isRuntimeSourceModule,
   isRuntimeStateModel,
-  createTextNode,
-  getValueByPath,
-  isRuntimeNode,
   isSafePath,
+  resolveRuntimePlanSpecVersion,
   setValueByPath,
   walkRuntimeNode,
 } from "../packages/ir/src/index";
@@ -22,7 +25,7 @@ test("isRuntimeNode validates supported node kinds", () => {
   assert.equal(isRuntimeNode(createElementNode("div")), true);
   assert.equal(
     isRuntimeNode(createComponentNode("npm:@scope/widget", "default")),
-    true
+    true,
   );
 
   assert.equal(isRuntimeNode({ type: "element" }), false);
@@ -45,7 +48,10 @@ test("walkRuntimeNode traverses tree depth-first and collectComponentModules ded
     visited.push({ type: node.type, depth });
   });
 
-  assert.deepEqual(visited.map((item) => item.depth), [0, 1, 1, 1, 2, 2]);
+  assert.deepEqual(
+    visited.map((item) => item.depth),
+    [0, 1, 1, 1, 2, 2],
+  );
 
   const modules = collectComponentModules(root).sort();
   assert.deepEqual(modules, ["npm:acme/chart", "npm:acme/table"]);
@@ -96,14 +102,14 @@ test("runtime plan/type guards validate structures", () => {
       ...plan,
       capabilities: { ...plan.capabilities, maxExecutionMs: 0 },
     }),
-    false
+    false,
   );
   assert.equal(
     isRuntimePlan({
       ...plan,
       capabilities: { ...plan.capabilities, executionProfile: "unknown" },
     }),
-    false
+    false,
   );
 
   assert.equal(
@@ -112,17 +118,24 @@ test("runtime plan/type guards validate structures", () => {
       code: "export default () => <div/>",
       exportName: "default",
     }),
-    true
+    true,
   );
   assert.equal(
     isRuntimePlan({
       ...plan,
+      specVersion: "runtime-plan/v1",
       source: {
         language: "tsx",
         code: "export default () => <div/>",
       },
+      moduleManifest: {
+        "npm:nanoid@5": {
+          resolvedUrl: "https://ga.jspm.io/npm/nanoid@5",
+          signer: "tests",
+        },
+      },
     }),
-    true
+    true,
   );
   assert.equal(
     isRuntimePlan({
@@ -132,6 +145,24 @@ test("runtime plan/type guards validate structures", () => {
         code: "",
       },
     }),
-    false
+    false,
   );
+
+  assert.equal(
+    isRuntimeModuleDescriptor({
+      resolvedUrl: "https://ga.jspm.io/npm/nanoid@5",
+      integrity: "sha512-xyz",
+      signer: "tests",
+    }),
+    true,
+  );
+  assert.equal(
+    isRuntimeModuleManifest({
+      "npm:nanoid@5": {
+        resolvedUrl: "https://ga.jspm.io/npm/nanoid@5",
+      },
+    }),
+    true,
+  );
+  assert.equal(resolveRuntimePlanSpecVersion(undefined), "runtime-plan/v1");
 });

@@ -4,6 +4,8 @@ import {
   createComponentNode,
   createElementNode,
   createTextNode,
+  DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+  type RuntimeModuleManifest,
   type RuntimeNode,
   type RuntimePlan,
 } from "../packages/ir/src/index";
@@ -40,7 +42,7 @@ class ResolveOnlyLoader implements RuntimeModuleLoader {
   resolveSpecifier(specifier: string): string {
     if (specifier === "virtual:msg") {
       return `data:text/javascript,${encodeURIComponent(
-        "export default 'from-jspm-resolver';"
+        "export default 'from-jspm-resolver';",
       )}`;
     }
 
@@ -49,11 +51,22 @@ class ResolveOnlyLoader implements RuntimeModuleLoader {
 }
 
 function createPlan(root: RuntimeNode, imports: string[] = []): RuntimePlan {
+  const moduleManifest: RuntimeModuleManifest = {};
+  for (const specifier of imports) {
+    moduleManifest[specifier] = {
+      resolvedUrl: specifier,
+      signer: "tests",
+    };
+  }
+
   return {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
     id: "runtime_test_plan",
     version: 1,
     root,
     imports,
+    moduleManifest:
+      Object.keys(moduleManifest).length > 0 ? moduleManifest : undefined,
     capabilities: {
       domWrite: true,
     },
@@ -77,9 +90,12 @@ test("runtime resolves component nodes through module loader", async () => {
 
   await runtime.initialize();
 
-  const plan = createPlan(createComponentNode("npm:acme/card", "default", {
-    title: "Hello",
-  }), ["npm:acme/card"]);
+  const plan = createPlan(
+    createComponentNode("npm:acme/card", "default", {
+      title: "Hello",
+    }),
+    ["npm:acme/card"],
+  );
 
   const result = await runtime.executePlan(plan);
 
@@ -98,11 +114,19 @@ test("runtime reports warning when no loader is configured", async () => {
   const runtime = new DefaultRuntimeManager();
   await runtime.initialize();
 
-  const plan = createPlan(createComponentNode("npm:acme/card"), ["npm:acme/card"]);
+  const plan = createPlan(createComponentNode("npm:acme/card"), [
+    "npm:acme/card",
+  ]);
   const result = await runtime.executePlan(plan);
 
-  assert.ok(result.diagnostics.some((item) => item.code === "RUNTIME_LOADER_MISSING"));
-  assert.ok(result.diagnostics.some((item) => item.code === "RUNTIME_COMPONENT_SKIPPED"));
+  assert.ok(
+    result.diagnostics.some((item) => item.code === "RUNTIME_LOADER_MISSING"),
+  );
+  assert.ok(
+    result.diagnostics.some(
+      (item) => item.code === "RUNTIME_COMPONENT_SKIPPED",
+    ),
+  );
 
   await runtime.terminate();
 });
@@ -112,10 +136,13 @@ test("runtime applies event transitions and interpolates state/context values", 
   await runtime.initialize();
 
   const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
     id: "runtime_stateful_plan",
     version: 1,
     root: createElementNode("p", undefined, [
-      createTextNode("Count={{state.count}} Last={{state.last}} Actor={{state.actor}}"),
+      createTextNode(
+        "Count={{state.count}} Last={{state.last}} Actor={{state.actor}}",
+      ),
     ]),
     capabilities: {
       domWrite: true,
@@ -130,7 +157,11 @@ test("runtime applies event transitions and interpolates state/context values", 
       transitions: {
         increment: [
           { type: "increment", path: "count", by: 1 },
-          { type: "set", path: "last", value: { $from: "event.payload.delta" } },
+          {
+            type: "set",
+            path: "last",
+            value: { $from: "event.payload.delta" },
+          },
           { type: "set", path: "actor", value: { $from: "context.userId" } },
         ],
       },
@@ -147,14 +178,13 @@ test("runtime applies event transitions and interpolates state/context values", 
       payload: {
         delta: 3,
       },
-    }
+    },
   );
 
-  assert.deepEqual(result.appliedActions?.map((item) => item.type), [
-    "increment",
-    "set",
-    "set",
-  ]);
+  assert.deepEqual(
+    result.appliedActions?.map((item) => item.type),
+    ["increment", "set", "set"],
+  );
   assert.equal(result.state?.count, 1);
   assert.equal(result.state?.last, 3);
   assert.equal(result.state?.actor, "user_42");
@@ -167,10 +197,7 @@ test("runtime applies event transitions and interpolates state/context values", 
   if (!textNode || textNode.type !== "text") {
     throw new Error("expected text child");
   }
-  assert.equal(
-    textNode.value,
-    "Count=1 Last=3 Actor=user_42"
-  );
+  assert.equal(textNode.value, "Count=1 Last=3 Actor=user_42");
 
   await runtime.terminate();
 });
@@ -185,10 +212,15 @@ test("runtime enforces maxImports capability", async () => {
   await runtime.initialize();
 
   const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
     id: "runtime_import_cap_plan",
     version: 1,
     root: createElementNode("div", undefined, [createTextNode("hello")]),
     imports: ["npm:acme/first", "npm:acme/second"],
+    moduleManifest: {
+      "npm:acme/first": { resolvedUrl: "npm:acme/first", signer: "tests" },
+      "npm:acme/second": { resolvedUrl: "npm:acme/second", signer: "tests" },
+    },
     capabilities: {
       domWrite: true,
       maxImports: 1,
@@ -199,8 +231,8 @@ test("runtime enforces maxImports capability", async () => {
 
   assert.ok(
     result.diagnostics.some(
-      (item) => item.code === "RUNTIME_IMPORT_LIMIT_EXCEEDED"
-    )
+      (item) => item.code === "RUNTIME_IMPORT_LIMIT_EXCEEDED",
+    ),
   );
 
   await runtime.terminate();
@@ -224,12 +256,16 @@ test("runtime supports isolated-vm execution profile for sync components", async
   await runtime.initialize();
 
   const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
     id: "runtime_isolated_profile_plan",
     version: 1,
     root: createComponentNode("npm:acme/iso", "default", {
       label: "isolated",
     }),
     imports: ["npm:acme/iso"],
+    moduleManifest: {
+      "npm:acme/iso": { resolvedUrl: "npm:acme/iso", signer: "tests" },
+    },
     capabilities: {
       domWrite: true,
       executionProfile: "isolated-vm",
@@ -265,10 +301,17 @@ test("runtime isolated-vm profile rejects async component factories", async () =
   await runtime.initialize();
 
   const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
     id: "runtime_isolated_async_plan",
     version: 1,
     root: createComponentNode("npm:acme/async-iso"),
     imports: ["npm:acme/async-iso"],
+    moduleManifest: {
+      "npm:acme/async-iso": {
+        resolvedUrl: "npm:acme/async-iso",
+        signer: "tests",
+      },
+    },
     capabilities: {
       domWrite: true,
       executionProfile: "isolated-vm",
@@ -278,7 +321,9 @@ test("runtime isolated-vm profile rejects async component factories", async () =
   const result = await runtime.executePlan(plan);
 
   assert.ok(
-    result.diagnostics.some((item) => item.code === "RUNTIME_COMPONENT_EXEC_FAILED")
+    result.diagnostics.some(
+      (item) => item.code === "RUNTIME_COMPONENT_EXEC_FAILED",
+    ),
   );
 
   await runtime.terminate();
@@ -292,6 +337,7 @@ test("runtime executes source module export using custom transpiler", async () =
   await runtime.initialize();
 
   const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
     id: "runtime_source_plan",
     version: 1,
     root: createElementNode("div", undefined, [createTextNode("fallback")]),
@@ -339,6 +385,7 @@ test("runtime rewrites source imports through module loader resolver", async () 
   await runtime.initialize();
 
   const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
     id: "runtime_source_import_rewrite_plan",
     version: 1,
     root: createElementNode("div", undefined, [createTextNode("fallback")]),
@@ -355,6 +402,12 @@ test("runtime rewrites source imports through module loader resolver", async () 
         "});",
       ].join("\n"),
     },
+    moduleManifest: {
+      "virtual:msg": {
+        resolvedUrl: "virtual:msg",
+        signer: "tests",
+      },
+    },
   };
 
   const result = await runtime.executePlan(plan);
@@ -364,6 +417,34 @@ test("runtime rewrites source imports through module loader resolver", async () 
     throw new Error("expected text root");
   }
   assert.equal(result.root.value, "from-jspm-resolver");
+
+  await runtime.terminate();
+});
+
+test("runtime enforces moduleManifest for bare component specifiers by default", async () => {
+  const runtime = new DefaultRuntimeManager({
+    moduleLoader: new MockLoader({
+      "npm:acme/card": {
+        default: () => createTextNode("ok"),
+      },
+    }),
+  });
+  await runtime.initialize();
+
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "runtime_manifest_required_plan",
+    version: 1,
+    root: createComponentNode("npm:acme/card"),
+    capabilities: {
+      domWrite: true,
+    },
+  };
+
+  const result = await runtime.executePlan(plan);
+  assert.ok(
+    result.diagnostics.some((item) => item.code === "RUNTIME_MANIFEST_MISSING"),
+  );
 
   await runtime.terminate();
 });

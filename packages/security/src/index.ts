@@ -1,13 +1,16 @@
 import {
+  DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
   isRuntimeValueFromPath,
   isSafePath,
   type RuntimeAction,
   type RuntimeCapabilities,
   type RuntimeDiagnostic,
+  type RuntimeModuleManifest,
   type RuntimeNode,
   type RuntimePlan,
   type RuntimeSourceModule,
   type RuntimeStateModel,
+  resolveRuntimePlanSpecVersion,
 } from "@renderify/ir";
 
 export interface SecurityCheckResult {
@@ -32,6 +35,13 @@ export interface RuntimeSecurityPolicy {
   maxAllowedComponentInvocations: number;
   allowRuntimeSourceModules: boolean;
   maxRuntimeSourceBytes: number;
+  supportedSpecVersions: string[];
+  requireSpecVersion: boolean;
+  requireModuleManifestForBareSpecifiers: boolean;
+  requireModuleIntegrity: boolean;
+  allowDynamicSourceImports: boolean;
+  sourceBannedPatternStrings: string[];
+  maxSourceImportSpecifiers: number;
 }
 
 export type RuntimeSecurityProfile = "strict" | "balanced" | "relaxed";
@@ -75,6 +85,21 @@ const SECURITY_PROFILE_POLICIES: Record<
     maxAllowedComponentInvocations: 120,
     allowRuntimeSourceModules: true,
     maxRuntimeSourceBytes: 20000,
+    supportedSpecVersions: [DEFAULT_RUNTIME_PLAN_SPEC_VERSION],
+    requireSpecVersion: true,
+    requireModuleManifestForBareSpecifiers: true,
+    requireModuleIntegrity: true,
+    allowDynamicSourceImports: false,
+    sourceBannedPatternStrings: [
+      "\\beval\\s*\\(",
+      "\\bnew\\s+Function\\b",
+      "\\bXMLHttpRequest\\b",
+      "\\bWebSocket\\b",
+      "\\bimportScripts\\b",
+      "\\bchild_process\\b",
+      "\\bprocess\\s*\\.\\s*env\\b",
+    ],
+    maxSourceImportSpecifiers: 30,
   },
   balanced: {
     blockedTags: ["script", "iframe", "object", "embed", "link", "meta"],
@@ -92,13 +117,32 @@ const SECURITY_PROFILE_POLICIES: Record<
     maxAllowedComponentInvocations: 500,
     allowRuntimeSourceModules: true,
     maxRuntimeSourceBytes: 80000,
+    supportedSpecVersions: [DEFAULT_RUNTIME_PLAN_SPEC_VERSION],
+    requireSpecVersion: true,
+    requireModuleManifestForBareSpecifiers: true,
+    requireModuleIntegrity: false,
+    allowDynamicSourceImports: false,
+    sourceBannedPatternStrings: [
+      "\\beval\\s*\\(",
+      "\\bnew\\s+Function\\b",
+      "\\bXMLHttpRequest\\b",
+      "\\bWebSocket\\b",
+      "\\bimportScripts\\b",
+      "\\bchild_process\\b",
+    ],
+    maxSourceImportSpecifiers: 120,
   },
   relaxed: {
     blockedTags: ["script", "iframe", "object", "embed"],
     maxTreeDepth: 24,
     maxNodeCount: 2000,
     allowInlineEventHandlers: true,
-    allowedModules: ["/", "npm:", "https://ga.jspm.io/", "https://cdn.jspm.io/"],
+    allowedModules: [
+      "/",
+      "npm:",
+      "https://ga.jspm.io/",
+      "https://cdn.jspm.io/",
+    ],
     allowedNetworkHosts: ["ga.jspm.io", "cdn.jspm.io", "esm.sh", "unpkg.com"],
     allowArbitraryNetwork: true,
     allowedExecutionProfiles: ["standard", "isolated-vm"],
@@ -109,6 +153,13 @@ const SECURITY_PROFILE_POLICIES: Record<
     maxAllowedComponentInvocations: 4000,
     allowRuntimeSourceModules: true,
     maxRuntimeSourceBytes: 200000,
+    supportedSpecVersions: [DEFAULT_RUNTIME_PLAN_SPEC_VERSION],
+    requireSpecVersion: false,
+    requireModuleManifestForBareSpecifiers: false,
+    requireModuleIntegrity: false,
+    allowDynamicSourceImports: true,
+    sourceBannedPatternStrings: ["\\bchild_process\\b"],
+    maxSourceImportSpecifiers: 500,
   },
 };
 
@@ -119,14 +170,14 @@ export function listSecurityProfiles(): RuntimeSecurityProfile[] {
 }
 
 export function getSecurityProfilePolicy(
-  profile: RuntimeSecurityProfile
+  profile: RuntimeSecurityProfile,
 ): RuntimeSecurityPolicy {
   return clonePolicy(SECURITY_PROFILE_POLICIES[profile]);
 }
 
 export class DefaultSecurityChecker implements SecurityChecker {
   private policy: RuntimeSecurityPolicy = getSecurityProfilePolicy(
-    DEFAULT_SECURITY_PROFILE
+    DEFAULT_SECURITY_PROFILE,
   );
   private profile: RuntimeSecurityProfile = DEFAULT_SECURITY_PROFILE;
 
@@ -147,6 +198,12 @@ export class DefaultSecurityChecker implements SecurityChecker {
       allowedExecutionProfiles:
         normalized.overrides?.allowedExecutionProfiles ??
         basePolicy.allowedExecutionProfiles,
+      supportedSpecVersions:
+        normalized.overrides?.supportedSpecVersions ??
+        basePolicy.supportedSpecVersions,
+      sourceBannedPatternStrings:
+        normalized.overrides?.sourceBannedPatternStrings ??
+        basePolicy.sourceBannedPatternStrings,
     };
     this.profile = profile;
   }
@@ -162,6 +219,30 @@ export class DefaultSecurityChecker implements SecurityChecker {
   checkPlan(plan: RuntimePlan): SecurityCheckResult {
     const issues: string[] = [];
     const diagnostics: RuntimeDiagnostic[] = [];
+    const planSpecVersion = resolveRuntimePlanSpecVersion(plan.specVersion);
+    const moduleManifest = plan.moduleManifest;
+
+    if (
+      this.policy.requireSpecVersion &&
+      (typeof plan.specVersion !== "string" ||
+        plan.specVersion.trim().length === 0)
+    ) {
+      issues.push("Runtime plan specVersion is required by policy");
+    }
+
+    if (!this.policy.supportedSpecVersions.includes(planSpecVersion)) {
+      issues.push(
+        `Runtime plan specVersion ${planSpecVersion} is not supported by policy`,
+      );
+    }
+
+    if (moduleManifest) {
+      issues.push(...this.checkModuleManifest(moduleManifest));
+    }
+
+    if (this.policy.requireModuleManifestForBareSpecifiers) {
+      issues.push(...this.checkManifestCoverage(plan, moduleManifest));
+    }
 
     const capabilityResult = this.checkCapabilities(plan.capabilities);
     issues.push(...capabilityResult.issues);
@@ -174,7 +255,7 @@ export class DefaultSecurityChecker implements SecurityChecker {
 
       if (depth > this.policy.maxTreeDepth) {
         issues.push(
-          `Node depth ${depth} exceeds maximum ${this.policy.maxTreeDepth}`
+          `Node depth ${depth} exceeds maximum ${this.policy.maxTreeDepth}`,
         );
       }
 
@@ -197,7 +278,11 @@ export class DefaultSecurityChecker implements SecurityChecker {
       }
 
       if (node.type === "component") {
-        const componentResult = this.checkModuleSpecifier(node.module);
+        const componentSpecifier = this.resolveManifestSpecifier(
+          node.module,
+          moduleManifest,
+        );
+        const componentResult = this.checkModuleSpecifier(componentSpecifier);
         issues.push(...componentResult.issues);
       }
 
@@ -214,13 +299,17 @@ export class DefaultSecurityChecker implements SecurityChecker {
 
     if (nodeCount > this.policy.maxNodeCount) {
       issues.push(
-        `Node count ${nodeCount} exceeds maximum ${this.policy.maxNodeCount}`
+        `Node count ${nodeCount} exceeds maximum ${this.policy.maxNodeCount}`,
       );
     }
 
     const importSpecifiers = plan.imports ?? [];
     for (const specifier of importSpecifiers) {
-      const importCheck = this.checkModuleSpecifier(specifier);
+      const effectiveSpecifier = this.resolveManifestSpecifier(
+        specifier,
+        moduleManifest,
+      );
+      const importCheck = this.checkModuleSpecifier(effectiveSpecifier);
       issues.push(...importCheck.issues);
     }
 
@@ -229,7 +318,7 @@ export class DefaultSecurityChecker implements SecurityChecker {
     }
 
     if (plan.source) {
-      issues.push(...this.checkRuntimeSource(plan.source));
+      issues.push(...this.checkRuntimeSource(plan.source, moduleManifest));
     }
 
     for (const issue of issues) {
@@ -252,7 +341,9 @@ export class DefaultSecurityChecker implements SecurityChecker {
     const diagnostics: RuntimeDiagnostic[] = [];
 
     if (specifier.includes("..")) {
-      issues.push(`Path traversal is not allowed in module specifier: ${specifier}`);
+      issues.push(
+        `Path traversal is not allowed in module specifier: ${specifier}`,
+      );
     }
 
     const isUrl = this.isUrl(specifier);
@@ -268,7 +359,9 @@ export class DefaultSecurityChecker implements SecurityChecker {
     } else {
       const allowed =
         this.policy.allowedModules.length === 0 ||
-        this.policy.allowedModules.some((prefix) => specifier.startsWith(prefix));
+        this.policy.allowedModules.some((prefix) =>
+          specifier.startsWith(prefix),
+        );
 
       if (!allowed) {
         issues.push(`Module specifier is not in allowlist: ${specifier}`);
@@ -312,11 +405,11 @@ export class DefaultSecurityChecker implements SecurityChecker {
     if (
       capabilities.executionProfile !== undefined &&
       !this.policy.allowedExecutionProfiles.includes(
-        capabilities.executionProfile
+        capabilities.executionProfile,
       )
     ) {
       issues.push(
-        `Requested executionProfile ${capabilities.executionProfile} is not allowed`
+        `Requested executionProfile ${capabilities.executionProfile} is not allowed`,
       );
     }
 
@@ -325,7 +418,7 @@ export class DefaultSecurityChecker implements SecurityChecker {
       capabilities.maxImports > this.policy.maxAllowedImports
     ) {
       issues.push(
-        `Requested maxImports ${capabilities.maxImports} exceeds policy limit ${this.policy.maxAllowedImports}`
+        `Requested maxImports ${capabilities.maxImports} exceeds policy limit ${this.policy.maxAllowedImports}`,
       );
     }
 
@@ -334,7 +427,7 @@ export class DefaultSecurityChecker implements SecurityChecker {
       capabilities.maxExecutionMs > this.policy.maxAllowedExecutionMs
     ) {
       issues.push(
-        `Requested maxExecutionMs ${capabilities.maxExecutionMs} exceeds policy limit ${this.policy.maxAllowedExecutionMs}`
+        `Requested maxExecutionMs ${capabilities.maxExecutionMs} exceeds policy limit ${this.policy.maxAllowedExecutionMs}`,
       );
     }
 
@@ -344,7 +437,7 @@ export class DefaultSecurityChecker implements SecurityChecker {
         this.policy.maxAllowedComponentInvocations
     ) {
       issues.push(
-        `Requested maxComponentInvocations ${capabilities.maxComponentInvocations} exceeds policy limit ${this.policy.maxAllowedComponentInvocations}`
+        `Requested maxComponentInvocations ${capabilities.maxComponentInvocations} exceeds policy limit ${this.policy.maxAllowedComponentInvocations}`,
       );
     }
 
@@ -371,14 +464,14 @@ export class DefaultSecurityChecker implements SecurityChecker {
 
     if (transitionEntries.length > this.policy.maxTransitionsPerPlan) {
       issues.push(
-        `Transition count ${transitionEntries.length} exceeds maximum ${this.policy.maxTransitionsPerPlan}`
+        `Transition count ${transitionEntries.length} exceeds maximum ${this.policy.maxTransitionsPerPlan}`,
       );
     }
 
     for (const [eventType, actions] of transitionEntries) {
       if (actions.length > this.policy.maxActionsPerTransition) {
         issues.push(
-          `Transition ${eventType} has ${actions.length} actions which exceeds maximum ${this.policy.maxActionsPerTransition}`
+          `Transition ${eventType} has ${actions.length} actions which exceeds maximum ${this.policy.maxActionsPerTransition}`,
         );
       }
 
@@ -390,7 +483,10 @@ export class DefaultSecurityChecker implements SecurityChecker {
     return issues;
   }
 
-  private checkRuntimeSource(source: RuntimeSourceModule): string[] {
+  private checkRuntimeSource(
+    source: RuntimeSourceModule,
+    moduleManifest: RuntimeModuleManifest | undefined,
+  ): string[] {
     const issues: string[] = [];
 
     if (!this.policy.allowRuntimeSourceModules) {
@@ -405,11 +501,174 @@ export class DefaultSecurityChecker implements SecurityChecker {
 
     if (sourceBytes > this.policy.maxRuntimeSourceBytes) {
       issues.push(
-        `Runtime source size ${sourceBytes} exceeds maximum ${this.policy.maxRuntimeSourceBytes} bytes`
+        `Runtime source size ${sourceBytes} exceeds maximum ${this.policy.maxRuntimeSourceBytes} bytes`,
       );
     }
 
+    const sourceImports = this.parseSourceImports(source.code);
+    if (sourceImports.length > this.policy.maxSourceImportSpecifiers) {
+      issues.push(
+        `Runtime source import count ${sourceImports.length} exceeds maximum ${this.policy.maxSourceImportSpecifiers}`,
+      );
+    }
+
+    for (const sourceImport of sourceImports) {
+      const effectiveSpecifier = this.resolveManifestSpecifier(
+        sourceImport,
+        moduleManifest,
+      );
+      const importCheck = this.checkModuleSpecifier(effectiveSpecifier);
+      issues.push(...importCheck.issues);
+
+      if (
+        this.policy.requireModuleManifestForBareSpecifiers &&
+        this.isBareSpecifier(sourceImport) &&
+        !moduleManifest?.[sourceImport]
+      ) {
+        issues.push(
+          `Runtime source bare import requires manifest entry: ${sourceImport}`,
+        );
+      }
+    }
+
+    if (
+      !this.policy.allowDynamicSourceImports &&
+      /\bimport\s*\(/.test(source.code)
+    ) {
+      issues.push("Runtime source dynamic import() is disabled by policy");
+    }
+
+    for (const patternText of this.policy.sourceBannedPatternStrings) {
+      let pattern: RegExp;
+      try {
+        pattern = new RegExp(patternText, "i");
+      } catch {
+        continue;
+      }
+
+      if (pattern.test(source.code)) {
+        issues.push(`Runtime source contains blocked pattern: ${patternText}`);
+      }
+    }
+
     return issues;
+  }
+
+  private checkModuleManifest(moduleManifest: RuntimeModuleManifest): string[] {
+    const issues: string[] = [];
+
+    for (const [specifier, descriptor] of Object.entries(moduleManifest)) {
+      if (specifier.trim().length === 0) {
+        issues.push("moduleManifest contains an empty specifier key");
+        continue;
+      }
+
+      if (descriptor.resolvedUrl.trim().length === 0) {
+        issues.push(`moduleManifest entry has empty resolvedUrl: ${specifier}`);
+      }
+
+      if (
+        this.policy.requireModuleIntegrity &&
+        this.isUrl(descriptor.resolvedUrl) &&
+        (!descriptor.integrity || descriptor.integrity.trim().length === 0)
+      ) {
+        issues.push(
+          `moduleManifest entry requires integrity for remote module: ${specifier}`,
+        );
+      }
+
+      const resolvedCheck = this.checkModuleSpecifier(descriptor.resolvedUrl);
+      issues.push(...resolvedCheck.issues);
+    }
+
+    return issues;
+  }
+
+  private checkManifestCoverage(
+    plan: RuntimePlan,
+    moduleManifest: RuntimeModuleManifest | undefined,
+  ): string[] {
+    const issues: string[] = [];
+    const requiredSpecifiers = new Set<string>();
+    const imports = plan.imports ?? [];
+
+    for (const specifier of imports) {
+      if (this.isBareSpecifier(specifier)) {
+        requiredSpecifiers.add(specifier);
+      }
+    }
+
+    walkNodes(plan.root, (node) => {
+      if (node.type === "component" && this.isBareSpecifier(node.module)) {
+        requiredSpecifiers.add(node.module);
+      }
+    });
+
+    for (const sourceImport of this.parseSourceImports(
+      plan.source?.code ?? "",
+    )) {
+      if (this.isBareSpecifier(sourceImport)) {
+        requiredSpecifiers.add(sourceImport);
+      }
+    }
+
+    for (const specifier of requiredSpecifiers) {
+      if (!moduleManifest?.[specifier]) {
+        issues.push(
+          `Missing moduleManifest entry for bare specifier: ${specifier}`,
+        );
+      }
+    }
+
+    return issues;
+  }
+
+  private resolveManifestSpecifier(
+    specifier: string,
+    moduleManifest: RuntimeModuleManifest | undefined,
+  ): string {
+    const descriptor = moduleManifest?.[specifier];
+    if (!descriptor || descriptor.resolvedUrl.trim().length === 0) {
+      return specifier;
+    }
+
+    return descriptor.resolvedUrl;
+  }
+
+  private parseSourceImports(code: string): string[] {
+    if (code.trim().length === 0) {
+      return [];
+    }
+
+    const imports = new Set<string>();
+    const staticImportRegex =
+      /\b(?:import|export)\s+(?:[^"']+?\s+from\s+)?["']([^"']+)["']/g;
+    const dynamicImportRegex = /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g;
+
+    for (const regex of [staticImportRegex, dynamicImportRegex]) {
+      let match = regex.exec(code);
+      while (match) {
+        const specifier = match[1].trim();
+        if (specifier.length > 0) {
+          imports.add(specifier);
+        }
+        match = regex.exec(code);
+      }
+    }
+
+    return [...imports];
+  }
+
+  private isBareSpecifier(specifier: string): boolean {
+    return (
+      !specifier.startsWith("./") &&
+      !specifier.startsWith("../") &&
+      !specifier.startsWith("/") &&
+      !specifier.startsWith("http://") &&
+      !specifier.startsWith("https://") &&
+      !specifier.startsWith("data:") &&
+      !specifier.startsWith("blob:")
+    );
   }
 
   private checkAction(eventType: string, action: RuntimeAction): string[] {
@@ -467,11 +726,27 @@ function clonePolicy(policy: RuntimeSecurityPolicy): RuntimeSecurityPolicy {
     allowedModules: [...policy.allowedModules],
     allowedNetworkHosts: [...policy.allowedNetworkHosts],
     allowedExecutionProfiles: [...policy.allowedExecutionProfiles],
+    supportedSpecVersions: [...policy.supportedSpecVersions],
+    sourceBannedPatternStrings: [...policy.sourceBannedPatternStrings],
   };
 }
 
+function walkNodes(
+  node: RuntimeNode,
+  visitor: (node: RuntimeNode) => void,
+): void {
+  visitor(node);
+  if (node.type === "text") {
+    return;
+  }
+
+  for (const child of node.children ?? []) {
+    walkNodes(child, visitor);
+  }
+}
+
 function normalizeInitializationInput(
-  input: SecurityInitializationInput
+  input: SecurityInitializationInput,
 ): SecurityInitializationOptions {
   if (!input) {
     return {};
@@ -487,7 +762,7 @@ function normalizeInitializationInput(
 }
 
 function isSecurityInitializationOptions(
-  value: SecurityInitializationInput
+  value: SecurityInitializationInput,
 ): value is SecurityInitializationOptions {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return false;

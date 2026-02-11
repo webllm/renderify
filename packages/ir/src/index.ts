@@ -41,6 +41,20 @@ export interface RuntimeSourceModule {
   exportName?: string;
 }
 
+export const RUNTIME_PLAN_SPEC_VERSION_V1 = "runtime-plan/v1";
+export const DEFAULT_RUNTIME_PLAN_SPEC_VERSION = RUNTIME_PLAN_SPEC_VERSION_V1;
+
+export type RuntimePlanSpecVersion = typeof RUNTIME_PLAN_SPEC_VERSION_V1;
+
+export interface RuntimeModuleDescriptor {
+  resolvedUrl: string;
+  integrity?: string;
+  version?: string;
+  signer?: string;
+}
+
+export type RuntimeModuleManifest = Record<string, RuntimeModuleDescriptor>;
+
 export interface RuntimeCapabilities {
   domWrite?: boolean;
   networkHosts?: string[];
@@ -108,12 +122,14 @@ export interface RuntimePlanMetadata {
 }
 
 export interface RuntimePlan {
+  specVersion?: string;
   id: string;
   version: number;
   root: RuntimeNode;
   capabilities: RuntimeCapabilities;
   state?: RuntimeStateModel;
   imports?: string[];
+  moduleManifest?: RuntimeModuleManifest;
   source?: RuntimeSourceModule;
   metadata?: RuntimePlanMetadata;
 }
@@ -145,7 +161,7 @@ export function createTextNode(value: string): RuntimeTextNode {
 export function createElementNode(
   tag: string,
   props?: Record<string, JsonValue>,
-  children?: RuntimeNode[]
+  children?: RuntimeNode[],
 ): RuntimeElementNode {
   return { type: "element", tag, props, children };
 }
@@ -154,7 +170,7 @@ export function createComponentNode(
   module: string,
   exportName = "default",
   props?: Record<string, JsonValue>,
-  children?: RuntimeNode[]
+  children?: RuntimeNode[],
 ): RuntimeComponentNode {
   return { type: "component", module, exportName, props, children };
 }
@@ -186,7 +202,7 @@ export function isJsonValue(value: unknown): value is JsonValue {
 }
 
 export function isRuntimeValueFromPath(
-  value: unknown
+  value: unknown,
 ): value is RuntimeValueFromPath {
   if (typeof value !== "object" || value === null) {
     return false;
@@ -227,7 +243,7 @@ export function isRuntimeAction(value: unknown): value is RuntimeAction {
 }
 
 export function isRuntimeStateSnapshot(
-  value: unknown
+  value: unknown,
 ): value is RuntimeStateSnapshot {
   if (!isRecord(value)) {
     return false;
@@ -242,7 +258,9 @@ export function isRuntimeStateSnapshot(
   return true;
 }
 
-export function isRuntimeStateModel(value: unknown): value is RuntimeStateModel {
+export function isRuntimeStateModel(
+  value: unknown,
+): value is RuntimeStateModel {
   if (!isRecord(value)) {
     return false;
   }
@@ -279,7 +297,7 @@ export function isRuntimeStateModel(value: unknown): value is RuntimeStateModel 
 }
 
 export function isRuntimeCapabilities(
-  value: unknown
+  value: unknown,
 ): value is RuntimeCapabilities {
   if (!isRecord(value)) {
     return false;
@@ -321,7 +339,7 @@ export function isRuntimeCapabilities(
     value.storage !== undefined &&
     (!Array.isArray(value.storage) ||
       value.storage.some(
-        (entry) => entry !== "localStorage" && entry !== "sessionStorage"
+        (entry) => entry !== "localStorage" && entry !== "sessionStorage",
       ))
   ) {
     return false;
@@ -348,18 +366,13 @@ export function isRuntimeCapabilities(
 }
 
 export function isRuntimeSourceLanguage(
-  value: unknown
+  value: unknown,
 ): value is RuntimeSourceLanguage {
-  return (
-    value === "js" ||
-    value === "jsx" ||
-    value === "ts" ||
-    value === "tsx"
-  );
+  return value === "js" || value === "jsx" || value === "ts" || value === "tsx";
 }
 
 export function isRuntimeSourceModule(
-  value: unknown
+  value: unknown,
 ): value is RuntimeSourceModule {
   if (!isRecord(value)) {
     return false;
@@ -375,7 +388,8 @@ export function isRuntimeSourceModule(
 
   if (
     value.exportName !== undefined &&
-    (typeof value.exportName !== "string" || value.exportName.trim().length === 0)
+    (typeof value.exportName !== "string" ||
+      value.exportName.trim().length === 0)
   ) {
     return false;
   }
@@ -384,17 +398,23 @@ export function isRuntimeSourceModule(
 }
 
 export function isRuntimePlanMetadata(
-  value: unknown
+  value: unknown,
 ): value is RuntimePlanMetadata {
   if (!isRecord(value)) {
     return false;
   }
 
-  if (value.sourcePrompt !== undefined && typeof value.sourcePrompt !== "string") {
+  if (
+    value.sourcePrompt !== undefined &&
+    typeof value.sourcePrompt !== "string"
+  ) {
     return false;
   }
 
-  if (value.sourceModel !== undefined && typeof value.sourceModel !== "string") {
+  if (
+    value.sourceModel !== undefined &&
+    typeof value.sourceModel !== "string"
+  ) {
     return false;
   }
 
@@ -461,9 +481,24 @@ export function isRuntimePlan(value: unknown): value is RuntimePlan {
   }
 
   if (
+    value.specVersion !== undefined &&
+    (typeof value.specVersion !== "string" ||
+      value.specVersion.trim().length === 0)
+  ) {
+    return false;
+  }
+
+  if (
     value.imports !== undefined &&
     (!Array.isArray(value.imports) ||
       value.imports.some((entry) => typeof entry !== "string"))
+  ) {
+    return false;
+  }
+
+  if (
+    value.moduleManifest !== undefined &&
+    !isRuntimeModuleManifest(value.moduleManifest)
   ) {
     return false;
   }
@@ -483,10 +518,76 @@ export function isRuntimePlan(value: unknown): value is RuntimePlan {
   return true;
 }
 
+export function isRuntimeModuleDescriptor(
+  value: unknown,
+): value is RuntimeModuleDescriptor {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  if (
+    typeof value.resolvedUrl !== "string" ||
+    value.resolvedUrl.trim().length === 0
+  ) {
+    return false;
+  }
+
+  if (
+    value.integrity !== undefined &&
+    (typeof value.integrity !== "string" || value.integrity.trim().length === 0)
+  ) {
+    return false;
+  }
+
+  if (
+    value.version !== undefined &&
+    (typeof value.version !== "string" || value.version.trim().length === 0)
+  ) {
+    return false;
+  }
+
+  if (
+    value.signer !== undefined &&
+    (typeof value.signer !== "string" || value.signer.trim().length === 0)
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+export function isRuntimeModuleManifest(
+  value: unknown,
+): value is RuntimeModuleManifest {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  for (const [specifier, descriptor] of Object.entries(value)) {
+    if (specifier.trim().length === 0) {
+      return false;
+    }
+
+    if (!isRuntimeModuleDescriptor(descriptor)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+export function resolveRuntimePlanSpecVersion(specVersion?: string): string {
+  if (typeof specVersion === "string" && specVersion.trim().length > 0) {
+    return specVersion.trim();
+  }
+
+  return DEFAULT_RUNTIME_PLAN_SPEC_VERSION;
+}
+
 export function walkRuntimeNode(
   node: RuntimeNode,
   visitor: (node: RuntimeNode, depth: number) => void,
-  depth = 0
+  depth = 0,
 ): void {
   visitor(node, depth);
 
@@ -561,7 +662,7 @@ export function getValueByPath(source: unknown, path: string): unknown {
 export function setValueByPath(
   target: RuntimeStateSnapshot,
   path: string,
-  value: JsonValue
+  value: JsonValue,
 ): void {
   const segments = splitPath(path);
   if (segments.length === 0) {
@@ -670,7 +771,7 @@ function isJsonValueInternal(value: unknown, seen: Set<object>): boolean {
 
     seen.add(value);
     const valid = Object.values(value).every((entry) =>
-      isJsonValueInternal(entry, seen)
+      isJsonValueInternal(entry, seen),
     );
     seen.delete(value);
     return valid;

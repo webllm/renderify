@@ -6,14 +6,29 @@
 
 ```ts
 interface RuntimePlan {
+  specVersion?: string; // default: "runtime-plan/v1"
   id: string;
   version: number;
   root: RuntimeNode;
   capabilities: RuntimeCapabilities;
   state?: RuntimeStateModel;
   imports?: string[];
+  moduleManifest?: RuntimeModuleManifest;
   source?: RuntimeSourceModule;
   metadata?: RuntimePlanMetadata;
+}
+```
+
+`moduleManifest` contract (optional, but recommended/required by strict policy):
+
+```ts
+interface RuntimeModuleManifest {
+  [specifier: string]: {
+    resolvedUrl: string;
+    integrity?: string;
+    version?: string;
+    signer?: string;
+  };
 }
 ```
 
@@ -135,6 +150,9 @@ Policy dimensions:
 - inline handler policy
 - transition/action limits
 - requested quota upper bounds
+- specVersion compatibility checks
+- moduleManifest coverage/integrity checks
+- runtime source static checks (blocked patterns, dynamic import policy, source import count)
 
 A rejected plan must never reach runtime execution.
 

@@ -128,6 +128,7 @@ test("e2e: cli render-plan executes runtime source module", async () => {
 
   try {
     const sourcePlan = {
+      specVersion: "runtime-plan/v1",
       id: "source_render_plan",
       version: 1,
       capabilities: {

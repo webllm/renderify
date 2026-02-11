@@ -34,6 +34,7 @@ test("codegen parses RuntimePlan JSON output directly", async () => {
 
   assert.equal(plan.id, "codegen_plan");
   assert.equal(plan.version, 3);
+  assert.equal(plan.specVersion, "runtime-plan/v1");
   assert.equal(plan.state?.initial.count, 0);
   assert.equal(plan.capabilities.maxExecutionMs, 1200);
   assert.equal(plan.metadata?.sourcePrompt, "Counter plan");
@@ -53,6 +54,7 @@ test("codegen falls back to section root when no JSON payload exists", async () 
   }
   assert.equal(plan.root.tag, "section");
   assert.equal(plan.capabilities.domWrite, true);
+  assert.equal(plan.specVersion, "runtime-plan/v1");
 });
 
 test("codegen extracts tsx source module from fenced output", async () => {
@@ -73,6 +75,10 @@ test("codegen extracts tsx source module from fenced output", async () => {
   assert.equal(plan.source?.language, "tsx");
   assert.match(plan.source?.code ?? "", /export default/);
   assert.deepEqual(plan.imports, ["npm:nanoid@5"]);
+  assert.equal(
+    plan.moduleManifest?.["npm:nanoid@5"]?.resolvedUrl,
+    "https://ga.jspm.io/npm/nanoid@5",
+  );
   assert.ok(plan.metadata?.tags?.includes("source-module"));
 });
 
@@ -107,4 +113,8 @@ test("codegen preserves source module when RuntimePlan JSON contains source", as
   assert.equal(plan.source?.language, "tsx");
   assert.match(plan.source?.code ?? "", /nanoid/);
   assert.deepEqual(plan.imports, ["npm:nanoid@5"]);
+  assert.equal(
+    plan.moduleManifest?.["npm:nanoid@5"]?.resolvedUrl,
+    "https://ga.jspm.io/npm/nanoid@5",
+  );
 });

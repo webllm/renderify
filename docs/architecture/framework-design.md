@@ -24,6 +24,7 @@ Renderify 目标是做“受控的全动态 runtime UI”：
 
 - `@renderify/ir`
 - 定义 plan/node/state/event/action/capabilities/result 合同
+- 协议字段：`specVersion` + `moduleManifest`
 
 ### Control Layer
 
@@ -52,6 +53,8 @@ Renderify 目标是做“受控的全动态 runtime UI”：
   - 状态迁移（event -> actions -> new state）
   - 资源预算控制（imports/time/component invocations）
   - `executionProfile`（`standard` / `isolated-vm`）
+  - 模块清单约束（manifest-aware resolution）
+  - 隔离不可用默认 fail-closed（可配置）
 
 - `@renderify/runtime-jspm`
 - 默认 loader：

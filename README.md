@@ -48,8 +48,12 @@ flowchart TD
   - `maxImports`
   - `maxExecutionMs`
   - `maxComponentInvocations`
+- Runtime protocol contract:
+  - `specVersion` (default `runtime-plan/v1`)
+  - `moduleManifest` for deterministic module resolution
 - Runtime sandbox profile:
   - `executionProfile: "isolated-vm"` for VM-isolated sync component execution
+  - fail-closed by default when isolation runtime is unavailable
 - LLM structured contract:
   - prompt flow prefers structured `runtime-plan` output
   - auto fallback to text generation when structured payload is invalid
@@ -59,6 +63,7 @@ flowchart TD
   - import specifiers are resolved through JSPM loader strategy
 - Real OpenAI provider adapter (`@renderify/llm-openai`) with structured JSON schema requests
 - Security policy checks for state transitions and quota requests
+- Runtime source static policy checks (blocked patterns, dynamic import policy, source import count)
 - Security profiles: `strict | balanced | relaxed`
 - Tenant quota governance:
   - max executions per minute
@@ -126,6 +131,11 @@ RENDERIFY_LLM_USE_STRUCTURED_OUTPUT=false pnpm playground
 # Optional LLM provider env
 RENDERIFY_LLM_PROVIDER=openai RENDERIFY_LLM_API_KEY=<your_key> pnpm playground
 RENDERIFY_LLM_PROVIDER=openai RENDERIFY_LLM_MODEL=gpt-4.1-mini RENDERIFY_LLM_BASE_URL=https://api.openai.com/v1 pnpm playground
+
+# Runtime protocol/runtime safety env
+RENDERIFY_RUNTIME_ENFORCE_MANIFEST=true pnpm playground
+RENDERIFY_RUNTIME_ALLOW_ISOLATION_FALLBACK=false pnpm playground
+RENDERIFY_RUNTIME_SPEC_VERSIONS=runtime-plan/v1 pnpm playground
 
 # Force text/TSX generation path instead of structured RuntimePlan
 RENDERIFY_LLM_USE_STRUCTURED_OUTPUT=false pnpm playground

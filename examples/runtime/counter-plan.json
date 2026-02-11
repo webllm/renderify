@@ -1,4 +1,5 @@
 {
+  "specVersion": "runtime-plan/v1",
   "id": "example_counter_plan",
   "version": 1,
   "capabilities": {

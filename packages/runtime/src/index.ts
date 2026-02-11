@@ -3,22 +3,25 @@ import {
   cloneJsonValue,
   createElementNode,
   createTextNode,
+  DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
   getValueByPath,
   isRuntimeNode,
   isRuntimeValueFromPath,
-  setValueByPath,
   type JsonValue,
   type RuntimeAction,
   type RuntimeDiagnostic,
-  type RuntimeExecutionProfile,
   type RuntimeEvent,
   type RuntimeExecutionContext,
+  type RuntimeExecutionProfile,
   type RuntimeExecutionResult,
+  type RuntimeModuleManifest,
   type RuntimeNode,
   type RuntimePlan,
   type RuntimeSourceLanguage,
   type RuntimeSourceModule,
   type RuntimeStateSnapshot,
+  resolveRuntimePlanSpecVersion,
+  setValueByPath,
 } from "@renderify/ir";
 
 export interface CompileOptions {
@@ -44,7 +47,7 @@ export interface RuntimeManager {
     plan: RuntimePlan,
     context?: RuntimeExecutionContext,
     event?: RuntimeEvent,
-    stateOverride?: RuntimeStateSnapshot
+    stateOverride?: RuntimeStateSnapshot,
   ): Promise<RuntimeExecutionResult>;
   execute(input: RuntimeExecutionInput): Promise<RuntimeExecutionResult>;
   compile(plan: RuntimePlan, options?: CompileOptions): Promise<string>;
@@ -60,6 +63,9 @@ export interface RuntimeManagerOptions {
   defaultMaxComponentInvocations?: number;
   defaultMaxExecutionMs?: number;
   defaultExecutionProfile?: RuntimeExecutionProfile;
+  supportedPlanSpecVersions?: string[];
+  enforceModuleManifest?: boolean;
+  allowIsolationFallback?: boolean;
 }
 
 export interface RuntimeSourceTranspileInput {
@@ -83,7 +89,7 @@ interface ExecutionFrame {
 export type RuntimeComponentFactory = (
   props: Record<string, JsonValue>,
   context: RuntimeExecutionContext,
-  children: RuntimeNode[]
+  children: RuntimeNode[],
 ) => Promise<RuntimeNode | string> | RuntimeNode | string;
 
 const FALLBACK_MAX_IMPORTS = 50;
@@ -91,6 +97,9 @@ const FALLBACK_MAX_COMPONENT_INVOCATIONS = 200;
 const FALLBACK_MAX_EXECUTION_MS = 1500;
 const FALLBACK_EXECUTION_PROFILE: RuntimeExecutionProfile = "standard";
 const FALLBACK_JSPM_CDN_BASE = "https://ga.jspm.io/npm";
+const FALLBACK_SUPPORTED_SPEC_VERSIONS = [DEFAULT_RUNTIME_PLAN_SPEC_VERSION];
+const FALLBACK_ENFORCE_MODULE_MANIFEST = true;
+const FALLBACK_ALLOW_ISOLATION_FALLBACK = false;
 
 interface BabelStandaloneLike {
   transform(
@@ -102,7 +111,7 @@ interface BabelStandaloneLike {
       babelrc?: boolean;
       configFile?: boolean;
       comments?: boolean;
-    }
+    },
   ): {
     code?: string;
   };
@@ -209,7 +218,7 @@ export class BabelRuntimeSourceTranspiler implements RuntimeSourceTranspiler {
     }
 
     throw new Error(
-      "Babel standalone is not available. Load @babel/standalone in browser or provide sourceTranspiler."
+      "Babel standalone is not available. Load @babel/standalone in browser or provide sourceTranspiler.",
     );
   }
 }
@@ -222,14 +231,16 @@ export class DefaultRuntimeManager implements RuntimeManager {
   private readonly defaultMaxComponentInvocations: number;
   private readonly defaultMaxExecutionMs: number;
   private readonly defaultExecutionProfile: RuntimeExecutionProfile;
+  private readonly supportedPlanSpecVersions: Set<string>;
+  private readonly enforceModuleManifest: boolean;
+  private readonly allowIsolationFallback: boolean;
   private initialized = false;
 
   constructor(options: RuntimeManagerOptions = {}) {
     this.moduleLoader = options.moduleLoader;
     this.sourceTranspiler =
       options.sourceTranspiler ?? new BabelRuntimeSourceTranspiler();
-    this.defaultMaxImports =
-      options.defaultMaxImports ?? FALLBACK_MAX_IMPORTS;
+    this.defaultMaxImports = options.defaultMaxImports ?? FALLBACK_MAX_IMPORTS;
     this.defaultMaxComponentInvocations =
       options.defaultMaxComponentInvocations ??
       FALLBACK_MAX_COMPONENT_INVOCATIONS;
@@ -237,6 +248,13 @@ export class DefaultRuntimeManager implements RuntimeManager {
       options.defaultMaxExecutionMs ?? FALLBACK_MAX_EXECUTION_MS;
     this.defaultExecutionProfile =
       options.defaultExecutionProfile ?? FALLBACK_EXECUTION_PROFILE;
+    this.supportedPlanSpecVersions = this.normalizeSupportedSpecVersions(
+      options.supportedPlanSpecVersions,
+    );
+    this.enforceModuleManifest =
+      options.enforceModuleManifest ?? FALLBACK_ENFORCE_MODULE_MANIFEST;
+    this.allowIsolationFallback =
+      options.allowIsolationFallback ?? FALLBACK_ALLOW_ISOLATION_FALLBACK;
   }
 
   async initialize(): Promise<void> {
@@ -256,7 +274,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
       input.plan,
       input.context,
       input.event,
-      input.stateOverride
+      input.stateOverride,
     );
   }
 
@@ -264,18 +282,38 @@ export class DefaultRuntimeManager implements RuntimeManager {
     plan: RuntimePlan,
     context: RuntimeExecutionContext = {},
     event?: RuntimeEvent,
-    stateOverride?: RuntimeStateSnapshot
+    stateOverride?: RuntimeStateSnapshot,
   ): Promise<RuntimeExecutionResult> {
     this.ensureInitialized();
 
+    const specVersion = resolveRuntimePlanSpecVersion(plan.specVersion);
     const diagnostics: RuntimeDiagnostic[] = [];
+
+    if (!this.supportedPlanSpecVersions.has(specVersion)) {
+      diagnostics.push({
+        level: "error",
+        code: "RUNTIME_SPEC_VERSION_UNSUPPORTED",
+        message: `Unsupported plan specVersion "${specVersion}". Supported: ${[
+          ...this.supportedPlanSpecVersions,
+        ].join(", ")}`,
+      });
+      return {
+        planId: plan.id,
+        root: plan.root,
+        diagnostics,
+        state: cloneJsonValue(this.resolveState(plan, stateOverride)),
+        handledEvent: event,
+        appliedActions: [],
+      };
+    }
+
     const state = this.resolveState(plan, stateOverride);
     const appliedActions = this.applyEvent(
       plan,
       event,
       state,
       context,
-      diagnostics
+      diagnostics,
     );
 
     const frame: ExecutionFrame = {
@@ -295,6 +333,15 @@ export class DefaultRuntimeManager implements RuntimeManager {
 
     for (let i = 0; i < imports.length; i += 1) {
       const specifier = imports[i];
+      const resolvedSpecifier = this.resolveRuntimeSpecifier(
+        specifier,
+        plan.moduleManifest,
+        diagnostics,
+        "import",
+      );
+      if (!resolvedSpecifier) {
+        continue;
+      }
 
       if (i >= maxImports) {
         diagnostics.push({
@@ -309,7 +356,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
         diagnostics.push({
           level: "warning",
           code: "RUNTIME_LOADER_MISSING",
-          message: `Import skipped because no module loader is configured: ${specifier}`,
+          message: `Import skipped because no module loader is configured: ${resolvedSpecifier}`,
         });
         continue;
       }
@@ -325,46 +372,49 @@ export class DefaultRuntimeManager implements RuntimeManager {
 
       try {
         await this.withRemainingBudget(
-          () => this.moduleLoader!.load(specifier),
+          () => this.moduleLoader!.load(resolvedSpecifier),
           frame,
-          `Import timed out: ${specifier}`
+          `Import timed out: ${resolvedSpecifier}`,
         );
       } catch (error) {
         diagnostics.push({
           level: "error",
           code: "RUNTIME_IMPORT_FAILED",
-          message: `${specifier}: ${this.errorToMessage(error)}`,
+          message: `${resolvedSpecifier}: ${this.errorToMessage(error)}`,
         });
       }
     }
 
     const sourceRoot = plan.source
       ? await this.resolveSourceRoot(
+          plan,
           plan.source,
           context,
           state,
           event,
           diagnostics,
-          frame
+          frame,
         )
       : undefined;
 
     const resolvedRoot = sourceRoot
       ? await this.resolveNode(
           sourceRoot,
+          plan.moduleManifest,
           context,
           state,
           event,
           diagnostics,
-          frame
+          frame,
         )
       : await this.resolveNode(
           plan.root,
+          plan.moduleManifest,
           context,
           state,
           event,
           diagnostics,
-          frame
+          frame,
         );
 
     this.states.set(plan.id, cloneJsonValue(state));
@@ -379,7 +429,10 @@ export class DefaultRuntimeManager implements RuntimeManager {
     };
   }
 
-  async compile(plan: RuntimePlan, options: CompileOptions = {}): Promise<string> {
+  async compile(
+    plan: RuntimePlan,
+    options: CompileOptions = {},
+  ): Promise<string> {
     const indent = options.pretty ? 2 : 0;
     return JSON.stringify(plan, null, indent);
   }
@@ -403,7 +456,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
 
   private resolveState(
     plan: RuntimePlan,
-    stateOverride?: RuntimeStateSnapshot
+    stateOverride?: RuntimeStateSnapshot,
   ): RuntimeStateSnapshot {
     if (stateOverride) {
       const cloned = cloneJsonValue(stateOverride);
@@ -428,7 +481,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
     event: RuntimeEvent | undefined,
     state: RuntimeStateSnapshot,
     context: RuntimeExecutionContext,
-    diagnostics: RuntimeDiagnostic[]
+    diagnostics: RuntimeDiagnostic[],
   ): RuntimeAction[] {
     if (!event) {
       return [];
@@ -476,7 +529,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
     action: RuntimeAction,
     state: RuntimeStateSnapshot,
     event: RuntimeEvent,
-    context: RuntimeExecutionContext
+    context: RuntimeExecutionContext,
   ): void {
     if (action.type === "set") {
       const next = this.resolveActionValue(action.value, state, event, context);
@@ -514,7 +567,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
     value: JsonValue | { $from: string },
     state: RuntimeStateSnapshot,
     event: RuntimeEvent,
-    context: RuntimeExecutionContext
+    context: RuntimeExecutionContext,
   ): JsonValue {
     if (!isRuntimeValueFromPath(value)) {
       return value;
@@ -534,31 +587,38 @@ export class DefaultRuntimeManager implements RuntimeManager {
     }
 
     if (sourcePath.startsWith("vars.")) {
-      return asJsonValue(getValueByPath(context.variables, sourcePath.slice(5)));
+      return asJsonValue(
+        getValueByPath(context.variables, sourcePath.slice(5)),
+      );
     }
 
     return asJsonValue(getValueByPath(state, sourcePath));
   }
 
   private async resolveSourceRoot(
+    plan: RuntimePlan,
     source: RuntimeSourceModule,
     context: RuntimeExecutionContext,
     state: RuntimeStateSnapshot,
     event: RuntimeEvent | undefined,
     diagnostics: RuntimeDiagnostic[],
-    frame: ExecutionFrame
+    frame: ExecutionFrame,
   ): Promise<RuntimeNode | undefined> {
     try {
       const transpiled = await this.withRemainingBudget(
         () => this.transpileRuntimeSource(source),
         frame,
-        "Runtime source transpilation timed out"
+        "Runtime source transpilation timed out",
       );
-      const rewritten = this.rewriteSourceImports(transpiled);
+      const rewritten = this.rewriteSourceImports(
+        transpiled,
+        plan.moduleManifest,
+        diagnostics,
+      );
       const namespace = await this.withRemainingBudget(
         () => this.importSourceModuleFromCode(rewritten),
         frame,
-        "Runtime source module loading timed out"
+        "Runtime source module loading timed out",
       );
 
       const exportName = source.exportName ?? "default";
@@ -581,9 +641,10 @@ export class DefaultRuntimeManager implements RuntimeManager {
       const produced =
         typeof selected === "function"
           ? await this.withRemainingBudget(
-              async () => (selected as (input: unknown) => unknown)(runtimeInput),
+              async () =>
+                (selected as (input: unknown) => unknown)(runtimeInput),
               frame,
-              "Runtime source export execution timed out"
+              "Runtime source export execution timed out",
             )
           : selected;
 
@@ -592,7 +653,8 @@ export class DefaultRuntimeManager implements RuntimeManager {
         diagnostics.push({
           level: "error",
           code: "RUNTIME_SOURCE_OUTPUT_INVALID",
-          message: "Runtime source output is not a supported RuntimeNode payload",
+          message:
+            "Runtime source output is not a supported RuntimeNode payload",
         });
         return undefined;
       }
@@ -609,7 +671,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
   }
 
   private async transpileRuntimeSource(
-    source: RuntimeSourceModule
+    source: RuntimeSourceModule,
   ): Promise<string> {
     const mergedSource = `${source.code}\n\n${RUNTIME_JSX_HELPERS}`;
     return this.sourceTranspiler.transpile({
@@ -619,42 +681,76 @@ export class DefaultRuntimeManager implements RuntimeManager {
     });
   }
 
-  private rewriteSourceImports(code: string): string {
+  private rewriteSourceImports(
+    code: string,
+    moduleManifest: RuntimeModuleManifest | undefined,
+    diagnostics: RuntimeDiagnostic[],
+  ): string {
     return [
       /\bfrom\s+["']([^"']+)["']/g,
       /\bimport\s+["']([^"']+)["']/g,
       /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g,
     ].reduce((current, pattern) => {
       return current.replace(pattern, (full, specifier: string) => {
-        const rewritten = this.resolveRuntimeSourceSpecifier(specifier);
+        const rewritten = this.resolveRuntimeSourceSpecifier(
+          specifier,
+          moduleManifest,
+          diagnostics,
+        );
         return full.replace(specifier, rewritten);
       });
     }, code);
   }
 
-  private resolveRuntimeSourceSpecifier(specifier: string): string {
+  private resolveRuntimeSourceSpecifier(
+    specifier: string,
+    moduleManifest: RuntimeModuleManifest | undefined,
+    diagnostics: RuntimeDiagnostic[],
+  ): string {
     const trimmed = specifier.trim();
     if (!this.shouldRewriteSpecifier(trimmed)) {
       return trimmed;
     }
 
+    const fromManifest = this.resolveRuntimeSpecifier(
+      trimmed,
+      moduleManifest,
+      diagnostics,
+      "source-import",
+    );
+    if (!fromManifest) {
+      return trimmed;
+    }
+
     if (this.moduleLoader && this.hasResolveSpecifier(this.moduleLoader)) {
       try {
-        return this.moduleLoader.resolveSpecifier(trimmed);
+        return this.moduleLoader.resolveSpecifier(fromManifest);
       } catch {
         // fall through to default resolver
       }
     }
 
-    if (trimmed.startsWith("npm:")) {
-      return `${FALLBACK_JSPM_CDN_BASE}/${trimmed.slice(4)}`;
+    if (fromManifest.startsWith("npm:")) {
+      return `${FALLBACK_JSPM_CDN_BASE}/${fromManifest.slice(4)}`;
     }
 
-    return `${FALLBACK_JSPM_CDN_BASE}/${trimmed}`;
+    if (this.isDirectSpecifier(fromManifest)) {
+      return fromManifest;
+    }
+
+    return `${FALLBACK_JSPM_CDN_BASE}/${fromManifest}`;
   }
 
   private shouldRewriteSpecifier(specifier: string): boolean {
-    if (
+    if (this.isDirectSpecifier(specifier)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  private isDirectSpecifier(specifier: string): boolean {
+    return (
       specifier.startsWith("./") ||
       specifier.startsWith("../") ||
       specifier.startsWith("/") ||
@@ -662,16 +758,57 @@ export class DefaultRuntimeManager implements RuntimeManager {
       specifier.startsWith("https://") ||
       specifier.startsWith("blob:") ||
       specifier.startsWith("data:")
-    ) {
-      return false;
+    );
+  }
+
+  private resolveRuntimeSpecifier(
+    specifier: string,
+    moduleManifest: RuntimeModuleManifest | undefined,
+    diagnostics: RuntimeDiagnostic[],
+    usage: "import" | "component" | "source-import",
+  ): string | undefined {
+    const trimmed = specifier.trim();
+    if (trimmed.length === 0) {
+      diagnostics.push({
+        level: "error",
+        code: "RUNTIME_MANIFEST_INVALID",
+        message: `Empty ${usage} specifier`,
+      });
+      return undefined;
     }
 
-    return true;
+    const descriptor = moduleManifest?.[trimmed];
+    if (descriptor) {
+      const resolved = descriptor.resolvedUrl.trim();
+      if (resolved.length === 0) {
+        diagnostics.push({
+          level: "error",
+          code: "RUNTIME_MANIFEST_INVALID",
+          message: `Manifest entry has empty resolvedUrl for ${trimmed}`,
+        });
+        return undefined;
+      }
+
+      return resolved;
+    }
+
+    if (!this.enforceModuleManifest || this.isDirectSpecifier(trimmed)) {
+      return trimmed;
+    }
+
+    diagnostics.push({
+      level: "error",
+      code: "RUNTIME_MANIFEST_MISSING",
+      message: `Missing moduleManifest entry for ${usage}: ${trimmed}`,
+    });
+    return undefined;
   }
 
   private hasResolveSpecifier(
-    loader: RuntimeModuleLoader
-  ): loader is RuntimeModuleLoader & { resolveSpecifier(specifier: string): string } {
+    loader: RuntimeModuleLoader,
+  ): loader is RuntimeModuleLoader & {
+    resolveSpecifier(specifier: string): string;
+  } {
     return (
       typeof loader === "object" &&
       loader !== null &&
@@ -735,7 +872,11 @@ export class DefaultRuntimeManager implements RuntimeManager {
         .map((entry) => this.normalizeSourceOutput(entry))
         .filter((entry): entry is RuntimeNode => entry !== undefined);
 
-      return createElementNode("div", { "data-renderify-fragment": "true" }, normalizedChildren);
+      return createElementNode(
+        "div",
+        { "data-renderify-fragment": "true" },
+        normalizedChildren,
+      );
     }
 
     return undefined;
@@ -743,11 +884,12 @@ export class DefaultRuntimeManager implements RuntimeManager {
 
   private async resolveNode(
     node: RuntimeNode,
+    moduleManifest: RuntimeModuleManifest | undefined,
     context: RuntimeExecutionContext,
     state: RuntimeStateSnapshot,
     event: RuntimeEvent | undefined,
     diagnostics: RuntimeDiagnostic[],
-    frame: ExecutionFrame
+    frame: ExecutionFrame,
   ): Promise<RuntimeNode> {
     if (this.hasExceededBudget(frame)) {
       diagnostics.push({
@@ -762,17 +904,18 @@ export class DefaultRuntimeManager implements RuntimeManager {
 
     if (node.type === "text") {
       return createTextNode(
-        this.interpolateTemplate(node.value, context, state, event)
+        this.interpolateTemplate(node.value, context, state, event),
       );
     }
 
     const resolvedChildren = await this.resolveChildren(
       node.children ?? [],
+      moduleManifest,
       context,
       state,
       event,
       diagnostics,
-      frame
+      frame,
     );
 
     if (node.type === "element") {
@@ -792,30 +935,44 @@ export class DefaultRuntimeManager implements RuntimeManager {
       return createElementNode(
         "div",
         { "data-renderify-component-limit": node.module },
-        [createTextNode("Component invocation limit exceeded")]
+        [createTextNode("Component invocation limit exceeded")],
       );
     }
 
     frame.componentInvocations += 1;
 
+    const resolvedComponentSpecifier = this.resolveRuntimeSpecifier(
+      node.module,
+      moduleManifest,
+      diagnostics,
+      "component",
+    );
+    if (!resolvedComponentSpecifier) {
+      return createElementNode(
+        "div",
+        { "data-renderify-component-error": node.module },
+        [createTextNode("Missing module manifest entry for component")],
+      );
+    }
+
     if (!this.moduleLoader) {
       diagnostics.push({
         level: "warning",
         code: "RUNTIME_COMPONENT_SKIPPED",
-        message: `Component ${node.module} skipped because module loader is missing`,
+        message: `Component ${resolvedComponentSpecifier} skipped because module loader is missing`,
       });
       return createElementNode(
         "div",
         { "data-renderify-missing-module": node.module },
-        resolvedChildren
+        resolvedChildren,
       );
     }
 
     try {
       const loaded = await this.withRemainingBudget(
-        () => this.moduleLoader!.load(node.module),
+        () => this.moduleLoader!.load(resolvedComponentSpecifier),
         frame,
-        `Component module timed out: ${node.module}`
+        `Component module timed out: ${resolvedComponentSpecifier}`,
       );
 
       const exportName = node.exportName ?? "default";
@@ -825,12 +982,12 @@ export class DefaultRuntimeManager implements RuntimeManager {
         diagnostics.push({
           level: "error",
           code: "RUNTIME_COMPONENT_INVALID",
-          message: `Export ${exportName} from ${node.module} is not callable`,
+          message: `Export ${exportName} from ${resolvedComponentSpecifier} is not callable`,
         });
         return createElementNode(
           "div",
           { "data-renderify-component-error": `${node.module}:${exportName}` },
-          [createTextNode("Component export is not callable")]
+          [createTextNode("Component export is not callable")],
         );
       }
 
@@ -850,46 +1007,47 @@ export class DefaultRuntimeManager implements RuntimeManager {
         resolvedChildren,
         frame,
         `Component execution timed out: ${node.module}`,
-        diagnostics
+        diagnostics,
       );
 
       if (typeof produced === "string") {
         return createTextNode(
-          this.interpolateTemplate(produced, context, state, event)
+          this.interpolateTemplate(produced, context, state, event),
         );
       }
 
       if (isRuntimeNode(produced)) {
         return this.resolveNode(
           produced,
+          moduleManifest,
           context,
           state,
           event,
           diagnostics,
-          frame
+          frame,
         );
       }
 
       diagnostics.push({
         level: "error",
         code: "RUNTIME_COMPONENT_OUTPUT_INVALID",
-        message: `Component ${node.module} produced unsupported output`,
+        message: `Component ${resolvedComponentSpecifier} produced unsupported output`,
       });
       return createElementNode(
         "div",
         { "data-renderify-component-error": node.module },
-        [createTextNode("Unsupported component output")]
+        [createTextNode("Unsupported component output")],
       );
     } catch (error) {
       diagnostics.push({
         level: "error",
         code: "RUNTIME_COMPONENT_EXEC_FAILED",
-        message: `${node.module}: ${this.errorToMessage(error)}`,
+        message: `${resolvedComponentSpecifier}: ${this.errorToMessage(error)}`,
       });
       return createElementNode(
         "div",
         { "data-renderify-component-error": node.module },
-        [createTextNode("Component execution failed")]
+        [createTextNode("Component execution failed")],
       );
     }
   }
@@ -901,13 +1059,13 @@ export class DefaultRuntimeManager implements RuntimeManager {
     children: RuntimeNode[],
     frame: ExecutionFrame,
     timeoutMessage: string,
-    diagnostics: RuntimeDiagnostic[]
+    diagnostics: RuntimeDiagnostic[],
   ): Promise<RuntimeNode | string> {
     if (frame.executionProfile !== "isolated-vm") {
       return this.withRemainingBudget(
         async () => componentFactory(props, context, children),
         frame,
-        timeoutMessage
+        timeoutMessage,
       );
     }
 
@@ -916,10 +1074,16 @@ export class DefaultRuntimeManager implements RuntimeManager {
       props,
       context,
       children,
-      frame
+      frame,
     );
 
     if (isolated.mode === "isolation-unavailable") {
+      if (!this.allowIsolationFallback) {
+        throw new Error(
+          "isolated-vm profile requested but node:vm is unavailable; fallback is disabled",
+        );
+      }
+
       diagnostics.push({
         level: "warning",
         code: "RUNTIME_SANDBOX_UNAVAILABLE",
@@ -929,7 +1093,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
       return this.withRemainingBudget(
         async () => componentFactory(props, context, children),
         frame,
-        timeoutMessage
+        timeoutMessage,
       );
     }
 
@@ -941,9 +1105,10 @@ export class DefaultRuntimeManager implements RuntimeManager {
     props: Record<string, JsonValue>,
     context: RuntimeExecutionContext,
     children: RuntimeNode[],
-    frame: ExecutionFrame
+    frame: ExecutionFrame,
   ): Promise<
-    { mode: "isolated"; value: RuntimeNode | string } | { mode: "isolation-unavailable" }
+    | { mode: "isolated"; value: RuntimeNode | string }
+    | { mode: "isolation-unavailable" }
   > {
     const vmModule = await this.loadVmModule();
     if (!vmModule) {
@@ -969,7 +1134,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
         `if (__result && typeof __result.then === "function") {\n` +
         `  throw new Error("Async component is not supported in isolated-vm profile");\n` +
         `}\n` +
-        `__result;`
+        `__result;`,
     );
 
     const output = script.runInNewContext(
@@ -978,7 +1143,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
       },
       {
         timeout: Math.max(1, Math.floor(remainingMs)),
-      }
+      },
     );
 
     if (typeof output === "string") {
@@ -1000,17 +1165,26 @@ export class DefaultRuntimeManager implements RuntimeManager {
 
   private async resolveChildren(
     nodes: RuntimeNode[],
+    moduleManifest: RuntimeModuleManifest | undefined,
     context: RuntimeExecutionContext,
     state: RuntimeStateSnapshot,
     event: RuntimeEvent | undefined,
     diagnostics: RuntimeDiagnostic[],
-    frame: ExecutionFrame
+    frame: ExecutionFrame,
   ): Promise<RuntimeNode[]> {
     const resolved: RuntimeNode[] = [];
 
     for (const child of nodes) {
       resolved.push(
-        await this.resolveNode(child, context, state, event, diagnostics, frame)
+        await this.resolveNode(
+          child,
+          moduleManifest,
+          context,
+          state,
+          event,
+          diagnostics,
+          frame,
+        ),
       );
     }
 
@@ -1021,7 +1195,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
     props: Record<string, JsonValue> | undefined,
     context: RuntimeExecutionContext,
     state: RuntimeStateSnapshot,
-    event: RuntimeEvent | undefined
+    event: RuntimeEvent | undefined,
   ): Record<string, JsonValue> | undefined {
     if (!props) {
       return undefined;
@@ -1040,7 +1214,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
     value: JsonValue,
     context: RuntimeExecutionContext,
     state: RuntimeStateSnapshot,
-    event: RuntimeEvent | undefined
+    event: RuntimeEvent | undefined,
   ): JsonValue {
     if (typeof value === "string") {
       return this.interpolateTemplate(value, context, state, event);
@@ -1048,7 +1222,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
 
     if (Array.isArray(value)) {
       return value.map((item) =>
-        this.resolveJsonValue(item, context, state, event)
+        this.resolveJsonValue(item, context, state, event),
       );
     }
 
@@ -1067,10 +1241,15 @@ export class DefaultRuntimeManager implements RuntimeManager {
     template: string,
     context: RuntimeExecutionContext,
     state: RuntimeStateSnapshot,
-    event: RuntimeEvent | undefined
+    event: RuntimeEvent | undefined,
   ): string {
     return template.replace(/{{\s*([^}]+)\s*}}/g, (_match, expression) => {
-      const resolved = this.resolveExpression(expression, context, state, event);
+      const resolved = this.resolveExpression(
+        expression,
+        context,
+        state,
+        event,
+      );
       if (resolved === undefined || resolved === null) {
         return "";
       }
@@ -1087,7 +1266,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
     expression: string,
     context: RuntimeExecutionContext,
     state: RuntimeStateSnapshot,
-    event: RuntimeEvent | undefined
+    event: RuntimeEvent | undefined,
   ): unknown {
     const path = expression.trim();
 
@@ -1141,6 +1320,30 @@ export class DefaultRuntimeManager implements RuntimeManager {
     }
   }
 
+  private normalizeSupportedSpecVersions(versions?: string[]): Set<string> {
+    const normalized = new Set<string>();
+    const input =
+      versions && versions.length > 0
+        ? versions
+        : FALLBACK_SUPPORTED_SPEC_VERSIONS;
+
+    for (const entry of input) {
+      if (typeof entry !== "string") {
+        continue;
+      }
+      const trimmed = entry.trim();
+      if (trimmed.length > 0) {
+        normalized.add(trimmed);
+      }
+    }
+
+    if (normalized.size === 0) {
+      normalized.add(DEFAULT_RUNTIME_PLAN_SPEC_VERSION);
+    }
+
+    return normalized;
+  }
+
   private ensureInitialized(): void {
     if (!this.initialized) {
       throw new Error("RuntimeManager is not initialized");
@@ -1154,7 +1357,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
   private async withRemainingBudget<T>(
     operation: () => Promise<T>,
     frame: ExecutionFrame,
-    timeoutMessage: string
+    timeoutMessage: string,
   ): Promise<T> {
     const remainingMs = frame.maxExecutionMs - (nowMs() - frame.startedAt);
     if (remainingMs <= 0) {
@@ -1188,7 +1391,10 @@ export class DefaultRuntimeManager implements RuntimeManager {
 }
 
 function nowMs(): number {
-  if (typeof performance !== "undefined" && typeof performance.now === "function") {
+  if (
+    typeof performance !== "undefined" &&
+    typeof performance.now === "function"
+  ) {
     return performance.now();
   }
 
@@ -1198,7 +1404,7 @@ function nowMs(): number {
 interface NodeVmScript {
   runInNewContext(
     contextObject: Record<string, unknown>,
-    options: { timeout?: number }
+    options: { timeout?: number },
   ): unknown;
 }
 

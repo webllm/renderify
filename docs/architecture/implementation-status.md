@@ -21,11 +21,16 @@
   - execution time budget limit
   - component invocation limit
   - `executionProfile` support (`standard` / `isolated-vm`)
+  - default fail-closed behavior when isolated runtime is unavailable
+  - optional fallback mode toggle
 - Security guardrails:
   - blocked tags / depth / node count
   - module and host allowlist checks
   - state transition path validation
   - quota request upper-bound validation
+  - runtime plan `specVersion` compatibility checks
+  - module manifest coverage/integrity checks for bare imports
+  - runtime source static pattern checks
   - profile presets: `strict/balanced/relaxed`
 - Tenant governance:
   - in-memory tenant quota governor

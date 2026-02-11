@@ -2,17 +2,21 @@ import {
   collectComponentModules,
   createElementNode,
   createTextNode,
+  DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
   isRuntimeCapabilities,
+  isRuntimeModuleManifest,
   isRuntimeNode,
   isRuntimePlanMetadata,
   isRuntimeSourceModule,
   isRuntimeStateModel,
   type RuntimeCapabilities,
+  type RuntimeModuleManifest,
   type RuntimeNode,
   type RuntimePlan,
   type RuntimePlanMetadata,
   type RuntimeSourceModule,
   type RuntimeStateModel,
+  resolveRuntimePlanSpecVersion,
 } from "@renderify/ir";
 
 export interface CodeGenerationInput {
@@ -96,12 +100,17 @@ export class DefaultCodeGenerator implements CodeGenerator {
       metadata?: RuntimePlanMetadata;
       id?: string;
       version?: number;
+      specVersion?: string;
       state?: RuntimeStateModel;
+      moduleManifest?: RuntimeModuleManifest;
       source?: RuntimeSourceModule;
     },
   ): RuntimePlan {
     const imports =
       this.normalizeImports(input.imports) ?? collectComponentModules(root);
+    const moduleManifest =
+      this.normalizeModuleManifest(input.moduleManifest) ??
+      this.createModuleManifestFromImports(imports);
     const capabilities = this.normalizeCapabilities(
       input.capabilities,
       imports,
@@ -111,10 +120,14 @@ export class DefaultCodeGenerator implements CodeGenerator {
     const version = this.normalizePlanVersion(input.version);
 
     return {
+      specVersion: resolveRuntimePlanSpecVersion(
+        input.specVersion ?? DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+      ),
       id,
       version,
       root,
       imports,
+      ...(moduleManifest ? { moduleManifest } : {}),
       capabilities,
       ...(metadata ? { metadata } : {}),
       ...(input.state ? { state: input.state } : {}),
@@ -141,6 +154,11 @@ export class DefaultCodeGenerator implements CodeGenerator {
         ? parsed.metadata
         : undefined
       : undefined;
+    const moduleManifest =
+      this.isRecord(parsed.moduleManifest) &&
+      isRuntimeModuleManifest(parsed.moduleManifest)
+        ? parsed.moduleManifest
+        : undefined;
 
     const state =
       this.isRecord(parsed.state) && isRuntimeStateModel(parsed.state)
@@ -156,15 +174,22 @@ export class DefaultCodeGenerator implements CodeGenerator {
           .map((item) => item.trim())
           .filter((item) => item.length > 0)
       : undefined;
+    const importsFromManifest = moduleManifest
+      ? Object.keys(moduleManifest)
+      : undefined;
     const imports =
       importsFromPayload ??
+      importsFromManifest ??
       (source ? this.parseImportsFromSource(source.code) : undefined);
 
     return this.createPlanFromRoot(root, {
       prompt,
+      specVersion:
+        typeof parsed.specVersion === "string" ? parsed.specVersion : undefined,
       id: typeof parsed.id === "string" ? parsed.id : undefined,
       version: typeof parsed.version === "number" ? parsed.version : undefined,
       imports,
+      moduleManifest,
       capabilities:
         this.isRecord(parsed.capabilities) &&
         isRuntimeCapabilities(parsed.capabilities)
@@ -225,6 +250,16 @@ export class DefaultCodeGenerator implements CodeGenerator {
     return [...new Set(imports)];
   }
 
+  private normalizeModuleManifest(
+    manifest?: RuntimeModuleManifest,
+  ): RuntimeModuleManifest | undefined {
+    if (!manifest || Object.keys(manifest).length === 0) {
+      return undefined;
+    }
+
+    return manifest;
+  }
+
   private normalizeCapabilities(
     capabilities: RuntimeCapabilities | undefined,
     imports: string[],
@@ -263,6 +298,66 @@ export class DefaultCodeGenerator implements CodeGenerator {
     }
 
     return normalized;
+  }
+
+  private createModuleManifestFromImports(
+    imports: string[],
+  ): RuntimeModuleManifest | undefined {
+    if (imports.length === 0) {
+      return undefined;
+    }
+
+    const manifest: RuntimeModuleManifest = {};
+    for (const specifier of imports) {
+      const resolvedUrl = this.resolveImportToUrl(specifier);
+      const version = this.extractVersionFromSpecifier(specifier);
+      manifest[specifier] = {
+        resolvedUrl,
+        ...(version ? { version } : {}),
+        signer: "renderify-codegen",
+      };
+    }
+
+    return manifest;
+  }
+
+  private resolveImportToUrl(specifier: string): string {
+    if (this.isHttpUrl(specifier)) {
+      return specifier;
+    }
+
+    if (
+      specifier.startsWith("./") ||
+      specifier.startsWith("../") ||
+      specifier.startsWith("/")
+    ) {
+      return specifier;
+    }
+
+    if (specifier.startsWith("npm:")) {
+      return `https://ga.jspm.io/npm/${specifier.slice(4)}`;
+    }
+
+    return `https://ga.jspm.io/npm/${specifier}`;
+  }
+
+  private extractVersionFromSpecifier(specifier: string): string | undefined {
+    if (!specifier.startsWith("npm:")) {
+      return undefined;
+    }
+
+    const body = specifier.slice(4);
+    const atIndex = body.lastIndexOf("@");
+    if (atIndex <= 0) {
+      return undefined;
+    }
+
+    const version = body.slice(atIndex + 1).trim();
+    if (version.length === 0 || version.includes("/")) {
+      return undefined;
+    }
+
+    return version;
   }
 
   private normalizeMetadata(
@@ -351,6 +446,15 @@ export class DefaultCodeGenerator implements CodeGenerator {
     }
 
     return [...imports];
+  }
+
+  private isHttpUrl(value: string): boolean {
+    try {
+      const parsed = new URL(value);
+      return parsed.protocol === "http:" || parsed.protocol === "https:";
+    } catch {
+      return false;
+    }
   }
 
   private isRecord(value: unknown): value is Record<string, unknown> {

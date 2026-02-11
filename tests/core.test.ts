@@ -1,17 +1,25 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DefaultCodeGenerator } from "../packages/codegen/src/index";
-import { DefaultRenderifyConfig, type RenderifyConfigValues } from "../packages/config/src/index";
+import {
+  DefaultRenderifyConfig,
+  type RenderifyConfigValues,
+} from "../packages/config/src/index";
 import { DefaultContextManager } from "../packages/context/src/index";
 import {
   createRenderifyApp,
   InMemoryTenantGovernor,
   PolicyRejectionError,
-  TenantQuotaExceededError,
   type RenderifyCoreDependencies,
+  TenantQuotaExceededError,
 } from "../packages/core/src/index";
 import { DefaultCustomizationEngine } from "../packages/customization/src/index";
-import { createElementNode, createTextNode, type RuntimePlan } from "../packages/ir/src/index";
+import {
+  createElementNode,
+  createTextNode,
+  DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+  type RuntimePlan,
+} from "../packages/ir/src/index";
 import {
   DefaultLLMInterpreter,
   type LLMInterpreter,
@@ -62,9 +70,10 @@ class StructuredOnlyLLM implements LLMInterpreter {
   }
 
   async generateStructuredResponse<T = unknown>(
-    req: LLMStructuredRequest
+    req: LLMStructuredRequest,
   ): Promise<LLMStructuredResponse<T>> {
     const plan = {
+      specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
       id: "structured_core_plan",
       version: 1,
       capabilities: {
@@ -112,7 +121,7 @@ class InvalidStructuredLLM implements LLMInterpreter {
   }
 
   async generateStructuredResponse<T = unknown>(
-    _req: LLMStructuredRequest
+    _req: LLMStructuredRequest,
   ): Promise<LLMStructuredResponse<T>> {
     return {
       text: '{"invalid":true}',
@@ -129,7 +138,9 @@ class InvalidStructuredLLM implements LLMInterpreter {
   }
 }
 
-function createDependencies(overrides: Partial<RenderifyCoreDependencies> = {}): RenderifyCoreDependencies {
+function createDependencies(
+  overrides: Partial<RenderifyCoreDependencies> = {},
+): RenderifyCoreDependencies {
   return {
     config: new DefaultRenderifyConfig(),
     context: new DefaultContextManager(),
@@ -180,7 +191,7 @@ test("core pipeline records rejected audits when policy blocks plan", async () =
   const app = createRenderifyApp(
     createDependencies({
       config: new RejectingConfig(),
-    })
+    }),
   );
 
   await app.start();
@@ -189,7 +200,7 @@ test("core pipeline records rejected audits when policy blocks plan", async () =
     () => app.renderPrompt("This should be rejected"),
     (error: unknown) => {
       return error instanceof PolicyRejectionError;
-    }
+    },
   );
 
   const audits = app.listAudits();
@@ -207,6 +218,7 @@ test("core dispatchEvent updates state and records event audit mode", async () =
   await app.start();
 
   const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
     id: "core_counter_plan",
     version: 1,
     root: createElementNode("section", undefined, [
@@ -243,6 +255,7 @@ test("core clearHistory clears plan/audit records and runtime state", async () =
   await app.start();
 
   const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
     id: "core_clear_history_plan",
     version: 1,
     root: createElementNode("section", undefined, [
@@ -282,7 +295,7 @@ test("core enforces tenant quota and records throttled audit", async () => {
     createDependencies({
       config: new ThrottledConfig(),
       tenantGovernor: new InMemoryTenantGovernor(),
-    })
+    }),
   );
 
   await app.start();
@@ -291,7 +304,7 @@ test("core enforces tenant quota and records throttled audit", async () => {
 
   await assert.rejects(
     () => app.renderPrompt("second run throttled"),
-    (error: unknown) => error instanceof TenantQuotaExceededError
+    (error: unknown) => error instanceof TenantQuotaExceededError,
   );
 
   const audits = app.listAudits();
@@ -306,7 +319,7 @@ test("core prefers structured llm output when available", async () => {
   const app = createRenderifyApp(
     createDependencies({
       llm: new StructuredOnlyLLM(),
-    })
+    }),
   );
 
   await app.start();
@@ -323,7 +336,7 @@ test("core falls back to text generation when structured output is invalid", asy
   const app = createRenderifyApp(
     createDependencies({
       llm: new InvalidStructuredLLM(),
-    })
+    }),
   );
 
   await app.start();

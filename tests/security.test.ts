@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createElementNode, createTextNode, type RuntimePlan } from "../packages/ir/src/index";
+import {
+  createComponentNode,
+  createElementNode,
+  createTextNode,
+  DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+  type RuntimePlan,
+} from "../packages/ir/src/index";
 import {
   DefaultSecurityChecker,
   getSecurityProfilePolicy,
@@ -9,6 +15,7 @@ import {
 
 function createPlan(rootTag = "section"): RuntimePlan {
   return {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
     id: "plan_security_test",
     version: 1,
     root: createElementNode(rootTag, undefined, [createTextNode("content")]),
@@ -27,7 +34,9 @@ test("security checker blocks disallowed tags", () => {
   const result = checker.checkPlan(plan);
 
   assert.equal(result.safe, false);
-  assert.ok(result.issues.some((issue) => issue.includes("Blocked tag detected")));
+  assert.ok(
+    result.issues.some((issue) => issue.includes("Blocked tag detected")),
+  );
   assert.ok(result.diagnostics.length > 0);
 });
 
@@ -43,8 +52,8 @@ test("security checker blocks non-allowlisted network hosts", () => {
   assert.equal(result.safe, false);
   assert.ok(
     result.issues.some((issue) =>
-      issue.includes("Requested network host is not allowed")
-    )
+      issue.includes("Requested network host is not allowed"),
+    ),
   );
 });
 
@@ -80,7 +89,9 @@ test("security checker blocks unsafe state action paths", () => {
 
   const result = checker.checkPlan(plan);
   assert.equal(result.safe, false);
-  assert.ok(result.issues.some((issue) => issue.includes("Unsafe action path")));
+  assert.ok(
+    result.issues.some((issue) => issue.includes("Unsafe action path")),
+  );
 });
 
 test("security checker enforces capability quota limits", () => {
@@ -101,7 +112,7 @@ test("security checker enforces capability quota limits", () => {
   assert.ok(result.issues.some((issue) => issue.includes("maxImports")));
   assert.ok(result.issues.some((issue) => issue.includes("maxExecutionMs")));
   assert.ok(
-    result.issues.some((issue) => issue.includes("maxComponentInvocations"))
+    result.issues.some((issue) => issue.includes("maxComponentInvocations")),
   );
 });
 
@@ -135,7 +146,10 @@ test("security checker supports profile initialization", () => {
   checker.initialize({ profile: "strict" });
 
   const strictPolicy = checker.getPolicy();
-  assert.equal(strictPolicy.maxTreeDepth, getSecurityProfilePolicy("strict").maxTreeDepth);
+  assert.equal(
+    strictPolicy.maxTreeDepth,
+    getSecurityProfilePolicy("strict").maxTreeDepth,
+  );
   assert.equal(checker.getProfile(), "strict");
 });
 
@@ -157,9 +171,7 @@ test("security checker validates requested execution profile", () => {
 
   const result = checker.checkPlan(plan);
   assert.equal(result.safe, false);
-  assert.ok(
-    result.issues.some((issue) => issue.includes("executionProfile"))
-  );
+  assert.ok(result.issues.some((issue) => issue.includes("executionProfile")));
 });
 
 test("security checker can disable runtime source modules via policy", () => {
@@ -178,7 +190,69 @@ test("security checker can disable runtime source modules via policy", () => {
   assert.equal(result.safe, false);
   assert.ok(
     result.issues.some((issue) =>
-      issue.includes("Runtime source modules are disabled")
-    )
+      issue.includes("Runtime source modules are disabled"),
+    ),
   );
+});
+
+test("security checker requires moduleManifest for bare imports", () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize();
+
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "plan_manifest_required",
+    version: 1,
+    root: createComponentNode("npm:acme/card"),
+    capabilities: {
+      domWrite: true,
+    },
+    imports: ["npm:acme/card"],
+  };
+
+  const result = checker.checkPlan(plan);
+  assert.equal(result.safe, false);
+  assert.ok(
+    result.issues.some((issue) => issue.includes("moduleManifest entry")),
+  );
+});
+
+test("security checker strict profile requires integrity for remote modules", () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize({ profile: "strict" });
+
+  const plan = createPlan("section");
+  plan.imports = ["npm:nanoid@5"];
+  plan.moduleManifest = {
+    "npm:nanoid@5": {
+      resolvedUrl: "https://ga.jspm.io/npm/nanoid@5",
+      signer: "tests",
+    },
+  };
+
+  const result = checker.checkPlan(plan);
+  assert.equal(result.safe, false);
+  assert.ok(
+    result.issues.some((issue) => issue.includes("requires integrity")),
+  );
+});
+
+test("security checker blocks banned runtime source patterns", () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize();
+
+  const plan = createPlan("section");
+  plan.source = {
+    language: "js",
+    code: [
+      "export default () => {",
+      '  eval("1+1");',
+      '  return { type: "text", value: "ok" };',
+      "};",
+    ].join("\n"),
+  };
+
+  const result = checker.checkPlan(plan);
+  assert.equal(result.safe, false);
+  assert.ok(result.issues.some((issue) => issue.includes("blocked pattern")));
 });

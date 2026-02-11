@@ -58,6 +58,10 @@ const RUNTIME_PLAN_JSON_SCHEMA = {
   additionalProperties: true,
   required: ["id", "version", "root", "capabilities"],
   properties: {
+    specVersion: {
+      type: "string",
+      minLength: 1,
+    },
     id: {
       type: "string",
       minLength: 1,
@@ -80,6 +84,20 @@ const RUNTIME_PLAN_JSON_SCHEMA = {
         type: "string",
       },
     },
+    moduleManifest: {
+      type: "object",
+      additionalProperties: {
+        type: "object",
+        additionalProperties: false,
+        required: ["resolvedUrl"],
+        properties: {
+          resolvedUrl: { type: "string", minLength: 1 },
+          integrity: { type: "string", minLength: 1 },
+          version: { type: "string", minLength: 1 },
+          signer: { type: "string", minLength: 1 },
+        },
+      },
+    },
     metadata: {
       type: "object",
       additionalProperties: true,
@@ -100,14 +118,14 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
       OpenAILLMInterpreterOptions,
       "baseUrl" | "model" | "timeoutMs" | "fetchImpl"
     > = {
-      baseUrl: DEFAULT_BASE_URL,
-      model: DEFAULT_MODEL,
-      timeoutMs: DEFAULT_TIMEOUT_MS,
-      apiKey: undefined,
-      organization: undefined,
-      project: undefined,
-      systemPrompt: undefined,
-    };
+    baseUrl: DEFAULT_BASE_URL,
+    model: DEFAULT_MODEL,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    apiKey: undefined,
+    organization: undefined,
+    project: undefined,
+    systemPrompt: undefined,
+  };
   private fetchImpl: typeof fetch | undefined;
 
   constructor(options: OpenAILLMInterpreterOptions = {}) {
@@ -124,14 +142,14 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
     const organization = this.pickString(
       options,
       "organization",
-      "openaiOrganization"
+      "openaiOrganization",
     );
     const project = this.pickString(options, "project", "openaiProject");
     const systemPrompt = this.pickString(options, "systemPrompt");
     const timeoutMs = this.pickPositiveInt(
       options,
       "timeoutMs",
-      "llmRequestTimeoutMs"
+      "llmRequestTimeoutMs",
     );
     const fetchImpl = this.pickFetch(options, "fetchImpl");
 
@@ -174,7 +192,7 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
   }
 
   async generateStructuredResponse<T = unknown>(
-    req: LLMStructuredRequest
+    req: LLMStructuredRequest,
   ): Promise<LLMStructuredResponse<T>> {
     if (req.format !== "runtime-plan") {
       return {
@@ -284,14 +302,14 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
   }
 
   private async requestChatCompletions(
-    body: Record<string, unknown>
+    body: Record<string, unknown>,
   ): Promise<OpenAIChatCompletionsPayload> {
     const fetchImpl = this.resolveFetch();
     const apiKey = this.options.apiKey;
 
     if (!apiKey || apiKey.trim().length === 0) {
       throw new Error(
-        "OpenAI apiKey is missing. Set RENDERIFY_LLM_API_KEY or configure apiKey."
+        "OpenAI apiKey is missing. Set RENDERIFY_LLM_API_KEY or configure apiKey.",
       );
     }
 
@@ -308,13 +326,13 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
           headers: this.createHeaders(apiKey),
           body: JSON.stringify(body),
           signal: controller.signal,
-        }
+        },
       );
 
       if (!response.ok) {
         const details = await this.readErrorResponse(response);
         throw new Error(
-          `OpenAI request failed (${response.status}): ${details}`
+          `OpenAI request failed (${response.status}): ${details}`,
         );
       }
 
@@ -327,7 +345,7 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
         throw new Error(
-          `OpenAI request timed out after ${this.options.timeoutMs}ms`
+          `OpenAI request timed out after ${this.options.timeoutMs}ms`,
         );
       }
       throw error;
@@ -409,7 +427,7 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
   }
 
   private extractOutput(
-    payload: OpenAIChatCompletionsPayload
+    payload: OpenAIChatCompletionsPayload,
   ): OpenAIExtractedOutput {
     const choice = payload.choices?.[0];
     if (!choice || !choice.message) {
@@ -448,7 +466,7 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
   }
 
   private tryParseJson(
-    raw: string
+    raw: string,
   ): { ok: true; value: unknown } | { ok: false; error: string } {
     const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
     const payload = fenced ? fenced[1] : raw;
@@ -494,7 +512,7 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
     }
 
     throw new Error(
-      "Global fetch is unavailable. Provide fetchImpl in OpenAILLMInterpreter options."
+      "Global fetch is unavailable. Provide fetchImpl in OpenAILLMInterpreter options.",
     );
   }
 
@@ -535,7 +553,7 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
 
   private pickFetch(
     source: Record<string, unknown>,
-    key: string
+    key: string,
   ): typeof fetch | undefined {
     const value = source[key];
     if (typeof value === "function") {
