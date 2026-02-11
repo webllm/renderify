@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  createElementNode,
   createTextNode,
   type RuntimeExecutionResult,
 } from "../packages/ir/src/index";
@@ -29,4 +30,44 @@ test("ui renderer can stringify preact render artifacts", async () => {
   const html = await renderer.render(result);
   assert.match(html, /<section/);
   assert.match(html, /hello preact/);
+});
+
+test("ui renderer serializes runtime event props into delegated attributes", () => {
+  const renderer = new DefaultUIRenderer();
+  const html = renderer.renderNode(
+    createElementNode(
+      "button",
+      {
+        class: "primary",
+        onClick: "increment",
+      },
+      [createTextNode("Increase")],
+    ),
+  );
+
+  assert.match(html, /data-renderify-event-click=/);
+  assert.match(html, /class="primary"/);
+  assert.match(html, /Increase/);
+  assert.doesNotMatch(html, /onClick/);
+});
+
+test("ui renderer supports structured runtime event payload props", () => {
+  const renderer = new DefaultUIRenderer();
+  const html = renderer.renderNode(
+    createElementNode(
+      "button",
+      {
+        onClick: {
+          type: "setMetric",
+          payload: {
+            metric: "users",
+          },
+        },
+      },
+      [createTextNode("Users")],
+    ),
+  );
+
+  assert.match(html, /data-renderify-event-click=/);
+  assert.match(html, /Users/);
 });
