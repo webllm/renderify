@@ -225,7 +225,7 @@ jobs:
         run: pnpm bench:ci
 
       - name: Upload benchmark artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: benchmark-results
           path: .artifacts/benchmarks/*.json
