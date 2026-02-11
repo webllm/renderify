@@ -81,6 +81,6 @@
     ]
   },
   "lint-staged": {
-    "*.{js,cjs,mjs,ts,tsx,json,md,yml,yaml}": "biome check --write"
+    "*.{js,cjs,mjs,ts,tsx,json,md,yml,yaml}": "biome check --write --files-ignore-unknown=true --no-errors-on-unmatched"
   }
 }

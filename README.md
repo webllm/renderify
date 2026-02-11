@@ -19,16 +19,16 @@ Renderify focuses on:
 ## Runtime Pipeline
 
 ```mermaid
-graph TD
-    A[Prompt / Context] --> B[@renderify/llm-interpreter]
-    B --> C[@renderify/codegen]
-    C --> D[@renderify/ir Runtime Plan]
-    D --> E[@renderify/security Policy Checker]
-    E --> F[@renderify/runtime Executor]
-    F --> G[@renderify/ui Renderer]
-    F --> H[@renderify/runtime-jspm Module Loader]
-    H --> I[JSPM CDN / SystemJS]
-    J[@renderify/customization Plugins] --> B
+flowchart TD
+    A["Prompt / Context"] --> B["@renderify/llm-interpreter"]
+    B --> C["@renderify/codegen"]
+    C --> D["@renderify/ir Runtime Plan"]
+    D --> E["@renderify/security Policy Checker"]
+    E --> F["@renderify/runtime Executor"]
+    F --> G["@renderify/ui Renderer"]
+    F --> H["@renderify/runtime-jspm Module Loader"]
+    H --> I["JSPM CDN / SystemJS"]
+    J["@renderify/customization Plugins"] --> B
     J --> C
     J --> E
     J --> F
