@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Renderify Runtime Browser Example</title>
+    <style>
+      :root {
+        --bg: #f5f7fb;
+        --panel: #ffffff;
+        --text: #132238;
+        --muted: #4f6075;
+        --line: #d9e0ea;
+        --primary: #0f766e;
+        --primary-hover: #0b5b55;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+        color: var(--text);
+        background: radial-gradient(circle at 10% 20%, #dff6f3 0%, var(--bg) 42%);
+      }
+
+      .page {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+
+      h1 {
+        margin: 0 0 8px;
+        font-size: 24px;
+      }
+
+      .hint {
+        margin: 0 0 16px;
+        color: var(--muted);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 14px;
+        min-height: 160px;
+      }
+
+      .panel h2 {
+        margin: 0 0 10px;
+        font-size: 16px;
+      }
+
+      textarea {
+        width: 100%;
+        min-height: 86px;
+        resize: vertical;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 10px;
+        font: inherit;
+      }
+
+      .actions {
+        margin-top: 10px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      button {
+        border: 1px solid var(--primary);
+        background: var(--primary);
+        color: #fff;
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      button:hover {
+        background: var(--primary-hover);
+        border-color: var(--primary-hover);
+      }
+
+      button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      .secondary {
+        color: var(--text);
+        background: #fff;
+        border-color: var(--line);
+      }
+
+      .secondary:hover {
+        background: #f2f6fc;
+        border-color: #c5d2e4;
+      }
+
+      .status {
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .result {
+        border: 1px dashed #bdd4ca;
+        border-radius: 8px;
+        padding: 10px;
+        min-height: 70px;
+        background: #fbfffe;
+      }
+
+      pre {
+        margin: 0;
+        max-height: 280px;
+        overflow: auto;
+        background: #0d1b2b;
+        color: #d5e8ff;
+        border-radius: 8px;
+        padding: 10px;
+        font-size: 12px;
+      }
+
+      @media (max-width: 920px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <h1>Renderify Runtime 浏览器示例</h1>
+      <p class="hint">
+        这个页面不依赖打包器，直接使用本地 UMD bundle。默认使用 mock LLM，
+        输入带 “counter” 的 prompt 可触发状态化计数计划。
+      </p>
+
+      <div class="grid">
+        <section class="panel">
+          <h2>Prompt</h2>
+          <textarea id="promptInput">Generate a runtime counter section</textarea>
+          <div class="actions">
+            <button id="renderPromptButton">Render Prompt</button>
+            <button id="incrementButton" class="secondary" disabled>
+              Dispatch increment
+            </button>
+            <button id="clearButton" class="secondary">Clear</button>
+          </div>
+          <div id="status" class="status">Booting Renderify runtime...</div>
+        </section>
+
+        <section class="panel">
+          <h2>Rendered HTML</h2>
+          <div id="renderResult" class="result"></div>
+        </section>
+
+        <section class="panel">
+          <h2>Runtime Plan</h2>
+          <pre id="planJson">{}</pre>
+        </section>
+
+        <section class="panel">
+          <h2>State</h2>
+          <pre id="stateJson">{}</pre>
+        </section>
+      </div>
+    </div>
+
+    <script src="../../packages/config/dist/config.umd.min.js"></script>
+    <script src="../../packages/context/dist/context.umd.min.js"></script>
+    <script src="../../packages/llm-interpreter/dist/llm-interpreter.umd.min.js"></script>
+    <script src="../../packages/codegen/dist/codegen.umd.min.js"></script>
+    <script src="../../packages/runtime/dist/runtime.umd.min.js"></script>
+    <script src="../../packages/security/dist/security.umd.min.js"></script>
+    <script src="../../packages/performance/dist/performance.umd.min.js"></script>
+    <script src="../../packages/ui/dist/ui.umd.min.js"></script>
+    <script src="../../packages/customization/dist/customization.umd.min.js"></script>
+    <script src="../../packages/core/dist/core.umd.min.js"></script>
+
+    <script>
+      (async function () {
+        const statusEl = document.getElementById("status");
+        const promptInput = document.getElementById("promptInput");
+        const renderButton = document.getElementById("renderPromptButton");
+        const incrementButton = document.getElementById("incrementButton");
+        const clearButton = document.getElementById("clearButton");
+        const renderResultEl = document.getElementById("renderResult");
+        const planJsonEl = document.getElementById("planJson");
+        const stateJsonEl = document.getElementById("stateJson");
+
+        let app;
+        let currentPlanId = "";
+
+        function setBusy(busy) {
+          renderButton.disabled = busy;
+          clearButton.disabled = busy;
+          incrementButton.disabled = busy || !currentPlanId;
+        }
+
+        function setStatus(text) {
+          statusEl.textContent = text;
+        }
+
+        function toJson(value) {
+          return JSON.stringify(value ?? {}, null, 2);
+        }
+
+        try {
+          app = RenderifyCore.createRenderifyApp({
+            config: new RenderifyConfig.DefaultRenderifyConfig(),
+            context: new RenderifyContext.DefaultContextManager(),
+            llm: new RenderifyLLMInterpreter.DefaultLLMInterpreter(),
+            codegen: new RenderifyCodegen.DefaultCodeGenerator(),
+            runtime: new RenderifyRuntime.DefaultRuntimeManager(),
+            security: new RenderifySecurity.DefaultSecurityChecker(),
+            performance: new RenderifyPerformance.DefaultPerformanceOptimizer(),
+            ui: new RenderifyUI.DefaultUIRenderer(),
+            customization: new RenderifyCustomization.DefaultCustomizationEngine(),
+          });
+
+          await app.start();
+          setStatus("Renderify runtime ready.");
+        } catch (error) {
+          setStatus("Boot failed: " + (error && error.message ? error.message : String(error)));
+          setBusy(true);
+          return;
+        }
+
+        renderButton.addEventListener("click", async function () {
+          const prompt = promptInput.value.trim();
+          if (!prompt) {
+            setStatus("Prompt 不能为空。");
+            return;
+          }
+
+          setBusy(true);
+          setStatus("Rendering prompt...");
+
+          try {
+            const result = await app.renderPrompt(prompt);
+            currentPlanId = result.plan.id;
+            renderResultEl.innerHTML = result.html;
+            planJsonEl.textContent = toJson(result.plan);
+            stateJsonEl.textContent = toJson(app.getPlanState(currentPlanId));
+            setStatus(
+              "Rendered. planId=" +
+                result.plan.id +
+                " version=" +
+                result.plan.version
+            );
+          } catch (error) {
+            setStatus("Render failed: " + (error && error.message ? error.message : String(error)));
+          } finally {
+            setBusy(false);
+          }
+        });
+
+        incrementButton.addEventListener("click", async function () {
+          if (!currentPlanId) {
+            setStatus("请先执行 Render Prompt。");
+            return;
+          }
+
+          setBusy(true);
+          setStatus("Dispatching increment...");
+
+          try {
+            const result = await app.dispatchEvent(currentPlanId, {
+              type: "increment",
+              payload: { delta: 1 },
+            });
+            renderResultEl.innerHTML = result.html;
+            stateJsonEl.textContent = toJson(app.getPlanState(currentPlanId));
+            setStatus("Increment dispatched.");
+          } catch (error) {
+            setStatus("Dispatch failed: " + (error && error.message ? error.message : String(error)));
+          } finally {
+            setBusy(false);
+          }
+        });
+
+        clearButton.addEventListener("click", function () {
+          currentPlanId = "";
+          renderResultEl.innerHTML = "";
+          planJsonEl.textContent = "{}";
+          stateJsonEl.textContent = "{}";
+          setStatus("Cleared.");
+          setBusy(false);
+        });
+
+        window.addEventListener("beforeunload", function () {
+          if (app && typeof app.stop === "function") {
+            app.stop().catch(function () {});
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>

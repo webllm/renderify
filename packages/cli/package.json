@@ -1,0 +1,52 @@
+{
+  "name": "@renderify/cli",
+  "version": "0.0.1",
+  "main": "dist/cli.cjs.js",
+  "module": "dist/cli.esm.js",
+  "exports": {
+    ".": {
+      "types": {
+        "import": "./dist/cli.cjs.mjs",
+        "default": "./dist/cli.cjs.js"
+      },
+      "module": "./dist/cli.esm.js",
+      "import": "./dist/cli.cjs.mjs",
+      "default": "./dist/cli.cjs.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "bin"
+  ],
+  "preconstruct": {
+    "entrypoints": [
+      "index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "unadlib",
+  "license": "MIT",
+  "description": "A CLI for Renderify",
+  "dependencies": {
+    "@renderify/api-integration": "0.0.1",
+    "@renderify/codegen": "0.0.1",
+    "@renderify/config": "0.0.1",
+    "@renderify/context": "0.0.1",
+    "@renderify/core": "0.0.1",
+    "@renderify/customization": "0.0.1",
+    "@renderify/ir": "0.0.1",
+    "@renderify/llm-interpreter": "0.0.1",
+    "@renderify/llm-openai": "0.0.1",
+    "@renderify/performance": "0.0.1",
+    "@renderify/runtime": "0.0.1",
+    "@renderify/runtime-jspm": "0.0.1",
+    "@renderify/security": "0.0.1",
+    "@renderify/ui": "0.0.1"
+  },
+  "bin": {
+    "renderify": "bin/renderify.js"
+  }
+}

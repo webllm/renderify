@@ -1,0 +1,34 @@
+{
+  "name": "@renderify/api-integration",
+  "version": "0.0.1",
+  "main": "dist/api-integration.cjs.js",
+  "module": "dist/api-integration.esm.js",
+  "umd:main": "dist/api-integration.umd.min.js",
+  "exports": {
+    ".": {
+      "types": {
+        "import": "./dist/api-integration.cjs.mjs",
+        "default": "./dist/api-integration.cjs.js"
+      },
+      "module": "./dist/api-integration.esm.js",
+      "import": "./dist/api-integration.cjs.mjs",
+      "default": "./dist/api-integration.cjs.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "preconstruct": {
+    "umdName": "RenderifyApiIntegration",
+    "entrypoints": [
+      "index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "unadlib",
+  "license": "MIT",
+  "description": "An API integration module for Renderify"
+}

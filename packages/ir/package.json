@@ -1,0 +1,34 @@
+{
+  "name": "@renderify/ir",
+  "version": "0.0.1",
+  "main": "dist/ir.cjs.js",
+  "module": "dist/ir.esm.js",
+  "umd:main": "dist/ir.umd.min.js",
+  "exports": {
+    ".": {
+      "types": {
+        "import": "./dist/ir.cjs.mjs",
+        "default": "./dist/ir.cjs.js"
+      },
+      "module": "./dist/ir.esm.js",
+      "import": "./dist/ir.cjs.mjs",
+      "default": "./dist/ir.cjs.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "preconstruct": {
+    "umdName": "RenderifyIR",
+    "entrypoints": [
+      "index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "unadlib",
+  "license": "MIT",
+  "description": "Runtime IR contracts for Renderify"
+}

@@ -1,0 +1,34 @@
+{
+  "name": "@renderify/customization",
+  "version": "0.0.1",
+  "main": "dist/customization.cjs.js",
+  "module": "dist/customization.esm.js",
+  "umd:main": "dist/customization.umd.min.js",
+  "exports": {
+    ".": {
+      "types": {
+        "import": "./dist/customization.cjs.mjs",
+        "default": "./dist/customization.cjs.js"
+      },
+      "module": "./dist/customization.esm.js",
+      "import": "./dist/customization.cjs.mjs",
+      "default": "./dist/customization.cjs.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "preconstruct": {
+    "umdName": "RenderifyCustomization",
+    "entrypoints": [
+      "index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "unadlib",
+  "license": "MIT",
+  "description": "A customization module for Renderify"
+}

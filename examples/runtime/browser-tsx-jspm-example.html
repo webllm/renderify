@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Renderify TSX Runtime + Babel + JSPM Example</title>
+    <style>
+      :root {
+        --bg: #f6f8fc;
+        --panel: #ffffff;
+        --line: #d6dfeb;
+        --text: #15263a;
+        --muted: #54667e;
+        --brand: #0f766e;
+        --brand-hover: #0d615a;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: radial-gradient(circle at top left, #d8f6ef 0%, var(--bg) 48%);
+        color: var(--text);
+        font-family: ui-sans-serif, -apple-system, system-ui, "Segoe UI", sans-serif;
+      }
+      .page {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      h1 {
+        margin: 0 0 8px;
+        font-size: 24px;
+      }
+      .desc {
+        margin: 0 0 16px;
+        color: var(--muted);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--panel);
+        padding: 14px;
+      }
+      .panel h2 {
+        margin: 0 0 10px;
+        font-size: 16px;
+      }
+      textarea {
+        width: 100%;
+        min-height: 88px;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        resize: vertical;
+        font: inherit;
+      }
+      .actions {
+        margin-top: 10px;
+        display: flex;
+        gap: 8px;
+      }
+      button {
+        border: 1px solid var(--brand);
+        background: var(--brand);
+        color: #fff;
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:hover {
+        border-color: var(--brand-hover);
+        background: var(--brand-hover);
+      }
+      button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .status {
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .result {
+        border: 1px dashed #b8d6cd;
+        border-radius: 8px;
+        background: #fbfffe;
+        min-height: 80px;
+        padding: 10px;
+      }
+      pre {
+        margin: 0;
+        max-height: 300px;
+        overflow: auto;
+        border-radius: 8px;
+        padding: 10px;
+        background: #102137;
+        color: #d5e8ff;
+        font-size: 12px;
+      }
+      @media (max-width: 920px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <h1>Renderify: LLM 产出 TSX -> Runtime Babel -> JSPM 直接执行</h1>
+      <p class="desc">
+        这个示例会让 LLM 返回 <code>```tsx</code> 代码块。Renderify 会在运行时用 Babel 转译，
+        然后通过 JSPM 解析依赖并直接执行，不需要构建发布。
+      </p>
+
+      <div class="grid">
+        <section class="panel">
+          <h2>Prompt</h2>
+          <textarea id="promptInput">Build a runtime greeting card</textarea>
+          <div class="actions">
+            <button id="runButton">Render TSX</button>
+          </div>
+          <div id="status" class="status">Initializing...</div>
+        </section>
+
+        <section class="panel">
+          <h2>Rendered HTML</h2>
+          <div id="renderResult" class="result"></div>
+        </section>
+
+        <section class="panel">
+          <h2>RuntimePlan</h2>
+          <pre id="planJson">{}</pre>
+        </section>
+
+        <section class="panel">
+          <h2>TSX Source (from LLM)</h2>
+          <pre id="sourceCode">{}</pre>
+        </section>
+      </div>
+    </div>
+
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <script src="../../packages/config/dist/config.umd.min.js"></script>
+    <script src="../../packages/context/dist/context.umd.min.js"></script>
+    <script src="../../packages/llm-interpreter/dist/llm-interpreter.umd.min.js"></script>
+    <script src="../../packages/codegen/dist/codegen.umd.min.js"></script>
+    <script src="../../packages/runtime/dist/runtime.umd.min.js"></script>
+    <script src="../../packages/runtime-jspm/dist/runtime-jspm.umd.min.js"></script>
+    <script src="../../packages/security/dist/security.umd.min.js"></script>
+    <script src="../../packages/performance/dist/performance.umd.min.js"></script>
+    <script src="../../packages/ui/dist/ui.umd.min.js"></script>
+    <script src="../../packages/customization/dist/customization.umd.min.js"></script>
+    <script src="../../packages/core/dist/core.umd.min.js"></script>
+
+    <script>
+      (async function () {
+        const promptInput = document.getElementById("promptInput");
+        const runButton = document.getElementById("runButton");
+        const statusEl = document.getElementById("status");
+        const renderResultEl = document.getElementById("renderResult");
+        const planJsonEl = document.getElementById("planJson");
+        const sourceCodeEl = document.getElementById("sourceCode");
+
+        class BrowserExampleConfig extends RenderifyConfig.DefaultRenderifyConfig {
+          async load(overrides) {
+            await super.load(overrides);
+            this.set("llmUseStructuredOutput", false);
+          }
+        }
+
+        class TsxDemoLLM {
+          constructor() {
+            this.templates = new Map();
+          }
+          configure() {}
+          setPromptTemplate(name, template) {
+            this.templates.set(name, template);
+          }
+          getPromptTemplate(name) {
+            return this.templates.get(name);
+          }
+          async generateResponse(req) {
+            const safePrompt = JSON.stringify(req.prompt);
+            const tsx = [
+              "```tsx",
+              'import { nanoid } from "npm:nanoid@5";',
+              "",
+              "export default () => (",
+              "  <section>",
+              `    <h2>${safePrompt}</h2>`,
+              "    <p>This UI is generated from TSX at runtime.</p>",
+              "    <p>id: {nanoid(6)}</p>",
+              "  </section>",
+              ");",
+              "```",
+            ].join("\\n");
+
+            return {
+              text: tsx,
+              model: "tsx-demo-llm",
+              raw: { mode: "text-tsx" },
+            };
+          }
+        }
+
+        const app = RenderifyCore.createRenderifyApp({
+          config: new BrowserExampleConfig(),
+          context: new RenderifyContext.DefaultContextManager(),
+          llm: new TsxDemoLLM(),
+          codegen: new RenderifyCodegen.DefaultCodeGenerator(),
+          runtime: new RenderifyRuntime.DefaultRuntimeManager({
+            moduleLoader: new RenderifyRuntimeJspm.JspmModuleLoader(),
+          }),
+          security: new RenderifySecurity.DefaultSecurityChecker(),
+          performance: new RenderifyPerformance.DefaultPerformanceOptimizer(),
+          ui: new RenderifyUI.DefaultUIRenderer(),
+          customization: new RenderifyCustomization.DefaultCustomizationEngine(),
+        });
+
+        function setStatus(text) {
+          statusEl.textContent = text;
+        }
+
+        function setBusy(flag) {
+          runButton.disabled = flag;
+        }
+
+        setBusy(true);
+        try {
+          await app.start();
+          setStatus("Ready. Click Render TSX.");
+        } catch (error) {
+          setStatus("Boot failed: " + (error && error.message ? error.message : String(error)));
+          return;
+        } finally {
+          setBusy(false);
+        }
+
+        runButton.addEventListener("click", async () => {
+          setBusy(true);
+          setStatus("Rendering TSX runtime...");
+          try {
+            const result = await app.renderPrompt(promptInput.value.trim());
+            renderResultEl.innerHTML = result.html;
+            planJsonEl.textContent = JSON.stringify(result.plan, null, 2);
+            sourceCodeEl.textContent = result.plan.source
+              ? result.plan.source.code
+              : "(no source module)";
+            setStatus("Rendered successfully. planId=" + result.plan.id);
+          } catch (error) {
+            setStatus("Render failed: " + (error && error.message ? error.message : String(error)));
+          } finally {
+            setBusy(false);
+          }
+        });
+
+        window.addEventListener("beforeunload", () => {
+          app.stop().catch(() => {});
+        });
+      })();
+    </script>
+  </body>
+</html>

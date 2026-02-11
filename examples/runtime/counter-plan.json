@@ -1,0 +1,91 @@
+{
+  "id": "example_counter_plan",
+  "version": 1,
+  "capabilities": {
+    "domWrite": true,
+    "maxExecutionMs": 1000,
+    "maxComponentInvocations": 50
+  },
+  "state": {
+    "initial": {
+      "count": 0,
+      "history": []
+    },
+    "transitions": {
+      "increment": [
+        {
+          "type": "increment",
+          "path": "count",
+          "by": 1
+        },
+        {
+          "type": "push",
+          "path": "history",
+          "value": {
+            "$from": "state.count"
+          }
+        }
+      ],
+      "set": [
+        {
+          "type": "set",
+          "path": "count",
+          "value": {
+            "$from": "event.payload.value"
+          }
+        }
+      ],
+      "reset": [
+        {
+          "type": "set",
+          "path": "count",
+          "value": 0
+        },
+        {
+          "type": "set",
+          "path": "history",
+          "value": []
+        }
+      ]
+    }
+  },
+  "root": {
+    "type": "element",
+    "tag": "section",
+    "props": {
+      "class": "runtime-counter"
+    },
+    "children": [
+      {
+        "type": "element",
+        "tag": "h2",
+        "children": [
+          {
+            "type": "text",
+            "value": "Runtime Counter"
+          }
+        ]
+      },
+      {
+        "type": "element",
+        "tag": "p",
+        "children": [
+          {
+            "type": "text",
+            "value": "Count: {{state.count}}"
+          }
+        ]
+      },
+      {
+        "type": "element",
+        "tag": "p",
+        "children": [
+          {
+            "type": "text",
+            "value": "History: {{state.history}}"
+          }
+        ]
+      }
+    ]
+  }
+}

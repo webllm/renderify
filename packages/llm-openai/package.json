@@ -1,0 +1,38 @@
+{
+  "name": "@renderify/llm-openai",
+  "version": "0.0.1",
+  "description": "OpenAI LLM adapter for Renderify",
+  "main": "dist/llm-openai.cjs.js",
+  "module": "dist/llm-openai.esm.js",
+  "umd:main": "dist/llm-openai.umd.min.js",
+  "exports": {
+    ".": {
+      "types": {
+        "import": "./dist/llm-openai.cjs.mjs",
+        "default": "./dist/llm-openai.cjs.js"
+      },
+      "module": "./dist/llm-openai.esm.js",
+      "import": "./dist/llm-openai.cjs.mjs",
+      "default": "./dist/llm-openai.cjs.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "preconstruct": {
+    "umdName": "RenderifyLLMOpenAI",
+    "entrypoints": [
+      "index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "unadlib",
+  "license": "MIT",
+  "dependencies": {
+    "@renderify/ir": "0.0.1",
+    "@renderify/llm-interpreter": "0.0.1"
+  }
+}

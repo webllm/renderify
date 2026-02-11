@@ -1,0 +1,37 @@
+{
+  "name": "@renderify/runtime",
+  "version": "0.0.1",
+  "main": "dist/runtime.cjs.js",
+  "module": "dist/runtime.esm.js",
+  "umd:main": "dist/runtime.umd.min.js",
+  "exports": {
+    ".": {
+      "types": {
+        "import": "./dist/runtime.cjs.mjs",
+        "default": "./dist/runtime.cjs.js"
+      },
+      "module": "./dist/runtime.esm.js",
+      "import": "./dist/runtime.cjs.mjs",
+      "default": "./dist/runtime.cjs.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "preconstruct": {
+    "umdName": "RenderifyRuntime",
+    "entrypoints": [
+      "index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "unadlib",
+  "license": "MIT",
+  "description": "A runtime for Renderify",
+  "dependencies": {
+    "@renderify/ir": "0.0.1"
+  }
+}

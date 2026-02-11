@@ -1,0 +1,34 @@
+{
+  "name": "@renderify/performance",
+  "version": "0.0.1",
+  "main": "dist/performance.cjs.js",
+  "module": "dist/performance.esm.js",
+  "umd:main": "dist/performance.umd.min.js",
+  "exports": {
+    ".": {
+      "types": {
+        "import": "./dist/performance.cjs.mjs",
+        "default": "./dist/performance.cjs.js"
+      },
+      "module": "./dist/performance.esm.js",
+      "import": "./dist/performance.cjs.mjs",
+      "default": "./dist/performance.cjs.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "preconstruct": {
+    "umdName": "RenderifyPerformance",
+    "entrypoints": [
+      "index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "unadlib",
+  "license": "MIT",
+  "description": "A performance optimizer for Renderify"
+}

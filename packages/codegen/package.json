@@ -1,0 +1,37 @@
+{
+  "name": "@renderify/codegen",
+  "version": "0.0.1",
+  "main": "dist/codegen.cjs.js",
+  "module": "dist/codegen.esm.js",
+  "umd:main": "dist/codegen.umd.min.js",
+  "exports": {
+    ".": {
+      "types": {
+        "import": "./dist/codegen.cjs.mjs",
+        "default": "./dist/codegen.cjs.js"
+      },
+      "module": "./dist/codegen.esm.js",
+      "import": "./dist/codegen.cjs.mjs",
+      "default": "./dist/codegen.cjs.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "preconstruct": {
+    "umdName": "RenderifyCodegen",
+    "entrypoints": [
+      "index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "unadlib",
+  "license": "MIT",
+  "description": "A code generation module for Renderify",
+  "dependencies": {
+    "@renderify/ir": "0.0.1"
+  }
+}

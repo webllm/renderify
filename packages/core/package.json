@@ -1,0 +1,47 @@
+{
+  "name": "@renderify/core",
+  "version": "0.0.1",
+  "main": "dist/core.cjs.js",
+  "module": "dist/core.esm.js",
+  "umd:main": "dist/core.umd.min.js",
+  "exports": {
+    ".": {
+      "types": {
+        "import": "./dist/core.cjs.mjs",
+        "default": "./dist/core.cjs.js"
+      },
+      "module": "./dist/core.esm.js",
+      "import": "./dist/core.cjs.mjs",
+      "default": "./dist/core.cjs.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "preconstruct": {
+    "umdName": "RenderifyCore",
+    "entrypoints": [
+      "index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "unadlib",
+  "license": "MIT",
+  "description": "The core module for Renderify",
+  "dependencies": {
+    "@renderify/api-integration": "0.0.1",
+    "@renderify/codegen": "0.0.1",
+    "@renderify/config": "0.0.1",
+    "@renderify/context": "0.0.1",
+    "@renderify/customization": "0.0.1",
+    "@renderify/ir": "0.0.1",
+    "@renderify/llm-interpreter": "0.0.1",
+    "@renderify/performance": "0.0.1",
+    "@renderify/runtime": "0.0.1",
+    "@renderify/security": "0.0.1",
+    "@renderify/ui": "0.0.1"
+  }
+}

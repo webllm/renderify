@@ -1,0 +1,34 @@
+{
+  "name": "@renderify/config",
+  "version": "0.0.1",
+  "main": "dist/config.cjs.js",
+  "module": "dist/config.esm.js",
+  "umd:main": "dist/config.umd.min.js",
+  "exports": {
+    ".": {
+      "types": {
+        "import": "./dist/config.cjs.mjs",
+        "default": "./dist/config.cjs.js"
+      },
+      "module": "./dist/config.esm.js",
+      "import": "./dist/config.cjs.mjs",
+      "default": "./dist/config.cjs.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "preconstruct": {
+    "umdName": "RenderifyConfig",
+    "entrypoints": [
+      "index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "unadlib",
+  "license": "MIT",
+  "description": "A configuration module for Renderify"
+}

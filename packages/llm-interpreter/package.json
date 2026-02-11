@@ -1,0 +1,34 @@
+{
+  "name": "@renderify/llm-interpreter",
+  "version": "0.0.1",
+  "description": "A LLM interpreter for Renderify",
+  "main": "dist/llm-interpreter.cjs.js",
+  "module": "dist/llm-interpreter.esm.js",
+  "umd:main": "dist/llm-interpreter.umd.min.js",
+  "exports": {
+    ".": {
+      "types": {
+        "import": "./dist/llm-interpreter.cjs.mjs",
+        "default": "./dist/llm-interpreter.cjs.js"
+      },
+      "module": "./dist/llm-interpreter.esm.js",
+      "import": "./dist/llm-interpreter.cjs.mjs",
+      "default": "./dist/llm-interpreter.cjs.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "preconstruct": {
+    "umdName": "RenderifyLLMInterpreter",
+    "entrypoints": [
+      "index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "unadlib",
+  "license": "MIT"
+}

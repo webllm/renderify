@@ -1,0 +1,37 @@
+{
+  "name": "@renderify/security",
+  "version": "0.0.1",
+  "main": "dist/security.cjs.js",
+  "module": "dist/security.esm.js",
+  "umd:main": "dist/security.umd.min.js",
+  "exports": {
+    ".": {
+      "types": {
+        "import": "./dist/security.cjs.mjs",
+        "default": "./dist/security.cjs.js"
+      },
+      "module": "./dist/security.esm.js",
+      "import": "./dist/security.cjs.mjs",
+      "default": "./dist/security.cjs.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "preconstruct": {
+    "umdName": "RenderifySecurity",
+    "entrypoints": [
+      "index.ts"
+    ]
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "unadlib",
+  "license": "MIT",
+  "description": "A security module for Renderify",
+  "dependencies": {
+    "@renderify/ir": "0.0.1"
+  }
+}
