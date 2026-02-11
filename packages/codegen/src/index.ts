@@ -15,6 +15,7 @@ import {
   type RuntimePlan,
   type RuntimePlanMetadata,
   type RuntimeSourceModule,
+  type RuntimeSourceRuntime,
   type RuntimeStateModel,
   resolveRuntimePlanSpecVersion,
 } from "@renderify/ir";
@@ -33,6 +34,17 @@ export interface CodeGenerator {
     transforms: Array<(plan: RuntimePlan) => RuntimePlan>,
   ): Promise<RuntimePlan>;
 }
+
+const JSPM_SPECIFIER_OVERRIDES: Record<string, string> = {
+  preact: "https://ga.jspm.io/npm:preact@10.28.3/dist/preact.module.js",
+  "preact/hooks":
+    "https://ga.jspm.io/npm:preact@10.28.3/hooks/dist/hooks.module.js",
+  "preact/compat":
+    "https://ga.jspm.io/npm:preact@10.28.3/compat/dist/compat.module.js",
+  react: "https://ga.jspm.io/npm:react@19.2.0/index.js",
+  "react-dom/client": "https://ga.jspm.io/npm:react-dom@19.2.0/client.js",
+  recharts: "https://ga.jspm.io/npm:recharts@3.3.0/es6/index.js",
+};
 
 export class DefaultCodeGenerator implements CodeGenerator {
   async generatePlan(input: CodeGenerationInput): Promise<RuntimePlan> {
@@ -108,6 +120,7 @@ export class DefaultCodeGenerator implements CodeGenerator {
   ): RuntimePlan {
     const imports =
       this.normalizeImports(input.imports) ?? collectComponentModules(root);
+    const source = this.normalizeSourceModule(input.source);
     const moduleManifest =
       this.normalizeModuleManifest(input.moduleManifest) ??
       this.createModuleManifestFromImports(imports);
@@ -131,7 +144,7 @@ export class DefaultCodeGenerator implements CodeGenerator {
       capabilities,
       ...(metadata ? { metadata } : {}),
       ...(input.state ? { state: input.state } : {}),
-      ...(input.source ? { source: input.source } : {}),
+      ...(source ? { source } : {}),
     };
   }
 
@@ -335,10 +348,10 @@ export class DefaultCodeGenerator implements CodeGenerator {
     }
 
     if (specifier.startsWith("npm:")) {
-      return `https://ga.jspm.io/npm/${specifier.slice(4)}`;
+      return this.resolveJspmSpecifier(specifier.slice(4));
     }
 
-    return `https://ga.jspm.io/npm/${specifier}`;
+    return this.resolveJspmSpecifier(specifier);
   }
 
   private extractVersionFromSpecifier(specifier: string): string | undefined {
@@ -388,11 +401,11 @@ export class DefaultCodeGenerator implements CodeGenerator {
       return undefined;
     }
 
-    return {
+    return this.normalizeSourceModule({
       language,
       code,
       exportName: "default",
-    };
+    });
   }
 
   private createSourcePlan(
@@ -400,6 +413,8 @@ export class DefaultCodeGenerator implements CodeGenerator {
     source: RuntimeSourceModule,
   ): RuntimePlan {
     const imports = this.parseImportsFromSource(source.code);
+    const normalizedSource = this.normalizeSourceModule(source);
+    const sourceRuntime = normalizedSource?.runtime ?? "renderify";
 
     return this.createPlanFromRoot(
       createElementNode("section", { class: "renderify-runtime-source-plan" }, [
@@ -417,9 +432,9 @@ export class DefaultCodeGenerator implements CodeGenerator {
         },
         metadata: {
           sourcePrompt: prompt,
-          tags: ["source-module", source.language],
+          tags: ["source-module", source.language, `runtime:${sourceRuntime}`],
         },
-        source,
+        source: normalizedSource,
       },
     );
   }
@@ -459,5 +474,81 @@ export class DefaultCodeGenerator implements CodeGenerator {
 
   private isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+
+  private normalizeSourceModule(
+    source?: RuntimeSourceModule,
+  ): RuntimeSourceModule | undefined {
+    if (!source) {
+      return undefined;
+    }
+
+    const runtime =
+      source.runtime ??
+      this.inferSourceRuntimeFromLanguage(source.language, source.code);
+
+    return {
+      ...source,
+      runtime,
+    };
+  }
+
+  private inferSourceRuntimeFromLanguage(
+    language: RuntimeSourceModule["language"],
+    code: string,
+  ): RuntimeSourceRuntime {
+    if (language === "jsx" || language === "tsx") {
+      return "preact";
+    }
+
+    if (
+      (language === "js" || language === "ts") &&
+      /from\s+["'](?:preact|react|recharts)["']/.test(code)
+    ) {
+      return "preact";
+    }
+
+    return "renderify";
+  }
+
+  private resolveJspmSpecifier(specifier: string): string {
+    const normalized = specifier.trim();
+    if (normalized.length === 0) {
+      return "https://ga.jspm.io/npm:missing/index.js";
+    }
+
+    const override = JSPM_SPECIFIER_OVERRIDES[normalized];
+    if (override) {
+      return override;
+    }
+
+    const withEntry = this.withDefaultJspmEntry(normalized);
+    return `https://ga.jspm.io/npm:${withEntry}`;
+  }
+
+  private withDefaultJspmEntry(specifier: string): string {
+    if (/\.[mc]?js$/i.test(specifier)) {
+      return specifier;
+    }
+
+    if (specifier.startsWith("@")) {
+      const secondSlash = specifier.indexOf("/", 1);
+      if (secondSlash === -1) {
+        return `${specifier}/index.js`;
+      }
+
+      const subpathSlash = specifier.indexOf("/", secondSlash + 1);
+      if (subpathSlash === -1) {
+        return `${specifier}/index.js`;
+      }
+
+      return `${specifier}.js`;
+    }
+
+    if (!specifier.includes("/")) {
+      return `${specifier}/index.js`;
+    }
+
+    return `${specifier}.js`;
   }
 }

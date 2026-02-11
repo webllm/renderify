@@ -448,3 +448,41 @@ test("runtime enforces moduleManifest for bare component specifiers by default",
 
   await runtime.terminate();
 });
+
+test("runtime emits preact render artifact for source.runtime=preact modules", async () => {
+  const runtime = new DefaultRuntimeManager({
+    sourceTranspiler: new PassthroughSourceTranspiler(),
+  });
+  await runtime.initialize();
+
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "runtime_preact_source_plan",
+    version: 1,
+    root: createElementNode("div", undefined, [createTextNode("fallback")]),
+    capabilities: {
+      domWrite: true,
+    },
+    state: {
+      initial: {
+        count: 4,
+      },
+    },
+    source: {
+      language: "js",
+      runtime: "preact",
+      code: [
+        "export default function Dashboard(props) {",
+        '  return { type: "section", props: { "data-kind": "dashboard" },',
+        "    children: [`count:${props.state.count}`] };",
+        "}",
+      ].join("\n"),
+    },
+  };
+
+  const result = await runtime.executePlan(plan);
+  assert.equal(result.renderArtifact?.mode, "preact-vnode");
+  assert.ok(result.renderArtifact?.payload);
+
+  await runtime.terminate();
+});

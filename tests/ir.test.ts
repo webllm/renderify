@@ -13,6 +13,7 @@ import {
   isRuntimeNode,
   isRuntimePlan,
   isRuntimeSourceModule,
+  isRuntimeSourceRuntime,
   isRuntimeStateModel,
   isSafePath,
   resolveRuntimePlanSpecVersion,
@@ -117,9 +118,13 @@ test("runtime plan/type guards validate structures", () => {
       language: "tsx",
       code: "export default () => <div/>",
       exportName: "default",
+      runtime: "preact",
     }),
     true,
   );
+  assert.equal(isRuntimeSourceRuntime("preact"), true);
+  assert.equal(isRuntimeSourceRuntime("renderify"), true);
+  assert.equal(isRuntimeSourceRuntime("react"), false);
   assert.equal(
     isRuntimePlan({
       ...plan,

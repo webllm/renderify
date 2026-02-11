@@ -17,6 +17,7 @@ import {
   type RuntimeModuleManifest,
   type RuntimeNode,
   type RuntimePlan,
+  type RuntimeRenderArtifact,
   type RuntimeSourceLanguage,
   type RuntimeSourceModule,
   type RuntimeStateSnapshot,
@@ -72,6 +73,7 @@ export interface RuntimeSourceTranspileInput {
   code: string;
   language: RuntimeSourceLanguage;
   filename?: string;
+  runtime?: RuntimeSourceModule["runtime"];
 }
 
 export interface RuntimeSourceTranspiler {
@@ -84,6 +86,11 @@ interface ExecutionFrame {
   maxComponentInvocations: number;
   componentInvocations: number;
   executionProfile: RuntimeExecutionProfile;
+}
+
+interface ResolvedSourceOutput {
+  root?: RuntimeNode;
+  renderArtifact?: RuntimeRenderArtifact;
 }
 
 export type RuntimeComponentFactory = (
@@ -182,14 +189,24 @@ export class BabelRuntimeSourceTranspiler implements RuntimeSourceTranspiler {
     }
 
     if (input.language === "jsx" || input.language === "tsx") {
-      presets.push([
-        "react",
-        {
-          runtime: "classic",
-          pragma: "__renderify_runtime_h",
-          pragmaFrag: "__renderify_runtime_fragment",
-        },
-      ]);
+      if (input.runtime === "preact") {
+        presets.push([
+          "react",
+          {
+            runtime: "automatic",
+            importSource: "preact",
+          },
+        ]);
+      } else {
+        presets.push([
+          "react",
+          {
+            runtime: "classic",
+            pragma: "__renderify_runtime_h",
+            pragmaFrag: "__renderify_runtime_fragment",
+          },
+        ]);
+      }
     }
 
     const transformed = babel.transform(input.code, {
@@ -397,9 +414,11 @@ export class DefaultRuntimeManager implements RuntimeManager {
         )
       : undefined;
 
-    const resolvedRoot = sourceRoot
+    const sourceRenderArtifact = sourceRoot?.renderArtifact;
+
+    const resolvedRoot = sourceRoot?.root
       ? await this.resolveNode(
-          sourceRoot,
+          sourceRoot.root,
           plan.moduleManifest,
           context,
           state,
@@ -426,6 +445,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
       state: cloneJsonValue(state),
       handledEvent: event,
       appliedActions,
+      ...(sourceRenderArtifact ? { renderArtifact: sourceRenderArtifact } : {}),
     };
   }
 
@@ -603,7 +623,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
     event: RuntimeEvent | undefined,
     diagnostics: RuntimeDiagnostic[],
     frame: ExecutionFrame,
-  ): Promise<RuntimeNode | undefined> {
+  ): Promise<ResolvedSourceOutput | undefined> {
     try {
       const transpiled = await this.withRemainingBudget(
         () => this.transpileRuntimeSource(source),
@@ -638,6 +658,19 @@ export class DefaultRuntimeManager implements RuntimeManager {
         event: event ? cloneJsonValue(asJsonValue(event)) : null,
       };
 
+      if (this.shouldUsePreactSourceRuntime(source)) {
+        const preactArtifact = await this.createPreactRenderArtifact(
+          selected,
+          runtimeInput,
+          diagnostics,
+        );
+        if (preactArtifact) {
+          return {
+            renderArtifact: preactArtifact,
+          };
+        }
+      }
+
       const produced =
         typeof selected === "function"
           ? await this.withRemainingBudget(
@@ -659,7 +692,9 @@ export class DefaultRuntimeManager implements RuntimeManager {
         return undefined;
       }
 
-      return normalized;
+      return {
+        root: normalized,
+      };
     } catch (error) {
       diagnostics.push({
         level: "error",
@@ -673,12 +708,79 @@ export class DefaultRuntimeManager implements RuntimeManager {
   private async transpileRuntimeSource(
     source: RuntimeSourceModule,
   ): Promise<string> {
-    const mergedSource = `${source.code}\n\n${RUNTIME_JSX_HELPERS}`;
+    const mergedSource =
+      source.runtime === "preact"
+        ? source.code
+        : `${source.code}\n\n${RUNTIME_JSX_HELPERS}`;
     return this.sourceTranspiler.transpile({
       code: mergedSource,
       language: source.language,
       filename: `renderify-runtime-source.${source.language}`,
+      runtime: source.runtime,
     });
+  }
+
+  private async createPreactRenderArtifact(
+    sourceExport: unknown,
+    runtimeInput: Record<string, JsonValue>,
+    diagnostics: RuntimeDiagnostic[],
+  ): Promise<RuntimeRenderArtifact | undefined> {
+    const preact = await this.loadPreactModule();
+    if (!preact) {
+      diagnostics.push({
+        level: "error",
+        code: "RUNTIME_PREACT_UNAVAILABLE",
+        message:
+          "source.runtime=preact requested but preact runtime is unavailable",
+      });
+      return undefined;
+    }
+
+    if (this.isPreactLikeVNode(sourceExport)) {
+      return {
+        mode: "preact-vnode",
+        payload: sourceExport,
+      };
+    }
+
+    if (typeof sourceExport !== "function") {
+      diagnostics.push({
+        level: "error",
+        code: "RUNTIME_PREACT_EXPORT_INVALID",
+        message: "source.runtime=preact requires a component export function",
+      });
+      return undefined;
+    }
+
+    try {
+      const vnode = preact.h(
+        sourceExport as (props: Record<string, JsonValue>) => unknown,
+        runtimeInput,
+      );
+
+      return {
+        mode: "preact-vnode",
+        payload: vnode,
+      };
+    } catch (error) {
+      diagnostics.push({
+        level: "error",
+        code: "RUNTIME_PREACT_VNODE_FAILED",
+        message: this.errorToMessage(error),
+      });
+      return undefined;
+    }
+  }
+
+  private shouldUsePreactSourceRuntime(source: RuntimeSourceModule): boolean {
+    if (source.runtime === "preact") {
+      return true;
+    }
+
+    return (
+      source.runtime === undefined &&
+      (source.language === "tsx" || source.language === "jsx")
+    );
   }
 
   private rewriteSourceImports(
@@ -1298,6 +1400,28 @@ export class DefaultRuntimeManager implements RuntimeManager {
     return record[exportName];
   }
 
+  private isPreactLikeVNode(value: unknown): boolean {
+    if (typeof value !== "object" || value === null) {
+      return false;
+    }
+
+    const record = value as Record<string, unknown>;
+    return "type" in record && "props" in record;
+  }
+
+  private async loadPreactModule(): Promise<PreactLikeModule | undefined> {
+    try {
+      const maybePreact = (await import(getPreactSpecifier())) as unknown;
+      if (!hasPreactFactory(maybePreact)) {
+        return undefined;
+      }
+
+      return maybePreact;
+    } catch {
+      return undefined;
+    }
+  }
+
   private async loadVmModule(): Promise<NodeVmModule | undefined> {
     if (
       typeof process === "undefined" ||
@@ -1412,6 +1536,10 @@ interface NodeVmModule {
   Script: new (code: string) => NodeVmScript;
 }
 
+interface PreactLikeModule {
+  h(type: unknown, props: unknown, ...children: unknown[]): unknown;
+}
+
 function hasVmScript(value: unknown): value is NodeVmModule {
   if (typeof value !== "object" || value === null) {
     return false;
@@ -1421,6 +1549,19 @@ function hasVmScript(value: unknown): value is NodeVmModule {
   return typeof candidate.Script === "function";
 }
 
+function hasPreactFactory(value: unknown): value is PreactLikeModule {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const candidate = value as { h?: unknown };
+  return typeof candidate.h === "function";
+}
+
 function getVmSpecifier(): string {
   return "node:vm";
+}
+
+function getPreactSpecifier(): string {
+  return "preact";
 }

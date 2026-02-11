@@ -217,6 +217,42 @@ test("security checker requires moduleManifest for bare imports", () => {
   );
 });
 
+test("security checker requires moduleManifest for bare capability modules", () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize();
+
+  const plan = createPlan("section");
+  plan.capabilities.allowedModules = ["preact"];
+
+  const result = checker.checkPlan(plan);
+  assert.equal(result.safe, false);
+  assert.ok(
+    result.issues.some((issue) => issue.includes("moduleManifest entry")),
+  );
+});
+
+test("security checker allows bare capability modules via moduleManifest", () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize();
+
+  const plan = createPlan("section");
+  plan.capabilities.allowedModules = ["preact", "recharts"];
+  plan.moduleManifest = {
+    preact: {
+      resolvedUrl:
+        "https://ga.jspm.io/npm:preact@10.28.3/dist/preact.module.js",
+      signer: "tests",
+    },
+    recharts: {
+      resolvedUrl: "https://ga.jspm.io/npm:recharts@3.3.0/es6/index.js",
+      signer: "tests",
+    },
+  };
+
+  const result = checker.checkPlan(plan);
+  assert.equal(result.safe, true, result.issues.join("; "));
+});
+
 test("security checker strict profile requires integrity for remote modules", () => {
   const checker = new DefaultSecurityChecker();
   checker.initialize({ profile: "strict" });

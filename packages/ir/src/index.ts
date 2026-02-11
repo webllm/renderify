@@ -34,11 +34,13 @@ export type RuntimeNode =
 export type RuntimeExecutionProfile = "standard" | "isolated-vm";
 
 export type RuntimeSourceLanguage = "js" | "jsx" | "ts" | "tsx";
+export type RuntimeSourceRuntime = "renderify" | "preact";
 
 export interface RuntimeSourceModule {
   code: string;
   language: RuntimeSourceLanguage;
   exportName?: string;
+  runtime?: RuntimeSourceRuntime;
 }
 
 export const RUNTIME_PLAN_SPEC_VERSION_V1 = "runtime-plan/v1";
@@ -145,6 +147,13 @@ export interface RuntimeDiagnostic {
   message: string;
 }
 
+export type RuntimeRenderArtifactMode = "preact-vnode";
+
+export interface RuntimeRenderArtifact {
+  mode: RuntimeRenderArtifactMode;
+  payload: unknown;
+}
+
 export interface RuntimeExecutionResult {
   planId: string;
   root: RuntimeNode;
@@ -152,6 +161,7 @@ export interface RuntimeExecutionResult {
   state?: RuntimeStateSnapshot;
   handledEvent?: RuntimeEvent;
   appliedActions?: RuntimeAction[];
+  renderArtifact?: RuntimeRenderArtifact;
 }
 
 export function createTextNode(value: string): RuntimeTextNode {
@@ -371,6 +381,12 @@ export function isRuntimeSourceLanguage(
   return value === "js" || value === "jsx" || value === "ts" || value === "tsx";
 }
 
+export function isRuntimeSourceRuntime(
+  value: unknown,
+): value is RuntimeSourceRuntime {
+  return value === "renderify" || value === "preact";
+}
+
 export function isRuntimeSourceModule(
   value: unknown,
 ): value is RuntimeSourceModule {
@@ -391,6 +407,10 @@ export function isRuntimeSourceModule(
     (typeof value.exportName !== "string" ||
       value.exportName.trim().length === 0)
   ) {
+    return false;
+  }
+
+  if (value.runtime !== undefined && !isRuntimeSourceRuntime(value.runtime)) {
     return false;
   }
 

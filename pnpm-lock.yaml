@@ -41,6 +41,9 @@ importers:
       lint-staged:
         specifier: ^16.2.7
         version: 16.2.7
+      preact:
+        specifier: ^10.28.3
+        version: 10.28.3
       tinybench:
         specifier: ^6.0.0
         version: 6.0.0
@@ -175,6 +178,9 @@ importers:
       '@renderify/ir':
         specifier: workspace:^
         version: link:../ir
+      preact:
+        specifier: ^10.28.3
+        version: 10.28.3
 
   packages/runtime-jspm:
     dependencies:
@@ -193,6 +199,12 @@ importers:
       '@renderify/ir':
         specifier: workspace:^
         version: link:../ir
+      preact:
+        specifier: ^10.28.3
+        version: 10.28.3
+      preact-render-to-string:
+        specifier: ^6.6.5
+        version: 6.6.5(preact@10.28.3)
 
 packages:
 
@@ -1966,6 +1978,14 @@ packages:
   pirates@4.0.7:
     resolution: {integrity: sha512-TfySrs/5nm8fQJDcBDuUng3VOUKsd7S+zqvbOTiGXHfxX4wK31ard+hoNuvkicM/2YFzlpDgABOevKSsB4G/FA==}
     engines: {node: '>= 6'}
+
+  preact-render-to-string@6.6.5:
+    resolution: {integrity: sha512-O6MHzYNIKYaiSX3bOw0gGZfEbOmlIDtDfWwN1JJdc/T3ihzRT6tGGSEWE088dWrEDGa1u7101q+6fzQnO9XCPA==}
+    peerDependencies:
+      preact: '>=10 || >= 11.0.0-0'
+
+  preact@10.28.3:
+    resolution: {integrity: sha512-tCmoRkPQLpBeWzpmbhryairGnhW9tKV6c6gr/w+RhoRoKEJwsjzipwp//1oCpGPOchvSLaAPlpcJi9MwMmoPyA==}
 
   prettier@2.8.8:
     resolution: {integrity: sha512-tdN8qQGvNjw4CHbY+XXk0JgCXn9QiF21a55rBe5LJAU+kDyC4WQn4+awm2Xfk2lQMk5fKup9XgzTZtGkjBdP9Q==}
@@ -4350,6 +4370,12 @@ snapshots:
   pify@4.0.1: {}
 
   pirates@4.0.7: {}
+
+  preact-render-to-string@6.6.5(preact@10.28.3):
+    dependencies:
+      preact: 10.28.3
+
+  preact@10.28.3: {}
 
   prettier@2.8.8: {}
 

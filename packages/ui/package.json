@@ -35,6 +35,8 @@
   "license": "MIT",
   "description": "A UI module for Renderify",
   "dependencies": {
-    "@renderify/ir": "workspace:^"
+    "@renderify/ir": "workspace:^",
+    "preact": "^10.28.3",
+    "preact-render-to-string": "^6.6.5"
   }
 }

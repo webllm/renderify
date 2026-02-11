@@ -73,11 +73,12 @@ test("codegen extracts tsx source module from fenced output", async () => {
   });
 
   assert.equal(plan.source?.language, "tsx");
+  assert.equal(plan.source?.runtime, "preact");
   assert.match(plan.source?.code ?? "", /export default/);
   assert.deepEqual(plan.imports, ["npm:nanoid@5"]);
   assert.equal(
     plan.moduleManifest?.["npm:nanoid@5"]?.resolvedUrl,
-    "https://ga.jspm.io/npm/nanoid@5",
+    "https://ga.jspm.io/npm:nanoid@5/index.js",
   );
   assert.ok(plan.metadata?.tags?.includes("source-module"));
 });
@@ -111,10 +112,11 @@ test("codegen preserves source module when RuntimePlan JSON contains source", as
   });
 
   assert.equal(plan.source?.language, "tsx");
+  assert.equal(plan.source?.runtime, "preact");
   assert.match(plan.source?.code ?? "", /nanoid/);
   assert.deepEqual(plan.imports, ["npm:nanoid@5"]);
   assert.equal(
     plan.moduleManifest?.["npm:nanoid@5"]?.resolvedUrl,
-    "https://ga.jspm.io/npm/nanoid@5",
+    "https://ga.jspm.io/npm:nanoid@5/index.js",
   );
 });

@@ -35,6 +35,7 @@
   "license": "MIT",
   "description": "A runtime for Renderify",
   "dependencies": {
-    "@renderify/ir": "workspace:^"
+    "@renderify/ir": "workspace:^",
+    "preact": "^10.28.3"
   }
 }

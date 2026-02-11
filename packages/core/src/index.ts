@@ -16,24 +16,25 @@ import type {
 import type {
   LLMInterpreter,
   LLMResponse,
+  LLMResponseStreamChunk,
   LLMStructuredRequest,
   LLMStructuredResponse,
 } from "@renderify/llm-interpreter";
 import type { PerformanceOptimizer } from "@renderify/performance";
 import type { RuntimeExecutionInput, RuntimeManager } from "@renderify/runtime";
 import type {
-  RuntimeSecurityProfile,
   RuntimeSecurityPolicy,
-  SecurityCheckResult,
+  RuntimeSecurityProfile,
   SecurityChecker,
+  SecurityCheckResult,
 } from "@renderify/security";
 import type { RenderTarget, UIRenderer } from "@renderify/ui";
 import {
-  InMemoryExecutionAuditLog,
   type ExecutionAuditLog,
   type ExecutionAuditRecord,
   type ExecutionMode,
   type ExecutionStatus,
+  InMemoryExecutionAuditLog,
 } from "./audit-log";
 import {
   InMemoryPlanRegistry,
@@ -43,9 +44,9 @@ import {
 } from "./plan-registry";
 import {
   InMemoryTenantGovernor,
-  TenantQuotaExceededError,
   type TenantGovernor,
   type TenantLease,
+  TenantQuotaExceededError,
   type TenantQuotaPolicy,
 } from "./tenant-governor";
 
@@ -91,6 +92,22 @@ export interface RenderPlanResult {
 export interface RenderPromptResult extends RenderPlanResult {
   prompt: string;
   llm: LLMResponse;
+}
+
+export interface RenderPromptStreamOptions extends RenderPromptOptions {
+  previewEveryChunks?: number;
+}
+
+export interface RenderPromptStreamChunk {
+  type: "llm-delta" | "preview" | "final";
+  traceId: string;
+  prompt: string;
+  llmText: string;
+  delta?: string;
+  html?: string;
+  diagnostics?: RuntimeExecutionResult["diagnostics"];
+  planId?: string;
+  final?: RenderPromptResult;
 }
 
 interface ExecutePlanFlowParams {
@@ -141,9 +158,8 @@ export class RenderifyApp {
     this.deps.llm.configure(this.deps.config.snapshot());
     await this.deps.context.initialize();
 
-    const policyOverrides = this.deps.config.get<Partial<RuntimeSecurityPolicy>>(
-      "securityPolicy"
-    );
+    const policyOverrides =
+      this.deps.config.get<Partial<RuntimeSecurityPolicy>>("securityPolicy");
     const securityProfile =
       this.deps.config.get<RuntimeSecurityProfile>("securityProfile");
     this.deps.security.initialize({
@@ -151,9 +167,8 @@ export class RenderifyApp {
       overrides: policyOverrides,
     });
 
-    const tenantQuotaPolicy = this.deps.config.get<Partial<TenantQuotaPolicy>>(
-      "tenantQuotaPolicy"
-    );
+    const tenantQuotaPolicy =
+      this.deps.config.get<Partial<TenantQuotaPolicy>>("tenantQuotaPolicy");
     this.tenantGovernor.initialize(tenantQuotaPolicy);
 
     await this.deps.runtime.initialize();
@@ -174,7 +189,7 @@ export class RenderifyApp {
 
   public async renderPrompt(
     prompt: string,
-    options: RenderPromptOptions = {}
+    options: RenderPromptOptions = {},
   ): Promise<RenderPromptResult> {
     this.ensureRunning();
 
@@ -196,7 +211,7 @@ export class RenderifyApp {
       promptAfterHook = await this.runHook(
         "beforeLLM",
         prompt,
-        pluginContextFactory("beforeLLM")
+        pluginContextFactory("beforeLLM"),
       );
 
       const llmContext = this.toRecord(this.deps.context.getContext());
@@ -239,9 +254,8 @@ export class RenderifyApp {
             },
           };
         } else {
-          const fallbackResponse = await this.deps.llm.generateResponse(
-            llmRequestBase
-          );
+          const fallbackResponse =
+            await this.deps.llm.generateResponse(llmRequestBase);
           llmResponseRaw = {
             ...fallbackResponse,
             raw: {
@@ -258,7 +272,7 @@ export class RenderifyApp {
       llmResponse = await this.runHook(
         "afterLLM",
         llmResponseRaw,
-        pluginContextFactory("afterLLM")
+        pluginContextFactory("afterLLM"),
       );
 
       const codegenInputRaw: CodeGenerationInput = {
@@ -270,7 +284,7 @@ export class RenderifyApp {
       const codegenInput = await this.runHook(
         "beforeCodeGen",
         codegenInputRaw,
-        pluginContextFactory("beforeCodeGen")
+        pluginContextFactory("beforeCodeGen"),
       );
 
       const planned = await this.deps.codegen.generatePlan(codegenInput);
@@ -278,7 +292,7 @@ export class RenderifyApp {
       const planAfterCodegen = await this.runHook(
         "afterCodeGen",
         planned,
-        pluginContextFactory("afterCodeGen")
+        pluginContextFactory("afterCodeGen"),
       );
 
       handoffToPlanFlow = true;
@@ -320,9 +334,310 @@ export class RenderifyApp {
     }
   }
 
+  public async *renderPromptStream(
+    prompt: string,
+    options: RenderPromptStreamOptions = {},
+  ): AsyncGenerator<RenderPromptStreamChunk, RenderPromptResult> {
+    this.ensureRunning();
+
+    const traceId = options.traceId ?? this.createTraceId();
+    const metricLabel = this.createMetricLabel(traceId);
+    const startedAt = Date.now();
+    this.deps.performance.startMeasurement(metricLabel);
+
+    let promptAfterHook = prompt;
+    let handoffToPlanFlow = false;
+    let llmResponse: LLMResponse | undefined;
+
+    try {
+      const pluginContextFactory = (hookName: PluginHook): PluginContext => ({
+        traceId,
+        hookName,
+      });
+
+      promptAfterHook = await this.runHook(
+        "beforeLLM",
+        prompt,
+        pluginContextFactory("beforeLLM"),
+      );
+
+      const llmContext = this.toRecord(this.deps.context.getContext());
+      const llmRequestBase = {
+        prompt: promptAfterHook,
+        context: llmContext,
+      };
+      const llmUseStructuredOutput =
+        this.deps.config.get<boolean>("llmUseStructuredOutput") !== false;
+
+      const streamPreviewInterval = Math.max(
+        1,
+        Math.floor(options.previewEveryChunks ?? 2),
+      );
+      const buildPreviewChunk = async (
+        llmText: string,
+      ): Promise<RenderPromptStreamChunk | undefined> => {
+        const preview = await this.buildStreamingPreview(
+          promptAfterHook,
+          llmText,
+          llmContext,
+          options.target,
+        );
+        if (!preview) {
+          return undefined;
+        }
+
+        return {
+          type: "preview",
+          traceId,
+          prompt: promptAfterHook,
+          llmText,
+          html: preview.html,
+          diagnostics: preview.execution.diagnostics,
+          planId: preview.plan.id,
+        };
+      };
+
+      if (
+        llmUseStructuredOutput &&
+        typeof this.deps.llm.generateStructuredResponse === "function"
+      ) {
+        const structuredRequest: LLMStructuredRequest = {
+          ...llmRequestBase,
+          format: "runtime-plan",
+          strict: true,
+        };
+
+        const structuredResponse =
+          await this.deps.llm.generateStructuredResponse(structuredRequest);
+
+        if (
+          structuredResponse.valid &&
+          structuredResponse.text.trim().length > 0
+        ) {
+          const fullText = structuredResponse.text;
+          const chunkSize = Math.max(256, Math.floor(fullText.length / 4));
+          let latestText = "";
+
+          for (let offset = 0; offset < fullText.length; offset += chunkSize) {
+            const delta = fullText.slice(offset, offset + chunkSize);
+            latestText += delta;
+            const done = latestText.length >= fullText.length;
+
+            yield {
+              type: "llm-delta",
+              traceId,
+              prompt: promptAfterHook,
+              llmText: latestText,
+              delta,
+            };
+
+            if (done) {
+              const previewChunk = await buildPreviewChunk(latestText);
+              if (previewChunk) {
+                yield previewChunk;
+              }
+            }
+          }
+
+          llmResponse = {
+            text: fullText,
+            tokensUsed: structuredResponse.tokensUsed ?? fullText.length,
+            model: structuredResponse.model,
+            raw: {
+              mode: "structured",
+              value: structuredResponse.value,
+              errors: structuredResponse.errors,
+              payload: structuredResponse.raw,
+            },
+          };
+        } else {
+          let fallbackRaw: LLMResponse;
+
+          if (typeof this.deps.llm.generateResponseStream === "function") {
+            let latestText = "";
+            let latestChunk: LLMResponseStreamChunk | undefined;
+            let chunkCount = 0;
+
+            for await (const chunk of this.deps.llm.generateResponseStream(
+              llmRequestBase,
+            )) {
+              chunkCount += 1;
+              latestChunk = chunk;
+              latestText = chunk.text;
+
+              yield {
+                type: "llm-delta",
+                traceId,
+                prompt: promptAfterHook,
+                llmText: latestText,
+                delta: chunk.delta,
+              };
+
+              if (chunk.done || chunkCount % streamPreviewInterval === 0) {
+                const previewChunk = await buildPreviewChunk(latestText);
+                if (previewChunk) {
+                  yield previewChunk;
+                }
+              }
+            }
+
+            fallbackRaw = {
+              text: latestText,
+              tokensUsed: latestChunk?.tokensUsed ?? latestText.length,
+              model: latestChunk?.model,
+              raw: {
+                mode: "stream",
+                source: latestChunk?.raw,
+              },
+            };
+          } else {
+            fallbackRaw = await this.deps.llm.generateResponse(llmRequestBase);
+            yield {
+              type: "llm-delta",
+              traceId,
+              prompt: promptAfterHook,
+              llmText: fallbackRaw.text,
+              delta: fallbackRaw.text,
+            };
+          }
+
+          llmResponse = {
+            ...fallbackRaw,
+            raw: {
+              mode: "fallback-text",
+              structuredErrors: structuredResponse.errors ?? [],
+              fallbackPayload: fallbackRaw.raw,
+            },
+          };
+        }
+      } else if (typeof this.deps.llm.generateResponseStream === "function") {
+        let latestText = "";
+        let latestChunk: LLMResponseStreamChunk | undefined;
+        let chunkCount = 0;
+
+        for await (const chunk of this.deps.llm.generateResponseStream(
+          llmRequestBase,
+        )) {
+          chunkCount += 1;
+          latestChunk = chunk;
+          latestText = chunk.text;
+
+          yield {
+            type: "llm-delta",
+            traceId,
+            prompt: promptAfterHook,
+            llmText: latestText,
+            delta: chunk.delta,
+          };
+
+          if (chunk.done || chunkCount % streamPreviewInterval === 0) {
+            const previewChunk = await buildPreviewChunk(latestText);
+            if (previewChunk) {
+              yield previewChunk;
+            }
+          }
+        }
+
+        llmResponse = {
+          text: latestText,
+          tokensUsed: latestChunk?.tokensUsed ?? latestText.length,
+          model: latestChunk?.model,
+          raw: {
+            mode: "stream",
+            source: latestChunk?.raw,
+          },
+        };
+      } else {
+        llmResponse = await this.deps.llm.generateResponse(llmRequestBase);
+        yield {
+          type: "llm-delta",
+          traceId,
+          prompt: promptAfterHook,
+          llmText: llmResponse.text,
+          delta: llmResponse.text,
+        };
+      }
+
+      llmResponse = await this.runHook(
+        "afterLLM",
+        llmResponse,
+        pluginContextFactory("afterLLM"),
+      );
+
+      const codegenInputRaw: CodeGenerationInput = {
+        prompt: promptAfterHook,
+        llmText: llmResponse.text,
+        context: llmContext,
+      };
+
+      const codegenInput = await this.runHook(
+        "beforeCodeGen",
+        codegenInputRaw,
+        pluginContextFactory("beforeCodeGen"),
+      );
+
+      const planned = await this.deps.codegen.generatePlan(codegenInput);
+      const planAfterCodegen = await this.runHook(
+        "afterCodeGen",
+        planned,
+        pluginContextFactory("afterCodeGen"),
+      );
+
+      handoffToPlanFlow = true;
+
+      const planFlowResult = await this.executePlanFlow({
+        traceId,
+        metricLabel,
+        startedAt,
+        mode: "prompt",
+        prompt: promptAfterHook,
+        plan: planAfterCodegen,
+        target: options.target,
+      });
+
+      const final: RenderPromptResult = {
+        ...planFlowResult,
+        prompt: promptAfterHook,
+        llm: llmResponse,
+      };
+
+      yield {
+        type: "final",
+        traceId,
+        prompt: promptAfterHook,
+        llmText: llmResponse.text,
+        html: final.html,
+        diagnostics: final.execution.diagnostics,
+        planId: final.plan.id,
+        final,
+      };
+
+      return final;
+    } catch (error) {
+      if (!handoffToPlanFlow) {
+        const metric = this.deps.performance.endMeasurement(metricLabel);
+        const audit = this.recordAudit({
+          traceId,
+          mode: "prompt",
+          status: "failed",
+          startedAt,
+          prompt: promptAfterHook,
+          tenantId: this.resolveTenantId(),
+          plan: undefined,
+          diagnosticsCount: 0,
+          securityIssueCount: 0,
+          errorMessage: this.errorToMessage(error),
+        });
+        this.emit("renderFailed", { traceId, metric, audit, error });
+      }
+
+      throw error;
+    }
+  }
+
   public async renderPlan(
     plan: RuntimePlan,
-    options: RenderPlanOptions = {}
+    options: RenderPlanOptions = {},
   ): Promise<RenderPlanResult> {
     this.ensureRunning();
 
@@ -347,7 +662,7 @@ export class RenderifyApp {
   public async dispatchEvent(
     planId: string,
     event: RuntimeEvent,
-    options: Omit<RenderPlanOptions, "mode" | "event"> = {}
+    options: Omit<RenderPlanOptions, "mode" | "event"> = {},
   ): Promise<RenderPlanResult> {
     const record = this.planRegistry.get(planId);
     if (!record) {
@@ -365,7 +680,7 @@ export class RenderifyApp {
   public async rollbackPlan(
     planId: string,
     version: number,
-    options: Omit<RenderPlanOptions, "mode"> = {}
+    options: Omit<RenderPlanOptions, "mode"> = {},
   ): Promise<RenderPlanResult> {
     const record = this.planRegistry.get(planId, version);
     if (!record) {
@@ -383,7 +698,7 @@ export class RenderifyApp {
 
   public async replayTrace(
     traceId: string,
-    options: Omit<RenderPlanOptions, "mode"> = {}
+    options: Omit<RenderPlanOptions, "mode"> = {},
   ): Promise<RenderPlanResult> {
     const audit = this.auditLog.get(traceId);
     if (!audit || !audit.planId || audit.planVersion === undefined) {
@@ -393,7 +708,7 @@ export class RenderifyApp {
     const record = this.planRegistry.get(audit.planId, audit.planVersion);
     if (!record) {
       throw new Error(
-        `Replay source plan ${audit.planId}@${audit.planVersion} not found`
+        `Replay source plan ${audit.planId}@${audit.planVersion} not found`,
       );
     }
 
@@ -415,7 +730,7 @@ export class RenderifyApp {
 
   public getPlan(
     planId: string,
-    version?: number
+    version?: number,
   ): PlanVersionRecord | undefined {
     return this.planRegistry.get(planId, version);
   }
@@ -494,7 +809,7 @@ export class RenderifyApp {
   }
 
   private async executePlanFlow(
-    params: ExecutePlanFlowParams
+    params: ExecutePlanFlowParams,
   ): Promise<RenderPlanResult> {
     const {
       traceId,
@@ -526,14 +841,14 @@ export class RenderifyApp {
       const planBeforePolicy = await this.runHook(
         "beforePolicyCheck",
         registeredPlan,
-        pluginContextFactory("beforePolicyCheck")
+        pluginContextFactory("beforePolicyCheck"),
       );
 
       const securityResultRaw = this.deps.security.checkPlan(planBeforePolicy);
       securityResult = await this.runHook(
         "afterPolicyCheck",
         securityResultRaw,
-        pluginContextFactory("afterPolicyCheck")
+        pluginContextFactory("afterPolicyCheck"),
       );
 
       if (!securityResult.safe) {
@@ -554,7 +869,7 @@ export class RenderifyApp {
       const runtimeInput = await this.runHook(
         "beforeRuntime",
         runtimeInputRaw,
-        pluginContextFactory("beforeRuntime")
+        pluginContextFactory("beforeRuntime"),
       );
 
       const runtimeExecutionRaw = await this.deps.runtime.execute(runtimeInput);
@@ -562,7 +877,7 @@ export class RenderifyApp {
       const runtimeExecution = await this.runHook(
         "afterRuntime",
         runtimeExecutionRaw,
-        pluginContextFactory("afterRuntime")
+        pluginContextFactory("afterRuntime"),
       );
 
       diagnosticsCount = runtimeExecution.diagnostics.length;
@@ -570,7 +885,7 @@ export class RenderifyApp {
       const renderInput = await this.runHook(
         "beforeRender",
         runtimeExecution,
-        pluginContextFactory("beforeRender")
+        pluginContextFactory("beforeRender"),
       );
 
       const htmlRaw = await this.deps.ui.render(renderInput, target);
@@ -578,7 +893,7 @@ export class RenderifyApp {
       const html = await this.runHook(
         "afterRender",
         htmlRaw,
-        pluginContextFactory("afterRender")
+        pluginContextFactory("afterRender"),
       );
 
       const metric = this.deps.performance.endMeasurement(metricLabel);
@@ -684,7 +999,7 @@ export class RenderifyApp {
   private async runHook<Payload>(
     hookName: PluginHook,
     payload: Payload,
-    context: PluginContext
+    context: PluginContext,
   ): Promise<Payload> {
     if (!this.deps.customization) {
       return payload;
@@ -725,9 +1040,56 @@ export class RenderifyApp {
 
     return "anonymous";
   }
+
+  private async buildStreamingPreview(
+    prompt: string,
+    llmText: string,
+    context: Record<string, unknown>,
+    target?: RenderTarget,
+  ): Promise<
+    | {
+        plan: RuntimePlan;
+        execution: RuntimeExecutionResult;
+        html: string;
+      }
+    | undefined
+  > {
+    try {
+      const plan = await this.deps.codegen.generatePlan({
+        prompt,
+        llmText,
+        context,
+      });
+
+      const security = this.deps.security.checkPlan(plan);
+      if (!security.safe) {
+        return undefined;
+      }
+
+      const execution = await this.deps.runtime.execute({
+        plan,
+        context: {
+          userId: this.resolveTenantId(),
+          variables: {},
+        },
+      });
+      const html = await this.deps.ui.render(execution, target);
+      this.deps.runtime.clearPlanState(plan.id);
+
+      return {
+        plan,
+        execution,
+        html,
+      };
+    } catch {
+      return undefined;
+    }
+  }
 }
 
-export function createRenderifyApp(deps: RenderifyCoreDependencies): RenderifyApp {
+export function createRenderifyApp(
+  deps: RenderifyCoreDependencies,
+): RenderifyApp {
   return new RenderifyApp(deps);
 }
 

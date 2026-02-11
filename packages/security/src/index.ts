@@ -62,7 +62,10 @@ export interface SecurityChecker {
   getProfile(): RuntimeSecurityProfile;
   checkPlan(plan: RuntimePlan): SecurityCheckResult;
   checkModuleSpecifier(specifier: string): SecurityCheckResult;
-  checkCapabilities(capabilities: RuntimeCapabilities): SecurityCheckResult;
+  checkCapabilities(
+    capabilities: RuntimeCapabilities,
+    moduleManifest?: RuntimeModuleManifest,
+  ): SecurityCheckResult;
 }
 
 const SECURITY_PROFILE_POLICIES: Record<
@@ -244,7 +247,10 @@ export class DefaultSecurityChecker implements SecurityChecker {
       issues.push(...this.checkManifestCoverage(plan, moduleManifest));
     }
 
-    const capabilityResult = this.checkCapabilities(plan.capabilities);
+    const capabilityResult = this.checkCapabilities(
+      plan.capabilities,
+      moduleManifest,
+    );
     issues.push(...capabilityResult.issues);
     diagnostics.push(...capabilityResult.diagnostics);
 
@@ -383,7 +389,10 @@ export class DefaultSecurityChecker implements SecurityChecker {
     };
   }
 
-  checkCapabilities(capabilities: RuntimeCapabilities): SecurityCheckResult {
+  checkCapabilities(
+    capabilities: RuntimeCapabilities,
+    moduleManifest?: RuntimeModuleManifest,
+  ): SecurityCheckResult {
     const issues: string[] = [];
     const diagnostics: RuntimeDiagnostic[] = [];
 
@@ -398,8 +407,22 @@ export class DefaultSecurityChecker implements SecurityChecker {
 
     const requestedModules = capabilities.allowedModules ?? [];
     for (const moduleSpecifier of requestedModules) {
-      const checkResult = this.checkModuleSpecifier(moduleSpecifier);
+      const effectiveSpecifier = this.resolveManifestSpecifier(
+        moduleSpecifier,
+        moduleManifest,
+      );
+      const checkResult = this.checkModuleSpecifier(effectiveSpecifier);
       issues.push(...checkResult.issues);
+
+      if (
+        this.policy.requireModuleManifestForBareSpecifiers &&
+        this.isBareSpecifier(moduleSpecifier) &&
+        !moduleManifest?.[moduleSpecifier]
+      ) {
+        issues.push(
+          `Missing moduleManifest entry for bare specifier: ${moduleSpecifier}`,
+        );
+      }
     }
 
     if (
@@ -593,6 +616,12 @@ export class DefaultSecurityChecker implements SecurityChecker {
     const imports = plan.imports ?? [];
 
     for (const specifier of imports) {
+      if (this.isBareSpecifier(specifier)) {
+        requiredSpecifiers.add(specifier);
+      }
+    }
+
+    for (const specifier of plan.capabilities.allowedModules ?? []) {
       if (this.isBareSpecifier(specifier)) {
         requiredSpecifiers.add(specifier);
       }

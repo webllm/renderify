@@ -18,14 +18,24 @@ function hasSystemImport(value: unknown): value is SystemLike {
   return typeof maybeSystem.import === "function";
 }
 
+const JSPM_SPECIFIER_OVERRIDES: Record<string, string> = {
+  preact: "https://ga.jspm.io/npm:preact@10.28.3/dist/preact.module.js",
+  "preact/hooks":
+    "https://ga.jspm.io/npm:preact@10.28.3/hooks/dist/hooks.module.js",
+  "preact/compat":
+    "https://ga.jspm.io/npm:preact@10.28.3/compat/dist/compat.module.js",
+  react: "https://ga.jspm.io/npm:react@19.2.0/index.js",
+  "react-dom/client": "https://ga.jspm.io/npm:react-dom@19.2.0/client.js",
+  recharts: "https://ga.jspm.io/npm:recharts@3.3.0/es6/index.js",
+};
+
 export class JspmModuleLoader implements RuntimeModuleLoader {
   private readonly cdnBaseUrl: string;
   private readonly importMap: Record<string, string>;
   private readonly cache = new Map<string, unknown>();
 
   constructor(options: JspmModuleLoaderOptions = {}) {
-    this.cdnBaseUrl =
-      options.cdnBaseUrl?.replace(/\/$/, "") ?? "https://ga.jspm.io/npm";
+    this.cdnBaseUrl = this.normalizeCdnBaseUrl(options.cdnBaseUrl);
     this.importMap = options.importMap ?? {};
   }
 
@@ -58,11 +68,11 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
     }
 
     if (specifier.startsWith("npm:")) {
-      return `${this.cdnBaseUrl}/${specifier.slice(4)}`;
+      return this.resolveNpmSpecifier(specifier.slice(4));
     }
 
     if (specifier.startsWith("@") || /^[a-zA-Z0-9_-]+/.test(specifier)) {
-      return `${this.cdnBaseUrl}/${specifier}`;
+      return this.resolveNpmSpecifier(specifier);
     }
 
     throw new Error(`Unsupported JSPM specifier: ${specifier}`);
@@ -89,5 +99,53 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
     } catch {
       return false;
     }
+  }
+
+  private resolveNpmSpecifier(specifier: string): string {
+    const normalized = specifier.trim();
+    if (normalized.length === 0) {
+      throw new Error("Empty npm specifier is not supported");
+    }
+
+    const override = JSPM_SPECIFIER_OVERRIDES[normalized];
+    if (override) {
+      return override;
+    }
+
+    return `${this.cdnBaseUrl}/npm:${this.withDefaultEntry(normalized)}`;
+  }
+
+  private withDefaultEntry(specifier: string): string {
+    if (/\.[mc]?js$/i.test(specifier)) {
+      return specifier;
+    }
+
+    if (specifier.startsWith("@")) {
+      const secondSlash = specifier.indexOf("/", 1);
+      if (secondSlash === -1) {
+        return `${specifier}/index.js`;
+      }
+
+      const subpathSlash = specifier.indexOf("/", secondSlash + 1);
+      if (subpathSlash === -1) {
+        return `${specifier}/index.js`;
+      }
+
+      return `${specifier}.js`;
+    }
+
+    if (!specifier.includes("/")) {
+      return `${specifier}/index.js`;
+    }
+
+    return `${specifier}.js`;
+  }
+
+  private normalizeCdnBaseUrl(input?: string): string {
+    const raw = input?.trim() || "https://ga.jspm.io";
+    const normalized = raw.replace(/\/$/, "");
+    return normalized.endsWith("/npm")
+      ? normalized.slice(0, normalized.length - 4)
+      : normalized;
   }
 }

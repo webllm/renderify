@@ -106,6 +106,29 @@ const RUNTIME_PLAN_JSON_SCHEMA = {
       type: "object",
       additionalProperties: true,
     },
+    source: {
+      type: "object",
+      additionalProperties: false,
+      required: ["language", "code"],
+      properties: {
+        language: {
+          type: "string",
+          enum: ["js", "jsx", "ts", "tsx"],
+        },
+        code: {
+          type: "string",
+          minLength: 1,
+        },
+        exportName: {
+          type: "string",
+          minLength: 1,
+        },
+        runtime: {
+          type: "string",
+          enum: ["renderify", "preact"],
+        },
+      },
+    },
   },
 } as const;
 

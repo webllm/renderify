@@ -1,3 +1,7 @@
+import fs from "node:fs";
+import http, { type IncomingMessage, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
+import path from "node:path";
 import { DefaultApiIntegration } from "@renderify/api-integration";
 import { DefaultCodeGenerator } from "@renderify/codegen";
 import {
@@ -13,6 +17,7 @@ import {
   type RenderifyApp,
   type RenderPlanResult,
   type RenderPromptResult,
+  type RenderPromptStreamChunk,
 } from "@renderify/core";
 import { DefaultCustomizationEngine } from "@renderify/customization";
 import {
@@ -33,10 +38,6 @@ import { DefaultRuntimeManager } from "@renderify/runtime";
 import { JspmModuleLoader } from "@renderify/runtime-jspm";
 import { DefaultSecurityChecker } from "@renderify/security";
 import { DefaultUIRenderer } from "@renderify/ui";
-import fs from "fs";
-import http, { type IncomingMessage, type ServerResponse } from "http";
-import type { AddressInfo } from "net";
-import path from "path";
 
 interface CliSessionData {
   plans: RuntimePlan[];
@@ -645,6 +646,17 @@ async function handlePlaygroundRequest(
       return;
     }
 
+    if (method === "POST" && pathname === "/api/prompt-stream") {
+      const body = await readJsonBody(req);
+      const prompt =
+        typeof body.prompt === "string" && body.prompt.trim().length > 0
+          ? body.prompt.trim()
+          : DEFAULT_PROMPT;
+
+      await sendPromptStream(res, app, prompt, persistSession);
+      return;
+    }
+
     if (method === "POST" && pathname === "/api/plan") {
       const body = await readJsonBody(req);
       const plan = body.plan;
@@ -741,6 +753,7 @@ function serializeRenderResult(
       id: result.plan.id,
       version: result.plan.version,
     },
+    planDetail: result.plan,
     diagnostics: result.execution.diagnostics,
     state: result.execution.state ?? {},
     audit: result.audit,
@@ -815,6 +828,68 @@ function sendHtml(res: ServerResponse, html: string): void {
     "cache-control": "no-store",
   });
   res.end(html);
+}
+
+async function sendPromptStream(
+  res: ServerResponse,
+  app: RenderifyApp,
+  prompt: string,
+  persistSession: () => Promise<void>,
+): Promise<void> {
+  res.writeHead(200, {
+    "content-type": "application/x-ndjson; charset=utf-8",
+    "cache-control": "no-store",
+    connection: "keep-alive",
+    "x-accel-buffering": "no",
+  });
+
+  try {
+    for await (const chunk of app.renderPromptStream(prompt)) {
+      const serialized = serializePromptStreamChunk(chunk);
+      res.write(`${JSON.stringify(serialized)}\n`);
+
+      if (chunk.type === "final") {
+        await persistSession();
+      }
+    }
+  } catch (error) {
+    res.write(
+      `${JSON.stringify({
+        type: "error",
+        error: error instanceof Error ? error.message : String(error),
+      })}\n`,
+    );
+  } finally {
+    res.end();
+  }
+}
+
+function serializePromptStreamChunk(
+  chunk: RenderPromptStreamChunk,
+): Record<string, unknown> {
+  if (chunk.type === "final") {
+    return {
+      type: chunk.type,
+      traceId: chunk.traceId,
+      prompt: chunk.prompt,
+      llmText: chunk.llmText,
+      final: chunk.final ? serializeRenderResult(chunk.final) : undefined,
+      html: chunk.html,
+      diagnostics: chunk.diagnostics ?? [],
+      planId: chunk.planId,
+    };
+  }
+
+  return {
+    type: chunk.type,
+    traceId: chunk.traceId,
+    prompt: chunk.prompt,
+    llmText: chunk.llmText,
+    delta: chunk.delta,
+    html: chunk.html,
+    diagnostics: chunk.diagnostics ?? [],
+    planId: chunk.planId,
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -994,7 +1069,7 @@ const PLAYGROUND_HTML = `<!doctype html>
           <h2>Prompt</h2>
           <div class="group">
             <label for="prompt-input">Prompt</label>
-            <textarea id="prompt-input">Build a welcome card with runtime text</textarea>
+            <textarea id="prompt-input">Build an analytics dashboard with a chart and KPI toggle buttons</textarea>
           </div>
           <button id="prompt-run" class="primary">Run Prompt</button>
 
@@ -1081,6 +1156,22 @@ const PLAYGROUND_HTML = `<!doctype html>
       const resultOutput = byId("result-output");
       const historyOutput = byId("history-output");
       const stateOutput = byId("state-output");
+      const BABEL_STANDALONE_URL =
+        "https://unpkg.com/@babel/standalone@7.29.0/babel.min.js";
+      const BROWSER_MODULE_FALLBACKS = {
+        preact: "https://esm.sh/preact@10.28.3",
+        "preact/hooks": "https://esm.sh/preact@10.28.3/hooks",
+        "preact/jsx-runtime":
+          "https://esm.sh/preact@10.28.3/jsx-runtime",
+        "preact/jsx-dev-runtime":
+          "https://esm.sh/preact@10.28.3/jsx-runtime",
+        recharts:
+          "https://esm.sh/recharts@3.3.0?alias=react:preact/compat,react-dom:preact/compat",
+        react: "https://esm.sh/preact@10.28.3/compat",
+        "react-dom": "https://esm.sh/preact@10.28.3/compat",
+        "react-dom/client": "https://esm.sh/preact@10.28.3/compat"
+      };
+      let babelStandalonePromise;
 
       const safeJson = (value) => {
         try {
@@ -1094,7 +1185,199 @@ const PLAYGROUND_HTML = `<!doctype html>
         status.textContent = text;
       };
 
-      const applyRenderResult = (payload) => {
+      const loadScript = (src) =>
+        new Promise((resolve, reject) => {
+          const existing = Array.from(document.querySelectorAll("script")).find(
+            (entry) => entry.src === src
+          );
+          if (existing) {
+            if (existing.dataset.loaded === "true") {
+              resolve();
+              return;
+            }
+            existing.addEventListener("load", () => resolve(), { once: true });
+            existing.addEventListener(
+              "error",
+              () => reject(new Error("Failed to load script: " + src)),
+              { once: true }
+            );
+            return;
+          }
+
+          const script = document.createElement("script");
+          script.src = src;
+          script.async = true;
+          script.referrerPolicy = "no-referrer";
+          script.addEventListener("load", () => {
+            script.dataset.loaded = "true";
+            resolve();
+          });
+          script.addEventListener(
+            "error",
+            () => reject(new Error("Failed to load script: " + src)),
+            { once: true }
+          );
+          document.head.appendChild(script);
+        });
+
+      const ensureBabelStandalone = async () => {
+        if (window.Babel && typeof window.Babel.transform === "function") {
+          return window.Babel;
+        }
+
+        if (!babelStandalonePromise) {
+          babelStandalonePromise = loadScript(BABEL_STANDALONE_URL).then(() => {
+            if (window.Babel && typeof window.Babel.transform === "function") {
+              return window.Babel;
+            }
+            throw new Error("Babel standalone is unavailable");
+          });
+        }
+
+        return babelStandalonePromise;
+      };
+
+      const isRecord = (value) =>
+        typeof value === "object" && value !== null && !Array.isArray(value);
+
+      const resolveManifestSpecifier = (specifier, moduleManifest) => {
+        if (isRecord(BROWSER_MODULE_FALLBACKS) && BROWSER_MODULE_FALLBACKS[specifier]) {
+          return BROWSER_MODULE_FALLBACKS[specifier];
+        }
+
+        if (isRecord(moduleManifest) && isRecord(moduleManifest[specifier])) {
+          const resolvedUrl = String(moduleManifest[specifier].resolvedUrl || "").trim();
+          if (resolvedUrl.length > 0) {
+            return resolvedUrl;
+          }
+        }
+        return specifier;
+      };
+
+      const rewriteImportsWithManifest = (code, moduleManifest) => {
+        const patterns = [
+          /\\bfrom\\s+["']([^"']+)["']/g,
+          /\\bimport\\s+["']([^"']+)["']/g,
+          /\\bimport\\s*\\(\\s*["']([^"']+)["']\\s*\\)/g
+        ];
+
+        return patterns.reduce((current, pattern) => {
+          return current.replace(pattern, (full, specifier) => {
+            const rewritten = resolveManifestSpecifier(specifier, moduleManifest);
+            return full.replace(specifier, rewritten);
+          });
+        }, code);
+      };
+
+      const transpileSourceForBrowser = async (source) => {
+        if (!isRecord(source) || typeof source.code !== "string") {
+          throw new Error("Invalid runtime source payload");
+        }
+
+        const language = String(source.language || "js");
+        if (language === "js") {
+          return source.code;
+        }
+
+        const babel = await ensureBabelStandalone();
+        const presets = [];
+
+        if (language === "ts" || language === "tsx") {
+          presets.push("typescript");
+        }
+
+        if (language === "jsx" || language === "tsx") {
+          presets.push([
+            "react",
+            {
+              runtime: "automatic",
+              importSource: "preact"
+            }
+          ]);
+        }
+
+        const transformed = babel.transform(source.code, {
+          sourceType: "module",
+          presets,
+          filename: "renderify-playground-source." + language,
+          babelrc: false,
+          configFile: false,
+          comments: false
+        });
+
+        if (!transformed || typeof transformed.code !== "string") {
+          throw new Error("Babel returned empty output");
+        }
+
+        return transformed.code;
+      };
+
+      const importSourceModuleFromCode = async (code) => {
+        const blob = new Blob([code], { type: "text/javascript" });
+        const url = URL.createObjectURL(blob);
+
+        try {
+          return await import(url);
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+      };
+
+      const renderSourcePlanInBrowser = async (plan, state) => {
+        if (!isRecord(plan) || !isRecord(plan.source)) {
+          return false;
+        }
+
+        const source = plan.source;
+        const language = String(source.language || "js");
+        const runtime =
+          source.runtime ||
+          (language === "tsx" || language === "jsx" ? "preact" : "renderify");
+
+        if (runtime !== "preact") {
+          return false;
+        }
+
+        const transpiled = await transpileSourceForBrowser(source);
+        const rewritten = rewriteImportsWithManifest(
+          transpiled,
+          isRecord(plan.moduleManifest) ? plan.moduleManifest : undefined
+        );
+        const namespace = await importSourceModuleFromCode(rewritten);
+        const exportName =
+          typeof source.exportName === "string" && source.exportName.trim().length > 0
+            ? source.exportName
+            : "default";
+        const selected = namespace ? namespace[exportName] : undefined;
+
+        if (typeof selected !== "function") {
+          throw new Error('Runtime source export "' + exportName + '" is not callable');
+        }
+
+        const preactSpecifier = resolveManifestSpecifier(
+          "preact",
+          isRecord(plan.moduleManifest) ? plan.moduleManifest : undefined
+        );
+        const preact = await import(preactSpecifier);
+        if (
+          !isRecord(preact) ||
+          typeof preact.h !== "function" ||
+          typeof preact.render !== "function"
+        ) {
+          throw new Error("Failed to load preact runtime in browser");
+        }
+
+        const runtimeInput = {
+          context: {},
+          state: isRecord(state) ? state : {},
+          event: null
+        };
+        const vnode = preact.h(selected, runtimeInput);
+        preact.render(vnode, preview);
+        return true;
+      };
+
+      const applyRenderResult = async (payload) => {
         if (typeof payload.html === "string") {
           preview.innerHTML = payload.html;
         }
@@ -1110,6 +1393,14 @@ const PLAYGROUND_HTML = `<!doctype html>
         }
 
         resultOutput.textContent = safeJson(payload);
+
+        if (payload.planDetail) {
+          try {
+            await renderSourcePlanInBrowser(payload.planDetail, payload.state);
+          } catch (error) {
+            console.warn("Browser source render failed", error);
+          }
+        }
       };
 
       const request = async (url, method, body) => {
@@ -1126,16 +1417,80 @@ const PLAYGROUND_HTML = `<!doctype html>
         return payload;
       };
 
+      const requestPromptStream = async (prompt) => {
+        const response = await fetch("/api/prompt-stream", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ prompt })
+        });
+
+        if (!response.ok || !response.body) {
+          let errorText = "Streaming request failed";
+          try {
+            const payload = await response.json();
+            errorText = payload.error || errorText;
+          } catch {}
+          throw new Error(errorText);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            break;
+          }
+
+          buffer += decoder.decode(value, { stream: true });
+
+          let newlineIndex = buffer.indexOf("\\n");
+          while (newlineIndex >= 0) {
+            const line = buffer.slice(0, newlineIndex).trim();
+            buffer = buffer.slice(newlineIndex + 1);
+
+            if (line.length > 0) {
+              const payload = JSON.parse(line);
+              if (payload.type === "error") {
+                throw new Error(payload.error || "stream error");
+              }
+              await handleStreamChunk(payload);
+            }
+
+            newlineIndex = buffer.indexOf("\\n");
+          }
+        }
+      };
+
+      const handleStreamChunk = async (chunk) => {
+        if (chunk.type === "llm-delta") {
+          setStatus("streaming llm... " + chunk.llmText.length + " chars");
+          return;
+        }
+
+        if (chunk.type === "preview") {
+          if (typeof chunk.html === "string") {
+            preview.innerHTML = chunk.html;
+          }
+          resultOutput.textContent = safeJson(chunk);
+          setStatus("stream preview ready");
+          return;
+        }
+
+        if (chunk.type === "final") {
+          const finalPayload = chunk.final || chunk;
+          await applyRenderResult(finalPayload);
+          setStatus("prompt stream done");
+        }
+      };
+
       const runPrompt = async () => {
-        setStatus("running prompt...");
+        setStatus("streaming prompt...");
         try {
-          const payload = await request("/api/prompt", "POST", {
-            prompt: byId("prompt-input").value
-          });
-          applyRenderResult(payload);
+          await requestPromptStream(byId("prompt-input").value);
           await refreshHistory();
           await refreshState();
-          setStatus("prompt done");
         } catch (error) {
           setStatus("prompt failed");
           resultOutput.textContent = String(error);
@@ -1147,7 +1502,7 @@ const PLAYGROUND_HTML = `<!doctype html>
         try {
           const plan = JSON.parse(byId("plan-input").value);
           const payload = await request("/api/plan", "POST", { plan });
-          applyRenderResult(payload);
+          await applyRenderResult(payload);
           await refreshHistory();
           await refreshState();
           setStatus("plan done");
@@ -1167,7 +1522,7 @@ const PLAYGROUND_HTML = `<!doctype html>
             eventType: byId("event-type").value.trim(),
             payload
           });
-          applyRenderResult(result);
+          await applyRenderResult(result);
           await refreshHistory();
           await refreshState();
           setStatus("event done");
@@ -1184,7 +1539,7 @@ const PLAYGROUND_HTML = `<!doctype html>
             planId: byId("rollback-plan-id").value.trim(),
             version: Number(byId("rollback-version").value)
           });
-          applyRenderResult(payload);
+          await applyRenderResult(payload);
           await refreshHistory();
           await refreshState();
           setStatus("rollback done");
@@ -1200,7 +1555,7 @@ const PLAYGROUND_HTML = `<!doctype html>
           const payload = await request("/api/replay", "POST", {
             traceId: byId("replay-trace-id").value.trim()
           });
-          applyRenderResult(payload);
+          await applyRenderResult(payload);
           await refreshHistory();
           await refreshState();
           setStatus("replay done");

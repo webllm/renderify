@@ -348,3 +348,60 @@ test("core falls back to text generation when structured output is invalid", asy
 
   await app.stop();
 });
+
+test("core renderPromptStream emits incremental chunks and final result", async () => {
+  const app = createRenderifyApp(createDependencies());
+  await app.start();
+
+  const chunks = [];
+  let finalHtml = "";
+
+  for await (const chunk of app.renderPromptStream(
+    "Build runtime stream view",
+    {
+      previewEveryChunks: 1,
+    },
+  )) {
+    chunks.push(chunk.type);
+    if (chunk.type === "final" && chunk.final) {
+      finalHtml = chunk.final.html;
+    }
+  }
+
+  assert.ok(chunks.includes("llm-delta"));
+  assert.ok(chunks.includes("preview"));
+  assert.ok(chunks.includes("final"));
+  assert.ok(finalHtml.length > 0);
+
+  await app.stop();
+});
+
+test("core renderPromptStream prefers structured output when available", async () => {
+  const app = createRenderifyApp(
+    createDependencies({
+      llm: new StructuredOnlyLLM(),
+    }),
+  );
+
+  await app.start();
+
+  const seen = new Set<string>();
+  let finalHtml = "";
+  let llmMode = "";
+
+  for await (const chunk of app.renderPromptStream("structured stream")) {
+    seen.add(chunk.type);
+    if (chunk.type === "final" && chunk.final) {
+      finalHtml = chunk.final.html;
+      const raw = chunk.final.llm.raw as { mode?: string } | undefined;
+      llmMode = raw?.mode ?? "";
+    }
+  }
+
+  assert.ok(seen.has("llm-delta"));
+  assert.ok(seen.has("final"));
+  assert.match(finalHtml, /Structured: structured stream/);
+  assert.equal(llmMode, "structured");
+
+  await app.stop();
+});

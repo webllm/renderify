@@ -20,15 +20,15 @@ Renderify focuses on:
 
 ```mermaid
 flowchart TD
-    A["Prompt / Context"] --> B["@renderify/llm-interpreter"]
-    B --> C["@renderify/codegen"]
-    C --> D["@renderify/ir Runtime Plan"]
-    D --> E["@renderify/security Policy Checker"]
-    E --> F["@renderify/runtime Executor"]
-    F --> G["@renderify/ui Renderer"]
-    F --> H["@renderify/runtime-jspm Module Loader"]
+    A["Prompt / Context"] --> B["LLM Interpreter"]
+    B --> C["Code Generator"]
+    C --> D["Runtime Plan (IR)"]
+    D --> E["Security Policy Checker"]
+    E --> F["Runtime Executor"]
+    F --> G["UI Renderer"]
+    F --> H["JSPM Module Loader"]
     H --> I["JSPM CDN / SystemJS"]
-    J["@renderify/customization Plugins"] --> B
+    J["Customization Plugins"] --> B
     J --> C
     J --> E
     J --> F
@@ -51,6 +51,9 @@ flowchart TD
 - Runtime protocol contract:
   - `specVersion` (default `runtime-plan/v1`)
   - `moduleManifest` for deterministic module resolution
+- JSX runtime modes:
+  - `source.runtime: "renderify"` for RuntimeNode-oriented execution
+  - `source.runtime: "preact"` for hooks + React-compatible component rendering
 - Runtime sandbox profile:
   - `executionProfile: "isolated-vm"` for VM-isolated sync component execution
   - fail-closed by default when isolation runtime is unavailable
@@ -64,6 +67,8 @@ flowchart TD
 - Real OpenAI provider adapter (`@renderify/llm-openai`) with structured JSON schema requests
 - Security policy checks for state transitions and quota requests
 - Runtime source static policy checks (blocked patterns, dynamic import policy, source import count)
+- Streaming prompt pipeline (`renderPromptStream`) with progressive preview updates
+- Preact DOM reconciliation path for runtime source modules (diff-based UI updates)
 - Security profiles: `strict | balanced | relaxed`
 - Tenant quota governance:
   - max executions per minute
@@ -143,6 +148,23 @@ RENDERIFY_RUNTIME_SPEC_VERSIONS=runtime-plan/v1 pnpm playground
 # Force text/TSX generation path instead of structured RuntimePlan
 RENDERIFY_LLM_USE_STRUCTURED_OUTPUT=false pnpm playground
 ```
+
+## Killer Demo
+
+```bash
+# start playground
+pnpm playground
+```
+
+Then open the playground page and run this prompt:
+
+```text
+Build an analytics dashboard with a chart and KPI toggle buttons
+```
+
+The playground now uses streaming prompt rendering (`/api/prompt-stream`), so you'll see incremental preview updates before final UI completion.
+
+![Renderify streaming demo](docs/assets/renderify-streaming-demo.gif)
 
 ## Release Flow
 
@@ -233,6 +255,7 @@ await app.stop();
 
 - Runtime plan flow: `examples/runtime/browser-runtime-example.html`
 - TSX runtime flow (Babel + JSPM): `examples/runtime/browser-tsx-jspm-example.html`
+- Recharts + Preact RuntimePlan: `examples/runtime/recharts-dashboard-plan.json`
 
 ## Next Focus
 

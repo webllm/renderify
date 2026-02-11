@@ -1,0 +1,57 @@
+{
+  "specVersion": "runtime-plan/v1",
+  "id": "example_recharts_dashboard_plan",
+  "version": 1,
+  "root": {
+    "type": "element",
+    "tag": "section",
+    "children": [
+      {
+        "type": "text",
+        "value": "Dashboard is loading..."
+      }
+    ]
+  },
+  "capabilities": {
+    "domWrite": true,
+    "allowedModules": ["preact", "preact/hooks", "recharts"],
+    "maxExecutionMs": 3000
+  },
+  "imports": ["preact", "preact/hooks", "recharts"],
+  "moduleManifest": {
+    "preact": {
+      "resolvedUrl": "https://ga.jspm.io/npm:preact@10.28.3/dist/preact.module.js",
+      "version": "10.28.3",
+      "signer": "examples"
+    },
+    "preact/hooks": {
+      "resolvedUrl": "https://ga.jspm.io/npm:preact@10.28.3/hooks/dist/hooks.module.js",
+      "version": "10.28.3",
+      "signer": "examples"
+    },
+    "recharts": {
+      "resolvedUrl": "https://ga.jspm.io/npm:recharts@3.3.0/es6/index.js",
+      "version": "3.3.0",
+      "signer": "examples"
+    }
+  },
+  "state": {
+    "initial": {
+      "count": 7
+    },
+    "transitions": {
+      "increment": [{ "type": "increment", "path": "count", "by": 1 }]
+    }
+  },
+  "source": {
+    "language": "tsx",
+    "runtime": "preact",
+    "exportName": "default",
+    "code": "import { h } from \"preact\";\nimport { useMemo, useState } from \"preact/hooks\";\nimport {\n  ResponsiveContainer,\n  BarChart,\n  Bar,\n  XAxis,\n  YAxis,\n  CartesianGrid,\n  Tooltip,\n  Legend\n} from \"recharts\";\n\nexport default function Dashboard({ state }) {\n  const [metric, setMetric] = useState(\"revenue\");\n  const data = useMemo(\n    () => [\n      { name: \"Mon\", revenue: 120, users: 42 },\n      { name: \"Tue\", revenue: 188, users: 59 },\n      { name: \"Wed\", revenue: 164, users: 54 },\n      { name: \"Thu\", revenue: 205, users: 71 },\n      { name: \"Fri\", revenue: 242, users: 88 }\n    ],\n    []\n  );\n\n  return (\n    <section style={{ padding: \"12px\", fontFamily: \"ui-sans-serif, system-ui\" }}>\n      <h2 style={{ marginTop: 0 }}>Renderify Dashboard Demo</h2>\n      <p style={{ color: \"#475569\" }}>LLM TSX -> Preact Runtime -> Recharts</p>\n      <div style={{ display: \"flex\", gap: \"8px\", marginBottom: \"12px\" }}>\n        <button type=\"button\" onClick={() => setMetric(\"revenue\")}>Revenue</button>\n        <button type=\"button\" onClick={() => setMetric(\"users\")}>Users</button>\n      </div>\n      <div style={{ width: \"100%\", height: 260 }}>\n        <ResponsiveContainer>\n          <BarChart data={data}>\n            <CartesianGrid strokeDasharray=\"3 3\" />\n            <XAxis dataKey=\"name\" />\n            <YAxis />\n            <Tooltip />\n            <Legend />\n            <Bar dataKey={metric} fill={metric === \"revenue\" ? \"#0f766e\" : \"#1d4ed8\"} />\n          </BarChart>\n        </ResponsiveContainer>\n      </div>\n      <p style={{ marginBottom: 0 }}>Selected metric: {metric} / server count: {state?.count ?? 0}</p>\n    </section>\n  );\n}\n"
+  },
+  "metadata": {
+    "sourcePrompt": "Build analytics dashboard with chart and KPI toggle buttons",
+    "sourceModel": "example",
+    "tags": ["dashboard", "preact", "recharts", "runtime-source"]
+  }
+}
