@@ -292,3 +292,47 @@ test("security checker blocks banned runtime source patterns", () => {
   assert.equal(result.safe, false);
   assert.ok(result.issues.some((issue) => issue.includes("blocked pattern")));
 });
+
+test("security checker blocks runtime source fetch usage", () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize();
+
+  const plan = createPlan("section");
+  plan.source = {
+    language: "js",
+    code: [
+      "export default async () => {",
+      '  const response = await fetch("https://example.com/data.json");',
+      '  return { type: "text", value: String(response.status) };',
+      "};",
+    ].join("\n"),
+  };
+
+  const result = checker.checkPlan(plan);
+  assert.equal(result.safe, false);
+  assert.ok(result.issues.some((issue) => issue.includes("\\bfetch\\s*\\(")));
+});
+
+test("security checker blocks runtime source cookie access", () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize();
+
+  const plan = createPlan("section");
+  plan.source = {
+    language: "js",
+    code: [
+      "export default () => {",
+      "  const token = document.cookie;",
+      '  return { type: "text", value: token };',
+      "};",
+    ].join("\n"),
+  };
+
+  const result = checker.checkPlan(plan);
+  assert.equal(result.safe, false);
+  assert.ok(
+    result.issues.some((issue) =>
+      issue.includes("\\bdocument\\s*\\.\\s*cookie\\b"),
+    ),
+  );
+});

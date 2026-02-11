@@ -147,12 +147,17 @@ export class DefaultUIRenderer implements UIRenderer {
       return `<div data-renderify-unresolved-component="${escapeHtml(node.module)}"></div>`;
     }
 
-    const attributes = serializeProps(node.props, context);
     const children = (node.children ?? [])
       .map((child) => this.renderNodeInternal(child, context))
       .join("");
+    const safeTag = sanitizeTagName(node.tag);
+    if (!safeTag) {
+      return `<div data-renderify-sanitized-tag="${escapeHtml(node.tag)}">${children}</div>`;
+    }
 
-    return `<${node.tag}${attributes}>${children}</${node.tag}>`;
+    const attributes = serializeProps(node.props, context);
+
+    return `<${safeTag}${attributes}>${children}</${safeTag}>`;
   }
 
   private resolveRenderTarget(
@@ -682,6 +687,85 @@ function getBindingAttributeName(domEvent: string): string {
   return `data-renderify-event-${domEvent}`;
 }
 
+const BLOCKED_TAG_NAMES = new Set([
+  "script",
+  "iframe",
+  "object",
+  "embed",
+  "link",
+  "meta",
+]);
+
+const BLOCKED_ATTRIBUTE_NAMES = new Set([
+  "srcdoc",
+  "innerhtml",
+  "dangerouslysetinnerhtml",
+]);
+
+const URL_ATTRIBUTE_NAMES = new Set([
+  "href",
+  "src",
+  "xlink:href",
+  "action",
+  "formaction",
+  "poster",
+]);
+
+const SAFE_URL_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
+
+function sanitizeTagName(tag: string): string | undefined {
+  const normalized = tag.trim().toLowerCase();
+  if (!/^[a-z][a-z0-9-]*$/.test(normalized)) {
+    return undefined;
+  }
+
+  if (BLOCKED_TAG_NAMES.has(normalized)) {
+    return undefined;
+  }
+
+  return normalized;
+}
+
+function isSafeAttributeName(attributeName: string): boolean {
+  return /^[A-Za-z_:][A-Za-z0-9:._-]*$/.test(attributeName);
+}
+
+function isSafeAttributeUrl(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return false;
+  }
+
+  if (
+    trimmed.startsWith("#") ||
+    trimmed.startsWith("/") ||
+    trimmed.startsWith("./") ||
+    trimmed.startsWith("../")
+  ) {
+    return true;
+  }
+
+  const lowered = trimmed.toLowerCase();
+  if (
+    lowered.startsWith("javascript:") ||
+    lowered.startsWith("vbscript:") ||
+    lowered.startsWith("data:")
+  ) {
+    return false;
+  }
+
+  if (/^[a-z][a-z0-9+.-]*:/.test(lowered)) {
+    try {
+      const parsed = new URL(trimmed);
+      return SAFE_URL_PROTOCOLS.has(parsed.protocol);
+    } catch {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function serializeProps(
   props: Record<string, JsonValue> | undefined,
   context: RenderSerializationContext,
@@ -691,8 +775,19 @@ function serializeProps(
   }
 
   const attributes: string[] = [];
+  let targetIsBlank = false;
+  let relProvided = false;
 
   for (const [key, rawValue] of Object.entries(props)) {
+    if (!isSafeAttributeName(key)) {
+      continue;
+    }
+
+    const normalizedKey = key.toLowerCase();
+    if (BLOCKED_ATTRIBUTE_NAMES.has(normalizedKey)) {
+      continue;
+    }
+
     if (key === "key") {
       if (typeof rawValue === "string" || typeof rawValue === "number") {
         attributes.push(
@@ -716,8 +811,22 @@ function serializeProps(
       continue;
     }
 
+    if (URL_ATTRIBUTE_NAMES.has(normalizedKey)) {
+      if (typeof rawValue !== "string" || !isSafeAttributeUrl(rawValue)) {
+        continue;
+      }
+    }
+
     if (key.startsWith("on")) {
       continue;
+    }
+
+    if (normalizedKey === "target" && String(rawValue).trim() === "_blank") {
+      targetIsBlank = true;
+    }
+
+    if (normalizedKey === "rel") {
+      relProvided = true;
     }
 
     if (typeof rawValue === "boolean") {
@@ -733,6 +842,10 @@ function serializeProps(
     }
 
     attributes.push(` ${key}="${escapeHtml(String(rawValue))}"`);
+  }
+
+  if (targetIsBlank && !relProvided) {
+    attributes.push(' rel="noopener noreferrer"');
   }
 
   return attributes.join("");

@@ -88,3 +88,31 @@ test("ui renderer serializes key prop into internal data key", () => {
   assert.match(html, /data-renderify-key="metric-users"/);
   assert.doesNotMatch(html, /\skey=/);
 });
+
+test("ui renderer sanitizes blocked tag names at render time", () => {
+  const renderer = new DefaultUIRenderer();
+  const html = renderer.renderNode(
+    createElementNode("script", undefined, [createTextNode("bad")]),
+  );
+
+  assert.match(html, /data-renderify-sanitized-tag="script"/);
+  assert.doesNotMatch(html, /<script/);
+});
+
+test("ui renderer drops unsafe javascript urls and adds rel for _blank", () => {
+  const renderer = new DefaultUIRenderer();
+  const html = renderer.renderNode(
+    createElementNode(
+      "a",
+      {
+        href: "javascript:alert(1)",
+        target: "_blank",
+      },
+      [createTextNode("Open")],
+    ),
+  );
+
+  assert.doesNotMatch(html, /href=/);
+  assert.match(html, /target="_blank"/);
+  assert.match(html, /rel="noopener noreferrer"/);
+});
