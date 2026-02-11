@@ -71,3 +71,20 @@ test("ui renderer supports structured runtime event payload props", () => {
   assert.match(html, /data-renderify-event-click=/);
   assert.match(html, /Users/);
 });
+
+test("ui renderer serializes key prop into internal data key", () => {
+  const renderer = new DefaultUIRenderer();
+  const html = renderer.renderNode(
+    createElementNode(
+      "li",
+      {
+        key: "metric-users",
+        class: "item",
+      },
+      [createTextNode("Users")],
+    ),
+  );
+
+  assert.match(html, /data-renderify-key="metric-users"/);
+  assert.doesNotMatch(html, /\skey=/);
+});

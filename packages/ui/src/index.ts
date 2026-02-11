@@ -201,9 +201,14 @@ export class DefaultUIRenderer implements UIRenderer {
       return;
     }
 
+    const scrollTop = mountPoint.scrollTop;
+    const scrollLeft = mountPoint.scrollLeft;
+
     const template = document.createElement("template");
     template.innerHTML = nextHtml;
     this.reconcileChildren(mountPoint, template.content);
+    mountPoint.scrollTop = scrollTop;
+    mountPoint.scrollLeft = scrollLeft;
   }
 
   private reconcileChildren(
@@ -212,6 +217,12 @@ export class DefaultUIRenderer implements UIRenderer {
   ): void {
     const currentChildren = Array.from(currentParent.childNodes);
     const nextChildren = Array.from(nextParent.childNodes);
+
+    if (this.shouldUseKeyedReconcile(currentChildren, nextChildren)) {
+      this.reconcileKeyedChildren(currentParent, currentChildren, nextChildren);
+      return;
+    }
+
     const commonLength = Math.min(currentChildren.length, nextChildren.length);
 
     for (let i = 0; i < commonLength; i += 1) {
@@ -225,6 +236,131 @@ export class DefaultUIRenderer implements UIRenderer {
     for (let i = commonLength; i < nextChildren.length; i += 1) {
       currentParent.appendChild(nextChildren[i].cloneNode(true));
     }
+  }
+
+  private shouldUseKeyedReconcile(
+    currentChildren: ChildNode[],
+    nextChildren: ChildNode[],
+  ): boolean {
+    return (
+      currentChildren.some((node) => this.getNodeKey(node) !== null) ||
+      nextChildren.some((node) => this.getNodeKey(node) !== null)
+    );
+  }
+
+  private reconcileKeyedChildren(
+    currentParent: ParentNode,
+    currentChildren: ChildNode[],
+    nextChildren: ChildNode[],
+  ): void {
+    const currentByKey = new Map<string, ChildNode>();
+    for (const node of currentChildren) {
+      const key = this.getNodeKey(node);
+      if (!key || currentByKey.has(key)) {
+        continue;
+      }
+      currentByKey.set(key, node);
+    }
+
+    const consumed = new Set<ChildNode>();
+    const desiredNodes: ChildNode[] = [];
+
+    for (let index = 0; index < nextChildren.length; index += 1) {
+      const nextChild = nextChildren[index];
+      const nextKey = this.getNodeKey(nextChild);
+
+      let candidate: ChildNode | undefined;
+      if (nextKey) {
+        const keyed = currentByKey.get(nextKey);
+        if (
+          keyed &&
+          !consumed.has(keyed) &&
+          this.areNodesCompatible(keyed, nextChild)
+        ) {
+          candidate = keyed;
+        }
+      } else {
+        const positional = currentChildren[index];
+        if (
+          positional &&
+          !consumed.has(positional) &&
+          this.getNodeKey(positional) === null &&
+          this.areNodesCompatible(positional, nextChild)
+        ) {
+          candidate = positional;
+        }
+      }
+
+      if (candidate) {
+        this.reconcileNode(candidate, nextChild);
+        consumed.add(candidate);
+        desiredNodes.push(candidate);
+        continue;
+      }
+
+      desiredNodes.push(nextChild.cloneNode(true) as ChildNode);
+    }
+
+    this.applyDesiredChildren(currentParent, desiredNodes);
+  }
+
+  private applyDesiredChildren(
+    currentParent: ParentNode,
+    desiredNodes: ChildNode[],
+  ): void {
+    const desiredSet = new Set(desiredNodes);
+    for (const child of Array.from(currentParent.childNodes)) {
+      if (!desiredSet.has(child)) {
+        child.remove();
+      }
+    }
+
+    for (let index = 0; index < desiredNodes.length; index += 1) {
+      const desiredNode = desiredNodes[index];
+      const nodeAtIndex = currentParent.childNodes[index] ?? null;
+
+      if (desiredNode.parentNode !== currentParent) {
+        currentParent.insertBefore(desiredNode, nodeAtIndex);
+        continue;
+      }
+
+      if (nodeAtIndex !== desiredNode) {
+        currentParent.insertBefore(desiredNode, nodeAtIndex);
+      }
+    }
+  }
+
+  private getNodeKey(node: ChildNode): string | null {
+    if (typeof Element === "undefined" || !(node instanceof Element)) {
+      return null;
+    }
+
+    const key =
+      node.getAttribute("data-renderify-key") ?? node.getAttribute("key");
+    if (!key || key.trim().length === 0) {
+      return null;
+    }
+
+    return key;
+  }
+
+  private areNodesCompatible(
+    currentNode: ChildNode,
+    nextNode: ChildNode,
+  ): boolean {
+    if (currentNode.nodeType !== nextNode.nodeType) {
+      return false;
+    }
+
+    if (
+      typeof Element === "undefined" ||
+      !(currentNode instanceof Element) ||
+      !(nextNode instanceof Element)
+    ) {
+      return true;
+    }
+
+    return currentNode.tagName === nextNode.tagName;
   }
 
   private reconcileNode(currentNode: ChildNode, nextNode: ChildNode): void {
@@ -260,6 +396,9 @@ export class DefaultUIRenderer implements UIRenderer {
     currentElement: Element,
     nextElement: Element,
   ): void {
+    const activeElement =
+      typeof document !== "undefined" ? document.activeElement : undefined;
+
     for (const attribute of Array.from(currentElement.attributes)) {
       if (!nextElement.hasAttribute(attribute.name)) {
         currentElement.removeAttribute(attribute.name);
@@ -267,10 +406,41 @@ export class DefaultUIRenderer implements UIRenderer {
     }
 
     for (const attribute of Array.from(nextElement.attributes)) {
+      if (
+        this.shouldSkipInteractivePropertySync(
+          currentElement,
+          activeElement,
+          attribute.name,
+        )
+      ) {
+        continue;
+      }
+
       if (currentElement.getAttribute(attribute.name) !== attribute.value) {
         currentElement.setAttribute(attribute.name, attribute.value);
       }
     }
+  }
+
+  private shouldSkipInteractivePropertySync(
+    element: Element,
+    activeElement: Element | null | undefined,
+    attributeName: string,
+  ): boolean {
+    if (!activeElement || element !== activeElement) {
+      return false;
+    }
+
+    if (
+      !(
+        element instanceof HTMLInputElement ||
+        element instanceof HTMLTextAreaElement
+      )
+    ) {
+      return false;
+    }
+
+    return attributeName === "value" || attributeName === "checked";
   }
 
   private syncMountSession(
@@ -523,6 +693,15 @@ function serializeProps(
   const attributes: string[] = [];
 
   for (const [key, rawValue] of Object.entries(props)) {
+    if (key === "key") {
+      if (typeof rawValue === "string" || typeof rawValue === "number") {
+        attributes.push(
+          ` data-renderify-key="${escapeHtml(String(rawValue))}"`,
+        );
+      }
+      continue;
+    }
+
     const eventSpec = parseRuntimeEventProp(key, rawValue);
     if (eventSpec) {
       const bindingId = `evt_${String(++context.nextBindingId)}`;
