@@ -43,6 +43,7 @@ node_modules/
 jspm_packages/
 .turbo/
 .claude/
+.artifacts/
 
 # Snowpack dependency directory (https://snowpack.dev/)
 web_modules/

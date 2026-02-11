@@ -24,6 +24,11 @@
       "dependsOn": ["//#build:repo"],
       "cache": false
     },
+    "//#bench:repo": {
+      "dependsOn": ["//#typecheck:repo"],
+      "outputs": [".artifacts/benchmarks/**"],
+      "cache": false
+    },
     "//#clean:repo": {
       "cache": false
     }

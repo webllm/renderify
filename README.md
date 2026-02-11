@@ -74,7 +74,9 @@ flowchart TD
 - Browser runtime playground (`renderify playground`) for live prompt/plan/event/state/history flows
 - CLI persisted history (`.renderify/session.json`)
 - Unit tests for `ir/codegen/security/runtime/core`
-- CI workflow (`lint + typecheck + unit + build + e2e`)
+- CI matrix (`Node 22 + Node 24`) for typecheck/unit + quality gates
+- PR changeset enforcement for release-relevant package changes
+- Benchmark workflow with JSON artifacts uploaded per CI run
 
 ## Monorepo Commands
 
@@ -87,6 +89,7 @@ pnpm lint
 pnpm typecheck
 pnpm unit
 pnpm e2e
+pnpm bench
 pnpm test
 
 # package quality and builds
@@ -144,6 +147,9 @@ RENDERIFY_LLM_USE_STRUCTURED_OUTPUT=false pnpm playground
 ## Release Flow
 
 ```bash
+# CI enforces that package changes include a `.changeset/*.md` entry
+# run this when your PR changes package behavior/API
+
 # add a release note for changed packages
 pnpm changeset
 
@@ -153,6 +159,8 @@ pnpm version-packages
 # publish packages
 pnpm release
 ```
+
+Release automation is gated by CI success on `main` and uses Changesets to either open a version PR or publish to npm with provenance enabled.
 
 ## Programmatic Example
 
