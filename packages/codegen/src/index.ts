@@ -26,8 +26,33 @@ export interface CodeGenerationInput {
   context?: Record<string, unknown>;
 }
 
+export interface IncrementalCodeGenerationInput {
+  prompt: string;
+  context?: Record<string, unknown>;
+}
+
+export interface IncrementalCodeGenerationUpdate {
+  plan: RuntimePlan;
+  complete: boolean;
+  mode:
+    | "runtime-plan-json"
+    | "runtime-node-json"
+    | "runtime-source"
+    | "runtime-text-fallback";
+}
+
+export interface IncrementalCodeGenerationSession {
+  pushDelta(
+    delta: string,
+  ): Promise<IncrementalCodeGenerationUpdate | undefined>;
+  finalize(finalText?: string): Promise<RuntimePlan | undefined>;
+}
+
 export interface CodeGenerator {
   generatePlan(input: CodeGenerationInput): Promise<RuntimePlan>;
+  createIncrementalSession?(
+    input: IncrementalCodeGenerationInput,
+  ): IncrementalCodeGenerationSession;
   validatePlan(plan: RuntimePlan): Promise<boolean>;
   transformPlan(
     plan: RuntimePlan,
@@ -47,6 +72,46 @@ const JSPM_SPECIFIER_OVERRIDES: Record<string, string> = {
 };
 
 export class DefaultCodeGenerator implements CodeGenerator {
+  createIncrementalSession(
+    input: IncrementalCodeGenerationInput,
+  ): IncrementalCodeGenerationSession {
+    let buffer = "";
+    let lastSignature = "";
+
+    const tryGenerate = (): IncrementalCodeGenerationUpdate | undefined => {
+      const candidate = this.tryBuildIncrementalCandidate(input.prompt, buffer);
+      if (!candidate) {
+        return undefined;
+      }
+
+      const signature = this.createIncrementalPlanSignature(candidate.plan);
+      if (signature === lastSignature) {
+        return undefined;
+      }
+
+      lastSignature = signature;
+      return candidate;
+    };
+
+    return {
+      pushDelta: async (delta: string) => {
+        if (delta.length > 0) {
+          buffer += delta;
+        }
+
+        return tryGenerate();
+      },
+      finalize: async (finalText?: string) => {
+        if (typeof finalText === "string" && finalText.length > 0) {
+          buffer = finalText;
+        }
+
+        const candidate = tryGenerate();
+        return candidate?.plan;
+      },
+    };
+  }
+
   async generatePlan(input: CodeGenerationInput): Promise<RuntimePlan> {
     const parsedPlan = this.tryParseRuntimePlan(input.llmText, input.prompt);
     if (parsedPlan) {
@@ -101,6 +166,70 @@ export class DefaultCodeGenerator implements CodeGenerator {
       createElementNode("h1", undefined, [createTextNode(title)]),
       createElementNode("p", undefined, [createTextNode(summary)]),
     ]);
+  }
+
+  private tryBuildIncrementalCandidate(
+    prompt: string,
+    llmText: string,
+  ): IncrementalCodeGenerationUpdate | undefined {
+    const parsedPlan = this.tryParseRuntimePlan(llmText, prompt);
+    if (parsedPlan) {
+      return {
+        plan: parsedPlan,
+        complete: this.isLikelyCompleteJsonPayload(llmText),
+        mode: "runtime-plan-json",
+      };
+    }
+
+    const parsedNode = this.tryParseRuntimeNode(llmText);
+    if (parsedNode) {
+      return {
+        plan: this.createPlanFromRoot(parsedNode, {
+          prompt,
+          imports: collectComponentModules(parsedNode),
+          capabilities: {
+            domWrite: true,
+            allowedModules: collectComponentModules(parsedNode),
+          },
+        }),
+        complete: this.isLikelyCompleteJsonPayload(llmText),
+        mode: "runtime-node-json",
+      };
+    }
+
+    const source = this.tryExtractRuntimeSource(llmText);
+    if (source) {
+      return {
+        plan: this.createSourcePlan(prompt, source),
+        complete: this.hasClosedCodeFence(llmText),
+        mode: "runtime-source",
+      };
+    }
+
+    const fallbackRoot = this.createFallbackRoot(prompt, llmText);
+    const fallbackImports = collectComponentModules(fallbackRoot);
+    return {
+      plan: this.createPlanFromRoot(fallbackRoot, {
+        prompt,
+        imports: fallbackImports,
+        capabilities: {
+          domWrite: true,
+          allowedModules: fallbackImports,
+        },
+      }),
+      complete: false,
+      mode: "runtime-text-fallback",
+    };
+  }
+
+  private createIncrementalPlanSignature(plan: RuntimePlan): string {
+    return JSON.stringify({
+      root: plan.root,
+      imports: plan.imports ?? [],
+      source: plan.source,
+      capabilities: plan.capabilities,
+      state: plan.state,
+    });
   }
 
   private createPlanFromRoot(
@@ -237,6 +366,66 @@ export class DefaultCodeGenerator implements CodeGenerator {
     } catch {
       return undefined;
     }
+  }
+
+  private isLikelyCompleteJsonPayload(text: string): boolean {
+    const codeBlockMatch = text.match(/```json\s*([\s\S]*?)\s*```/i);
+    const payload = codeBlockMatch ? codeBlockMatch[1] : text;
+    const trimmed = payload.trim();
+
+    if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
+      return false;
+    }
+
+    const stack: string[] = [];
+    let inString = false;
+    let escaped = false;
+
+    for (const char of trimmed) {
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+
+        if (char === "\\") {
+          escaped = true;
+          continue;
+        }
+
+        if (char === '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (char === '"') {
+        inString = true;
+        continue;
+      }
+
+      if (char === "{" || char === "[") {
+        stack.push(char);
+        continue;
+      }
+
+      if (char === "}" || char === "]") {
+        const top = stack.pop();
+        if (!top) {
+          return false;
+        }
+        if ((char === "}" && top !== "{") || (char === "]" && top !== "[")) {
+          return false;
+        }
+      }
+    }
+
+    return !inString && stack.length === 0;
+  }
+
+  private hasClosedCodeFence(text: string): boolean {
+    const fences = text.match(/```/g);
+    return Boolean(fences && fences.length >= 2 && fences.length % 2 === 0);
   }
 
   private normalizePlanId(id?: string): string {

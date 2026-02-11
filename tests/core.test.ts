@@ -138,6 +138,39 @@ class InvalidStructuredLLM implements LLMInterpreter {
   }
 }
 
+class CountingIncrementalCodeGenerator extends DefaultCodeGenerator {
+  public generatePlanCalls = 0;
+  public pushDeltaCalls = 0;
+  public finalizeCalls = 0;
+
+  override async generatePlan(input: {
+    prompt: string;
+    llmText: string;
+    context?: Record<string, unknown>;
+  }) {
+    this.generatePlanCalls += 1;
+    return super.generatePlan(input);
+  }
+
+  override createIncrementalSession(input: {
+    prompt: string;
+    context?: Record<string, unknown>;
+  }) {
+    const base = super.createIncrementalSession(input);
+
+    return {
+      pushDelta: async (delta: string) => {
+        this.pushDeltaCalls += 1;
+        return base.pushDelta(delta);
+      },
+      finalize: async (finalText?: string) => {
+        this.finalizeCalls += 1;
+        return base.finalize(finalText);
+      },
+    };
+  }
+}
+
 function createDependencies(
   overrides: Partial<RenderifyCoreDependencies> = {},
 ): RenderifyCoreDependencies {
@@ -402,6 +435,31 @@ test("core renderPromptStream prefers structured output when available", async (
   assert.ok(seen.has("final"));
   assert.match(finalHtml, /Structured: structured stream/);
   assert.equal(llmMode, "structured");
+
+  await app.stop();
+});
+
+test("core renderPromptStream uses incremental codegen session", async () => {
+  const countingCodegen = new CountingIncrementalCodeGenerator();
+  const app = createRenderifyApp(
+    createDependencies({
+      codegen: countingCodegen,
+    }),
+  );
+
+  await app.start();
+
+  const chunks = [];
+  for await (const chunk of app.renderPromptStream("incremental session demo", {
+    previewEveryChunks: 1,
+  })) {
+    chunks.push(chunk.type);
+  }
+
+  assert.ok(chunks.includes("preview"));
+  assert.ok(countingCodegen.pushDeltaCalls > 0);
+  assert.equal(countingCodegen.finalizeCalls, 1);
+  assert.equal(countingCodegen.generatePlanCalls, 0);
 
   await app.stop();
 });

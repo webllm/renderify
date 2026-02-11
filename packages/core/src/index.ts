@@ -1,5 +1,9 @@
 import type { ApiIntegration } from "@renderify/api-integration";
-import type { CodeGenerationInput, CodeGenerator } from "@renderify/codegen";
+import type {
+  CodeGenerationInput,
+  CodeGenerator,
+  IncrementalCodeGenerationSession,
+} from "@renderify/codegen";
 import type { RenderifyConfig } from "@renderify/config";
 import type { ContextManager } from "@renderify/context";
 import type {
@@ -366,6 +370,15 @@ export class RenderifyApp {
         prompt: promptAfterHook,
         context: llmContext,
       };
+      const incrementalCodegenSession:
+        | IncrementalCodeGenerationSession
+        | undefined =
+        typeof this.deps.codegen.createIncrementalSession === "function"
+          ? this.deps.codegen.createIncrementalSession({
+              prompt: promptAfterHook,
+              context: llmContext,
+            })
+          : undefined;
       const llmUseStructuredOutput =
         this.deps.config.get<boolean>("llmUseStructuredOutput") !== false;
 
@@ -375,12 +388,15 @@ export class RenderifyApp {
       );
       const buildPreviewChunk = async (
         llmText: string,
+        delta?: string,
       ): Promise<RenderPromptStreamChunk | undefined> => {
         const preview = await this.buildStreamingPreview(
           promptAfterHook,
           llmText,
           llmContext,
           options.target,
+          incrementalCodegenSession,
+          delta,
         );
         if (!preview) {
           return undefined;
@@ -432,7 +448,7 @@ export class RenderifyApp {
             };
 
             if (done) {
-              const previewChunk = await buildPreviewChunk(latestText);
+              const previewChunk = await buildPreviewChunk(latestText, delta);
               if (previewChunk) {
                 yield previewChunk;
               }
@@ -474,7 +490,10 @@ export class RenderifyApp {
               };
 
               if (chunk.done || chunkCount % streamPreviewInterval === 0) {
-                const previewChunk = await buildPreviewChunk(latestText);
+                const previewChunk = await buildPreviewChunk(
+                  latestText,
+                  chunk.delta,
+                );
                 if (previewChunk) {
                   yield previewChunk;
                 }
@@ -531,7 +550,10 @@ export class RenderifyApp {
           };
 
           if (chunk.done || chunkCount % streamPreviewInterval === 0) {
-            const previewChunk = await buildPreviewChunk(latestText);
+            const previewChunk = await buildPreviewChunk(
+              latestText,
+              chunk.delta,
+            );
             if (previewChunk) {
               yield previewChunk;
             }
@@ -576,7 +598,9 @@ export class RenderifyApp {
         pluginContextFactory("beforeCodeGen"),
       );
 
-      const planned = await this.deps.codegen.generatePlan(codegenInput);
+      const planned =
+        (await incrementalCodegenSession?.finalize(llmResponse.text)) ??
+        (await this.deps.codegen.generatePlan(codegenInput));
       const planAfterCodegen = await this.runHook(
         "afterCodeGen",
         planned,
@@ -1046,6 +1070,8 @@ export class RenderifyApp {
     llmText: string,
     context: Record<string, unknown>,
     target?: RenderTarget,
+    incrementalCodegenSession?: IncrementalCodeGenerationSession,
+    delta?: string,
   ): Promise<
     | {
         plan: RuntimePlan;
@@ -1055,11 +1081,25 @@ export class RenderifyApp {
     | undefined
   > {
     try {
-      const plan = await this.deps.codegen.generatePlan({
-        prompt,
-        llmText,
-        context,
-      });
+      let plan: RuntimePlan | undefined;
+
+      if (incrementalCodegenSession) {
+        if (typeof delta === "string" && delta.length > 0) {
+          const incrementalUpdate =
+            await incrementalCodegenSession.pushDelta(delta);
+          plan = incrementalUpdate?.plan;
+        }
+
+        if (!plan) {
+          return undefined;
+        }
+      } else {
+        plan = await this.deps.codegen.generatePlan({
+          prompt,
+          llmText,
+          context,
+        });
+      }
 
       const security = this.deps.security.checkPlan(plan);
       if (!security.safe) {

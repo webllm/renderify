@@ -120,3 +120,39 @@ test("codegen preserves source module when RuntimePlan JSON contains source", as
     "https://ga.jspm.io/npm:nanoid@5/index.js",
   );
 });
+
+test("codegen incremental session streams source plans before finalization", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const session = codegen.createIncrementalSession({
+    prompt: "stream source plan",
+  });
+
+  const chunks = [
+    '```tsx\nimport { nanoid } from "npm:nanoid@5";\n',
+    "export default () => <section>{nanoid(4)}</section>;\n",
+    "```",
+  ];
+
+  let lastUpdate: Awaited<ReturnType<typeof session.pushDelta>> | undefined;
+  for (const chunk of chunks) {
+    lastUpdate = await session.pushDelta(chunk);
+  }
+
+  assert.ok(lastUpdate);
+  assert.equal(lastUpdate?.mode, "runtime-source");
+  assert.equal(lastUpdate?.complete, true);
+  assert.equal(lastUpdate?.plan.source?.runtime, "preact");
+});
+
+test("codegen incremental session emits fallback plans for plain text", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const session = codegen.createIncrementalSession({
+    prompt: "plain text",
+  });
+
+  const update = await session.pushDelta("hello incremental runtime");
+  assert.ok(update);
+  assert.equal(update?.mode, "runtime-text-fallback");
+  assert.equal(update?.plan.root.type, "element");
+  assert.equal(update?.complete, false);
+});
