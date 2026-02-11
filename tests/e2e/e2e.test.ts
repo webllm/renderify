@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from "node:http";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -29,7 +34,13 @@ interface HistoryResponseBody {
 
 const REPO_ROOT = process.cwd();
 const TSX_CLI = path.join(REPO_ROOT, "node_modules", "tsx", "dist", "cli.mjs");
-const RENDERIFY_CLI_ENTRY = path.join(REPO_ROOT, "packages", "cli", "src", "index.ts");
+const RENDERIFY_CLI_ENTRY = path.join(
+  REPO_ROOT,
+  "packages",
+  "cli",
+  "src",
+  "index.ts",
+);
 
 test("e2e: cli persisted runtime flow (render-plan -> event -> state -> history)", async () => {
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "renderify-e2e-cli-"));
@@ -48,7 +59,7 @@ test("e2e: cli persisted runtime flow (render-plan -> event -> state -> history)
     {
       const result = await runCli(
         ["render-plan", "examples/runtime/counter-plan.json"],
-        env
+        env,
       );
       assert.equal(result.code, 0, result.stderr);
       assert.match(result.stdout, /Count: 0/);
@@ -57,7 +68,7 @@ test("e2e: cli persisted runtime flow (render-plan -> event -> state -> history)
     {
       const result = await runCli(
         ["event", "example_counter_plan", "increment", '{"delta":1}'],
-        env
+        env,
       );
       assert.equal(result.code, 0, result.stderr);
       assert.match(result.stdout, /Count: 1/);
@@ -88,17 +99,18 @@ test("e2e: cli persisted runtime flow (render-plan -> event -> state -> history)
 });
 
 test("e2e: cli rejects invalid runtime plan file", async () => {
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), "renderify-e2e-invalid-plan-"));
+  const tempDir = await mkdtemp(
+    path.join(os.tmpdir(), "renderify-e2e-invalid-plan-"),
+  );
   const sessionFile = path.join(tempDir, "session.json");
   const invalidPlanPath = path.join(tempDir, "bad-plan.json");
 
   try {
     await writeFile(invalidPlanPath, '{"id":"bad"}', "utf8");
 
-    const result = await runCli(
-      ["render-plan", invalidPlanPath],
-      { RENDERIFY_SESSION_FILE: sessionFile }
-    );
+    const result = await runCli(["render-plan", invalidPlanPath], {
+      RENDERIFY_SESSION_FILE: sessionFile,
+    });
 
     assert.notEqual(result.code, 0);
     assert.match(result.stderr, /Invalid RuntimePlan JSON/);
@@ -108,7 +120,9 @@ test("e2e: cli rejects invalid runtime plan file", async () => {
 });
 
 test("e2e: cli render-plan executes runtime source module", async () => {
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), "renderify-e2e-source-plan-"));
+  const tempDir = await mkdtemp(
+    path.join(os.tmpdir(), "renderify-e2e-source-plan-"),
+  );
   const sessionFile = path.join(tempDir, "session.json");
   const sourcePlanPath = path.join(tempDir, "source-plan.json");
 
@@ -141,37 +155,39 @@ test("e2e: cli render-plan executes runtime source module", async () => {
       },
     };
 
-    await writeFile(sourcePlanPath, JSON.stringify(sourcePlan, null, 2), "utf8");
-
-    const result = await runCli(
-      ["render-plan", sourcePlanPath],
-      { RENDERIFY_SESSION_FILE: sessionFile }
+    await writeFile(
+      sourcePlanPath,
+      JSON.stringify(sourcePlan, null, 2),
+      "utf8",
     );
 
+    const result = await runCli(["render-plan", sourcePlanPath], {
+      RENDERIFY_SESSION_FILE: sessionFile,
+    });
+
     assert.equal(result.code, 0, result.stderr);
-    assert.match(result.stdout, @renderify/runtime source works/);
+    assert.match(result.stdout, /runtime source works/);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
 });
 
 test("e2e: cli uses openai provider when configured", async () => {
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), "renderify-e2e-openai-"));
+  const tempDir = await mkdtemp(
+    path.join(os.tmpdir(), "renderify-e2e-openai-"),
+  );
   const sessionFile = path.join(tempDir, "session.json");
   const port = await allocatePort();
   const { requests, close } = await startFakeOpenAIServer(port);
 
   try {
-    const result = await runCli(
-      ["plan", "runtime from openai provider"],
-      {
-        RENDERIFY_SESSION_FILE: sessionFile,
-        RENDERIFY_LLM_PROVIDER: "openai",
-        RENDERIFY_LLM_API_KEY: "test-key",
-        RENDERIFY_LLM_BASE_URL: `http://127.0.0.1:${port}/v1`,
-        RENDERIFY_LLM_MODEL: "gpt-4.1-mini",
-      }
-    );
+    const result = await runCli(["plan", "runtime from openai provider"], {
+      RENDERIFY_SESSION_FILE: sessionFile,
+      RENDERIFY_LLM_PROVIDER: "openai",
+      RENDERIFY_LLM_API_KEY: "test-key",
+      RENDERIFY_LLM_BASE_URL: `http://127.0.0.1:${port}/v1`,
+      RENDERIFY_LLM_MODEL: "gpt-4.1-mini",
+    });
 
     assert.equal(result.code, 0, result.stderr);
     const plan = JSON.parse(result.stdout.trim()) as {
@@ -203,19 +219,18 @@ test("e2e: cli uses openai provider when configured", async () => {
 });
 
 test("e2e: playground api flow enforces tenant quota in process", async () => {
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), "renderify-e2e-playground-"));
+  const tempDir = await mkdtemp(
+    path.join(os.tmpdir(), "renderify-e2e-playground-"),
+  );
   const sessionFile = path.join(tempDir, "session.json");
   const port = await allocatePort();
   const baseUrl = `http://127.0.0.1:${port}`;
 
-  const processHandle = startPlayground(
-    port,
-    {
-      RENDERIFY_SESSION_FILE: sessionFile,
-      RENDERIFY_MAX_EXECUTIONS_PER_MINUTE: "1",
-      RENDERIFY_MAX_CONCURRENT_EXECUTIONS: "1",
-    }
-  );
+  const processHandle = startPlayground(port, {
+    RENDERIFY_SESSION_FILE: sessionFile,
+    RENDERIFY_MAX_EXECUTIONS_PER_MINUTE: "1",
+    RENDERIFY_MAX_CONCURRENT_EXECUTIONS: "1",
+  });
 
   try {
     await waitForHealth(`${baseUrl}/api/health`, 10000);
@@ -240,7 +255,7 @@ test("e2e: playground api flow enforces tenant quota in process", async () => {
     assert.equal(second.status, 500);
     assert.match(
       String(secondBody.error ?? ""),
-      /exceeded max executions per minute/
+      /exceeded max executions per minute/,
     );
 
     const history = await fetchJson(`${baseUrl}/api/history`, {
@@ -249,13 +264,10 @@ test("e2e: playground api flow enforces tenant quota in process", async () => {
     const historyBody = history.body as HistoryResponseBody;
     assert.equal(history.status, 200);
     assert.equal(historyBody.security?.profile, "balanced");
-    assert.equal(
-      historyBody.tenantGovernor?.policy?.maxExecutionsPerMinute,
-      1
-    );
+    assert.equal(historyBody.tenantGovernor?.policy?.maxExecutionsPerMinute, 1);
     assert.ok(
       Array.isArray(historyBody.audits) &&
-        historyBody.audits.some((audit) => audit.status === "throttled")
+        historyBody.audits.some((audit) => audit.status === "throttled"),
     );
   } finally {
     processHandle.kill("SIGTERM");
@@ -266,7 +278,7 @@ test("e2e: playground api flow enforces tenant quota in process", async () => {
 
 async function runCli(
   args: string[],
-  envOverrides: Record<string, string>
+  envOverrides: Record<string, string>,
 ): Promise<CommandResult> {
   return new Promise<CommandResult>((resolve) => {
     const child = spawn(
@@ -279,7 +291,7 @@ async function runCli(
           ...envOverrides,
         },
         stdio: "pipe",
-      }
+      },
     );
 
     let stdout = "";
@@ -304,7 +316,7 @@ async function runCli(
 
 function startPlayground(
   port: number,
-  envOverrides: Record<string, string>
+  envOverrides: Record<string, string>,
 ): ChildProcessWithoutNullStreams {
   return spawn(
     process.execPath,
@@ -316,7 +328,7 @@ function startPlayground(
         ...envOverrides,
       },
       stdio: "pipe",
-    }
+    },
   );
 }
 
@@ -346,7 +358,7 @@ async function fetchJson(
   input: {
     method: "GET" | "POST";
     body?: Record<string, unknown>;
-  }
+  },
 ): Promise<{ status: number; body: unknown }> {
   const response = await fetch(url, {
     method: input.method,
@@ -363,9 +375,7 @@ async function fetchJson(
   };
 }
 
-async function startFakeOpenAIServer(
-  port: number
-): Promise<{
+async function startFakeOpenAIServer(port: number): Promise<{
   requests: Record<string, unknown>[];
   close: () => Promise<void>;
 }> {
@@ -423,7 +433,7 @@ async function startFakeOpenAIServer(
           },
         });
       });
-    }
+    },
   );
 
   await new Promise<void>((resolve, reject) => {
@@ -469,7 +479,7 @@ async function allocatePort(): Promise<number> {
 
 async function onceExit(
   child: ChildProcessWithoutNullStreams,
-  timeoutMs: number
+  timeoutMs: number,
 ): Promise<void> {
   if (child.exitCode !== null) {
     return;
@@ -492,7 +502,7 @@ function sendJson(res: ServerResponse, status: number, payload: unknown): void {
 }
 
 async function readJsonRequest(
-  req: IncomingMessage
+  req: IncomingMessage,
 ): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
   for await (const chunk of req) {

@@ -26,12 +26,15 @@
     ]
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "typecheck": "tsc -p tsconfig.json --pretty false --noEmit",
+    "lint": "biome lint src",
+    "clean": "rm -rf dist dist-types"
   },
   "author": "unadlib",
   "license": "MIT",
   "description": "A UI module for Renderify",
   "dependencies": {
-    "@renderify/ir": "0.0.1"
+    "@renderify/ir": "workspace:^"
   }
 }

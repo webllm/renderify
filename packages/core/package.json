@@ -26,22 +26,25 @@
     ]
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "typecheck": "tsc -p tsconfig.json --pretty false --noEmit",
+    "lint": "biome lint src",
+    "clean": "rm -rf dist dist-types"
   },
   "author": "unadlib",
   "license": "MIT",
   "description": "The core module for Renderify",
   "dependencies": {
-    "@renderify/api-integration": "0.0.1",
-    "@renderify/codegen": "0.0.1",
-    "@renderify/config": "0.0.1",
-    "@renderify/context": "0.0.1",
-    "@renderify/customization": "0.0.1",
-    "@renderify/ir": "0.0.1",
-    "@renderify/llm-interpreter": "0.0.1",
-    "@renderify/performance": "0.0.1",
-    "@renderify/runtime": "0.0.1",
-    "@renderify/security": "0.0.1",
-    "@renderify/ui": "0.0.1"
+    "@renderify/api-integration": "workspace:^",
+    "@renderify/codegen": "workspace:^",
+    "@renderify/config": "workspace:^",
+    "@renderify/context": "workspace:^",
+    "@renderify/customization": "workspace:^",
+    "@renderify/ir": "workspace:^",
+    "@renderify/llm-interpreter": "workspace:^",
+    "@renderify/performance": "workspace:^",
+    "@renderify/runtime": "workspace:^",
+    "@renderify/security": "workspace:^",
+    "@renderify/ui": "workspace:^"
   }
 }

@@ -15,40 +15,72 @@
       "importsConditions": true
     }
   },
-  "workspaces": [
-    "packages/*"
-  ],
   "description": "A dynamic web framework powered by LLM",
   "main": "index.js",
   "scripts": {
-    "test": "yarn typecheck && yarn unit",
-    "unit": "tsx --test \"tests/**/*.test.ts\"",
-    "typecheck": "tsc --noEmit",
-    "validate": "preconstruct validate",
-    "build": "preconstruct build",
-    "clean": "lerna exec -- rm -rf ./dist",
+    "preinstall": "node scripts/ensure-pnpm.js",
+    "build": "turbo run build:repo",
+    "build:repo": "preconstruct build",
+    "validate": "turbo run validate:repo",
+    "validate:repo": "preconstruct validate",
+    "typecheck": "turbo run typecheck:repo",
+    "typecheck:repo": "tsc -b tsconfig.build.json --pretty false",
+    "lint": "turbo run lint:repo",
+    "lint:repo": "biome lint .",
+    "format": "biome format --write .",
+    "format:check": "biome format --check .",
+    "unit": "turbo run unit:repo",
+    "unit:repo": "tsx --test \"tests/*.test.ts\"",
+    "e2e": "turbo run e2e:repo",
+    "e2e:repo": "tsx --test \"tests/e2e/**/*.test.ts\"",
+    "test": "pnpm run typecheck && pnpm run unit",
+    "test:all": "pnpm run test && pnpm run e2e",
+    "clean": "turbo run clean:repo",
+    "clean:repo": "find packages -maxdepth 2 -type d -name dist -prune -exec rm -rf {} + && find packages -maxdepth 2 -type d -name dist-types -prune -exec rm -rf {} + && rm -rf .turbo",
     "dev": "preconstruct dev",
     "watch": "preconstruct watch",
     "cli": "tsx packages/cli/src/index.ts",
     "playground": "tsx packages/cli/src/index.ts playground",
-    "commit": "yarn git-cz"
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "changeset publish",
+    "prepare": "husky",
+    "commit": "cz"
   },
   "author": "unadlib",
   "license": "MIT",
   "devDependencies": {
     "@babel/preset-env": "^7.29.0",
     "@babel/preset-typescript": "^7.28.5",
-    "@preconstruct/cli": "^2.8.10",
+    "@biomejs/biome": "^2.3.14",
+    "@changesets/changelog-github": "^0.5.2",
+    "@changesets/cli": "^2.29.8",
+    "@preconstruct/cli": "^2.8.12",
+    "@types/node": "^25.2.3",
     "commitizen": "^4.3.1",
-    "jest": "^29.7.0",
-    "lerna": "^8.1.8",
-    "ts-jest": "^29.2.6",
-    "tsx": "^4.19.3",
-    "typescript": "^5.7.3"
+    "cz-conventional-changelog": "^3.3.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.7",
+    "tsx": "^4.21.0",
+    "turbo": "^2.8.6",
+    "typescript": "^5.9.3"
   },
   "config": {
     "commitizen": {
       "path": "cz-conventional-changelog"
     }
+  },
+  "packageManager": "pnpm@10.29.3",
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=10.29.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "lint-staged": {
+    "*.{js,cjs,mjs,ts,tsx,json,md,yml,yaml}": "biome check --write"
   }
 }

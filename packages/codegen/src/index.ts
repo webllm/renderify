@@ -3,8 +3,8 @@ import {
   createElementNode,
   createTextNode,
   isRuntimeCapabilities,
-  isRuntimePlanMetadata,
   isRuntimeNode,
+  isRuntimePlanMetadata,
   isRuntimeSourceModule,
   isRuntimeStateModel,
   type RuntimeCapabilities,
@@ -26,7 +26,7 @@ export interface CodeGenerator {
   validatePlan(plan: RuntimePlan): Promise<boolean>;
   transformPlan(
     plan: RuntimePlan,
-    transforms: Array<(plan: RuntimePlan) => RuntimePlan>
+    transforms: Array<(plan: RuntimePlan) => RuntimePlan>,
   ): Promise<RuntimePlan>;
 }
 
@@ -43,7 +43,8 @@ export class DefaultCodeGenerator implements CodeGenerator {
     }
 
     const parsedRoot = this.tryParseRuntimeNode(input.llmText);
-    const root = parsedRoot ?? this.createFallbackRoot(input.prompt, input.llmText);
+    const root =
+      parsedRoot ?? this.createFallbackRoot(input.prompt, input.llmText);
     const imports = collectComponentModules(root);
 
     return this.createPlanFromRoot(root, {
@@ -70,23 +71,20 @@ export class DefaultCodeGenerator implements CodeGenerator {
 
   async transformPlan(
     plan: RuntimePlan,
-    transforms: Array<(plan: RuntimePlan) => RuntimePlan>
+    transforms: Array<(plan: RuntimePlan) => RuntimePlan>,
   ): Promise<RuntimePlan> {
     return transforms.reduce((current, transform) => transform(current), plan);
   }
 
   private createFallbackRoot(prompt: string, llmText: string): RuntimeNode {
     const title = prompt.trim().length > 0 ? prompt.trim() : "Untitled prompt";
-    const summary = llmText.trim().length > 0 ? llmText.trim() : "No model output";
+    const summary =
+      llmText.trim().length > 0 ? llmText.trim() : "No model output";
 
-    return createElementNode(
-      "section",
-      { class: "renderify-runtime-output" },
-      [
-        createElementNode("h1", undefined, [createTextNode(title)]),
-        createElementNode("p", undefined, [createTextNode(summary)]),
-      ]
-    );
+    return createElementNode("section", { class: "renderify-runtime-output" }, [
+      createElementNode("h1", undefined, [createTextNode(title)]),
+      createElementNode("p", undefined, [createTextNode(summary)]),
+    ]);
   }
 
   private createPlanFromRoot(
@@ -100,10 +98,14 @@ export class DefaultCodeGenerator implements CodeGenerator {
       version?: number;
       state?: RuntimeStateModel;
       source?: RuntimeSourceModule;
-    }
+    },
   ): RuntimePlan {
-    const imports = this.normalizeImports(input.imports) ?? collectComponentModules(root);
-    const capabilities = this.normalizeCapabilities(input.capabilities, imports);
+    const imports =
+      this.normalizeImports(input.imports) ?? collectComponentModules(root);
+    const capabilities = this.normalizeCapabilities(
+      input.capabilities,
+      imports,
+    );
     const metadata = this.normalizeMetadata(input.prompt, input.metadata);
     const id = this.normalizePlanId(input.id);
     const version = this.normalizePlanVersion(input.version);
@@ -122,7 +124,7 @@ export class DefaultCodeGenerator implements CodeGenerator {
 
   private tryParseRuntimePlan(
     text: string,
-    prompt: string
+    prompt: string,
   ): RuntimePlan | undefined {
     const parsed = this.tryParseJsonPayload(text);
     if (!this.isRecord(parsed) || !("root" in parsed)) {
@@ -225,7 +227,7 @@ export class DefaultCodeGenerator implements CodeGenerator {
 
   private normalizeCapabilities(
     capabilities: RuntimeCapabilities | undefined,
-    imports: string[]
+    imports: string[],
   ): RuntimeCapabilities {
     const normalized: RuntimeCapabilities = {
       domWrite: true,
@@ -246,7 +248,8 @@ export class DefaultCodeGenerator implements CodeGenerator {
 
     if (
       typeof normalized.maxExecutionMs === "number" &&
-      (!Number.isFinite(normalized.maxExecutionMs) || normalized.maxExecutionMs < 1)
+      (!Number.isFinite(normalized.maxExecutionMs) ||
+        normalized.maxExecutionMs < 1)
     ) {
       delete normalized.maxExecutionMs;
     }
@@ -264,7 +267,7 @@ export class DefaultCodeGenerator implements CodeGenerator {
 
   private normalizeMetadata(
     prompt: string,
-    metadata?: RuntimePlanMetadata
+    metadata?: RuntimePlanMetadata,
   ): RuntimePlanMetadata | undefined {
     const sourcePrompt = prompt.trim().length > 0 ? prompt.trim() : undefined;
     const merged = {
@@ -275,10 +278,10 @@ export class DefaultCodeGenerator implements CodeGenerator {
     return Object.keys(merged).length > 0 ? merged : undefined;
   }
 
-  private tryExtractRuntimeSource(text: string): RuntimeSourceModule | undefined {
-    const match = text.match(
-      /```(tsx|jsx|ts|js)\s*([\s\S]*?)\s*```/i
-    );
+  private tryExtractRuntimeSource(
+    text: string,
+  ): RuntimeSourceModule | undefined {
+    const match = text.match(/```(tsx|jsx|ts|js)\s*([\s\S]*?)\s*```/i);
 
     if (!match) {
       return undefined;
@@ -299,7 +302,7 @@ export class DefaultCodeGenerator implements CodeGenerator {
 
   private createSourcePlan(
     prompt: string,
-    source: RuntimeSourceModule
+    source: RuntimeSourceModule,
   ): RuntimePlan {
     const imports = this.parseImportsFromSource(source.code);
 
@@ -307,9 +310,7 @@ export class DefaultCodeGenerator implements CodeGenerator {
       createElementNode("section", { class: "renderify-runtime-source-plan" }, [
         createElementNode("h2", undefined, [createTextNode(prompt)]),
         createElementNode("p", undefined, [
-          createTextNode(
-            `Runtime source module (${source.language}) prepared`
-          ),
+          createTextNode(`Runtime source module (${source.language}) prepared`),
         ]),
       ]),
       {
@@ -324,7 +325,7 @@ export class DefaultCodeGenerator implements CodeGenerator {
           tags: ["source-module", source.language],
         },
         source,
-      }
+      },
     );
   }
 
@@ -336,13 +337,16 @@ export class DefaultCodeGenerator implements CodeGenerator {
 
     for (const regex of [staticImportRegex, dynamicImportRegex]) {
       let match: RegExpExecArray | null;
-      while ((match = regex.exec(code)) !== null) {
+      match = regex.exec(code);
+      while (match !== null) {
         const specifier = match[1].trim();
         if (specifier.length === 0) {
+          match = regex.exec(code);
           continue;
         }
 
         imports.add(specifier);
+        match = regex.exec(code);
       }
     }
 

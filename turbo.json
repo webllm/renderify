@@ -1,0 +1,31 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "//#build:repo": {
+      "outputs": ["packages/*/dist/**"]
+    },
+    "//#validate:repo": {
+      "outputs": []
+    },
+    "//#typecheck:repo": {
+      "outputs": [
+        "packages/*/dist-types/**",
+        ".turbo/tsconfig.tests.tsbuildinfo"
+      ]
+    },
+    "//#lint:repo": {
+      "outputs": []
+    },
+    "//#unit:repo": {
+      "dependsOn": ["//#typecheck:repo"],
+      "outputs": []
+    },
+    "//#e2e:repo": {
+      "dependsOn": ["//#build:repo"],
+      "cache": false
+    },
+    "//#clean:repo": {
+      "cache": false
+    }
+  }
+}

@@ -69,55 +69,79 @@ graph TD
 - Browser runtime playground (`renderify playground`) for live prompt/plan/event/state/history flows
 - CLI persisted history (`.renderify/session.json`)
 - Unit tests for `ir/codegen/security/runtime/core`
-- CI workflow (`typecheck + validate + test + build`)
+- CI workflow (`lint + typecheck + unit + build + e2e`)
 
 ## Monorepo Commands
 
 ```bash
-yarn install
-yarn validate
-yarn typecheck
-yarn test
-yarn build
+# install
+pnpm install
+
+# quality + tests
+pnpm lint
+pnpm typecheck
+pnpm unit
+pnpm e2e
+pnpm test
+
+# package quality and builds
+pnpm validate
+pnpm build
+
+# auto-format
+pnpm format
 ```
 
 ## CLI Quick Start
 
 ```bash
 # Render prompt and print HTML
-yarn cli run "Build a welcome card"
+pnpm cli -- run "Build a welcome card"
 
 # Print RuntimePlan JSON
-yarn cli plan "Build a welcome card"
+pnpm cli -- plan "Build a welcome card"
 
 # Execute RuntimePlan file
-yarn cli render-plan examples/runtime/counter-plan.json
+pnpm cli -- render-plan examples/runtime/counter-plan.json
 
 # Dispatch runtime event to a stored plan
-yarn cli event <planId> increment '{"delta":1}'
+pnpm cli -- event <planId> increment '{"delta":1}'
 
 # Inspect runtime state and history
-yarn cli state <planId>
-yarn cli history
+pnpm cli -- state <planId>
+pnpm cli -- history
 
 # Rollback / replay
-yarn cli rollback <planId> <version>
-yarn cli replay <traceId>
+pnpm cli -- rollback <planId> <version>
+pnpm cli -- replay <traceId>
 
 # Browser playground
-yarn playground
+pnpm playground
 
 # Optional security/tenant env
-RENDERIFY_SECURITY_PROFILE=strict yarn playground
-RENDERIFY_MAX_EXECUTIONS_PER_MINUTE=60 RENDERIFY_MAX_CONCURRENT_EXECUTIONS=2 yarn playground
-RENDERIFY_LLM_USE_STRUCTURED_OUTPUT=false yarn playground
+RENDERIFY_SECURITY_PROFILE=strict pnpm playground
+RENDERIFY_MAX_EXECUTIONS_PER_MINUTE=60 RENDERIFY_MAX_CONCURRENT_EXECUTIONS=2 pnpm playground
+RENDERIFY_LLM_USE_STRUCTURED_OUTPUT=false pnpm playground
 
 # Optional LLM provider env
-RENDERIFY_LLM_PROVIDER=openai RENDERIFY_LLM_API_KEY=<your_key> yarn playground
-RENDERIFY_LLM_PROVIDER=openai RENDERIFY_LLM_MODEL=gpt-4.1-mini RENDERIFY_LLM_BASE_URL=https://api.openai.com/v1 yarn playground
+RENDERIFY_LLM_PROVIDER=openai RENDERIFY_LLM_API_KEY=<your_key> pnpm playground
+RENDERIFY_LLM_PROVIDER=openai RENDERIFY_LLM_MODEL=gpt-4.1-mini RENDERIFY_LLM_BASE_URL=https://api.openai.com/v1 pnpm playground
 
 # Force text/TSX generation path instead of structured RuntimePlan
-RENDERIFY_LLM_USE_STRUCTURED_OUTPUT=false yarn playground
+RENDERIFY_LLM_USE_STRUCTURED_OUTPUT=false pnpm playground
+```
+
+## Release Flow
+
+```bash
+# add a release note for changed packages
+pnpm changeset
+
+# apply versions/changelog updates
+pnpm version-packages
+
+# publish packages
+pnpm release
 ```
 
 ## Programmatic Example

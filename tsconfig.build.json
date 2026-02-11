@@ -1,0 +1,56 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "packages/api-integration"
+    },
+    {
+      "path": "packages/cli"
+    },
+    {
+      "path": "packages/codegen"
+    },
+    {
+      "path": "packages/component-library"
+    },
+    {
+      "path": "packages/config"
+    },
+    {
+      "path": "packages/context"
+    },
+    {
+      "path": "packages/core"
+    },
+    {
+      "path": "packages/customization"
+    },
+    {
+      "path": "packages/ir"
+    },
+    {
+      "path": "packages/llm-interpreter"
+    },
+    {
+      "path": "packages/llm-openai"
+    },
+    {
+      "path": "packages/performance"
+    },
+    {
+      "path": "packages/runtime"
+    },
+    {
+      "path": "packages/runtime-jspm"
+    },
+    {
+      "path": "packages/security"
+    },
+    {
+      "path": "packages/ui"
+    },
+    {
+      "path": "./tsconfig.tests.json"
+    }
+  ]
+}

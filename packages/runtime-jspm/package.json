@@ -26,12 +26,15 @@
     ]
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "typecheck": "tsc -p tsconfig.json --pretty false --noEmit",
+    "lint": "biome lint src",
+    "clean": "rm -rf dist dist-types"
   },
   "author": "unadlib",
   "license": "MIT",
   "description": "JSPM-based module loader for Renderify runtime",
   "dependencies": {
-    "@renderify/runtime": "0.0.1"
+    "@renderify/runtime": "workspace:^"
   }
 }

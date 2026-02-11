@@ -42,21 +42,23 @@
   - structured LLM output + fallback behavior tests
   - OpenAI provider adapter tests (structured/text paths)
   - source module runtime tests (execution and import rewrite)
-  - CI workflow for typecheck/validate/test/build
+- CI workflow for lint/typecheck/unit/build/e2e
 
 ## Verified Commands
 
-- `yarn typecheck`
-- `yarn test`
-- `yarn validate`
-- `yarn build`
-- `yarn cli run "..."`
-- `yarn cli event <planId> <eventType> '{"k":1}'`
-- `yarn cli state <planId>`
-- `yarn cli history`
-- `yarn cli rollback <planId> <version>`
-- `yarn cli replay <traceId>`
-- `yarn playground`
+- `pnpm typecheck`
+- `pnpm unit`
+- `pnpm e2e`
+- `pnpm test`
+- `pnpm validate`
+- `pnpm build`
+- `pnpm cli run "..."`
+- `pnpm cli event <planId> <eventType> '{"k":1}'`
+- `pnpm cli state <planId>`
+- `pnpm cli history`
+- `pnpm cli rollback <planId> <version>`
+- `pnpm cli replay <traceId>`
+- `pnpm playground`
 
 ## Remaining High-Value Items
 

@@ -1,0 +1,45 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "src",
+    "outDir": "dist-types",
+    "tsBuildInfoFile": "dist-types/tsconfig.tsbuildinfo"
+  },
+  "include": ["src/**/*"],
+  "references": [
+    {
+      "path": "../api-integration"
+    },
+    {
+      "path": "../codegen"
+    },
+    {
+      "path": "../config"
+    },
+    {
+      "path": "../context"
+    },
+    {
+      "path": "../customization"
+    },
+    {
+      "path": "../ir"
+    },
+    {
+      "path": "../llm-interpreter"
+    },
+    {
+      "path": "../performance"
+    },
+    {
+      "path": "../runtime"
+    },
+    {
+      "path": "../security"
+    },
+    {
+      "path": "../ui"
+    }
+  ]
+}
