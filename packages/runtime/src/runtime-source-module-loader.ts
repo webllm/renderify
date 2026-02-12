@@ -250,54 +250,88 @@ export class RuntimeSourceModuleLoader {
       this.remoteFallbackCdnBases,
     );
 
+    if (attempts.length === 0) {
+      throw new Error(`Failed to load module: ${url}`);
+    }
+
+    const hedgeDelayMs = Math.max(
+      50,
+      Math.min(300, this.remoteFetchBackoffMs || 100),
+    );
+    const fetchTasks = attempts.map((attempt, index) =>
+      this.fetchRemoteModuleAttemptWithRetries(
+        attempt,
+        url,
+        index === 0 ? 0 : hedgeDelayMs * index,
+      ),
+    );
+
+    try {
+      return await Promise.any(fetchTasks);
+    } catch (error) {
+      if (error instanceof AggregateError && error.errors.length > 0) {
+        throw error.errors[error.errors.length - 1];
+      }
+
+      throw error;
+    }
+  }
+
+  private async fetchRemoteModuleAttemptWithRetries(
+    attempt: string,
+    originalUrl: string,
+    startDelayMs: number,
+  ): Promise<RemoteModuleFetchResult> {
+    if (startDelayMs > 0) {
+      await delay(startDelayMs);
+    }
+
     let lastError: unknown;
-    for (const attempt of attempts) {
-      for (let retry = 0; retry <= this.remoteFetchRetries; retry += 1) {
-        try {
-          const response = await fetchWithTimeout(
-            attempt,
-            this.remoteFetchTimeoutMs,
+    for (let retry = 0; retry <= this.remoteFetchRetries; retry += 1) {
+      try {
+        const response = await fetchWithTimeout(
+          attempt,
+          this.remoteFetchTimeoutMs,
+        );
+        if (!response.ok) {
+          throw new Error(
+            `Failed to load module ${attempt}: HTTP ${response.status}`,
           );
-          if (!response.ok) {
-            throw new Error(
-              `Failed to load module ${attempt}: HTTP ${response.status}`,
-            );
-          }
-
-          if (attempt !== url) {
-            this.diagnostics.push({
-              level: "warning",
-              code: "RUNTIME_SOURCE_IMPORT_FALLBACK_USED",
-              message: `Loaded module via fallback URL: ${url} -> ${attempt}`,
-            });
-          }
-
-          if (retry > 0) {
-            this.diagnostics.push({
-              level: "warning",
-              code: "RUNTIME_SOURCE_IMPORT_RETRY_SUCCEEDED",
-              message: `Recovered remote module after retry ${retry}: ${attempt}`,
-            });
-          }
-
-          return {
-            url: response.url || attempt,
-            code: await response.text(),
-            contentType:
-              response.headers.get("content-type")?.toLowerCase() ?? "",
-            requestUrl: attempt,
-          };
-        } catch (error) {
-          lastError = error;
-          if (retry >= this.remoteFetchRetries) {
-            break;
-          }
-          await delay(this.remoteFetchBackoffMs * Math.max(1, retry + 1));
         }
+
+        if (attempt !== originalUrl) {
+          this.diagnostics.push({
+            level: "warning",
+            code: "RUNTIME_SOURCE_IMPORT_FALLBACK_USED",
+            message: `Loaded module via fallback URL: ${originalUrl} -> ${attempt}`,
+          });
+        }
+
+        if (retry > 0) {
+          this.diagnostics.push({
+            level: "warning",
+            code: "RUNTIME_SOURCE_IMPORT_RETRY_SUCCEEDED",
+            message: `Recovered remote module after retry ${retry}: ${attempt}`,
+          });
+        }
+
+        return {
+          url: response.url || attempt,
+          code: await response.text(),
+          contentType:
+            response.headers.get("content-type")?.toLowerCase() ?? "",
+          requestUrl: attempt,
+        };
+      } catch (error) {
+        lastError = error;
+        if (retry >= this.remoteFetchRetries) {
+          break;
+        }
+        await delay(this.remoteFetchBackoffMs * Math.max(1, retry + 1));
       }
     }
 
-    throw lastError ?? new Error(`Failed to load module: ${url}`);
+    throw lastError ?? new Error(`Failed to load module: ${attempt}`);
   }
 
   private createJsonProxyModuleSource(
