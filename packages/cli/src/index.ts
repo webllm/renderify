@@ -1166,11 +1166,22 @@ const PLAYGROUND_HTML = `<!doctype html>
         "preact/jsx-dev-runtime":
           "https://esm.sh/preact@10.28.3/jsx-runtime",
         recharts:
-          "https://esm.sh/recharts@3.3.0?alias=react:preact/compat,react-dom:preact/compat",
+          "https://esm.sh/recharts@3.3.0?alias=react:preact/compat,react-dom:preact/compat,react-dom/client:preact/compat,react/jsx-runtime:preact/jsx-runtime,react/jsx-dev-runtime:preact/jsx-runtime",
+        "@mui/material":
+          "https://esm.sh/@mui/material@7.3.5?alias=react:preact/compat,react-dom:preact/compat,react-dom/client:preact/compat,react/jsx-runtime:preact/jsx-runtime,react/jsx-dev-runtime:preact/jsx-runtime",
         react: "https://esm.sh/preact@10.28.3/compat",
         "react-dom": "https://esm.sh/preact@10.28.3/compat",
-        "react-dom/client": "https://esm.sh/preact@10.28.3/compat"
+        "react-dom/client": "https://esm.sh/preact@10.28.3/compat",
+        "react/jsx-runtime": "https://esm.sh/preact@10.28.3/jsx-runtime",
+        "react/jsx-dev-runtime": "https://esm.sh/preact@10.28.3/jsx-runtime"
       };
+      const IMPORT_PATTERNS = [
+        /\\bfrom\\s+["']([^"']+)["']/g,
+        /\\bimport\\s+["']([^"']+)["']/g,
+        /\\bimport\\s*\\(\\s*["']([^"']+)["']\\s*\\)/g
+      ];
+      const moduleGraphCache = new Map();
+      const moduleGraphInflight = new Map();
       let babelStandalonePromise;
 
       const safeJson = (value) => {
@@ -1254,19 +1265,160 @@ const PLAYGROUND_HTML = `<!doctype html>
         return specifier;
       };
 
-      const rewriteImportsWithManifest = (code, moduleManifest) => {
-        const patterns = [
-          /\\bfrom\\s+["']([^"']+)["']/g,
-          /\\bimport\\s+["']([^"']+)["']/g,
-          /\\bimport\\s*\\(\\s*["']([^"']+)["']\\s*\\)/g
-        ];
+      const isHttpUrl = (specifier) =>
+        typeof specifier === "string" &&
+        (specifier.startsWith("http://") || specifier.startsWith("https://"));
 
-        return patterns.reduce((current, pattern) => {
-          return current.replace(pattern, (full, specifier) => {
-            const rewritten = resolveManifestSpecifier(specifier, moduleManifest);
-            return full.replace(specifier, rewritten);
-          });
-        }, code);
+      const toEsmFallbackUrl = (url) => {
+        if (typeof url !== "string" || !url.startsWith("https://ga.jspm.io/npm:")) {
+          return undefined;
+        }
+
+        const specifier = url.slice("https://ga.jspm.io/npm:".length).trim();
+        if (specifier.length === 0) {
+          return undefined;
+        }
+
+        const aliasQuery =
+          "alias=react:preact/compat,react-dom:preact/compat,react-dom/client:preact/compat,react/jsx-runtime:preact/jsx-runtime,react/jsx-dev-runtime:preact/jsx-runtime&target=es2022";
+        const separator = specifier.includes("?") ? "&" : "?";
+        return "https://esm.sh/" + specifier + separator + aliasQuery;
+      };
+
+      const fetchModuleCodeWithFallback = async (url) => {
+        const fallbackUrl = toEsmFallbackUrl(url);
+        const attempts = [url, fallbackUrl].filter(
+          (entry, index, array) =>
+            typeof entry === "string" &&
+            entry.length > 0 &&
+            array.indexOf(entry) === index
+        );
+
+        let lastError;
+        for (const attempt of attempts) {
+          try {
+            const response = await fetch(attempt);
+            if (!response.ok) {
+              throw new Error("HTTP " + response.status + " for " + attempt);
+            }
+            return {
+              url: response.url || attempt,
+              code: await response.text()
+            };
+          } catch (error) {
+            lastError = error;
+          }
+        }
+
+        throw (
+          lastError ||
+          new Error("Failed to load module code for " + String(url))
+        );
+      };
+
+      const replaceImportSpecifiersAsync = async (source, pattern, replacer) => {
+        const flags = pattern.flags.includes("g")
+          ? pattern.flags
+          : pattern.flags + "g";
+        const regex = new RegExp(pattern.source, flags);
+
+        let rewritten = "";
+        let lastIndex = 0;
+        let match = regex.exec(source);
+        while (match) {
+          const full = match[0];
+          const specifier = match[1];
+          const start = match.index;
+          const end = start + full.length;
+
+          rewritten += source.slice(lastIndex, start);
+          rewritten += await replacer(full, specifier);
+          lastIndex = end;
+          match = regex.exec(source);
+        }
+
+        rewritten += source.slice(lastIndex);
+        return rewritten;
+      };
+
+      const rewriteImportsWithManifest = async (code, moduleManifest, parentUrl) => {
+        let rewritten = code;
+        for (const pattern of IMPORT_PATTERNS) {
+          rewritten = await replaceImportSpecifiersAsync(
+            rewritten,
+            pattern,
+            async (full, specifier) => {
+              const trimmed = String(specifier || "").trim();
+              if (trimmed.length === 0) {
+                return full;
+              }
+
+              if (trimmed.startsWith("data:") || trimmed.startsWith("blob:")) {
+                return full;
+              }
+
+              if (isHttpUrl(trimmed)) {
+                const blobUrl = await materializeRemoteModule(trimmed, moduleManifest);
+                return full.replace(specifier, blobUrl);
+              }
+
+              if (
+                trimmed.startsWith("./") ||
+                trimmed.startsWith("../") ||
+                trimmed.startsWith("/")
+              ) {
+                if (!parentUrl || !isHttpUrl(parentUrl)) {
+                  return full;
+                }
+
+                const resolved = new URL(trimmed, parentUrl).toString();
+                const blobUrl = await materializeRemoteModule(resolved, moduleManifest);
+                return full.replace(specifier, blobUrl);
+              }
+
+              const resolved = resolveManifestSpecifier(trimmed, moduleManifest);
+              if (isHttpUrl(resolved)) {
+                const blobUrl = await materializeRemoteModule(resolved, moduleManifest);
+                return full.replace(specifier, blobUrl);
+              }
+
+              return full.replace(specifier, resolved);
+            }
+          );
+        }
+
+        return rewritten;
+      };
+
+      const materializeRemoteModule = async (url, moduleManifest) => {
+        if (moduleGraphCache.has(url)) {
+          return moduleGraphCache.get(url);
+        }
+        if (moduleGraphInflight.has(url)) {
+          return moduleGraphInflight.get(url);
+        }
+
+        const loading = (async () => {
+          const fetched = await fetchModuleCodeWithFallback(url);
+          const rewritten = await rewriteImportsWithManifest(
+            fetched.code,
+            moduleManifest,
+            fetched.url
+          );
+          const blobUrl = URL.createObjectURL(
+            new Blob([rewritten], { type: "text/javascript" })
+          );
+          moduleGraphCache.set(url, blobUrl);
+          moduleGraphCache.set(fetched.url, blobUrl);
+          return blobUrl;
+        })();
+
+        moduleGraphInflight.set(url, loading);
+        try {
+          return await loading;
+        } finally {
+          moduleGraphInflight.delete(url);
+        }
       };
 
       const transpileSourceForBrowser = async (source) => {
@@ -1312,15 +1464,16 @@ const PLAYGROUND_HTML = `<!doctype html>
         return transformed.code;
       };
 
-      const importSourceModuleFromCode = async (code) => {
-        const blob = new Blob([code], { type: "text/javascript" });
-        const url = URL.createObjectURL(blob);
-
-        try {
-          return await import(url);
-        } finally {
-          URL.revokeObjectURL(url);
-        }
+      const importSourceModuleFromCode = async (code, moduleManifest) => {
+        const rewritten = await rewriteImportsWithManifest(
+          code,
+          moduleManifest,
+          undefined
+        );
+        const blobUrl = URL.createObjectURL(
+          new Blob([rewritten], { type: "text/javascript" })
+        );
+        return await import(blobUrl);
       };
 
       const renderSourcePlanInBrowser = async (plan, state) => {
@@ -1339,11 +1492,10 @@ const PLAYGROUND_HTML = `<!doctype html>
         }
 
         const transpiled = await transpileSourceForBrowser(source);
-        const rewritten = rewriteImportsWithManifest(
+        const namespace = await importSourceModuleFromCode(
           transpiled,
           isRecord(plan.moduleManifest) ? plan.moduleManifest : undefined
         );
-        const namespace = await importSourceModuleFromCode(rewritten);
         const exportName =
           typeof source.exportName === "string" && source.exportName.trim().length > 0
             ? source.exportName

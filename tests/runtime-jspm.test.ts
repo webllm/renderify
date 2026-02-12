@@ -20,11 +20,15 @@ test("runtime-jspm resolves bare package and npm: package specifiers", () => {
 
   assert.equal(
     loader.resolveSpecifier("react"),
-    "https://ga.jspm.io/npm:react@19.2.0/index.js",
+    "https://ga.jspm.io/npm:preact@10.28.3/compat/dist/compat.module.js",
   );
   assert.equal(
     loader.resolveSpecifier("npm:react-dom/client"),
-    "https://ga.jspm.io/npm:react-dom@19.2.0/client.js",
+    "https://ga.jspm.io/npm:preact@10.28.3/compat/dist/compat.module.js",
+  );
+  assert.equal(
+    loader.resolveSpecifier("react/jsx-runtime"),
+    "https://ga.jspm.io/npm:preact@10.28.3/jsx-runtime/dist/jsxRuntime.module.js",
   );
 });
 

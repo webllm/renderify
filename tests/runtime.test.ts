@@ -16,6 +16,7 @@ import {
   type RuntimeSourceTranspileInput,
   type RuntimeSourceTranspiler,
 } from "../packages/runtime/src/index";
+import { JspmModuleLoader } from "../packages/runtime-jspm/src/index";
 
 class MockLoader implements RuntimeModuleLoader {
   constructor(private readonly modules: Record<string, unknown>) {}
@@ -419,6 +420,50 @@ test("runtime rewrites source imports through module loader resolver", async () 
   assert.equal(result.root.value, "from-jspm-resolver");
 
   await runtime.terminate();
+});
+
+test("runtime resolves react jsx-runtime through jspm compatibility aliases", () => {
+  const runtime = new DefaultRuntimeManager({
+    moduleLoader: new JspmModuleLoader(),
+  });
+
+  const diagnostics: Array<{ message: string }> = [];
+  const resolved = (
+    runtime as unknown as {
+      resolveRuntimeSourceSpecifier: (
+        specifier: string,
+        moduleManifest: RuntimeModuleManifest | undefined,
+        diagnostics: Array<{ message: string }>,
+        requireManifest: boolean,
+      ) => string;
+    }
+  ).resolveRuntimeSourceSpecifier(
+    "react/jsx-runtime",
+    undefined,
+    diagnostics,
+    false,
+  );
+
+  assert.equal(
+    resolved,
+    "https://ga.jspm.io/npm:preact@10.28.3/jsx-runtime/dist/jsxRuntime.module.js",
+  );
+});
+
+test("runtime computes esm fallback url for jspm modules", () => {
+  const runtime = new DefaultRuntimeManager();
+  const fallback = (
+    runtime as unknown as {
+      toEsmFallbackUrl: (url: string) => string | undefined;
+    }
+  ).toEsmFallbackUrl("https://ga.jspm.io/npm:@mui/material@7.3.5/index.js");
+
+  assert.equal(typeof fallback, "string");
+  assert.match(
+    String(fallback),
+    /^https:\/\/esm\.sh\/@mui\/material@7\.3\.5\/index\.js\?/,
+  );
+  assert.match(String(fallback), /alias=react:preact\/compat/);
 });
 
 test("runtime enforces moduleManifest for bare component specifiers by default", async () => {

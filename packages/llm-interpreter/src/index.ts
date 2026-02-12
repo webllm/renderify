@@ -183,8 +183,8 @@ export class DefaultLLMInterpreter implements LLMInterpreter {
         'import { useMemo, useState } from "preact/hooks";',
         "import {",
         "  ResponsiveContainer,",
-        "  BarChart,",
-        "  Bar,",
+        "  LineChart,",
+        "  Line,",
         "  XAxis,",
         "  YAxis,",
         "  CartesianGrid,",
@@ -215,14 +215,14 @@ export class DefaultLLMInterpreter implements LLMInterpreter {
         "      </div>",
         '      <div style={{ width: "100%", height: 260 }}>',
         "        <ResponsiveContainer>",
-        "          <BarChart data={dataset}>",
+        "          <LineChart data={dataset}>",
         '            <CartesianGrid strokeDasharray="3 3" />',
         '            <XAxis dataKey="name" />',
         "            <YAxis />",
         "            <Tooltip />",
         "            <Legend />",
-        '            <Bar dataKey={metric} fill={metric === "revenue" ? "#0f766e" : "#1d4ed8"} />',
-        "          </BarChart>",
+        '            <Line type="monotone" dataKey={metric} stroke={metric === "revenue" ? "#0f766e" : "#1d4ed8"} strokeWidth={3} />',
+        "          </LineChart>",
         "        </ResponsiveContainer>",
         "      </div>",
         "      <p style={{ marginBottom: 0 }}>Selected metric: {metric} / server count: {state?.count ?? 0}</p>",
@@ -251,6 +251,36 @@ export class DefaultLLMInterpreter implements LLMInterpreter {
           "preact/hooks": {
             resolvedUrl:
               "https://ga.jspm.io/npm:preact@10.28.3/hooks/dist/hooks.module.js",
+            signer: "mock-llm",
+            version: "10.28.3",
+          },
+          react: {
+            resolvedUrl:
+              "https://ga.jspm.io/npm:preact@10.28.3/compat/dist/compat.module.js",
+            signer: "mock-llm",
+            version: "10.28.3",
+          },
+          "react-dom": {
+            resolvedUrl:
+              "https://ga.jspm.io/npm:preact@10.28.3/compat/dist/compat.module.js",
+            signer: "mock-llm",
+            version: "10.28.3",
+          },
+          "react-dom/client": {
+            resolvedUrl:
+              "https://ga.jspm.io/npm:preact@10.28.3/compat/dist/compat.module.js",
+            signer: "mock-llm",
+            version: "10.28.3",
+          },
+          "react/jsx-runtime": {
+            resolvedUrl:
+              "https://ga.jspm.io/npm:preact@10.28.3/jsx-runtime/dist/jsxRuntime.module.js",
+            signer: "mock-llm",
+            version: "10.28.3",
+          },
+          "react/jsx-dev-runtime": {
+            resolvedUrl:
+              "https://ga.jspm.io/npm:preact@10.28.3/jsx-runtime/dist/jsxRuntime.module.js",
             signer: "mock-llm",
             version: "10.28.3",
           },

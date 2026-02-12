@@ -104,9 +104,15 @@ const FALLBACK_MAX_COMPONENT_INVOCATIONS = 200;
 const FALLBACK_MAX_EXECUTION_MS = 1500;
 const FALLBACK_EXECUTION_PROFILE: RuntimeExecutionProfile = "standard";
 const FALLBACK_JSPM_CDN_BASE = "https://ga.jspm.io/npm";
+const FALLBACK_ESM_CDN_BASE = "https://esm.sh";
 const FALLBACK_SUPPORTED_SPEC_VERSIONS = [DEFAULT_RUNTIME_PLAN_SPEC_VERSION];
 const FALLBACK_ENFORCE_MODULE_MANIFEST = true;
 const FALLBACK_ALLOW_ISOLATION_FALLBACK = false;
+const SOURCE_IMPORT_REWRITE_PATTERNS = [
+  /\bfrom\s+["']([^"']+)["']/g,
+  /\bimport\s+["']([^"']+)["']/g,
+  /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g,
+] as const;
 
 interface BabelStandaloneLike {
   transform(
@@ -251,6 +257,9 @@ export class DefaultRuntimeManager implements RuntimeManager {
   private readonly supportedPlanSpecVersions: Set<string>;
   private readonly enforceModuleManifest: boolean;
   private readonly allowIsolationFallback: boolean;
+  private readonly browserModuleUrlCache = new Map<string, string>();
+  private readonly browserModuleInflight = new Map<string, Promise<string>>();
+  private readonly browserBlobUrls = new Set<string>();
   private initialized = false;
 
   constructor(options: RuntimeManagerOptions = {}) {
@@ -284,6 +293,9 @@ export class DefaultRuntimeManager implements RuntimeManager {
   async terminate(): Promise<void> {
     this.initialized = false;
     this.states.clear();
+    this.browserModuleUrlCache.clear();
+    this.browserModuleInflight.clear();
+    this.revokeBrowserBlobUrls();
   }
 
   async execute(input: RuntimeExecutionInput): Promise<RuntimeExecutionResult> {
@@ -636,7 +648,12 @@ export class DefaultRuntimeManager implements RuntimeManager {
         diagnostics,
       );
       const namespace = await this.withRemainingBudget(
-        () => this.importSourceModuleFromCode(rewritten),
+        () =>
+          this.importSourceModuleFromCode(
+            rewritten,
+            plan.moduleManifest,
+            diagnostics,
+          ),
         frame,
         "Runtime source module loading timed out",
       );
@@ -788,11 +805,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
     moduleManifest: RuntimeModuleManifest | undefined,
     diagnostics: RuntimeDiagnostic[],
   ): string {
-    return [
-      /\bfrom\s+["']([^"']+)["']/g,
-      /\bimport\s+["']([^"']+)["']/g,
-      /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g,
-    ].reduce((current, pattern) => {
+    return SOURCE_IMPORT_REWRITE_PATTERNS.reduce((current, pattern) => {
       return current.replace(pattern, (full, specifier: string) => {
         const rewritten = this.resolveRuntimeSourceSpecifier(
           specifier,
@@ -808,39 +821,64 @@ export class DefaultRuntimeManager implements RuntimeManager {
     specifier: string,
     moduleManifest: RuntimeModuleManifest | undefined,
     diagnostics: RuntimeDiagnostic[],
+    requireManifest = true,
   ): string {
     const trimmed = specifier.trim();
     if (!this.shouldRewriteSpecifier(trimmed)) {
       return trimmed;
     }
 
-    const fromManifest = this.resolveRuntimeSpecifier(
-      trimmed,
-      moduleManifest,
-      diagnostics,
-      "source-import",
-    );
-    if (!fromManifest) {
+    const resolvedFromPolicy = requireManifest
+      ? this.resolveRuntimeSpecifier(
+          trimmed,
+          moduleManifest,
+          diagnostics,
+          "source-import",
+        )
+      : this.resolveOptionalManifestSpecifier(trimmed, moduleManifest);
+
+    if (!resolvedFromPolicy) {
       return trimmed;
     }
 
     if (this.moduleLoader && this.hasResolveSpecifier(this.moduleLoader)) {
       try {
-        return this.moduleLoader.resolveSpecifier(fromManifest);
+        return this.moduleLoader.resolveSpecifier(resolvedFromPolicy);
       } catch {
         // fall through to default resolver
       }
     }
 
-    if (fromManifest.startsWith("npm:")) {
-      return `${FALLBACK_JSPM_CDN_BASE}/${fromManifest.slice(4)}`;
+    if (resolvedFromPolicy.startsWith("npm:")) {
+      return `${FALLBACK_JSPM_CDN_BASE}/${resolvedFromPolicy.slice(4)}`;
     }
 
-    if (this.isDirectSpecifier(fromManifest)) {
-      return fromManifest;
+    if (this.isDirectSpecifier(resolvedFromPolicy)) {
+      return resolvedFromPolicy;
     }
 
-    return `${FALLBACK_JSPM_CDN_BASE}/${fromManifest}`;
+    if (this.isBareSpecifier(resolvedFromPolicy)) {
+      return `${FALLBACK_JSPM_CDN_BASE}/npm:${resolvedFromPolicy}`;
+    }
+
+    return `${FALLBACK_JSPM_CDN_BASE}/${resolvedFromPolicy}`;
+  }
+
+  private resolveOptionalManifestSpecifier(
+    specifier: string,
+    moduleManifest: RuntimeModuleManifest | undefined,
+  ): string | undefined {
+    const descriptor = moduleManifest?.[specifier];
+    if (!descriptor) {
+      return specifier;
+    }
+
+    const resolved = descriptor.resolvedUrl.trim();
+    if (resolved.length === 0) {
+      return undefined;
+    }
+
+    return resolved;
   }
 
   private shouldRewriteSpecifier(specifier: string): boolean {
@@ -861,6 +899,14 @@ export class DefaultRuntimeManager implements RuntimeManager {
       specifier.startsWith("blob:") ||
       specifier.startsWith("data:")
     );
+  }
+
+  private isHttpUrl(specifier: string): boolean {
+    return specifier.startsWith("http://") || specifier.startsWith("https://");
+  }
+
+  private isBareSpecifier(specifier: string): boolean {
+    return !this.isDirectSpecifier(specifier) && !specifier.startsWith("npm:");
   }
 
   private resolveRuntimeSpecifier(
@@ -920,7 +966,11 @@ export class DefaultRuntimeManager implements RuntimeManager {
     );
   }
 
-  private async importSourceModuleFromCode(code: string): Promise<unknown> {
+  private async importSourceModuleFromCode(
+    code: string,
+    moduleManifest: RuntimeModuleManifest | undefined,
+    diagnostics: RuntimeDiagnostic[],
+  ): Promise<unknown> {
     const isNodeRuntime =
       typeof process !== "undefined" &&
       process !== null &&
@@ -934,21 +984,19 @@ export class DefaultRuntimeManager implements RuntimeManager {
       return import(/* webpackIgnore: true */ dataUrl);
     }
 
-    if (
-      typeof URL !== "undefined" &&
-      typeof URL.createObjectURL === "function" &&
-      typeof Blob !== "undefined"
-    ) {
-      const blob = new Blob([code], {
-        type: "text/javascript",
-      });
-      const moduleUrl = URL.createObjectURL(blob);
-
-      try {
-        return await import(/* webpackIgnore: true */ moduleUrl);
-      } finally {
-        URL.revokeObjectURL(moduleUrl);
-      }
+    if (this.canMaterializeBrowserModules()) {
+      const rewrittenEntry = await this.rewriteImportsAsync(
+        code,
+        async (specifier) =>
+          this.resolveBrowserImportSpecifier(
+            specifier,
+            undefined,
+            moduleManifest,
+            diagnostics,
+          ),
+      );
+      const entryUrl = this.createBrowserBlobModuleUrl(rewrittenEntry);
+      return import(/* webpackIgnore: true */ entryUrl);
     }
 
     if (typeof Buffer !== "undefined") {
@@ -958,6 +1006,274 @@ export class DefaultRuntimeManager implements RuntimeManager {
     }
 
     throw new Error("No runtime module import strategy is available");
+  }
+
+  private canMaterializeBrowserModules(): boolean {
+    return (
+      typeof URL !== "undefined" &&
+      typeof URL.createObjectURL === "function" &&
+      typeof Blob !== "undefined" &&
+      typeof fetch === "function"
+    );
+  }
+
+  private async resolveBrowserImportSpecifier(
+    specifier: string,
+    parentUrl: string | undefined,
+    moduleManifest: RuntimeModuleManifest | undefined,
+    diagnostics: RuntimeDiagnostic[],
+  ): Promise<string> {
+    const trimmed = specifier.trim();
+    if (trimmed.length === 0) {
+      return trimmed;
+    }
+
+    if (trimmed.startsWith("data:") || trimmed.startsWith("blob:")) {
+      return trimmed;
+    }
+
+    if (this.isHttpUrl(trimmed)) {
+      return this.materializeBrowserRemoteModule(
+        trimmed,
+        moduleManifest,
+        diagnostics,
+      );
+    }
+
+    if (
+      trimmed.startsWith("./") ||
+      trimmed.startsWith("../") ||
+      trimmed.startsWith("/")
+    ) {
+      if (!parentUrl || !this.isHttpUrl(parentUrl)) {
+        diagnostics.push({
+          level: "warning",
+          code: "RUNTIME_SOURCE_IMPORT_UNRESOLVED",
+          message: `Cannot resolve relative source import without parent URL: ${trimmed}`,
+        });
+        return trimmed;
+      }
+
+      const absolute = new URL(trimmed, parentUrl).toString();
+      if (!this.isHttpUrl(absolute)) {
+        return absolute;
+      }
+
+      return this.materializeBrowserRemoteModule(
+        absolute,
+        moduleManifest,
+        diagnostics,
+      );
+    }
+
+    const resolved = this.resolveRuntimeSourceSpecifier(
+      trimmed,
+      moduleManifest,
+      diagnostics,
+      false,
+    );
+
+    if (this.isHttpUrl(resolved)) {
+      return this.materializeBrowserRemoteModule(
+        resolved,
+        moduleManifest,
+        diagnostics,
+      );
+    }
+
+    if (
+      (resolved.startsWith("./") ||
+        resolved.startsWith("../") ||
+        resolved.startsWith("/")) &&
+      parentUrl &&
+      this.isHttpUrl(parentUrl)
+    ) {
+      const absolute = new URL(resolved, parentUrl).toString();
+      if (!this.isHttpUrl(absolute)) {
+        return absolute;
+      }
+
+      return this.materializeBrowserRemoteModule(
+        absolute,
+        moduleManifest,
+        diagnostics,
+      );
+    }
+
+    return resolved;
+  }
+
+  private async materializeBrowserRemoteModule(
+    url: string,
+    moduleManifest: RuntimeModuleManifest | undefined,
+    diagnostics: RuntimeDiagnostic[],
+  ): Promise<string> {
+    const normalizedUrl = url.trim();
+    if (normalizedUrl.length === 0) {
+      return normalizedUrl;
+    }
+
+    const cachedUrl = this.browserModuleUrlCache.get(normalizedUrl);
+    if (cachedUrl) {
+      return cachedUrl;
+    }
+
+    const inflight = this.browserModuleInflight.get(normalizedUrl);
+    if (inflight) {
+      return inflight;
+    }
+
+    const loading = (async () => {
+      const fetched =
+        await this.fetchRemoteModuleCodeWithFallback(normalizedUrl);
+      const rewritten = await this.rewriteImportsAsync(
+        fetched.code,
+        async (childSpecifier) =>
+          this.resolveBrowserImportSpecifier(
+            childSpecifier,
+            fetched.url,
+            moduleManifest,
+            diagnostics,
+          ),
+      );
+
+      const blobUrl = this.createBrowserBlobModuleUrl(rewritten);
+      this.browserModuleUrlCache.set(normalizedUrl, blobUrl);
+      this.browserModuleUrlCache.set(fetched.url, blobUrl);
+      return blobUrl;
+    })();
+
+    this.browserModuleInflight.set(normalizedUrl, loading);
+    try {
+      return await loading;
+    } finally {
+      this.browserModuleInflight.delete(normalizedUrl);
+    }
+  }
+
+  private async fetchRemoteModuleCodeWithFallback(url: string): Promise<{
+    url: string;
+    code: string;
+  }> {
+    const fallback = this.toEsmFallbackUrl(url);
+    const attempts = [url, fallback].filter(
+      (entry, index, array): entry is string =>
+        typeof entry === "string" &&
+        entry.trim().length > 0 &&
+        array.indexOf(entry) === index,
+    );
+
+    let lastError: unknown;
+    for (const attempt of attempts) {
+      try {
+        const response = await fetch(attempt);
+        if (!response.ok) {
+          throw new Error(
+            `Failed to load module ${attempt}: HTTP ${response.status}`,
+          );
+        }
+
+        return {
+          url: response.url || attempt,
+          code: await response.text(),
+        };
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    throw lastError ?? new Error(`Failed to load module: ${url}`);
+  }
+
+  private toEsmFallbackUrl(url: string): string | undefined {
+    const prefix = "https://ga.jspm.io/npm:";
+    if (!url.startsWith(prefix)) {
+      return undefined;
+    }
+
+    const specifier = url.slice(prefix.length).trim();
+    if (specifier.length === 0) {
+      return undefined;
+    }
+
+    const aliasQuery = [
+      "alias=react:preact/compat,react-dom:preact/compat,react-dom/client:preact/compat,react/jsx-runtime:preact/jsx-runtime,react/jsx-dev-runtime:preact/jsx-runtime",
+      "target=es2022",
+    ].join("&");
+
+    const separator = specifier.includes("?") ? "&" : "?";
+    return `${FALLBACK_ESM_CDN_BASE}/${specifier}${separator}${aliasQuery}`;
+  }
+
+  private async rewriteImportsAsync(
+    code: string,
+    resolver: (specifier: string) => Promise<string>,
+  ): Promise<string> {
+    let rewritten = code;
+    for (const pattern of SOURCE_IMPORT_REWRITE_PATTERNS) {
+      rewritten = await this.replaceImportSpecifiersAsync(
+        rewritten,
+        pattern,
+        async (full, specifier) => {
+          const resolved = await resolver(specifier);
+          return full.replace(specifier, resolved);
+        },
+      );
+    }
+
+    return rewritten;
+  }
+
+  private async replaceImportSpecifiersAsync(
+    source: string,
+    pattern: RegExp,
+    replacer: (fullMatch: string, specifier: string) => Promise<string>,
+  ): Promise<string> {
+    const regex = new RegExp(
+      pattern.source,
+      pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`,
+    );
+
+    let rewritten = "";
+    let lastIndex = 0;
+    let match = regex.exec(source);
+    while (match) {
+      const fullMatch = match[0];
+      const capturedSpecifier = match[1];
+      const start = match.index;
+      const end = start + fullMatch.length;
+
+      rewritten += source.slice(lastIndex, start);
+      rewritten += await replacer(fullMatch, capturedSpecifier);
+      lastIndex = end;
+      match = regex.exec(source);
+    }
+
+    rewritten += source.slice(lastIndex);
+    return rewritten;
+  }
+
+  private createBrowserBlobModuleUrl(code: string): string {
+    const blobUrl = URL.createObjectURL(
+      new Blob([code], { type: "text/javascript" }),
+    );
+    this.browserBlobUrls.add(blobUrl);
+    return blobUrl;
+  }
+
+  private revokeBrowserBlobUrls(): void {
+    if (
+      typeof URL === "undefined" ||
+      typeof URL.revokeObjectURL !== "function"
+    ) {
+      this.browserBlobUrls.clear();
+      return;
+    }
+
+    for (const blobUrl of this.browserBlobUrls) {
+      URL.revokeObjectURL(blobUrl);
+    }
+    this.browserBlobUrls.clear();
   }
 
   private normalizeSourceOutput(output: unknown): RuntimeNode | undefined {

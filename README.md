@@ -64,6 +64,10 @@ flowchart TD
   - `codegen` extracts fenced `tsx/jsx/ts/js` blocks into `plan.source`
   - runtime transpiles source via Babel (browser `@babel/standalone`)
   - import specifiers are resolved through JSPM loader strategy
+  - browser runtime rewrites source module graphs so transitive bare imports resolve at runtime
+- React ecosystem compatibility bridge:
+  - `react`, `react-dom`, `react-dom/client`, `react/jsx-runtime` are mapped to `preact/compat` equivalents
+  - enables direct runtime rendering for React-first packages (e.g. `recharts`, `@mui/material`)
 - Real OpenAI provider adapter (`@renderify/llm-openai`) with structured JSON schema requests
 - Security policy checks for state transitions and quota requests
 - Runtime source static policy checks (blocked patterns, dynamic import policy, source import count)
@@ -159,7 +163,7 @@ pnpm playground
 Then open the playground page and run this prompt:
 
 ```text
-Build an analytics dashboard with a chart and KPI toggle buttons
+Build an analytics dashboard with a LineChart from recharts and KPI toggle buttons
 ```
 
 The playground now uses streaming prompt rendering (`/api/prompt-stream`), so you'll see incremental preview updates before final UI completion.
