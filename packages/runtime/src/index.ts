@@ -36,6 +36,11 @@ import {
   parse as parseModuleImports,
 } from "es-module-lexer";
 import { JspmModuleLoader } from "./jspm-module-loader";
+import {
+  DefaultUIRenderer,
+  type RenderTarget,
+  type UIRenderer,
+} from "./ui-renderer";
 
 export interface CompileOptions {
   pretty?: boolean;
@@ -119,12 +124,13 @@ export interface RuntimeSourceTranspiler {
 }
 
 export interface RuntimeEmbedRenderOptions {
-  target?: string | HTMLElement;
+  target?: RenderTarget;
   context?: RuntimeExecutionContext;
   runtime?: RuntimeManager;
   runtimeOptions?: RuntimeManagerOptions;
   security?: SecurityChecker;
   securityInitialization?: SecurityInitializationInput;
+  ui?: UIRenderer;
   autoInitializeRuntime?: boolean;
   autoTerminateRuntime?: boolean;
 }
@@ -3117,6 +3123,7 @@ export async function renderPlanInBrowser(
   plan: RuntimePlan,
   options: RuntimeEmbedRenderOptions = {},
 ): Promise<RuntimeEmbedRenderResult> {
+  const ui = options.ui ?? new DefaultUIRenderer();
   const runtime =
     options.runtime ??
     new DefaultRuntimeManager({
@@ -3146,7 +3153,7 @@ export async function renderPlanInBrowser(
       plan,
       context: options.context,
     });
-    const html = await renderExecutionHtml(execution, options.target);
+    const html = await ui.render(execution, options.target);
 
     return {
       html,
@@ -3159,112 +3166,6 @@ export async function renderPlanInBrowser(
       await runtime.terminate();
     }
   }
-}
-
-async function renderExecutionHtml(
-  execution: RuntimeExecutionResult,
-  target?: string | HTMLElement,
-): Promise<string> {
-  const mountPoint = resolveEmbedMountPoint(target);
-  if (execution.renderArtifact?.mode === "preact-vnode") {
-    if (mountPoint) {
-      const preact = (await import(getPreactSpecifier())) as {
-        render: (vnode: unknown, container: Element) => void;
-      };
-      preact.render(execution.renderArtifact.payload, mountPoint);
-      return mountPoint.innerHTML;
-    }
-
-    const renderToString = (await import("preact-render-to-string"))
-      .default as (vnode: unknown) => string;
-    return renderToString(execution.renderArtifact.payload);
-  }
-
-  const html = stringifyRuntimeNode(execution.root);
-  if (mountPoint) {
-    mountPoint.innerHTML = html;
-    return mountPoint.innerHTML;
-  }
-
-  return html;
-}
-
-function resolveEmbedMountPoint(
-  target?: string | HTMLElement,
-): HTMLElement | undefined {
-  if (!target || typeof document === "undefined") {
-    return undefined;
-  }
-
-  if (typeof target === "string") {
-    return document.querySelector<HTMLElement>(target) ?? undefined;
-  }
-
-  return target;
-}
-
-function stringifyRuntimeNode(node: RuntimeNode): string {
-  if (node.type === "text") {
-    return escapeHtml(node.value);
-  }
-
-  if (node.type === "component") {
-    return `<div data-renderify-unresolved-component="${escapeHtml(node.module)}"></div>`;
-  }
-
-  const tag = sanitizeTagName(node.tag);
-  const children = (node.children ?? [])
-    .map((child) => stringifyRuntimeNode(child))
-    .join("");
-  if (!tag) {
-    return `<div data-renderify-sanitized-tag="${escapeHtml(node.tag)}">${children}</div>`;
-  }
-
-  const attrs = Object.entries(node.props ?? {})
-    .filter(([key]) => !/^on[A-Z]|^on[a-z]/.test(key))
-    .map(([key, value]) => {
-      if (value === null) {
-        return "";
-      }
-
-      if (typeof value === "boolean") {
-        return value ? ` ${escapeHtml(key)}` : "";
-      }
-
-      return ` ${escapeHtml(key)}="${escapeHtml(String(value))}"`;
-    })
-    .join("");
-
-  return `<${tag}${attrs}>${children}</${tag}>`;
-}
-
-function sanitizeTagName(tagName: string): string | undefined {
-  const normalized = tagName.trim().toLowerCase();
-  if (!/^[a-z][a-z0-9-]*$/.test(normalized)) {
-    return undefined;
-  }
-
-  if (
-    normalized === "script" ||
-    normalized === "iframe" ||
-    normalized === "object" ||
-    normalized === "embed" ||
-    normalized === "link" ||
-    normalized === "meta"
-  ) {
-    return undefined;
-  }
-
-  return normalized;
-}
-
-function escapeHtml(raw: string): string {
-  return raw
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }
 
 function nowMs(): number {
@@ -3329,3 +3230,10 @@ function getPreactSpecifier(): string {
 
 export type { JspmModuleLoaderOptions } from "./jspm-module-loader";
 export { JspmModuleLoader } from "./jspm-module-loader";
+export type {
+  InteractiveRenderTarget,
+  RenderTarget,
+  RuntimeEventDispatchRequest,
+  UIRenderer,
+} from "./ui-renderer";
+export { DefaultUIRenderer } from "./ui-renderer";
