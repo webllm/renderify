@@ -620,19 +620,29 @@ export class DefaultRuntimeManager implements RuntimeManager {
       withRemainingBudget: (operation, timeoutMessage) =>
         this.withRemainingBudget(operation, frame, timeoutMessage),
       transpileRuntimeSource: (runtimeSource) =>
-        this.transpileRuntimeSource(runtimeSource),
-      rewriteSourceImports: (code, manifest, runtimeDiagnostics) =>
-        this.rewriteSourceImports(code, manifest, runtimeDiagnostics),
+        transpileRuntimeSource(runtimeSource, this.sourceTranspiler),
+      rewriteSourceImports: async (code, manifest, runtimeDiagnostics) =>
+        this.rewriteImportsAsync(code, async (specifier) =>
+          this.resolveRuntimeSourceSpecifier(
+            specifier,
+            manifest,
+            runtimeDiagnostics,
+          ),
+        ),
       resolveSourceSandboxMode: (runtimeSource, executionProfile) =>
-        this.resolveSourceSandboxMode(runtimeSource, executionProfile),
+        resolveSourceSandboxMode({
+          source: runtimeSource,
+          executionProfile,
+          defaultMode: this.browserSourceSandboxMode,
+          isBrowserRuntime: isBrowserRuntime(),
+        }),
       importSourceModuleFromCode: (code, manifest, runtimeDiagnostics) =>
         this.createSourceModuleLoader(
           manifest,
           runtimeDiagnostics,
         ).importSourceModuleFromCode(code),
       normalizeSourceOutput: (output) => this.normalizeSourceOutput(output),
-      shouldUsePreactSourceRuntime: (runtimeSource) =>
-        this.shouldUsePreactSourceRuntime(runtimeSource),
+      shouldUsePreactSourceRuntime,
       createPreactRenderArtifact: ({
         sourceExport,
         runtimeInput,
@@ -648,42 +658,6 @@ export class DefaultRuntimeManager implements RuntimeManager {
       cloneJsonValue,
       asJsonValue,
     });
-  }
-
-  private resolveSourceSandboxMode(
-    source: RuntimeSourceModule,
-    executionProfile: RuntimeExecutionProfile,
-  ): RuntimeSourceSandboxMode {
-    return resolveSourceSandboxMode({
-      source,
-      executionProfile,
-      defaultMode: this.browserSourceSandboxMode,
-      isBrowserRuntime: isBrowserRuntime(),
-    });
-  }
-
-  private async transpileRuntimeSource(
-    source: RuntimeSourceModule,
-  ): Promise<string> {
-    return transpileRuntimeSource(source, this.sourceTranspiler);
-  }
-
-  private shouldUsePreactSourceRuntime(source: RuntimeSourceModule): boolean {
-    return shouldUsePreactSourceRuntime(source);
-  }
-
-  private async rewriteSourceImports(
-    code: string,
-    moduleManifest: RuntimeModuleManifest | undefined,
-    diagnostics: RuntimeDiagnostic[],
-  ): Promise<string> {
-    return this.rewriteImportsAsync(code, async (specifier) =>
-      this.resolveRuntimeSourceSpecifier(
-        specifier,
-        moduleManifest,
-        diagnostics,
-      ),
-    );
   }
 
   private resolveRuntimeSourceSpecifier(
