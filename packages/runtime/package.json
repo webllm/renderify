@@ -36,6 +36,7 @@
   "description": "A runtime for Renderify",
   "dependencies": {
     "@renderify/ir": "workspace:^",
+    "es-module-lexer": "^1.7.0",
     "preact": "^10.28.3"
   }
 }

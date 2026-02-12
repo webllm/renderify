@@ -25,6 +25,10 @@ import {
   resolveRuntimePlanSpecVersion,
   setValueByPath,
 } from "@renderify/ir";
+import {
+  init as initModuleLexer,
+  parse as parseModuleImports,
+} from "es-module-lexer";
 
 export interface CompileOptions {
   pretty?: boolean;
@@ -637,7 +641,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
     diagnostics: RuntimeDiagnostic[],
     frame: ExecutionFrame,
   ): Promise<void> {
-    const probes = this.collectDependencyProbes(plan);
+    const probes = await this.collectDependencyProbes(plan);
 
     for (const probe of probes) {
       if (this.hasExceededBudget(frame)) {
@@ -658,7 +662,9 @@ export class DefaultRuntimeManager implements RuntimeManager {
     }
   }
 
-  private collectDependencyProbes(plan: RuntimePlan): DependencyProbe[] {
+  private async collectDependencyProbes(
+    plan: RuntimePlan,
+  ): Promise<DependencyProbe[]> {
     const probes: DependencyProbe[] = [];
     const seen = new Set<string>();
 
@@ -689,9 +695,10 @@ export class DefaultRuntimeManager implements RuntimeManager {
     }
 
     if (plan.source) {
-      for (const specifier of this.parseSourceImportSpecifiers(
+      const sourceImports = await this.parseSourceImportSpecifiers(
         plan.source.code,
-      )) {
+      );
+      for (const specifier of sourceImports) {
         pushProbe("source-import", specifier);
       }
     }
@@ -699,25 +706,15 @@ export class DefaultRuntimeManager implements RuntimeManager {
     return probes;
   }
 
-  private parseSourceImportSpecifiers(code: string): string[] {
+  private async parseSourceImportSpecifiers(code: string): Promise<string[]> {
     if (code.trim().length === 0) {
       return [];
     }
 
     const imports = new Set<string>();
-    for (const pattern of SOURCE_IMPORT_REWRITE_PATTERNS) {
-      const regex = new RegExp(
-        pattern.source,
-        pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`,
-      );
-      let match = regex.exec(code);
-      while (match) {
-        const specifier = String(match[1] ?? "").trim();
-        if (specifier.length > 0) {
-          imports.add(specifier);
-        }
-        match = regex.exec(code);
-      }
+    const parsedSpecifiers = await this.parseImportSpecifiersFromSource(code);
+    for (const entry of parsedSpecifiers) {
+      imports.add(entry.specifier);
     }
 
     return [...imports];
@@ -921,7 +918,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
         frame,
         "Runtime source transpilation timed out",
       );
-      const rewritten = this.rewriteSourceImports(
+      const rewritten = await this.rewriteSourceImports(
         transpiled,
         plan.moduleManifest,
         diagnostics,
@@ -1079,21 +1076,18 @@ export class DefaultRuntimeManager implements RuntimeManager {
     );
   }
 
-  private rewriteSourceImports(
+  private async rewriteSourceImports(
     code: string,
     moduleManifest: RuntimeModuleManifest | undefined,
     diagnostics: RuntimeDiagnostic[],
-  ): string {
-    return SOURCE_IMPORT_REWRITE_PATTERNS.reduce((current, pattern) => {
-      return current.replace(pattern, (full, specifier: string) => {
-        const rewritten = this.resolveRuntimeSourceSpecifier(
-          specifier,
-          moduleManifest,
-          diagnostics,
-        );
-        return full.replace(specifier, rewritten);
-      });
-    }, code);
+  ): Promise<string> {
+    return this.rewriteImportsAsync(code, async (specifier) =>
+      this.resolveRuntimeSourceSpecifier(
+        specifier,
+        moduleManifest,
+        diagnostics,
+      ),
+    );
   }
 
   private resolveRuntimeSourceSpecifier(
@@ -1753,48 +1747,102 @@ export class DefaultRuntimeManager implements RuntimeManager {
     code: string,
     resolver: (specifier: string) => Promise<string>,
   ): Promise<string> {
-    let rewritten = code;
-    for (const pattern of SOURCE_IMPORT_REWRITE_PATTERNS) {
-      rewritten = await this.replaceImportSpecifiersAsync(
-        rewritten,
-        pattern,
-        async (full, specifier) => {
-          const resolved = await resolver(specifier);
-          return full.replace(specifier, resolved);
-        },
-      );
+    const imports = await this.parseImportSpecifiersFromSource(code);
+    if (imports.length === 0) {
+      return code;
     }
 
+    let rewritten = "";
+    let cursor = 0;
+
+    for (const item of imports) {
+      rewritten += code.slice(cursor, item.start);
+      rewritten += await resolver(item.specifier);
+      cursor = item.end;
+    }
+
+    rewritten += code.slice(cursor);
     return rewritten;
   }
 
-  private async replaceImportSpecifiersAsync(
+  private async parseImportSpecifiersFromSource(
     source: string,
-    pattern: RegExp,
-    replacer: (fullMatch: string, specifier: string) => Promise<string>,
-  ): Promise<string> {
-    const regex = new RegExp(
-      pattern.source,
-      pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`,
-    );
-
-    let rewritten = "";
-    let lastIndex = 0;
-    let match = regex.exec(source);
-    while (match) {
-      const fullMatch = match[0];
-      const capturedSpecifier = match[1];
-      const start = match.index;
-      const end = start + fullMatch.length;
-
-      rewritten += source.slice(lastIndex, start);
-      rewritten += await replacer(fullMatch, capturedSpecifier);
-      lastIndex = end;
-      match = regex.exec(source);
+  ): Promise<Array<{ start: number; end: number; specifier: string }>> {
+    if (source.trim().length === 0) {
+      return [];
     }
 
-    rewritten += source.slice(lastIndex);
-    return rewritten;
+    try {
+      await initModuleLexer;
+      const [imports] = parseModuleImports(source);
+      const parsed: Array<{ start: number; end: number; specifier: string }> =
+        [];
+
+      for (const item of imports) {
+        const specifier = item.n?.trim();
+        if (!specifier) {
+          continue;
+        }
+
+        if (item.s < 0 || item.e <= item.s) {
+          continue;
+        }
+
+        parsed.push({
+          start: item.s,
+          end: item.e,
+          specifier,
+        });
+      }
+
+      return parsed.sort((left, right) => left.start - right.start);
+    } catch {
+      return this.parseImportSpecifiersFromRegex(source);
+    }
+  }
+
+  private parseImportSpecifiersFromRegex(
+    source: string,
+  ): Array<{ start: number; end: number; specifier: string }> {
+    const parsed = new Map<
+      string,
+      { start: number; end: number; specifier: string }
+    >();
+
+    for (const pattern of SOURCE_IMPORT_REWRITE_PATTERNS) {
+      const regex = new RegExp(
+        pattern.source,
+        pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`,
+      );
+
+      let match = regex.exec(source);
+      while (match) {
+        const fullMatch = String(match[0] ?? "");
+        const capturedSpecifier = String(match[1] ?? "").trim();
+        if (capturedSpecifier.length === 0) {
+          match = regex.exec(source);
+          continue;
+        }
+
+        const relativeIndex = fullMatch.indexOf(capturedSpecifier);
+        if (relativeIndex < 0) {
+          match = regex.exec(source);
+          continue;
+        }
+
+        const start = match.index + relativeIndex;
+        const end = start + capturedSpecifier.length;
+        parsed.set(`${start}:${end}`, {
+          start,
+          end,
+          specifier: capturedSpecifier,
+        });
+
+        match = regex.exec(source);
+      }
+    }
+
+    return [...parsed.values()].sort((left, right) => left.start - right.start);
   }
 
   private createBrowserBlobModuleUrl(code: string): string {

@@ -63,7 +63,7 @@ flowchart TD
 - TSX/JSX runtime source pipeline:
   - `codegen` extracts fenced `tsx/jsx/ts/js` blocks into `plan.source`
   - runtime transpiles source via Babel (browser `@babel/standalone`)
-  - import specifiers are resolved through JSPM loader strategy
+  - import specifiers are resolved via `es-module-lexer` + JSPM loader strategy (less regex fragility)
   - browser runtime rewrites source module graphs so transitive bare imports resolve at runtime
 - Dependency preflight before execution:
   - probes `imports`, `component modules`, and `source imports`
