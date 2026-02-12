@@ -10,6 +10,7 @@
   - runtime source execution (`plan.source`) for `js/jsx/ts/tsx`
   - source import rewrite through JSPM loader resolver
   - `source.runtime: "preact"` path for React-compatible component rendering
+  - package support contract enforcement in JSPM loader (builtin/scheme fail-fast)
   - runtime dependency preflight and diagnostics
 - Runtime safety:
   - blocked tags / depth / node count checks
@@ -29,6 +30,7 @@
   - CLI commands: `run`, `plan`, `probe-plan`, `render-plan`, `playground`
   - browser runtime playground with prompt/plan/stream/probe APIs
   - plugin/loader integration guide
+  - package support contract document: `docs/architecture/package-support-contract.md`
 - Quality:
   - unit tests for `ir/codegen/security/runtime/core`
   - E2E tests for CLI + playground API

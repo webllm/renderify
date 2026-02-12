@@ -179,3 +179,18 @@ interface RuntimeModuleLoader {
 ```
 
 `@renderify/runtime` implements JSPM/SystemJS resolution and loading.
+
+## Package Compatibility Contract
+
+Package compatibility is tiered:
+
+1. guaranteed runtime aliases/overrides (preact/react-compat/recharts)
+2. best-effort pure browser ESM packages from JSPM
+3. deterministic rejection for unsupported schemes and Node.js builtin modules
+
+`JspmModuleLoader.resolveSpecifier` enforces fail-fast behavior for unsupported
+module schemes (`file:`, `jsr:`, etc.) and Node builtins (`node:fs`, `fs`,
+`child_process`, ...).
+
+See `docs/architecture/package-support-contract.md` for detailed support tiers
+and CI verification.

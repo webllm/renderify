@@ -20,6 +20,10 @@
       "dependsOn": ["//#typecheck:repo"],
       "outputs": []
     },
+    "//#compat:repo": {
+      "dependsOn": ["//#typecheck:repo"],
+      "outputs": []
+    },
     "//#e2e:repo": {
       "dependsOn": ["//#build:repo"],
       "cache": false

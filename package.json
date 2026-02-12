@@ -31,6 +31,8 @@
     "format:check": "biome format --check .",
     "unit": "turbo run unit:repo",
     "unit:repo": "tsx --test \"tests/*.test.ts\"",
+    "compat": "turbo run compat:repo",
+    "compat:repo": "tsx --test tests/runtime-jspm.test.ts",
     "e2e": "turbo run e2e:repo",
     "e2e:repo": "tsx --test \"tests/e2e/**/*.test.ts\"",
     "bench": "turbo run bench:repo",
