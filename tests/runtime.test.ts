@@ -326,6 +326,116 @@ test("renderPlanInBrowser rejects plan when security policy fails", async () => 
   );
 });
 
+test("renderPlanInBrowser serializes concurrent renders for the same target", async () => {
+  const planA: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "embed_runtime_serial_a",
+    version: 1,
+    root: createElementNode("section", undefined, [createTextNode("A")]),
+    capabilities: {
+      domWrite: true,
+    },
+  };
+  const planB: RuntimePlan = {
+    ...planA,
+    id: "embed_runtime_serial_b",
+    root: createElementNode("section", undefined, [createTextNode("B")]),
+  };
+
+  const root = globalThis as Record<string, unknown>;
+  const previousDocument = Object.getOwnPropertyDescriptor(root, "document");
+  const mountPoint = { innerHTML: "" } as HTMLElement;
+
+  Object.defineProperty(root, "document", {
+    configurable: true,
+    writable: true,
+    value: {
+      querySelector: () => mountPoint,
+    } as unknown as Document,
+  });
+
+  let activeRenders = 0;
+  let maxConcurrentRenders = 0;
+  const observedOrder: string[] = [];
+
+  const runtime = {
+    initialize: async () => {},
+    terminate: async () => {},
+    probePlan: async () => ({
+      planId: "test",
+      diagnostics: [],
+      dependencies: [],
+    }),
+    executePlan: async () => {
+      throw new Error("not used in this test");
+    },
+    execute: async (input: { plan: RuntimePlan }) => {
+      observedOrder.push(`start:${input.plan.id}`);
+      activeRenders += 1;
+      maxConcurrentRenders = Math.max(maxConcurrentRenders, activeRenders);
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 20);
+      });
+      activeRenders -= 1;
+      observedOrder.push(`end:${input.plan.id}`);
+      return {
+        planId: input.plan.id,
+        root: input.plan.root,
+        diagnostics: [],
+      };
+    },
+    compile: async () => "",
+    getPlanState: () => undefined,
+    setPlanState: () => {},
+    clearPlanState: () => {},
+  } as unknown as DefaultRuntimeManager;
+
+  const ui = {
+    render: async () => "<section>ok</section>",
+    renderNode: () => "<section>ok</section>",
+  };
+
+  const security = {
+    initialize: () => {},
+    checkPlan: () => ({
+      safe: true,
+      issues: [],
+      diagnostics: [],
+    }),
+  } as any;
+
+  try {
+    await Promise.all([
+      renderPlanInBrowser(planA, {
+        target: "#app",
+        runtime,
+        ui,
+        security,
+        autoInitializeRuntime: false,
+        autoTerminateRuntime: false,
+      }),
+      renderPlanInBrowser(planB, {
+        target: "#app",
+        runtime,
+        ui,
+        security,
+        autoInitializeRuntime: false,
+        autoTerminateRuntime: false,
+      }),
+    ]);
+  } finally {
+    restoreDescriptor(root, "document", previousDocument);
+  }
+
+  assert.equal(maxConcurrentRenders, 1);
+  assert.deepEqual(observedOrder, [
+    "start:embed_runtime_serial_a",
+    "end:embed_runtime_serial_a",
+    "start:embed_runtime_serial_b",
+    "end:embed_runtime_serial_b",
+  ]);
+});
+
 test("runtime resolves component nodes through module loader", async () => {
   const component: RuntimeComponentFactory = (props) => {
     return createElementNode("div", { class: "card" }, [

@@ -130,6 +130,7 @@ export interface RuntimeEmbedRenderOptions {
   ui?: UIRenderer;
   autoInitializeRuntime?: boolean;
   autoTerminateRuntime?: boolean;
+  serializeTargetRenders?: boolean;
 }
 
 export interface RuntimeEmbedRenderResult {
@@ -219,6 +220,7 @@ const FALLBACK_ENFORCE_MODULE_MANIFEST = true;
 const FALLBACK_ALLOW_ISOLATION_FALLBACK = false;
 const FALLBACK_BROWSER_SOURCE_SANDBOX_TIMEOUT_MS = 4000;
 const FALLBACK_BROWSER_SOURCE_SANDBOX_FAIL_CLOSED = true;
+const EMBED_TARGET_RENDER_LOCKS = new WeakMap<HTMLElement, Promise<void>>();
 interface BabelStandaloneLike {
   transform(
     code: string,
@@ -3033,49 +3035,130 @@ export async function renderPlanInBrowser(
   plan: RuntimePlan,
   options: RuntimeEmbedRenderOptions = {},
 ): Promise<RuntimeEmbedRenderResult> {
-  const ui = options.ui ?? new DefaultUIRenderer();
-  const runtime =
-    options.runtime ??
-    new DefaultRuntimeManager({
-      moduleLoader: new JspmModuleLoader(),
-      ...(options.runtimeOptions ?? {}),
-    });
-  const security = options.security ?? new DefaultSecurityChecker();
+  const renderOperation = async (): Promise<RuntimeEmbedRenderResult> => {
+    const ui = options.ui ?? new DefaultUIRenderer();
+    const runtime =
+      options.runtime ??
+      new DefaultRuntimeManager({
+        moduleLoader: new JspmModuleLoader(),
+        ...(options.runtimeOptions ?? {}),
+      });
+    const security = options.security ?? new DefaultSecurityChecker();
 
-  const shouldInitializeRuntime =
-    options.autoInitializeRuntime !== false || options.runtime === undefined;
-  const shouldTerminateRuntime =
-    options.autoTerminateRuntime !== false && options.runtime === undefined;
+    const shouldInitializeRuntime =
+      options.autoInitializeRuntime !== false || options.runtime === undefined;
+    const shouldTerminateRuntime =
+      options.autoTerminateRuntime !== false && options.runtime === undefined;
 
-  security.initialize(options.securityInitialization);
+    security.initialize(options.securityInitialization);
 
-  if (shouldInitializeRuntime) {
-    await runtime.initialize();
+    if (shouldInitializeRuntime) {
+      await runtime.initialize();
+    }
+
+    try {
+      const securityResult = security.checkPlan(plan);
+      if (!securityResult.safe) {
+        throw new RuntimeSecurityViolationError(securityResult);
+      }
+
+      const execution = await runtime.execute({
+        plan,
+        context: options.context,
+      });
+      const html = await ui.render(execution, options.target);
+
+      return {
+        html,
+        execution,
+        security: securityResult,
+        runtime,
+      };
+    } finally {
+      if (shouldTerminateRuntime) {
+        await runtime.terminate();
+      }
+    }
+  };
+
+  const shouldSerialize = options.serializeTargetRenders !== false;
+  const targetElement = shouldSerialize
+    ? resolveEmbedRenderTargetElement(options.target)
+    : undefined;
+
+  if (targetElement) {
+    return withEmbedTargetRenderLock(targetElement, renderOperation);
   }
+
+  return renderOperation();
+}
+
+async function withEmbedTargetRenderLock<T>(
+  target: HTMLElement,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const previousLock =
+    EMBED_TARGET_RENDER_LOCKS.get(target) ?? Promise.resolve();
+
+  let releaseCurrentLock: (() => void) | undefined;
+  const currentLock = new Promise<void>((resolve) => {
+    releaseCurrentLock = resolve;
+  });
+
+  const queuedLock = previousLock
+    .catch(() => undefined)
+    .then(() => currentLock);
+  EMBED_TARGET_RENDER_LOCKS.set(target, queuedLock);
+
+  await previousLock.catch(() => undefined);
 
   try {
-    const securityResult = security.checkPlan(plan);
-    if (!securityResult.safe) {
-      throw new RuntimeSecurityViolationError(securityResult);
-    }
-
-    const execution = await runtime.execute({
-      plan,
-      context: options.context,
-    });
-    const html = await ui.render(execution, options.target);
-
-    return {
-      html,
-      execution,
-      security: securityResult,
-      runtime,
-    };
+    return await operation();
   } finally {
-    if (shouldTerminateRuntime) {
-      await runtime.terminate();
+    releaseCurrentLock?.();
+    if (EMBED_TARGET_RENDER_LOCKS.get(target) === queuedLock) {
+      EMBED_TARGET_RENDER_LOCKS.delete(target);
     }
   }
+}
+
+function resolveEmbedRenderTargetElement(
+  target: RenderTarget | undefined,
+): HTMLElement | undefined {
+  if (typeof document === "undefined" || !target) {
+    return undefined;
+  }
+
+  if (typeof target === "string") {
+    return document.querySelector<HTMLElement>(target) ?? undefined;
+  }
+
+  if (typeof HTMLElement !== "undefined" && target instanceof HTMLElement) {
+    return target;
+  }
+
+  if (isInteractiveRenderTargetValue(target)) {
+    if (typeof target.element === "string") {
+      return document.querySelector<HTMLElement>(target.element) ?? undefined;
+    }
+
+    return target.element;
+  }
+
+  return undefined;
+}
+
+function isInteractiveRenderTargetValue(
+  target: RenderTarget,
+): target is { element: string | HTMLElement } {
+  return (
+    typeof target === "object" &&
+    target !== null &&
+    "element" in target &&
+    (typeof target.element === "string" ||
+      (typeof HTMLElement !== "undefined" &&
+        target.element instanceof HTMLElement))
+  );
 }
 
 function nowMs(): number {
