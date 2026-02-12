@@ -25,18 +25,6 @@ import type {
   SecurityInitializationInput,
 } from "@renderify/security";
 import {
-  buildRemoteModuleAttemptUrls,
-  createCssProxyModuleSource,
-  createJsonProxyModuleSource,
-  createTextProxyModuleSource,
-  createUrlProxyModuleSource,
-  delay,
-  extractJspmNpmSpecifier,
-  fetchWithTimeout,
-  isBinaryLikeContentType,
-  isCssModuleResponse,
-  isJavaScriptModuleResponse,
-  isJsonModuleResponse,
   type RemoteModuleFetchResult,
   toConfiguredFallbackUrl,
   toEsmFallbackUrl,
@@ -85,6 +73,7 @@ import {
   type RuntimeDependencyUsage,
   runDependencyPreflight,
 } from "./runtime-preflight";
+import { RuntimeSourceModuleLoader } from "./runtime-source-module-loader";
 import {
   type RuntimeSourceSandboxMode as RuntimeSourceRuntimeMode,
   resolveSourceSandboxMode,
@@ -991,46 +980,48 @@ export class DefaultRuntimeManager implements RuntimeManager {
     });
   }
 
+  private createSourceModuleLoader(
+    moduleManifest: RuntimeModuleManifest | undefined,
+    diagnostics: RuntimeDiagnostic[],
+  ): RuntimeSourceModuleLoader {
+    return new RuntimeSourceModuleLoader({
+      moduleManifest,
+      diagnostics,
+      browserModuleUrlCache: this.browserModuleUrlCache,
+      browserModuleInflight: this.browserModuleInflight,
+      remoteFallbackCdnBases: this.remoteFallbackCdnBases,
+      remoteFetchTimeoutMs: this.remoteFetchTimeoutMs,
+      remoteFetchRetries: this.remoteFetchRetries,
+      remoteFetchBackoffMs: this.remoteFetchBackoffMs,
+      canMaterializeBrowserModules: () => this.canMaterializeBrowserModules(),
+      rewriteImportsAsync: (code, resolver) =>
+        this.rewriteImportsAsync(code, resolver),
+      createBrowserBlobModuleUrl: (code) =>
+        this.createBrowserBlobModuleUrl(code),
+      resolveRuntimeSourceSpecifier: (
+        specifier,
+        manifest,
+        runtimeDiagnostics,
+        requireManifest,
+      ) =>
+        this.resolveRuntimeSourceSpecifier(
+          specifier,
+          manifest,
+          runtimeDiagnostics,
+          requireManifest,
+        ),
+    });
+  }
+
   private async importSourceModuleFromCode(
     code: string,
     moduleManifest: RuntimeModuleManifest | undefined,
     diagnostics: RuntimeDiagnostic[],
   ): Promise<unknown> {
-    const isNodeRuntime =
-      typeof process !== "undefined" &&
-      process !== null &&
-      typeof process.versions === "object" &&
-      process.versions !== null &&
-      typeof process.versions.node === "string";
-
-    if (isNodeRuntime && typeof Buffer !== "undefined") {
-      const encoded = Buffer.from(code, "utf8").toString("base64");
-      const dataUrl = `data:text/javascript;base64,${encoded}`;
-      return import(/* webpackIgnore: true */ dataUrl);
-    }
-
-    if (this.canMaterializeBrowserModules()) {
-      const rewrittenEntry = await this.rewriteImportsAsync(
-        code,
-        async (specifier) =>
-          this.resolveBrowserImportSpecifier(
-            specifier,
-            undefined,
-            moduleManifest,
-            diagnostics,
-          ),
-      );
-      const entryUrl = this.createBrowserBlobModuleUrl(rewrittenEntry);
-      return import(/* webpackIgnore: true */ entryUrl);
-    }
-
-    if (typeof Buffer !== "undefined") {
-      const encoded = Buffer.from(code, "utf8").toString("base64");
-      const dataUrl = `data:text/javascript;base64,${encoded}`;
-      return import(/* webpackIgnore: true */ dataUrl);
-    }
-
-    throw new Error("No runtime module import strategy is available");
+    return this.createSourceModuleLoader(
+      moduleManifest,
+      diagnostics,
+    ).importSourceModuleFromCode(code);
   }
 
   private canMaterializeBrowserModules(): boolean {
@@ -1043,84 +1034,10 @@ export class DefaultRuntimeManager implements RuntimeManager {
     moduleManifest: RuntimeModuleManifest | undefined,
     diagnostics: RuntimeDiagnostic[],
   ): Promise<string> {
-    const trimmed = specifier.trim();
-    if (trimmed.length === 0) {
-      return trimmed;
-    }
-
-    if (trimmed.startsWith("data:") || trimmed.startsWith("blob:")) {
-      return trimmed;
-    }
-
-    if (isHttpUrl(trimmed)) {
-      return this.materializeBrowserRemoteModule(
-        trimmed,
-        moduleManifest,
-        diagnostics,
-      );
-    }
-
-    if (
-      trimmed.startsWith("./") ||
-      trimmed.startsWith("../") ||
-      trimmed.startsWith("/")
-    ) {
-      if (!parentUrl || !isHttpUrl(parentUrl)) {
-        diagnostics.push({
-          level: "warning",
-          code: "RUNTIME_SOURCE_IMPORT_UNRESOLVED",
-          message: `Cannot resolve relative source import without parent URL: ${trimmed}`,
-        });
-        return trimmed;
-      }
-
-      const absolute = new URL(trimmed, parentUrl).toString();
-      if (!isHttpUrl(absolute)) {
-        return absolute;
-      }
-
-      return this.materializeBrowserRemoteModule(
-        absolute,
-        moduleManifest,
-        diagnostics,
-      );
-    }
-
-    const resolved = this.resolveRuntimeSourceSpecifier(
-      trimmed,
+    return this.createSourceModuleLoader(
       moduleManifest,
       diagnostics,
-      false,
-    );
-
-    if (isHttpUrl(resolved)) {
-      return this.materializeBrowserRemoteModule(
-        resolved,
-        moduleManifest,
-        diagnostics,
-      );
-    }
-
-    if (
-      (resolved.startsWith("./") ||
-        resolved.startsWith("../") ||
-        resolved.startsWith("/")) &&
-      parentUrl &&
-      isHttpUrl(parentUrl)
-    ) {
-      const absolute = new URL(resolved, parentUrl).toString();
-      if (!isHttpUrl(absolute)) {
-        return absolute;
-      }
-
-      return this.materializeBrowserRemoteModule(
-        absolute,
-        moduleManifest,
-        diagnostics,
-      );
-    }
-
-    return resolved;
+    ).resolveBrowserImportSpecifier(specifier, parentUrl);
   }
 
   private async materializeBrowserRemoteModule(
@@ -1128,44 +1045,10 @@ export class DefaultRuntimeManager implements RuntimeManager {
     moduleManifest: RuntimeModuleManifest | undefined,
     diagnostics: RuntimeDiagnostic[],
   ): Promise<string> {
-    const normalizedUrl = url.trim();
-    if (normalizedUrl.length === 0) {
-      return normalizedUrl;
-    }
-
-    const cachedUrl = this.browserModuleUrlCache.get(normalizedUrl);
-    if (cachedUrl) {
-      return cachedUrl;
-    }
-
-    const inflight = this.browserModuleInflight.get(normalizedUrl);
-    if (inflight) {
-      return inflight;
-    }
-
-    const loading = (async () => {
-      const fetched = await this.fetchRemoteModuleCodeWithFallback(
-        normalizedUrl,
-        diagnostics,
-      );
-      const rewritten = await this.materializeFetchedModuleSource(
-        fetched,
-        moduleManifest,
-        diagnostics,
-      );
-
-      const blobUrl = this.createBrowserBlobModuleUrl(rewritten);
-      this.browserModuleUrlCache.set(normalizedUrl, blobUrl);
-      this.browserModuleUrlCache.set(fetched.url, blobUrl);
-      return blobUrl;
-    })();
-
-    this.browserModuleInflight.set(normalizedUrl, loading);
-    try {
-      return await loading;
-    } finally {
-      this.browserModuleInflight.delete(normalizedUrl);
-    }
+    return this.createSourceModuleLoader(
+      moduleManifest,
+      diagnostics,
+    ).materializeBrowserRemoteModule(url);
   }
 
   private async materializeFetchedModuleSource(
@@ -1173,95 +1056,20 @@ export class DefaultRuntimeManager implements RuntimeManager {
     moduleManifest: RuntimeModuleManifest | undefined,
     diagnostics: RuntimeDiagnostic[],
   ): Promise<string> {
-    if (isCssModuleResponse(fetched)) {
-      return createCssProxyModuleSource(fetched.code, fetched.url);
-    }
-
-    if (isJsonModuleResponse(fetched)) {
-      return this.createJsonProxyModuleSource(fetched, diagnostics);
-    }
-
-    if (!isJavaScriptModuleResponse(fetched)) {
-      diagnostics.push({
-        level: "warning",
-        code: "RUNTIME_SOURCE_ASSET_PROXY",
-        message: `Treating non-JS module as proxied asset: ${fetched.url} (${fetched.contentType || "unknown"})`,
-      });
-
-      if (isBinaryLikeContentType(fetched.contentType)) {
-        return createUrlProxyModuleSource(fetched.url);
-      }
-
-      return createTextProxyModuleSource(fetched.code);
-    }
-
-    return this.rewriteImportsAsync(fetched.code, async (childSpecifier) =>
-      this.resolveBrowserImportSpecifier(
-        childSpecifier,
-        fetched.url,
-        moduleManifest,
-        diagnostics,
-      ),
-    );
+    return this.createSourceModuleLoader(
+      moduleManifest,
+      diagnostics,
+    ).materializeFetchedModuleSource(fetched);
   }
 
   private async fetchRemoteModuleCodeWithFallback(
     url: string,
     diagnostics: RuntimeDiagnostic[],
   ): Promise<RemoteModuleFetchResult> {
-    const attempts = buildRemoteModuleAttemptUrls(
-      url,
-      this.remoteFallbackCdnBases,
-    );
-
-    let lastError: unknown;
-    for (const attempt of attempts) {
-      for (let retry = 0; retry <= this.remoteFetchRetries; retry += 1) {
-        try {
-          const response = await fetchWithTimeout(
-            attempt,
-            this.remoteFetchTimeoutMs,
-          );
-          if (!response.ok) {
-            throw new Error(
-              `Failed to load module ${attempt}: HTTP ${response.status}`,
-            );
-          }
-
-          if (attempt !== url) {
-            diagnostics.push({
-              level: "warning",
-              code: "RUNTIME_SOURCE_IMPORT_FALLBACK_USED",
-              message: `Loaded module via fallback URL: ${url} -> ${attempt}`,
-            });
-          }
-
-          if (retry > 0) {
-            diagnostics.push({
-              level: "warning",
-              code: "RUNTIME_SOURCE_IMPORT_RETRY_SUCCEEDED",
-              message: `Recovered remote module after retry ${retry}: ${attempt}`,
-            });
-          }
-
-          return {
-            url: response.url || attempt,
-            code: await response.text(),
-            contentType:
-              response.headers.get("content-type")?.toLowerCase() ?? "",
-            requestUrl: attempt,
-          };
-        } catch (error) {
-          lastError = error;
-          if (retry >= this.remoteFetchRetries) {
-            break;
-          }
-          await delay(this.remoteFetchBackoffMs * Math.max(1, retry + 1));
-        }
-      }
-    }
-
-    throw lastError ?? new Error(`Failed to load module: ${url}`);
+    return this.createSourceModuleLoader(
+      undefined,
+      diagnostics,
+    ).fetchRemoteModuleCodeWithFallback(url);
   }
 
   private toConfiguredFallbackUrl(
@@ -1276,23 +1084,6 @@ export class DefaultRuntimeManager implements RuntimeManager {
     cdnBase = FALLBACK_ESM_CDN_BASE,
   ): string | undefined {
     return toEsmFallbackUrl(url, cdnBase);
-  }
-
-  private createJsonProxyModuleSource(
-    fetched: RemoteModuleFetchResult,
-    diagnostics: RuntimeDiagnostic[],
-  ): string {
-    try {
-      const parsed = JSON.parse(fetched.code) as unknown;
-      return createJsonProxyModuleSource(parsed);
-    } catch (error) {
-      diagnostics.push({
-        level: "warning",
-        code: "RUNTIME_SOURCE_JSON_PARSE_FAILED",
-        message: `${fetched.requestUrl}: ${this.errorToMessage(error)}`,
-      });
-      return createTextProxyModuleSource(fetched.code);
-    }
   }
 
   private async rewriteImportsAsync(
