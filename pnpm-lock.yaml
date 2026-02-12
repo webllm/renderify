@@ -70,9 +70,6 @@ importers:
       '@renderify/config':
         specifier: workspace:^
         version: link:../config
-      '@renderify/context':
-        specifier: workspace:^
-        version: link:../context
       '@renderify/core':
         specifier: workspace:^
         version: link:../core
@@ -109,8 +106,6 @@ importers:
 
   packages/config: {}
 
-  packages/context: {}
-
   packages/core:
     dependencies:
       '@renderify/api-integration':
@@ -122,9 +117,6 @@ importers:
       '@renderify/config':
         specifier: workspace:^
         version: link:../config
-      '@renderify/context':
-        specifier: workspace:^
-        version: link:../context
       '@renderify/customization':
         specifier: workspace:^
         version: link:../customization

@@ -188,9 +188,9 @@ Release automation is gated by CI success on `main` and uses Changesets to eithe
 
 ```ts
 import { createRenderifyApp } from "@renderify/core";
+import { DefaultContextManager } from "@renderify/core";
 import { DefaultPerformanceOptimizer } from "@renderify/core";
 import { DefaultRenderifyConfig } from "@renderify/config";
-import { DefaultContextManager } from "@renderify/context";
 import { DefaultLLMInterpreter } from "@renderify/llm-interpreter";
 import { DefaultCodeGenerator } from "@renderify/codegen";
 import { DefaultRuntimeManager } from "@renderify/runtime";
@@ -238,7 +238,6 @@ await app.stop();
 | `@renderify/llm-interpreter` | LLM abstraction layer |
 | `@renderify/llm-openai` | OpenAI-backed `LLMInterpreter` adapter |
 | `@renderify/config` | Runtime/security config source |
-| `@renderify/context` | Context state and subscriptions |
 | `@renderify/api-integration` | Typed external API invocation helper |
 | `@renderify/cli` | CLI + browser playground |
 

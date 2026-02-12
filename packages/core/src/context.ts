@@ -22,7 +22,7 @@ export class DefaultContextManager implements ContextManager {
   private ctx: RenderifyContext = {};
   private listeners = new Set<(ctx: RenderifyContext) => void>();
 
-  async initialize() {
+  async initialize(): Promise<void> {
     this.ctx = {
       user: { id: "anonymous" },
       app: { version: "0.1.0", environment: "development" },
@@ -33,7 +33,7 @@ export class DefaultContextManager implements ContextManager {
     return this.ctx;
   }
 
-  updateContext(partialCtx: Partial<RenderifyContext>) {
+  updateContext(partialCtx: Partial<RenderifyContext>): void {
     const nextUser =
       partialCtx.user || this.ctx.user
         ? {
@@ -46,7 +46,8 @@ export class DefaultContextManager implements ContextManager {
     const nextApp =
       partialCtx.app || this.ctx.app
         ? {
-            version: partialCtx.app?.version ?? this.ctx.app?.version ?? "0.1.0",
+            version:
+              partialCtx.app?.version ?? this.ctx.app?.version ?? "0.1.0",
             environment:
               partialCtx.app?.environment ?? this.ctx.app?.environment,
           }
@@ -58,6 +59,7 @@ export class DefaultContextManager implements ContextManager {
       user: nextUser,
       app: nextApp,
     };
+
     this.notify();
   }
 
@@ -68,7 +70,7 @@ export class DefaultContextManager implements ContextManager {
     };
   }
 
-  private notify() {
+  private notify(): void {
     for (const cb of this.listeners) {
       cb(this.ctx);
     }

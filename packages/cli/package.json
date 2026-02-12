@@ -37,7 +37,6 @@
     "@renderify/api-integration": "workspace:^",
     "@renderify/codegen": "workspace:^",
     "@renderify/config": "workspace:^",
-    "@renderify/context": "workspace:^",
     "@renderify/core": "workspace:^",
     "@renderify/customization": "workspace:^",
     "@renderify/ir": "workspace:^",

@@ -1,8 +1,8 @@
 import { DefaultCodeGenerator } from "@renderify/codegen";
 import { DefaultRenderifyConfig } from "@renderify/config";
-import { DefaultContextManager } from "@renderify/context";
 import {
   createRenderifyApp,
+  DefaultContextManager,
   DefaultPerformanceOptimizer,
 } from "@renderify/core";
 import { DefaultCustomizationEngine } from "@renderify/customization";

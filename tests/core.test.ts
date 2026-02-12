@@ -5,9 +5,9 @@ import {
   DefaultRenderifyConfig,
   type RenderifyConfigValues,
 } from "../packages/config/src/index";
-import { DefaultContextManager } from "../packages/context/src/index";
 import {
   createRenderifyApp,
+  DefaultContextManager,
   DefaultPerformanceOptimizer,
   InMemoryTenantGovernor,
   PolicyRejectionError,

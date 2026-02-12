@@ -5,7 +5,6 @@ import type {
   IncrementalCodeGenerationSession,
 } from "@renderify/codegen";
 import type { RenderifyConfig } from "@renderify/config";
-import type { ContextManager } from "@renderify/context";
 import type {
   CustomizationEngine,
   PluginContext,
@@ -39,6 +38,7 @@ import {
   type ExecutionStatus,
   InMemoryExecutionAuditLog,
 } from "./audit-log";
+import type { ContextManager } from "./context";
 import type { PerformanceOptimizer } from "./performance";
 import {
   InMemoryPlanRegistry,
@@ -1134,6 +1134,7 @@ export function createRenderifyApp(
 }
 
 export * from "./audit-log";
+export * from "./context";
 export * from "./performance";
 export * from "./plan-registry";
 export * from "./tenant-governor";

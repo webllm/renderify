@@ -8,9 +8,9 @@ import {
   DefaultRenderifyConfig,
   type LLMProviderConfig,
 } from "@renderify/config";
-import { DefaultContextManager } from "@renderify/context";
 import {
   createRenderifyApp,
+  DefaultContextManager,
   DefaultPerformanceOptimizer,
   type ExecutionAuditRecord,
   InMemoryExecutionAuditLog,

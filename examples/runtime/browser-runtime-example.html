@@ -181,7 +181,6 @@
     </div>
 
     <script src="../../packages/config/dist/config.umd.min.js"></script>
-    <script src="../../packages/context/dist/context.umd.min.js"></script>
     <script src="../../packages/llm-interpreter/dist/llm-interpreter.umd.min.js"></script>
     <script src="../../packages/codegen/dist/codegen.umd.min.js"></script>
     <script src="../../packages/runtime/dist/runtime.umd.min.js"></script>
@@ -221,7 +220,7 @@
         try {
           app = RenderifyCore.createRenderifyApp({
             config: new RenderifyConfig.DefaultRenderifyConfig(),
-            context: new RenderifyContext.DefaultContextManager(),
+            context: new RenderifyCore.DefaultContextManager(),
             llm: new RenderifyLLMInterpreter.DefaultLLMInterpreter(),
             codegen: new RenderifyCodegen.DefaultCodeGenerator(),
             runtime: new RenderifyRuntime.DefaultRuntimeManager(),
