@@ -32,6 +32,24 @@ import type {
   SecurityInitializationInput,
 } from "@renderify/security";
 import {
+  buildRemoteModuleAttemptUrls,
+  createCssProxyModuleSource,
+  createJsonProxyModuleSource,
+  createTextProxyModuleSource,
+  createUrlProxyModuleSource,
+  DEFAULT_ESM_CDN_BASE,
+  delay,
+  extractJspmNpmSpecifier,
+  fetchWithTimeout,
+  isBinaryLikeContentType,
+  isCssModuleResponse,
+  isJavaScriptModuleResponse,
+  isJsonModuleResponse,
+  type RemoteModuleFetchResult,
+  toConfiguredFallbackUrl,
+  toEsmFallbackUrl,
+} from "./module-fetch";
+import {
   executeSourceInBrowserSandbox,
   type RuntimeSandboxRequest,
 } from "./sandbox";
@@ -172,13 +190,6 @@ interface DependencyProbe {
   specifier: string;
 }
 
-interface RemoteModuleFetchResult {
-  url: string;
-  code: string;
-  contentType: string;
-  requestUrl: string;
-}
-
 export type RuntimeSourceSandboxMode = "none" | "worker" | "iframe";
 
 export type RuntimeComponentFactory = (
@@ -192,7 +203,7 @@ const FALLBACK_MAX_COMPONENT_INVOCATIONS = 200;
 const FALLBACK_MAX_EXECUTION_MS = 1500;
 const FALLBACK_EXECUTION_PROFILE: RuntimeExecutionProfile = "standard";
 const FALLBACK_JSPM_CDN_BASE = "https://ga.jspm.io/npm";
-const FALLBACK_ESM_CDN_BASE = "https://esm.sh";
+const FALLBACK_ESM_CDN_BASE = DEFAULT_ESM_CDN_BASE;
 const FALLBACK_ENABLE_DEPENDENCY_PREFLIGHT = true;
 const FALLBACK_FAIL_ON_DEPENDENCY_PREFLIGHT_ERROR = false;
 const FALLBACK_REMOTE_FETCH_TIMEOUT_MS = 12_000;
@@ -1776,181 +1787,50 @@ export class DefaultRuntimeManager implements RuntimeManager {
   }
 
   private buildRemoteModuleAttemptUrls(url: string): string[] {
-    const candidates = new Set<string>();
-    candidates.add(url);
-
-    for (const fallbackBase of this.remoteFallbackCdnBases) {
-      const fallback = this.toConfiguredFallbackUrl(url, fallbackBase);
-      if (fallback) {
-        candidates.add(fallback);
-      }
-    }
-
-    return [...candidates];
+    return buildRemoteModuleAttemptUrls(url, this.remoteFallbackCdnBases);
   }
 
   private toConfiguredFallbackUrl(
     url: string,
     cdnBase: string,
   ): string | undefined {
-    const normalizedBase = cdnBase.trim().replace(/\/$/, "");
-    const specifier = this.extractJspmNpmSpecifier(url);
-    if (!specifier || normalizedBase.length === 0) {
-      return undefined;
-    }
-
-    if (normalizedBase.includes("esm.sh")) {
-      return this.toEsmFallbackUrl(url, normalizedBase);
-    }
-
-    if (normalizedBase.includes("jsdelivr.net")) {
-      return `${normalizedBase}/npm/${specifier}`;
-    }
-
-    if (normalizedBase.includes("unpkg.com")) {
-      const separator = specifier.includes("?") ? "&" : "?";
-      return `${normalizedBase}/${specifier}${separator}module`;
-    }
-
-    if (normalizedBase.includes("jspm.io")) {
-      const root = normalizedBase.endsWith("/npm")
-        ? normalizedBase.slice(0, normalizedBase.length - 4)
-        : normalizedBase;
-      return `${root}/npm:${specifier}`;
-    }
-
-    return undefined;
+    return toConfiguredFallbackUrl(url, cdnBase);
   }
 
   private toEsmFallbackUrl(
     url: string,
     cdnBase = FALLBACK_ESM_CDN_BASE,
   ): string | undefined {
-    const specifier = this.extractJspmNpmSpecifier(url);
-    if (!specifier) {
-      return undefined;
-    }
-    const normalizedBase = cdnBase.trim().replace(/\/$/, "");
-    if (normalizedBase.length === 0) {
-      return undefined;
-    }
-
-    const aliasQuery = [
-      "alias=react:preact/compat,react-dom:preact/compat,react-dom/client:preact/compat,react/jsx-runtime:preact/jsx-runtime,react/jsx-dev-runtime:preact/jsx-runtime",
-      "target=es2022",
-    ].join("&");
-
-    const separator = specifier.includes("?") ? "&" : "?";
-    return `${normalizedBase}/${specifier}${separator}${aliasQuery}`;
+    return toEsmFallbackUrl(url, cdnBase);
   }
 
   private extractJspmNpmSpecifier(url: string): string | undefined {
-    const prefix = "https://ga.jspm.io/npm:";
-    if (!url.startsWith(prefix)) {
-      return undefined;
-    }
-
-    const specifier = url.slice(prefix.length).trim();
-    if (specifier.length === 0) {
-      return undefined;
-    }
-
-    return specifier;
+    return extractJspmNpmSpecifier(url);
   }
 
   private isCssModuleResponse(fetched: RemoteModuleFetchResult): boolean {
-    return (
-      fetched.contentType.includes("text/css") || this.isCssUrl(fetched.url)
-    );
+    return isCssModuleResponse(fetched);
   }
 
   private isJsonModuleResponse(fetched: RemoteModuleFetchResult): boolean {
-    return (
-      fetched.contentType.includes("application/json") ||
-      fetched.contentType.includes("text/json") ||
-      this.isJsonUrl(fetched.url)
-    );
+    return isJsonModuleResponse(fetched);
   }
 
   private isJavaScriptModuleResponse(
     fetched: RemoteModuleFetchResult,
   ): boolean {
-    if (this.isJavaScriptLikeContentType(fetched.contentType)) {
-      return true;
-    }
-
-    return this.isJavaScriptUrl(fetched.url);
-  }
-
-  private isJavaScriptLikeContentType(contentType: string): boolean {
-    return (
-      contentType.includes("javascript") ||
-      contentType.includes("ecmascript") ||
-      contentType.includes("typescript") ||
-      contentType.includes("module")
-    );
+    return isJavaScriptModuleResponse(fetched);
   }
 
   private isBinaryLikeContentType(contentType: string): boolean {
-    return (
-      contentType.includes("application/wasm") ||
-      contentType.includes("image/") ||
-      contentType.includes("font/")
-    );
-  }
-
-  private isJavaScriptUrl(url: string): boolean {
-    const pathname = this.toUrlPathname(url);
-    return /\.(?:m?js|cjs|jsx|ts|tsx)$/i.test(pathname);
-  }
-
-  private isCssUrl(url: string): boolean {
-    const pathname = this.toUrlPathname(url);
-    return /\.css$/i.test(pathname);
-  }
-
-  private isJsonUrl(url: string): boolean {
-    const pathname = this.toUrlPathname(url);
-    return /\.json$/i.test(pathname);
-  }
-
-  private toUrlPathname(url: string): string {
-    try {
-      return new URL(url).pathname;
-    } catch {
-      return url;
-    }
+    return isBinaryLikeContentType(contentType);
   }
 
   private createCssProxyModuleSource(
     cssText: string,
     sourceUrl: string,
   ): string {
-    const styleId = `renderify-css-${this.hashString(sourceUrl)}`;
-    const cssLiteral = JSON.stringify(cssText);
-    const styleIdLiteral = JSON.stringify(styleId);
-    return [
-      "const __css = " + cssLiteral + ";",
-      "const __styleId = " + styleIdLiteral + ";",
-      'if (typeof document !== "undefined") {',
-      "  let __style = null;",
-      '  const __styles = document.querySelectorAll("style[data-renderify-style-id]");',
-      "  for (const __candidate of __styles) {",
-      '    if (__candidate.getAttribute("data-renderify-style-id") === __styleId) {',
-      "      __style = __candidate;",
-      "      break;",
-      "    }",
-      "  }",
-      "  if (!__style) {",
-      '    __style = document.createElement("style");',
-      '    __style.setAttribute("data-renderify-style-id", __styleId);',
-      "    __style.textContent = __css;",
-      "    document.head.appendChild(__style);",
-      "  }",
-      "}",
-      "export default __css;",
-      "export const cssText = __css;",
-    ].join("\n");
+    return createCssProxyModuleSource(cssText, sourceUrl);
   }
 
   private createJsonProxyModuleSource(
@@ -1959,10 +1839,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
   ): string {
     try {
       const parsed = JSON.parse(fetched.code) as unknown;
-      return [
-        `const __json = ${JSON.stringify(parsed)};`,
-        "export default __json;",
-      ].join("\n");
+      return createJsonProxyModuleSource(parsed);
     } catch (error) {
       diagnostics.push({
         level: "warning",
@@ -1974,61 +1851,22 @@ export class DefaultRuntimeManager implements RuntimeManager {
   }
 
   private createTextProxyModuleSource(text: string): string {
-    return [
-      `const __text = ${JSON.stringify(text)};`,
-      "export default __text;",
-      "export const text = __text;",
-    ].join("\n");
+    return createTextProxyModuleSource(text);
   }
 
   private createUrlProxyModuleSource(url: string): string {
-    return [
-      `const __assetUrl = ${JSON.stringify(url)};`,
-      "export default __assetUrl;",
-      "export const assetUrl = __assetUrl;",
-    ].join("\n");
-  }
-
-  private hashString(value: string): string {
-    let hash = 2166136261;
-    for (let i = 0; i < value.length; i += 1) {
-      hash ^= value.charCodeAt(i);
-      hash +=
-        (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
-    }
-    return (hash >>> 0).toString(36);
+    return createUrlProxyModuleSource(url);
   }
 
   private async fetchWithTimeout(
     url: string,
     timeoutMs: number,
   ): Promise<Response> {
-    if (typeof AbortController === "undefined") {
-      return fetch(url);
-    }
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => {
-      controller.abort();
-    }, timeoutMs);
-
-    try {
-      return await fetch(url, {
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timer);
-    }
+    return fetchWithTimeout(url, timeoutMs);
   }
 
   private async delay(ms: number): Promise<void> {
-    if (ms <= 0) {
-      return;
-    }
-
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, ms);
-    });
+    return delay(ms);
   }
 
   private async rewriteImportsAsync(
