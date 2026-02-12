@@ -304,6 +304,72 @@ test("anthropic interpreter generates text response", async () => {
   assert.equal(requests[0].body.model, "claude-3-5-sonnet-latest");
 });
 
+test("anthropic interpreter streams text response chunks", async () => {
+  const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+
+  const llm = new AnthropicLLMInterpreter({
+    apiKey: "anthropic-key",
+    model: "claude-3-5-sonnet-latest",
+    baseUrl: "https://example.anthropic.test/v1",
+    fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: parseBody(init?.body),
+      });
+
+      return sseResponse([
+        "event: message_start\ndata: " +
+          JSON.stringify({
+            type: "message_start",
+            message: {
+              id: "msg_stream_1",
+              model: "claude-3-5-sonnet-latest",
+              usage: { input_tokens: 11 },
+            },
+          }),
+        "event: content_block_delta\ndata: " +
+          JSON.stringify({
+            type: "content_block_delta",
+            delta: { text: "hello " },
+          }),
+        "event: content_block_delta\ndata: " +
+          JSON.stringify({
+            type: "content_block_delta",
+            delta: { text: "anthropic" },
+          }),
+        "event: message_delta\ndata: " +
+          JSON.stringify({
+            type: "message_delta",
+            usage: { output_tokens: 7 },
+          }),
+        "event: message_stop\ndata: " +
+          JSON.stringify({
+            type: "message_stop",
+          }),
+      ]);
+    },
+  });
+
+  const chunks = [];
+  for await (const chunk of llm.generateResponseStream({
+    prompt: "stream this",
+  })) {
+    chunks.push(chunk);
+  }
+
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, "https://example.anthropic.test/v1/messages");
+  assert.equal(requests[0].body.stream, true);
+  assert.equal(chunks.length, 3);
+  assert.equal(chunks[0].delta, "hello ");
+  assert.equal(chunks[0].text, "hello ");
+  assert.equal(chunks[1].delta, "anthropic");
+  assert.equal(chunks[1].text, "hello anthropic");
+  assert.equal(chunks[2].done, true);
+  assert.equal(chunks[2].text, "hello anthropic");
+  assert.equal(chunks[2].tokensUsed, 18);
+});
+
 test("anthropic interpreter validates structured runtime plan response", async () => {
   const plan = {
     id: "anthropic_runtime_plan_1",
@@ -408,6 +474,72 @@ test("google interpreter generates text response", async () => {
   );
   assert.equal(requests[0].headers.get("x-goog-api-key"), "google-key");
   assert.equal(requests[0].body.systemInstruction, undefined);
+});
+
+test("google interpreter streams text response chunks", async () => {
+  const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+
+  const llm = new GoogleLLMInterpreter({
+    apiKey: "google-key",
+    model: "gemini-2.0-flash",
+    baseUrl: "https://example.google.test/v1beta",
+    fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: parseBody(init?.body),
+      });
+
+      return sseResponse([
+        "data: " +
+          JSON.stringify({
+            modelVersion: "gemini-2.0-flash",
+            candidates: [
+              {
+                finishReason: "STOP",
+                content: { parts: [{ text: "hello " }] },
+              },
+            ],
+          }),
+        "data: " +
+          JSON.stringify({
+            modelVersion: "gemini-2.0-flash",
+            candidates: [
+              {
+                finishReason: "STOP",
+                content: { parts: [{ text: "google" }] },
+              },
+            ],
+          }),
+        "data: " +
+          JSON.stringify({
+            modelVersion: "gemini-2.0-flash",
+            usageMetadata: { totalTokenCount: 55 },
+            candidates: [],
+          }),
+      ]);
+    },
+  });
+
+  const chunks = [];
+  for await (const chunk of llm.generateResponseStream({
+    prompt: "stream this",
+  })) {
+    chunks.push(chunk);
+  }
+
+  assert.equal(requests.length, 1);
+  assert.equal(
+    requests[0].url,
+    "https://example.google.test/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse",
+  );
+  assert.equal(chunks.length, 3);
+  assert.equal(chunks[0].delta, "hello ");
+  assert.equal(chunks[0].text, "hello ");
+  assert.equal(chunks[1].delta, "google");
+  assert.equal(chunks[1].text, "hello google");
+  assert.equal(chunks[2].done, true);
+  assert.equal(chunks[2].text, "hello google");
+  assert.equal(chunks[2].tokensUsed, 55);
 });
 
 test("google interpreter validates structured runtime plan response", async () => {

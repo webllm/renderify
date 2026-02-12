@@ -2,10 +2,21 @@ import type {
   LLMInterpreter,
   LLMRequest,
   LLMResponse,
+  LLMResponseStreamChunk,
   LLMStructuredRequest,
   LLMStructuredResponse,
 } from "@renderify/core";
 import { isRuntimePlan } from "@renderify/ir";
+import {
+  consumeSseEvents,
+  formatContext,
+  pickFetch,
+  pickPositiveInt,
+  pickString,
+  readErrorResponse,
+  resolveFetch,
+  tryParseJson,
+} from "./shared";
 
 export interface GoogleLLMInterpreterOptions {
   apiKey?: string;
@@ -73,16 +84,16 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
   }
 
   configure(options: Record<string, unknown>): void {
-    const apiKey = this.pickString(options, "apiKey", "llmApiKey");
-    const model = this.pickString(options, "model", "llmModel");
-    const baseUrl = this.pickString(options, "baseUrl", "llmBaseUrl");
-    const systemPrompt = this.pickString(options, "systemPrompt");
-    const timeoutMs = this.pickPositiveInt(
+    const apiKey = pickString(options, "apiKey", "llmApiKey");
+    const model = pickString(options, "model", "llmModel");
+    const baseUrl = pickString(options, "baseUrl", "llmBaseUrl");
+    const systemPrompt = pickString(options, "systemPrompt");
+    const timeoutMs = pickPositiveInt(
       options,
       "timeoutMs",
       "llmRequestTimeoutMs",
     );
-    const fetchImpl = this.pickFetch(options, "fetchImpl");
+    const fetchImpl = pickFetch(options, "fetchImpl");
 
     this.options = {
       ...this.options,
@@ -114,6 +125,195 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
         finishReason: payload.candidates?.[0]?.finishReason,
       },
     };
+  }
+
+  async *generateResponseStream(
+    req: LLMRequest,
+  ): AsyncIterable<LLMResponseStreamChunk> {
+    const fetchImpl = resolveFetch(
+      this.fetchImpl,
+      "Global fetch is unavailable. Provide fetchImpl in GoogleLLMInterpreter options.",
+    );
+    const apiKey = this.options.apiKey;
+    if (!apiKey || apiKey.trim().length === 0) {
+      throw new Error(
+        "Google apiKey is missing. Set RENDERIFY_LLM_API_KEY or configure apiKey.",
+      );
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => {
+      controller.abort();
+    }, this.options.timeoutMs);
+
+    let aggregatedText = "";
+    let chunkIndex = 0;
+    let tokensUsed: number | undefined;
+    let model = this.options.model;
+    let doneEmitted = false;
+
+    const processEvents = (
+      events: Array<{ data: string }>,
+    ): Array<LLMResponseStreamChunk> => {
+      const chunks: LLMResponseStreamChunk[] = [];
+
+      for (const event of events) {
+        if (event.data === "[DONE]") {
+          if (!doneEmitted) {
+            chunkIndex += 1;
+            doneEmitted = true;
+            chunks.push({
+              delta: "",
+              text: aggregatedText,
+              done: true,
+              index: chunkIndex,
+              tokensUsed,
+              model,
+              raw: {
+                mode: "stream",
+                done: true,
+              },
+            });
+          }
+          continue;
+        }
+
+        let payload: GoogleGenerateContentPayload;
+        try {
+          payload = JSON.parse(event.data) as GoogleGenerateContentPayload;
+        } catch (error) {
+          throw new Error(
+            `Google stream chunk parse failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+
+        if (payload.error?.message) {
+          throw new Error(`Google error: ${payload.error.message}`);
+        }
+
+        if (
+          typeof payload.modelVersion === "string" &&
+          payload.modelVersion.trim().length > 0
+        ) {
+          model = payload.modelVersion;
+        }
+
+        const refusal = this.extractRefusal(payload);
+        if (refusal) {
+          throw new Error(`Google refused request: ${refusal}`);
+        }
+
+        const payloadTokens = this.extractTotalTokens(payload);
+        if (typeof payloadTokens === "number") {
+          tokensUsed = payloadTokens;
+        }
+
+        const deltaText = this.extractTextRaw(payload);
+        if (deltaText.length === 0) {
+          continue;
+        }
+
+        aggregatedText += deltaText;
+        chunkIndex += 1;
+        chunks.push({
+          delta: deltaText,
+          text: aggregatedText,
+          done: false,
+          index: chunkIndex,
+          tokensUsed,
+          model,
+          raw: {
+            mode: "stream",
+            chunk: payload,
+          },
+        });
+      }
+
+      return chunks;
+    };
+
+    try {
+      const response = await fetchImpl(
+        `${this.options.baseUrl.replace(/\/$/, "")}/models/${encodeURIComponent(this.options.model)}:streamGenerateContent?alt=sse`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-goog-api-key": apiKey,
+          },
+          body: JSON.stringify(this.buildRequest(req)),
+          signal: controller.signal,
+        },
+      );
+
+      if (!response.ok) {
+        const details = await readErrorResponse(response);
+        throw new Error(
+          `Google request failed (${response.status}): ${details}`,
+        );
+      }
+
+      if (!response.body) {
+        throw new Error("Google streaming response body is empty");
+      }
+
+      const decoder = new TextDecoder();
+      const reader = response.body.getReader();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+
+        if (value) {
+          buffer += decoder.decode(value, { stream: true });
+        }
+
+        const parsedEvents = consumeSseEvents(buffer);
+        buffer = parsedEvents.remaining;
+
+        for (const chunk of processEvents(parsedEvents.events)) {
+          yield chunk;
+        }
+      }
+
+      buffer += decoder.decode();
+      const finalEvents = consumeSseEvents(buffer, true);
+      for (const chunk of processEvents(finalEvents.events)) {
+        yield chunk;
+      }
+
+      if (!doneEmitted) {
+        chunkIndex += 1;
+        doneEmitted = true;
+        yield {
+          delta: "",
+          text: aggregatedText,
+          done: true,
+          index: chunkIndex,
+          tokensUsed,
+          model,
+          raw: {
+            mode: "stream",
+            done: true,
+            reason: "eof",
+          },
+        };
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new Error(
+          `Google request timed out after ${this.options.timeoutMs}ms`,
+        );
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   async generateStructuredResponse<T = unknown>(
@@ -162,7 +362,7 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
       };
     }
 
-    const parsed = this.tryParseJson(text);
+    const parsed = tryParseJson(text);
     if (!parsed.ok) {
       return {
         text,
@@ -291,7 +491,7 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
   }
 
   private buildUserPrompt(req: LLMRequest): string {
-    const contextSnippet = this.formatContext(req.context);
+    const contextSnippet = formatContext(req.context);
     if (!contextSnippet) {
       return req.prompt;
     }
@@ -299,22 +499,13 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
     return `${req.prompt}\n\nContext:\n${contextSnippet}`;
   }
 
-  private formatContext(context: Record<string, unknown> | undefined): string {
-    if (!context || Object.keys(context).length === 0) {
-      return "";
-    }
-
-    try {
-      return JSON.stringify(context);
-    } catch {
-      return "";
-    }
-  }
-
   private async requestGenerateContent(
     body: Record<string, unknown>,
   ): Promise<GoogleGenerateContentPayload> {
-    const fetchImpl = this.resolveFetch();
+    const fetchImpl = resolveFetch(
+      this.fetchImpl,
+      "Global fetch is unavailable. Provide fetchImpl in GoogleLLMInterpreter options.",
+    );
     const apiKey = this.options.apiKey;
     if (!apiKey || apiKey.trim().length === 0) {
       throw new Error(
@@ -342,7 +533,7 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
       );
 
       if (!response.ok) {
-        const details = await this.readErrorResponse(response);
+        const details = await readErrorResponse(response);
         throw new Error(
           `Google request failed (${response.status}): ${details}`,
         );
@@ -367,6 +558,10 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
   }
 
   private extractText(payload: GoogleGenerateContentPayload): string {
+    return this.extractTextRaw(payload).trim();
+  }
+
+  private extractTextRaw(payload: GoogleGenerateContentPayload): string {
     const candidate = payload.candidates?.[0];
     if (!candidate) {
       return "";
@@ -374,8 +569,7 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
 
     return (candidate.content?.parts ?? [])
       .map((part) => (typeof part.text === "string" ? part.text : ""))
-      .join("")
-      .trim();
+      .join("");
   }
 
   private extractRefusal(
@@ -424,103 +618,5 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
     }
 
     return (prompt ?? 0) + (candidates ?? 0);
-  }
-
-  private tryParseJson(
-    raw: string,
-  ): { ok: true; value: unknown } | { ok: false; error: string } {
-    const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-    const payload = fenced ? fenced[1] : raw;
-
-    try {
-      return {
-        ok: true,
-        value: JSON.parse(payload) as unknown,
-      };
-    } catch (error) {
-      return {
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
-
-  private async readErrorResponse(response: Response): Promise<string> {
-    try {
-      const body = (await response.json()) as {
-        error?: { message?: string };
-      };
-      if (body.error?.message) {
-        return body.error.message;
-      }
-      return JSON.stringify(body);
-    } catch {
-      try {
-        return await response.text();
-      } catch {
-        return "unknown error";
-      }
-    }
-  }
-
-  private resolveFetch(): typeof fetch {
-    if (this.fetchImpl) {
-      return this.fetchImpl;
-    }
-
-    if (typeof globalThis.fetch === "function") {
-      return globalThis.fetch.bind(globalThis);
-    }
-
-    throw new Error(
-      "Global fetch is unavailable. Provide fetchImpl in GoogleLLMInterpreter options.",
-    );
-  }
-
-  private pickString(
-    source: Record<string, unknown>,
-    ...keys: string[]
-  ): string | undefined {
-    for (const key of keys) {
-      const value = source[key];
-      if (typeof value === "string" && value.trim().length > 0) {
-        return value.trim();
-      }
-    }
-
-    return undefined;
-  }
-
-  private pickPositiveInt(
-    source: Record<string, unknown>,
-    ...keys: string[]
-  ): number | undefined {
-    for (const key of keys) {
-      const value = source[key];
-      if (typeof value === "number" && Number.isFinite(value) && value > 0) {
-        return Math.floor(value);
-      }
-
-      if (typeof value === "string" && value.trim().length > 0) {
-        const parsed = Number(value);
-        if (Number.isFinite(parsed) && parsed > 0) {
-          return Math.floor(parsed);
-        }
-      }
-    }
-
-    return undefined;
-  }
-
-  private pickFetch(
-    source: Record<string, unknown>,
-    key: string,
-  ): typeof fetch | undefined {
-    const value = source[key];
-    if (typeof value === "function") {
-      return value as typeof fetch;
-    }
-
-    return undefined;
   }
 }

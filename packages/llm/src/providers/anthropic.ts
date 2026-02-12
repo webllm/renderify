@@ -2,10 +2,21 @@ import type {
   LLMInterpreter,
   LLMRequest,
   LLMResponse,
+  LLMResponseStreamChunk,
   LLMStructuredRequest,
   LLMStructuredResponse,
 } from "@renderify/core";
 import { isRuntimePlan } from "@renderify/ir";
+import {
+  consumeSseEvents,
+  formatContext,
+  pickFetch,
+  pickPositiveInt,
+  pickString,
+  readErrorResponse,
+  resolveFetch,
+  tryParseJson,
+} from "./shared";
 
 export interface AnthropicLLMInterpreterOptions {
   apiKey?: string;
@@ -33,6 +44,29 @@ interface AnthropicMessagesPayload {
   };
   error?: {
     message?: string;
+  };
+}
+
+interface AnthropicStreamPayload {
+  type?: string;
+  error?: {
+    message?: string;
+  };
+  message?: {
+    id?: string;
+    model?: string;
+    usage?: {
+      input_tokens?: number;
+      output_tokens?: number;
+    };
+  };
+  delta?: {
+    text?: string;
+    stop_reason?: string | null;
+  };
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
   };
 }
 
@@ -72,18 +106,18 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
   }
 
   configure(options: Record<string, unknown>): void {
-    const apiKey = this.pickString(options, "apiKey", "llmApiKey");
-    const model = this.pickString(options, "model", "llmModel");
-    const baseUrl = this.pickString(options, "baseUrl", "llmBaseUrl");
-    const systemPrompt = this.pickString(options, "systemPrompt");
-    const version = this.pickString(options, "version", "anthropicVersion");
-    const timeoutMs = this.pickPositiveInt(
+    const apiKey = pickString(options, "apiKey", "llmApiKey");
+    const model = pickString(options, "model", "llmModel");
+    const baseUrl = pickString(options, "baseUrl", "llmBaseUrl");
+    const systemPrompt = pickString(options, "systemPrompt");
+    const version = pickString(options, "version", "anthropicVersion");
+    const timeoutMs = pickPositiveInt(
       options,
       "timeoutMs",
       "llmRequestTimeoutMs",
     );
-    const maxTokens = this.pickPositiveInt(options, "maxTokens");
-    const fetchImpl = this.pickFetch(options, "fetchImpl");
+    const maxTokens = pickPositiveInt(options, "maxTokens");
+    const fetchImpl = pickFetch(options, "fetchImpl");
 
     this.options = {
       ...this.options,
@@ -127,6 +161,230 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
     };
   }
 
+  async *generateResponseStream(
+    req: LLMRequest,
+  ): AsyncIterable<LLMResponseStreamChunk> {
+    const fetchImpl = resolveFetch(
+      this.fetchImpl,
+      "Global fetch is unavailable. Provide fetchImpl in AnthropicLLMInterpreter options.",
+    );
+    const apiKey = this.options.apiKey;
+    if (!apiKey || apiKey.trim().length === 0) {
+      throw new Error(
+        "Anthropic apiKey is missing. Set RENDERIFY_LLM_API_KEY or configure apiKey.",
+      );
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => {
+      controller.abort();
+    }, this.options.timeoutMs);
+
+    let aggregatedText = "";
+    let chunkIndex = 0;
+    let tokensUsed: number | undefined;
+    let inputTokens: number | undefined;
+    let outputTokens: number | undefined;
+    let model = this.options.model;
+    let responseId: string | undefined;
+    let doneEmitted = false;
+
+    const processEvents = (
+      events: Array<{ event?: string; data: string }>,
+    ): Array<LLMResponseStreamChunk> => {
+      const chunks: LLMResponseStreamChunk[] = [];
+
+      for (const event of events) {
+        if (event.data === "[DONE]" || event.event === "message_stop") {
+          if (!doneEmitted) {
+            chunkIndex += 1;
+            doneEmitted = true;
+            chunks.push({
+              delta: "",
+              text: aggregatedText,
+              done: true,
+              index: chunkIndex,
+              tokensUsed,
+              model,
+              raw: {
+                mode: "stream",
+                responseId,
+                done: true,
+                event: event.event ?? "done",
+              },
+            });
+          }
+          continue;
+        }
+
+        let payload: AnthropicStreamPayload;
+        try {
+          payload = JSON.parse(event.data) as AnthropicStreamPayload;
+        } catch (error) {
+          throw new Error(
+            `Anthropic stream chunk parse failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+
+        if (payload.error?.message) {
+          throw new Error(`Anthropic error: ${payload.error.message}`);
+        }
+
+        if (typeof payload.message?.id === "string") {
+          responseId = payload.message.id;
+        }
+
+        if (
+          typeof payload.message?.model === "string" &&
+          payload.message.model.trim().length > 0
+        ) {
+          model = payload.message.model;
+        }
+
+        const usageInput = payload.message?.usage?.input_tokens;
+        const usageOutput =
+          payload.message?.usage?.output_tokens ?? payload.usage?.output_tokens;
+        if (typeof usageInput === "number") {
+          inputTokens = usageInput;
+        }
+        if (typeof usageOutput === "number") {
+          outputTokens = usageOutput;
+        }
+        if (
+          typeof inputTokens === "number" ||
+          typeof outputTokens === "number"
+        ) {
+          tokensUsed = (inputTokens ?? 0) + (outputTokens ?? 0);
+        }
+
+        const deltaText =
+          payload.type === "content_block_delta" &&
+          typeof payload.delta?.text === "string"
+            ? payload.delta.text
+            : "";
+
+        if (deltaText.length === 0) {
+          continue;
+        }
+
+        aggregatedText += deltaText;
+        chunkIndex += 1;
+        chunks.push({
+          delta: deltaText,
+          text: aggregatedText,
+          done: false,
+          index: chunkIndex,
+          tokensUsed,
+          model,
+          raw: {
+            mode: "stream",
+            responseId,
+            event: event.event ?? payload.type,
+            chunk: payload,
+          },
+        });
+      }
+
+      return chunks;
+    };
+
+    try {
+      const response = await fetchImpl(
+        `${this.options.baseUrl.replace(/\/$/, "")}/messages`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-api-key": apiKey,
+            "anthropic-version": this.options.version,
+          },
+          body: JSON.stringify({
+            model: this.options.model,
+            max_tokens: this.options.maxTokens,
+            system: this.resolveSystemPrompt(req),
+            stream: true,
+            messages: [
+              {
+                role: "user",
+                content: this.buildUserPrompt(req),
+              },
+            ],
+          }),
+          signal: controller.signal,
+        },
+      );
+
+      if (!response.ok) {
+        const details = await readErrorResponse(response);
+        throw new Error(
+          `Anthropic request failed (${response.status}): ${details}`,
+        );
+      }
+
+      if (!response.body) {
+        throw new Error("Anthropic streaming response body is empty");
+      }
+
+      const decoder = new TextDecoder();
+      const reader = response.body.getReader();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+
+        if (value) {
+          buffer += decoder.decode(value, { stream: true });
+        }
+
+        const parsedEvents = consumeSseEvents(buffer);
+        buffer = parsedEvents.remaining;
+
+        for (const chunk of processEvents(parsedEvents.events)) {
+          yield chunk;
+        }
+      }
+
+      buffer += decoder.decode();
+      const finalEvents = consumeSseEvents(buffer, true);
+      for (const chunk of processEvents(finalEvents.events)) {
+        yield chunk;
+      }
+
+      if (!doneEmitted) {
+        chunkIndex += 1;
+        doneEmitted = true;
+        yield {
+          delta: "",
+          text: aggregatedText,
+          done: true,
+          index: chunkIndex,
+          tokensUsed,
+          model,
+          raw: {
+            mode: "stream",
+            responseId,
+            done: true,
+            reason: "eof",
+          },
+        };
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new Error(
+          `Anthropic request timed out after ${this.options.timeoutMs}ms`,
+        );
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   async generateStructuredResponse<T = unknown>(
     req: LLMStructuredRequest,
   ): Promise<LLMStructuredResponse<T>> {
@@ -167,7 +425,7 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
       };
     }
 
-    const parsed = this.tryParseJson(text);
+    const parsed = tryParseJson(text);
     if (!parsed.ok) {
       return {
         text,
@@ -255,7 +513,7 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
   }
 
   private buildUserPrompt(req: LLMRequest): string {
-    const contextSnippet = this.formatContext(req.context);
+    const contextSnippet = formatContext(req.context);
     if (!contextSnippet) {
       return req.prompt;
     }
@@ -263,22 +521,13 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
     return `${req.prompt}\n\nContext:\n${contextSnippet}`;
   }
 
-  private formatContext(context: Record<string, unknown> | undefined): string {
-    if (!context || Object.keys(context).length === 0) {
-      return "";
-    }
-
-    try {
-      return JSON.stringify(context);
-    } catch {
-      return "";
-    }
-  }
-
   private async requestMessages(
     body: Record<string, unknown>,
   ): Promise<AnthropicMessagesPayload> {
-    const fetchImpl = this.resolveFetch();
+    const fetchImpl = resolveFetch(
+      this.fetchImpl,
+      "Global fetch is unavailable. Provide fetchImpl in AnthropicLLMInterpreter options.",
+    );
     const apiKey = this.options.apiKey;
     if (!apiKey || apiKey.trim().length === 0) {
       throw new Error(
@@ -307,7 +556,7 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
       );
 
       if (!response.ok) {
-        const details = await this.readErrorResponse(response);
+        const details = await readErrorResponse(response);
         throw new Error(
           `Anthropic request failed (${response.status}): ${details}`,
         );
@@ -356,103 +605,5 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
     }
 
     return (input ?? 0) + (output ?? 0);
-  }
-
-  private tryParseJson(
-    raw: string,
-  ): { ok: true; value: unknown } | { ok: false; error: string } {
-    const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
-    const payload = fenced ? fenced[1] : raw;
-
-    try {
-      return {
-        ok: true,
-        value: JSON.parse(payload) as unknown,
-      };
-    } catch (error) {
-      return {
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
-
-  private async readErrorResponse(response: Response): Promise<string> {
-    try {
-      const body = (await response.json()) as {
-        error?: { message?: string };
-      };
-      if (body.error?.message) {
-        return body.error.message;
-      }
-      return JSON.stringify(body);
-    } catch {
-      try {
-        return await response.text();
-      } catch {
-        return "unknown error";
-      }
-    }
-  }
-
-  private resolveFetch(): typeof fetch {
-    if (this.fetchImpl) {
-      return this.fetchImpl;
-    }
-
-    if (typeof globalThis.fetch === "function") {
-      return globalThis.fetch.bind(globalThis);
-    }
-
-    throw new Error(
-      "Global fetch is unavailable. Provide fetchImpl in AnthropicLLMInterpreter options.",
-    );
-  }
-
-  private pickString(
-    source: Record<string, unknown>,
-    ...keys: string[]
-  ): string | undefined {
-    for (const key of keys) {
-      const value = source[key];
-      if (typeof value === "string" && value.trim().length > 0) {
-        return value.trim();
-      }
-    }
-
-    return undefined;
-  }
-
-  private pickPositiveInt(
-    source: Record<string, unknown>,
-    ...keys: string[]
-  ): number | undefined {
-    for (const key of keys) {
-      const value = source[key];
-      if (typeof value === "number" && Number.isFinite(value) && value > 0) {
-        return Math.floor(value);
-      }
-
-      if (typeof value === "string" && value.trim().length > 0) {
-        const parsed = Number(value);
-        if (Number.isFinite(parsed) && parsed > 0) {
-          return Math.floor(parsed);
-        }
-      }
-    }
-
-    return undefined;
-  }
-
-  private pickFetch(
-    source: Record<string, unknown>,
-    key: string,
-  ): typeof fetch | undefined {
-    const value = source[key];
-    if (typeof value === "function") {
-      return value as typeof fetch;
-    }
-
-    return undefined;
   }
 }
