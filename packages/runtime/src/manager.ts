@@ -4,7 +4,6 @@ import {
   createElementNode,
   createTextNode,
   isRuntimeNode,
-  type JsonValue,
   type RuntimeAction,
   type RuntimeDiagnostic,
   type RuntimeEvent,
@@ -44,6 +43,11 @@ import {
 } from "./module-fetch";
 import { applyRuntimeAction } from "./runtime-actions";
 import {
+  createPreactRenderArtifact as createPreactRenderArtifactFromComponentRuntime,
+  executeComponentFactory as executeComponentFactoryWithRuntime,
+  type RuntimeComponentFactory,
+} from "./runtime-component-runtime";
+import {
   FALLBACK_ALLOW_ISOLATION_FALLBACK,
   FALLBACK_BROWSER_SOURCE_SANDBOX_FAIL_CLOSED,
   FALLBACK_BROWSER_SOURCE_SANDBOX_TIMEOUT_MS,
@@ -65,16 +69,7 @@ import {
   normalizeSourceSandboxMode,
   normalizeSupportedSpecVersions,
 } from "./runtime-defaults";
-import {
-  getPreactSpecifier,
-  getVmSpecifier,
-  hasPreactFactory,
-  hasVmScript,
-  isBrowserRuntime,
-  type NodeVmModule,
-  nowMs,
-  type PreactLikeModule,
-} from "./runtime-environment";
+import { isBrowserRuntime, nowMs } from "./runtime-environment";
 import {
   collectDependencyProbes,
   type DependencyProbe,
@@ -236,11 +231,7 @@ interface ResolvedSourceOutput {
 
 export type RuntimeSourceSandboxMode = RuntimeSourceRuntimeMode;
 
-export type RuntimeComponentFactory = (
-  props: Record<string, JsonValue>,
-  context: RuntimeExecutionContext,
-  children: RuntimeNode[],
-) => Promise<RuntimeNode | string> | RuntimeNode | string;
+export type { RuntimeComponentFactory } from "./runtime-component-runtime";
 
 export class DefaultRuntimeManager implements RuntimeManager {
   private readonly moduleLoader?: RuntimeModuleLoader;
@@ -865,11 +856,12 @@ export class DefaultRuntimeManager implements RuntimeManager {
       }
 
       if (this.shouldUsePreactSourceRuntime(source)) {
-        const preactArtifact = await this.createPreactRenderArtifact(
-          selected,
-          runtimeInput,
-          diagnostics,
-        );
+        const preactArtifact =
+          await createPreactRenderArtifactFromComponentRuntime({
+            sourceExport: selected,
+            runtimeInput,
+            diagnostics,
+          });
         if (preactArtifact) {
           return {
             renderArtifact: preactArtifact,
@@ -930,58 +922,6 @@ export class DefaultRuntimeManager implements RuntimeManager {
     source: RuntimeSourceModule,
   ): Promise<string> {
     return transpileRuntimeSource(source, this.sourceTranspiler);
-  }
-
-  private async createPreactRenderArtifact(
-    sourceExport: unknown,
-    runtimeInput: Record<string, JsonValue>,
-    diagnostics: RuntimeDiagnostic[],
-  ): Promise<RuntimeRenderArtifact | undefined> {
-    const preact = await this.loadPreactModule();
-    if (!preact) {
-      diagnostics.push({
-        level: "error",
-        code: "RUNTIME_PREACT_UNAVAILABLE",
-        message:
-          "source.runtime=preact requested but preact runtime is unavailable",
-      });
-      return undefined;
-    }
-
-    if (this.isPreactLikeVNode(sourceExport)) {
-      return {
-        mode: "preact-vnode",
-        payload: sourceExport,
-      };
-    }
-
-    if (typeof sourceExport !== "function") {
-      diagnostics.push({
-        level: "error",
-        code: "RUNTIME_PREACT_EXPORT_INVALID",
-        message: "source.runtime=preact requires a component export function",
-      });
-      return undefined;
-    }
-
-    try {
-      const vnode = preact.h(
-        sourceExport as (props: Record<string, JsonValue>) => unknown,
-        runtimeInput,
-      );
-
-      return {
-        mode: "preact-vnode",
-        payload: vnode,
-      };
-    } catch (error) {
-      diagnostics.push({
-        level: "error",
-        code: "RUNTIME_PREACT_VNODE_FAILED",
-        message: this.errorToMessage(error),
-      });
-      return undefined;
-    }
   }
 
   private shouldUsePreactSourceRuntime(source: RuntimeSourceModule): boolean {
@@ -1537,15 +1477,20 @@ export class DefaultRuntimeManager implements RuntimeManager {
         },
       };
 
-      const produced = await this.executeComponentFactory(
-        target as RuntimeComponentFactory,
-        resolveProps(node.props, context, state, event) ?? {},
-        runtimeContext,
-        resolvedChildren,
-        frame,
-        `Component execution timed out: ${node.module}`,
+      const produced = await executeComponentFactoryWithRuntime({
+        componentFactory: target as RuntimeComponentFactory,
+        props: resolveProps(node.props, context, state, event) ?? {},
+        context: runtimeContext,
+        children: resolvedChildren,
+        executionProfile: frame.executionProfile,
+        maxExecutionMs: frame.maxExecutionMs,
+        startedAt: frame.startedAt,
+        timeoutMessage: `Component execution timed out: ${node.module}`,
+        allowIsolationFallback: this.allowIsolationFallback,
         diagnostics,
-      );
+        withRemainingBudget: (operation, timeoutMessage) =>
+          this.withRemainingBudget(operation, frame, timeoutMessage),
+      });
 
       if (typeof produced === "string") {
         return createTextNode(
@@ -1589,117 +1534,6 @@ export class DefaultRuntimeManager implements RuntimeManager {
     }
   }
 
-  private async executeComponentFactory(
-    componentFactory: RuntimeComponentFactory,
-    props: Record<string, JsonValue>,
-    context: RuntimeExecutionContext,
-    children: RuntimeNode[],
-    frame: ExecutionFrame,
-    timeoutMessage: string,
-    diagnostics: RuntimeDiagnostic[],
-  ): Promise<RuntimeNode | string> {
-    if (frame.executionProfile !== "isolated-vm") {
-      return this.withRemainingBudget(
-        async () => componentFactory(props, context, children),
-        frame,
-        timeoutMessage,
-      );
-    }
-
-    const isolated = await this.executeComponentInVm(
-      componentFactory,
-      props,
-      context,
-      children,
-      frame,
-    );
-
-    if (isolated.mode === "isolation-unavailable") {
-      if (!this.allowIsolationFallback) {
-        throw new Error(
-          "isolated-vm profile requested but node:vm is unavailable; fallback is disabled",
-        );
-      }
-
-      diagnostics.push({
-        level: "warning",
-        code: "RUNTIME_SANDBOX_UNAVAILABLE",
-        message:
-          "isolated-vm profile requested but node:vm is unavailable; falling back to standard execution",
-      });
-      return this.withRemainingBudget(
-        async () => componentFactory(props, context, children),
-        frame,
-        timeoutMessage,
-      );
-    }
-
-    return isolated.value;
-  }
-
-  private async executeComponentInVm(
-    componentFactory: RuntimeComponentFactory,
-    props: Record<string, JsonValue>,
-    context: RuntimeExecutionContext,
-    children: RuntimeNode[],
-    frame: ExecutionFrame,
-  ): Promise<
-    | { mode: "isolated"; value: RuntimeNode | string }
-    | { mode: "isolation-unavailable" }
-  > {
-    const vmModule = await this.loadVmModule();
-    if (!vmModule) {
-      return { mode: "isolation-unavailable" };
-    }
-
-    const remainingMs = frame.maxExecutionMs - (nowMs() - frame.startedAt);
-    if (remainingMs <= 0) {
-      throw new Error("Component execution timed out before sandbox start");
-    }
-
-    const serializedFactory = componentFactory.toString();
-    const sandboxData = {
-      props: cloneJsonValue(props),
-      context: cloneJsonValue(asJsonValue(context)),
-      children: cloneJsonValue(asJsonValue(children)),
-    };
-
-    const script = new vmModule.Script(
-      `'use strict';\n` +
-        `const __component = (${serializedFactory});\n` +
-        `const __result = __component(__input.props, __input.context, __input.children);\n` +
-        `if (__result && typeof __result.then === "function") {\n` +
-        `  throw new Error("Async component is not supported in isolated-vm profile");\n` +
-        `}\n` +
-        `__result;`,
-    );
-
-    const output = script.runInNewContext(
-      {
-        __input: sandboxData,
-      },
-      {
-        timeout: Math.max(1, Math.floor(remainingMs)),
-      },
-    );
-
-    if (typeof output === "string") {
-      return {
-        mode: "isolated",
-        value: output,
-      };
-    }
-
-    if (isRuntimeNode(output)) {
-      return {
-        mode: "isolated",
-        value: output,
-      };
-    }
-
-    throw new Error("Sandboxed component returned unsupported output");
-  }
-
   private async resolveChildren(
     nodes: RuntimeNode[],
     moduleManifest: RuntimeModuleManifest | undefined,
@@ -1735,50 +1569,6 @@ export class DefaultRuntimeManager implements RuntimeManager {
 
     const record = moduleNamespace as Record<string, unknown>;
     return record[exportName];
-  }
-
-  private isPreactLikeVNode(value: unknown): boolean {
-    if (typeof value !== "object" || value === null) {
-      return false;
-    }
-
-    const record = value as Record<string, unknown>;
-    return "type" in record && "props" in record;
-  }
-
-  private async loadPreactModule(): Promise<PreactLikeModule | undefined> {
-    try {
-      const maybePreact = (await import(getPreactSpecifier())) as unknown;
-      if (!hasPreactFactory(maybePreact)) {
-        return undefined;
-      }
-
-      return maybePreact;
-    } catch {
-      return undefined;
-    }
-  }
-
-  private async loadVmModule(): Promise<NodeVmModule | undefined> {
-    if (
-      typeof process === "undefined" ||
-      typeof process.versions !== "object" ||
-      process.versions === null ||
-      typeof process.versions.node !== "string"
-    ) {
-      return undefined;
-    }
-
-    try {
-      const maybeVm = (await import(getVmSpecifier())) as unknown;
-      if (!hasVmScript(maybeVm)) {
-        return undefined;
-      }
-
-      return maybeVm;
-    } catch {
-      return undefined;
-    }
   }
 
   private ensureInitialized(): void {
