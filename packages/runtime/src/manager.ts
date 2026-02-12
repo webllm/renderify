@@ -28,7 +28,6 @@ import {
   toConfiguredFallbackUrl,
   toEsmFallbackUrl,
 } from "./module-fetch";
-import { applyRuntimeAction } from "./runtime-actions";
 import {
   hasExceededBudget as hasRuntimeExceededBudget,
   isAbortError as isRuntimeAbortError,
@@ -589,55 +588,6 @@ export class DefaultRuntimeManager implements RuntimeManager {
     }
 
     return {};
-  }
-
-  private applyEvent(
-    plan: RuntimePlan,
-    event: RuntimeEvent | undefined,
-    state: RuntimeStateSnapshot,
-    context: RuntimeExecutionContext,
-    diagnostics: RuntimeDiagnostic[],
-  ): RuntimeAction[] {
-    if (!event) {
-      return [];
-    }
-
-    const transitions = plan.state?.transitions;
-    if (!transitions) {
-      diagnostics.push({
-        level: "warning",
-        code: "RUNTIME_EVENT_IGNORED",
-        message: `Event ${event.type} ignored because plan has no transitions`,
-      });
-      return [];
-    }
-
-    const actions = transitions[event.type];
-    if (!actions || actions.length === 0) {
-      diagnostics.push({
-        level: "warning",
-        code: "RUNTIME_EVENT_NO_HANDLER",
-        message: `Event ${event.type} has no transition handler`,
-      });
-      return [];
-    }
-
-    const applied: RuntimeAction[] = [];
-
-    for (const action of actions) {
-      try {
-        applyRuntimeAction(action, state, event, context);
-        applied.push(action);
-      } catch (error) {
-        diagnostics.push({
-          level: "error",
-          code: "RUNTIME_ACTION_FAILED",
-          message: `${action.type}:${action.path}: ${this.errorToMessage(error)}`,
-        });
-      }
-    }
-
-    return applied;
   }
 
   private async preflightPlanDependencies(
