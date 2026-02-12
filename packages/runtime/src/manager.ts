@@ -42,11 +42,7 @@ import {
   toEsmFallbackUrl,
 } from "./module-fetch";
 import { applyRuntimeAction } from "./runtime-actions";
-import {
-  createPreactRenderArtifact as createPreactRenderArtifactFromComponentRuntime,
-  executeComponentFactory as executeComponentFactoryWithRuntime,
-  type RuntimeComponentFactory,
-} from "./runtime-component-runtime";
+import { createPreactRenderArtifact as createPreactRenderArtifactFromComponentRuntime } from "./runtime-component-runtime";
 import {
   FALLBACK_ALLOW_ISOLATION_FALLBACK,
   FALLBACK_BROWSER_SOURCE_SANDBOX_FAIL_CLOSED,
@@ -70,6 +66,10 @@ import {
   normalizeSupportedSpecVersions,
 } from "./runtime-defaults";
 import { isBrowserRuntime, nowMs } from "./runtime-environment";
+import {
+  resolveRuntimeNode,
+  selectExportFromNamespace,
+} from "./runtime-node-resolver";
 import {
   collectDependencyProbes,
   type DependencyProbe,
@@ -102,7 +102,6 @@ import {
   executeSourceInBrowserSandbox,
   type RuntimeSandboxRequest,
 } from "./sandbox";
-import { interpolateTemplate, resolveProps } from "./template";
 import { BabelRuntimeSourceTranspiler } from "./transpiler";
 import type { RenderTarget, UIRenderer } from "./ui-renderer";
 
@@ -845,7 +844,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
         "Runtime source module loading timed out",
       );
 
-      const selected = this.selectExport(namespace, exportName);
+      const selected = selectExportFromNamespace(namespace, exportName);
       if (selected === undefined) {
         diagnostics.push({
           level: "error",
@@ -1379,196 +1378,44 @@ export class DefaultRuntimeManager implements RuntimeManager {
       ]);
     }
 
-    if (node.type === "text") {
-      return createTextNode(
-        interpolateTemplate(node.value, context, state, event),
-      );
-    }
-
-    const resolvedChildren = await this.resolveChildren(
-      node.children ?? [],
+    return resolveRuntimeNode({
+      node,
       moduleManifest,
       context,
       state,
       event,
       diagnostics,
       frame,
-    );
-
-    if (node.type === "element") {
-      return {
-        ...node,
-        props: resolveProps(node.props, context, state, event),
-        children: resolvedChildren,
-      };
-    }
-
-    if (frame.componentInvocations >= frame.maxComponentInvocations) {
-      diagnostics.push({
-        level: "error",
-        code: "RUNTIME_COMPONENT_LIMIT_EXCEEDED",
-        message: `Component invocation limit exceeded: ${frame.maxComponentInvocations}`,
-      });
-      return createElementNode(
-        "div",
-        { "data-renderify-component-limit": node.module },
-        [createTextNode("Component invocation limit exceeded")],
-      );
-    }
-
-    frame.componentInvocations += 1;
-
-    const resolvedComponentSpecifier = this.resolveRuntimeSpecifier(
-      node.module,
-      moduleManifest,
-      diagnostics,
-      "component",
-    );
-    if (!resolvedComponentSpecifier) {
-      return createElementNode(
-        "div",
-        { "data-renderify-component-error": node.module },
-        [createTextNode("Missing module manifest entry for component")],
-      );
-    }
-
-    if (!this.moduleLoader) {
-      diagnostics.push({
-        level: "warning",
-        code: "RUNTIME_COMPONENT_SKIPPED",
-        message: `Component ${resolvedComponentSpecifier} skipped because module loader is missing`,
-      });
-      return createElementNode(
-        "div",
-        { "data-renderify-missing-module": node.module },
-        resolvedChildren,
-      );
-    }
-
-    try {
-      const loaded = await this.withRemainingBudget(
-        () => this.moduleLoader!.load(resolvedComponentSpecifier),
-        frame,
-        `Component module timed out: ${resolvedComponentSpecifier}`,
-      );
-
-      const exportName = node.exportName ?? "default";
-      const target = this.selectExport(loaded, exportName);
-
-      if (typeof target !== "function") {
-        diagnostics.push({
-          level: "error",
-          code: "RUNTIME_COMPONENT_INVALID",
-          message: `Export ${exportName} from ${resolvedComponentSpecifier} is not callable`,
-        });
-        return createElementNode(
-          "div",
-          { "data-renderify-component-error": `${node.module}:${exportName}` },
-          [createTextNode("Component export is not callable")],
-        );
-      }
-
-      const runtimeContext: RuntimeExecutionContext = {
-        ...context,
-        variables: {
-          ...(context.variables ?? {}),
-          state,
-          event: event ? asJsonValue(event) : null,
-        },
-      };
-
-      const produced = await executeComponentFactoryWithRuntime({
-        componentFactory: target as RuntimeComponentFactory,
-        props: resolveProps(node.props, context, state, event) ?? {},
-        context: runtimeContext,
-        children: resolvedChildren,
-        executionProfile: frame.executionProfile,
-        maxExecutionMs: frame.maxExecutionMs,
-        startedAt: frame.startedAt,
-        timeoutMessage: `Component execution timed out: ${node.module}`,
+      resolver: {
+        moduleLoader: this.moduleLoader,
         allowIsolationFallback: this.allowIsolationFallback,
-        diagnostics,
+        resolveRuntimeSpecifier: (
+          specifier,
+          manifest,
+          runtimeDiagnostics,
+          usage,
+        ) =>
+          this.resolveRuntimeSpecifier(
+            specifier,
+            manifest,
+            runtimeDiagnostics,
+            usage,
+          ),
         withRemainingBudget: (operation, timeoutMessage) =>
           this.withRemainingBudget(operation, frame, timeoutMessage),
-      });
-
-      if (typeof produced === "string") {
-        return createTextNode(
-          interpolateTemplate(produced, context, state, event),
-        );
-      }
-
-      if (isRuntimeNode(produced)) {
-        return this.resolveNode(
-          produced,
-          moduleManifest,
-          context,
-          state,
-          event,
-          diagnostics,
-          frame,
-        );
-      }
-
-      diagnostics.push({
-        level: "error",
-        code: "RUNTIME_COMPONENT_OUTPUT_INVALID",
-        message: `Component ${resolvedComponentSpecifier} produced unsupported output`,
-      });
-      return createElementNode(
-        "div",
-        { "data-renderify-component-error": node.module },
-        [createTextNode("Unsupported component output")],
-      );
-    } catch (error) {
-      diagnostics.push({
-        level: "error",
-        code: "RUNTIME_COMPONENT_EXEC_FAILED",
-        message: `${resolvedComponentSpecifier}: ${this.errorToMessage(error)}`,
-      });
-      return createElementNode(
-        "div",
-        { "data-renderify-component-error": node.module },
-        [createTextNode("Component execution failed")],
-      );
-    }
-  }
-
-  private async resolveChildren(
-    nodes: RuntimeNode[],
-    moduleManifest: RuntimeModuleManifest | undefined,
-    context: RuntimeExecutionContext,
-    state: RuntimeStateSnapshot,
-    event: RuntimeEvent | undefined,
-    diagnostics: RuntimeDiagnostic[],
-    frame: ExecutionFrame,
-  ): Promise<RuntimeNode[]> {
-    const resolved: RuntimeNode[] = [];
-
-    for (const child of nodes) {
-      resolved.push(
-        await this.resolveNode(
-          child,
-          moduleManifest,
-          context,
-          state,
-          event,
-          diagnostics,
-          frame,
-        ),
-      );
-    }
-
-    return resolved;
-  }
-
-  private selectExport(moduleNamespace: unknown, exportName: string): unknown {
-    if (typeof moduleNamespace !== "object" || moduleNamespace === null) {
-      return undefined;
-    }
-
-    const record = moduleNamespace as Record<string, unknown>;
-    return record[exportName];
+        resolveNode: (nextNode) =>
+          this.resolveNode(
+            nextNode,
+            moduleManifest,
+            context,
+            state,
+            event,
+            diagnostics,
+            frame,
+          ),
+        errorToMessage: (error) => this.errorToMessage(error),
+      },
+    });
   }
 
   private ensureInitialized(): void {
