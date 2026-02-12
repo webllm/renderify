@@ -93,7 +93,7 @@ flowchart TD
 - React ecosystem compatibility bridge:
   - `react`, `react-dom`, `react-dom/client`, `react/jsx-runtime` are mapped to `preact/compat` equivalents
   - enables direct runtime rendering for React-first packages (e.g. `recharts`, `@mui/material`)
-- Real OpenAI provider adapter (`@renderify/llm-openai`) with structured JSON schema requests
+- LLM provider package (`@renderify/llm`) with built-in OpenAI provider and structured JSON schema requests
 - Runtime source static policy checks (blocked patterns, dynamic import policy, source import count)
 - Streaming prompt pipeline (`renderPromptStream`) with progressive preview updates
 - Preact DOM reconciliation path for runtime source modules (diff-based UI updates)
@@ -213,7 +213,7 @@ import {
   DefaultSecurityChecker,
   DefaultUIRenderer,
 } from "@renderify/core";
-import { OpenAILLMInterpreter } from "@renderify/llm-openai";
+import { OpenAILLMInterpreter } from "@renderify/llm";
 import { DefaultRuntimeManager } from "@renderify/runtime";
 import { JspmModuleLoader } from "@renderify/runtime";
 
@@ -247,7 +247,7 @@ await app.stop();
 | `@renderify/ir`              | Runtime IR contracts (plan/node/state/action/event/capabilities) |
 | `@renderify/runtime`         | Runtime execution engine + JSPM module loader                    |
 | `@renderify/core`            | Orchestration + codegen + LLM interfaces + security + UI + config |
-| `@renderify/llm-openai`      | OpenAI-backed `LLMInterpreter` adapter                           |
+| `@renderify/llm`              | LLM provider package (currently ships OpenAI provider)           |
 | `@renderify/cli`             | CLI + browser playground                                         |
 
 ## Integration Docs

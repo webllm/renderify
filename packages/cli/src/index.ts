@@ -20,7 +20,7 @@ import {
   type RenderPromptStreamChunk,
 } from "@renderify/core";
 import { isRuntimePlan, type RuntimePlan } from "@renderify/ir";
-import { OpenAILLMInterpreter } from "@renderify/llm-openai";
+import { OpenAILLMInterpreter } from "@renderify/llm";
 import { DefaultRuntimeManager, JspmModuleLoader } from "@renderify/runtime";
 
 interface CliArgs {

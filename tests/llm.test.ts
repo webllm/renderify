@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { OpenAILLMInterpreter } from "../packages/llm-openai/src/index";
+import { OpenAILLMInterpreter } from "../packages/llm/src/index";
 
 test("openai interpreter generates text response", async () => {
   const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
@@ -45,7 +45,10 @@ test("openai interpreter generates text response", async () => {
   assert.equal(response.model, "gpt-4.1-mini");
   assert.equal(response.tokensUsed, 42);
   assert.equal(requests.length, 1);
-  assert.equal(requests[0].url, "https://example.openai.test/v1/chat/completions");
+  assert.equal(
+    requests[0].url,
+    "https://example.openai.test/v1/chat/completions",
+  );
   assert.equal(requests[0].body.model, "gpt-4.1-mini");
 
   const messages = requests[0].body.messages as Array<{ role: string }>;
@@ -143,7 +146,10 @@ test("openai interpreter marks invalid structured JSON as invalid result", async
 
   assert.equal(response.valid, false);
   assert.ok(Array.isArray(response.errors));
-  assert.match(String(response.errors?.[0] ?? ""), /Structured JSON parse failed/);
+  assert.match(
+    String(response.errors?.[0] ?? ""),
+    /Structured JSON parse failed/,
+  );
 });
 
 test("openai interpreter accepts fenced json in structured mode", async () => {

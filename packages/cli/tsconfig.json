@@ -15,7 +15,7 @@
       "path": "../ir"
     },
     {
-      "path": "../llm-openai"
+      "path": "../llm"
     },
     {
       "path": "../runtime"

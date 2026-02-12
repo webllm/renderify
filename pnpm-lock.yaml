@@ -65,9 +65,9 @@ importers:
       '@renderify/ir':
         specifier: workspace:^
         version: link:../ir
-      '@renderify/llm-openai':
+      '@renderify/llm':
         specifier: workspace:^
-        version: link:../llm-openai
+        version: link:../llm
       '@renderify/runtime':
         specifier: workspace:^
         version: link:../runtime
@@ -89,7 +89,7 @@ importers:
 
   packages/ir: {}
 
-  packages/llm-openai:
+  packages/llm:
     dependencies:
       '@renderify/core':
         specifier: workspace:^

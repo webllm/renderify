@@ -36,7 +36,7 @@
   "dependencies": {
     "@renderify/core": "workspace:^",
     "@renderify/ir": "workspace:^",
-    "@renderify/llm-openai": "workspace:^",
+    "@renderify/llm": "workspace:^",
     "@renderify/runtime": "workspace:^"
   },
   "bin": {

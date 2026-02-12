@@ -17,7 +17,7 @@
       "path": "packages/ir"
     },
     {
-      "path": "packages/llm-openai"
+      "path": "packages/llm"
     },
     {
       "path": "packages/runtime"

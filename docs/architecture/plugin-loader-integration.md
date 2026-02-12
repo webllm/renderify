@@ -185,7 +185,7 @@ execute them through Babel + JSPM resolution.
 OpenAI provider quick setup:
 
 ```ts
-import { OpenAILLMInterpreter } from "@renderify/llm-openai";
+import { OpenAILLMInterpreter } from "@renderify/llm";
 
 const llm = new OpenAILLMInterpreter({
   apiKey: process.env.RENDERIFY_LLM_API_KEY,
