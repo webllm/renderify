@@ -13,7 +13,6 @@ import {
   type RuntimeModuleManifest,
   type RuntimeNode,
   type RuntimePlan,
-  type RuntimeRenderArtifact,
   type RuntimeSourceLanguage,
   type RuntimeSourceModule,
   type RuntimeStateSnapshot,
@@ -61,10 +60,7 @@ import {
   normalizeSupportedSpecVersions,
 } from "./runtime-defaults";
 import { isBrowserRuntime, nowMs } from "./runtime-environment";
-import {
-  resolveRuntimeNode,
-  selectExportFromNamespace,
-} from "./runtime-node-resolver";
+import { resolveRuntimeNode } from "./runtime-node-resolver";
 import {
   collectDependencyProbes,
   type DependencyProbe,
@@ -73,6 +69,10 @@ import {
   type RuntimeDependencyUsage,
   runDependencyPreflight,
 } from "./runtime-preflight";
+import {
+  executeRuntimeSourceRoot,
+  type ResolvedSourceOutput,
+} from "./runtime-source-execution";
 import { RuntimeSourceModuleLoader } from "./runtime-source-module-loader";
 import {
   type RuntimeSourceSandboxMode as RuntimeSourceRuntimeMode,
@@ -94,10 +94,6 @@ import {
   resolveRuntimeSpecifier,
   resolveSourceImportLoaderCandidate,
 } from "./runtime-specifier";
-import {
-  executeSourceInBrowserSandbox,
-  type RuntimeSandboxRequest,
-} from "./sandbox";
 import { BabelRuntimeSourceTranspiler } from "./transpiler";
 import type { RenderTarget, UIRenderer } from "./ui-renderer";
 
@@ -217,11 +213,6 @@ interface ExecutionFrame {
   componentInvocations: number;
   executionProfile: RuntimeExecutionProfile;
   signal?: AbortSignal;
-}
-
-interface ResolvedSourceOutput {
-  root?: RuntimeNode;
-  renderArtifact?: RuntimeRenderArtifact;
 }
 
 export type RuntimeSourceSandboxMode = RuntimeSourceRuntimeMode;
@@ -746,159 +737,47 @@ export class DefaultRuntimeManager implements RuntimeManager {
     diagnostics: RuntimeDiagnostic[],
     frame: ExecutionFrame,
   ): Promise<ResolvedSourceOutput | undefined> {
-    try {
-      const exportName = source.exportName ?? "default";
-      const runtimeInput = {
-        context: cloneJsonValue(asJsonValue(context)),
-        state: cloneJsonValue(state),
-        event: event ? cloneJsonValue(asJsonValue(event)) : null,
-      };
-      const transpiled = await this.withRemainingBudget(
-        () => this.transpileRuntimeSource(source),
-        frame,
-        "Runtime source transpilation timed out",
-      );
-      const rewritten = await this.rewriteSourceImports(
-        transpiled,
-        plan.moduleManifest,
+    return executeRuntimeSourceRoot({
+      plan,
+      source,
+      context,
+      state,
+      event,
+      diagnostics,
+      frame: {
+        executionProfile: frame.executionProfile,
+        signal: frame.signal,
+      },
+      browserSourceSandboxTimeoutMs: this.browserSourceSandboxTimeoutMs,
+      browserSourceSandboxFailClosed: this.browserSourceSandboxFailClosed,
+      withRemainingBudget: (operation, timeoutMessage) =>
+        this.withRemainingBudget(operation, frame, timeoutMessage),
+      transpileRuntimeSource: (runtimeSource) =>
+        this.transpileRuntimeSource(runtimeSource),
+      rewriteSourceImports: (code, manifest, runtimeDiagnostics) =>
+        this.rewriteSourceImports(code, manifest, runtimeDiagnostics),
+      resolveSourceSandboxMode: (runtimeSource, executionProfile) =>
+        this.resolveSourceSandboxMode(runtimeSource, executionProfile),
+      importSourceModuleFromCode: (code, manifest, runtimeDiagnostics) =>
+        this.importSourceModuleFromCode(code, manifest, runtimeDiagnostics),
+      normalizeSourceOutput: (output) => this.normalizeSourceOutput(output),
+      shouldUsePreactSourceRuntime: (runtimeSource) =>
+        this.shouldUsePreactSourceRuntime(runtimeSource),
+      createPreactRenderArtifact: ({
+        sourceExport,
+        runtimeInput,
         diagnostics,
-      );
-
-      const sandboxMode = this.resolveSourceSandboxMode(
-        source,
-        frame.executionProfile,
-      );
-      if (sandboxMode !== "none") {
-        try {
-          const sandboxResult = await this.withRemainingBudget(
-            () =>
-              executeSourceInBrowserSandbox({
-                mode: sandboxMode,
-                timeoutMs: this.browserSourceSandboxTimeoutMs,
-                signal: frame.signal,
-                request: {
-                  renderifySandbox: "runtime-source",
-                  id: `sandbox_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`,
-                  code: rewritten,
-                  exportName,
-                  runtimeInput,
-                } satisfies RuntimeSandboxRequest,
-              }),
-            frame,
-            `Runtime source sandbox (${sandboxMode}) timed out`,
-          );
-
-          const normalized = this.normalizeSourceOutput(sandboxResult.output);
-          if (!normalized) {
-            diagnostics.push({
-              level: "error",
-              code: "RUNTIME_SOURCE_OUTPUT_INVALID",
-              message:
-                "Runtime source output from sandbox is not a supported RuntimeNode payload",
-            });
-            return undefined;
-          }
-
-          diagnostics.push({
-            level: "info",
-            code: "RUNTIME_SOURCE_SANDBOX_EXECUTED",
-            message: `Runtime source executed in ${sandboxMode} sandbox`,
-          });
-
-          return {
-            root: normalized,
-          };
-        } catch (error) {
-          if (this.isAbortError(error)) {
-            throw error;
-          }
-          const message = this.errorToMessage(error);
-          diagnostics.push({
-            level: this.browserSourceSandboxFailClosed ? "error" : "warning",
-            code: this.browserSourceSandboxFailClosed
-              ? "RUNTIME_SOURCE_SANDBOX_FAILED"
-              : "RUNTIME_SOURCE_SANDBOX_FALLBACK",
-            message,
-          });
-
-          if (this.browserSourceSandboxFailClosed) {
-            throw new Error(
-              `Runtime source sandbox (${sandboxMode}) failed: ${message}`,
-            );
-          }
-        }
-      }
-
-      const namespace = await this.withRemainingBudget(
-        () =>
-          this.importSourceModuleFromCode(
-            rewritten,
-            plan.moduleManifest,
-            diagnostics,
-          ),
-        frame,
-        "Runtime source module loading timed out",
-      );
-
-      const selected = selectExportFromNamespace(namespace, exportName);
-      if (selected === undefined) {
-        diagnostics.push({
-          level: "error",
-          code: "RUNTIME_SOURCE_EXPORT_MISSING",
-          message: `Runtime source export "${exportName}" is missing`,
-        });
-        return undefined;
-      }
-
-      if (this.shouldUsePreactSourceRuntime(source)) {
-        const preactArtifact =
-          await createPreactRenderArtifactFromComponentRuntime({
-            sourceExport: selected,
-            runtimeInput,
-            diagnostics,
-          });
-        if (preactArtifact) {
-          return {
-            renderArtifact: preactArtifact,
-          };
-        }
-      }
-
-      const produced =
-        typeof selected === "function"
-          ? await this.withRemainingBudget(
-              async () =>
-                (selected as (input: unknown) => unknown)(runtimeInput),
-              frame,
-              "Runtime source export execution timed out",
-            )
-          : selected;
-
-      const normalized = this.normalizeSourceOutput(produced);
-      if (!normalized) {
-        diagnostics.push({
-          level: "error",
-          code: "RUNTIME_SOURCE_OUTPUT_INVALID",
-          message:
-            "Runtime source output is not a supported RuntimeNode payload",
-        });
-        return undefined;
-      }
-
-      return {
-        root: normalized,
-      };
-    } catch (error) {
-      if (this.isAbortError(error)) {
-        throw error;
-      }
-      diagnostics.push({
-        level: "error",
-        code: "RUNTIME_SOURCE_EXEC_FAILED",
-        message: this.errorToMessage(error),
-      });
-      return undefined;
-    }
+      }) =>
+        createPreactRenderArtifactFromComponentRuntime({
+          sourceExport,
+          runtimeInput,
+          diagnostics,
+        }),
+      isAbortError: (error) => this.isAbortError(error),
+      errorToMessage: (error) => this.errorToMessage(error),
+      cloneJsonValue,
+      asJsonValue,
+    });
   }
 
   private resolveSourceSandboxMode(
