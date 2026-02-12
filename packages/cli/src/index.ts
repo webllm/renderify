@@ -157,7 +157,9 @@ async function main() {
         }
 
         const plan = await loadPlanFile(args.planFile);
-        const security = renderifyApp.getSecurityChecker().checkPlan(plan);
+        const security = await renderifyApp
+          .getSecurityChecker()
+          .checkPlan(plan);
         const runtimeProbe = await runtime.probePlan(plan);
         const runtimeErrorDiagnostics = runtimeProbe.diagnostics.filter(
           (item) => item.level === "error",
@@ -430,7 +432,7 @@ async function handlePlaygroundRequest(
         return;
       }
 
-      const security = app.getSecurityChecker().checkPlan(plan);
+      const security = await app.getSecurityChecker().checkPlan(plan);
       const runtimeProbe = await app.getRuntimeManager().probePlan(plan);
       sendJson(res, 200, {
         safe: security.safe,

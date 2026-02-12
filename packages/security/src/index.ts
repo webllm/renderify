@@ -1,4 +1,5 @@
 import {
+  collectRuntimeSourceImports,
   DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
   isRuntimeValueFromPath,
   isSafePath,
@@ -62,7 +63,7 @@ export interface SecurityChecker {
   initialize(input?: SecurityInitializationInput): void;
   getPolicy(): RuntimeSecurityPolicy;
   getProfile(): RuntimeSecurityProfile;
-  checkPlan(plan: RuntimePlan): SecurityCheckResult;
+  checkPlan(plan: RuntimePlan): Promise<SecurityCheckResult>;
   checkModuleSpecifier(specifier: string): SecurityCheckResult;
   checkCapabilities(
     capabilities: RuntimeCapabilities,
@@ -246,7 +247,7 @@ export class DefaultSecurityChecker implements SecurityChecker {
     return this.profile;
   }
 
-  checkPlan(plan: RuntimePlan): SecurityCheckResult {
+  async checkPlan(plan: RuntimePlan): Promise<SecurityCheckResult> {
     const issues: string[] = [];
     const diagnostics: RuntimeDiagnostic[] = [];
     const planSpecVersion = resolveRuntimePlanSpecVersion(plan.specVersion);
@@ -271,7 +272,7 @@ export class DefaultSecurityChecker implements SecurityChecker {
     }
 
     if (this.policy.requireModuleManifestForBareSpecifiers) {
-      issues.push(...this.checkManifestCoverage(plan, moduleManifest));
+      issues.push(...(await this.checkManifestCoverage(plan, moduleManifest)));
     }
 
     const capabilityResult = this.checkCapabilities(
@@ -351,7 +352,9 @@ export class DefaultSecurityChecker implements SecurityChecker {
     }
 
     if (plan.source) {
-      issues.push(...this.checkRuntimeSource(plan.source, moduleManifest));
+      issues.push(
+        ...(await this.checkRuntimeSource(plan.source, moduleManifest)),
+      );
     }
 
     for (const issue of issues) {
@@ -533,10 +536,10 @@ export class DefaultSecurityChecker implements SecurityChecker {
     return issues;
   }
 
-  private checkRuntimeSource(
+  private async checkRuntimeSource(
     source: RuntimeSourceModule,
     moduleManifest: RuntimeModuleManifest | undefined,
-  ): string[] {
+  ): Promise<string[]> {
     const issues: string[] = [];
 
     if (!this.policy.allowRuntimeSourceModules) {
@@ -555,7 +558,7 @@ export class DefaultSecurityChecker implements SecurityChecker {
       );
     }
 
-    const sourceImports = this.parseSourceImports(source.code);
+    const sourceImports = await this.parseSourceImports(source.code);
     if (sourceImports.length > this.policy.maxSourceImportSpecifiers) {
       issues.push(
         `Runtime source import count ${sourceImports.length} exceeds maximum ${this.policy.maxSourceImportSpecifiers}`,
@@ -634,10 +637,10 @@ export class DefaultSecurityChecker implements SecurityChecker {
     return issues;
   }
 
-  private checkManifestCoverage(
+  private async checkManifestCoverage(
     plan: RuntimePlan,
     moduleManifest: RuntimeModuleManifest | undefined,
-  ): string[] {
+  ): Promise<string[]> {
     const issues: string[] = [];
     const requiredSpecifiers = new Set<string>();
     const imports = plan.imports ?? [];
@@ -660,7 +663,7 @@ export class DefaultSecurityChecker implements SecurityChecker {
       }
     });
 
-    for (const sourceImport of this.parseSourceImports(
+    for (const sourceImport of await this.parseSourceImports(
       plan.source?.code ?? "",
     )) {
       if (this.isBareSpecifier(sourceImport)) {
@@ -691,28 +694,12 @@ export class DefaultSecurityChecker implements SecurityChecker {
     return descriptor.resolvedUrl;
   }
 
-  private parseSourceImports(code: string): string[] {
+  private async parseSourceImports(code: string): Promise<string[]> {
     if (code.trim().length === 0) {
       return [];
     }
 
-    const imports = new Set<string>();
-    const staticImportRegex =
-      /\b(?:import|export)\s+(?:[^"']+?\s+from\s+)?["']([^"']+)["']/g;
-    const dynamicImportRegex = /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g;
-
-    for (const regex of [staticImportRegex, dynamicImportRegex]) {
-      let match = regex.exec(code);
-      while (match) {
-        const specifier = match[1].trim();
-        if (specifier.length > 0) {
-          imports.add(specifier);
-        }
-        match = regex.exec(code);
-      }
-    }
-
-    return [...imports];
+    return collectRuntimeSourceImports(code);
   }
 
   private isBareSpecifier(specifier: string): boolean {

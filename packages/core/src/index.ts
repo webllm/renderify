@@ -680,7 +680,8 @@ export class RenderifyApp {
         pluginContextFactory("beforePolicyCheck"),
       );
 
-      const securityResultRaw = this.deps.security.checkPlan(planBeforePolicy);
+      const securityResultRaw =
+        await this.deps.security.checkPlan(planBeforePolicy);
       const securityResult = await this.runHook(
         "afterPolicyCheck",
         securityResultRaw,
@@ -833,7 +834,7 @@ export class RenderifyApp {
         });
       }
 
-      const security = this.deps.security.checkPlan(plan);
+      const security = await this.deps.security.checkPlan(plan);
       if (!security.safe) {
         return undefined;
       }

@@ -26,12 +26,12 @@ function createPlan(rootTag = "section"): RuntimePlan {
   };
 }
 
-test("security checker blocks disallowed tags", () => {
+test("security checker blocks disallowed tags", async () => {
   const checker = new DefaultSecurityChecker();
   checker.initialize();
 
   const plan = createPlan("script");
-  const result = checker.checkPlan(plan);
+  const result = await checker.checkPlan(plan);
 
   assert.equal(result.safe, false);
   assert.ok(
@@ -40,14 +40,14 @@ test("security checker blocks disallowed tags", () => {
   assert.ok(result.diagnostics.length > 0);
 });
 
-test("security checker blocks non-allowlisted network hosts", () => {
+test("security checker blocks non-allowlisted network hosts", async () => {
   const checker = new DefaultSecurityChecker();
   checker.initialize();
 
   const plan = createPlan("section");
   plan.capabilities.networkHosts = ["evil.example.com"];
 
-  const result = checker.checkPlan(plan);
+  const result = await checker.checkPlan(plan);
 
   assert.equal(result.safe, false);
   assert.ok(
@@ -57,7 +57,7 @@ test("security checker blocks non-allowlisted network hosts", () => {
   );
 });
 
-test("security checker allows allowed JSPM module specifiers", () => {
+test("security checker allows allowed JSPM module specifiers", async () => {
   const checker = new DefaultSecurityChecker();
   checker.initialize();
 
@@ -67,7 +67,7 @@ test("security checker allows allowed JSPM module specifiers", () => {
   assert.equal(moduleResult.issues.length, 0);
 });
 
-test("security checker blocks unsafe state action paths", () => {
+test("security checker blocks unsafe state action paths", async () => {
   const checker = new DefaultSecurityChecker();
   checker.initialize();
 
@@ -87,14 +87,14 @@ test("security checker blocks unsafe state action paths", () => {
     },
   };
 
-  const result = checker.checkPlan(plan);
+  const result = await checker.checkPlan(plan);
   assert.equal(result.safe, false);
   assert.ok(
     result.issues.some((issue) => issue.includes("Unsafe action path")),
   );
 });
 
-test("security checker enforces capability quota limits", () => {
+test("security checker enforces capability quota limits", async () => {
   const checker = new DefaultSecurityChecker();
   checker.initialize({
     maxAllowedImports: 2,
@@ -107,7 +107,7 @@ test("security checker enforces capability quota limits", () => {
   plan.capabilities.maxExecutionMs = 100;
   plan.capabilities.maxComponentInvocations = 9;
 
-  const result = checker.checkPlan(plan);
+  const result = await checker.checkPlan(plan);
   assert.equal(result.safe, false);
   assert.ok(result.issues.some((issue) => issue.includes("maxImports")));
   assert.ok(result.issues.some((issue) => issue.includes("maxExecutionMs")));
@@ -116,7 +116,7 @@ test("security checker enforces capability quota limits", () => {
   );
 });
 
-test("security checker allows vars.* action value references", () => {
+test("security checker allows vars.* action value references", async () => {
   const checker = new DefaultSecurityChecker();
   checker.initialize();
 
@@ -136,12 +136,12 @@ test("security checker allows vars.* action value references", () => {
     },
   };
 
-  const result = checker.checkPlan(plan);
+  const result = await checker.checkPlan(plan);
   assert.equal(result.safe, true);
   assert.equal(result.issues.length, 0);
 });
 
-test("security checker supports profile initialization", () => {
+test("security checker supports profile initialization", async () => {
   const checker = new DefaultSecurityChecker();
   checker.initialize({ profile: "strict" });
 
@@ -153,12 +153,12 @@ test("security checker supports profile initialization", () => {
   assert.equal(checker.getProfile(), "strict");
 });
 
-test("security profiles list includes strict balanced relaxed", () => {
+test("security profiles list includes strict balanced relaxed", async () => {
   const profiles = listSecurityProfiles();
   assert.deepEqual(profiles.sort(), ["balanced", "relaxed", "strict"]);
 });
 
-test("security checker validates requested execution profile", () => {
+test("security checker validates requested execution profile", async () => {
   const checker = new DefaultSecurityChecker();
   checker.initialize({
     overrides: {
@@ -169,12 +169,12 @@ test("security checker validates requested execution profile", () => {
   const plan = createPlan("section");
   plan.capabilities.executionProfile = "isolated-vm";
 
-  const result = checker.checkPlan(plan);
+  const result = await checker.checkPlan(plan);
   assert.equal(result.safe, false);
   assert.ok(result.issues.some((issue) => issue.includes("executionProfile")));
 });
 
-test("security checker can disable runtime source modules via policy", () => {
+test("security checker can disable runtime source modules via policy", async () => {
   const checker = new DefaultSecurityChecker();
   checker.initialize({
     allowRuntimeSourceModules: false,
@@ -186,7 +186,7 @@ test("security checker can disable runtime source modules via policy", () => {
     code: "export default () => <section>hi</section>;",
   };
 
-  const result = checker.checkPlan(plan);
+  const result = await checker.checkPlan(plan);
   assert.equal(result.safe, false);
   assert.ok(
     result.issues.some((issue) =>
@@ -195,7 +195,7 @@ test("security checker can disable runtime source modules via policy", () => {
   );
 });
 
-test("security checker requires moduleManifest for bare imports", () => {
+test("security checker requires moduleManifest for bare imports", async () => {
   const checker = new DefaultSecurityChecker();
   checker.initialize();
 
@@ -210,28 +210,28 @@ test("security checker requires moduleManifest for bare imports", () => {
     imports: ["npm:acme/card"],
   };
 
-  const result = checker.checkPlan(plan);
+  const result = await checker.checkPlan(plan);
   assert.equal(result.safe, false);
   assert.ok(
     result.issues.some((issue) => issue.includes("moduleManifest entry")),
   );
 });
 
-test("security checker requires moduleManifest for bare capability modules", () => {
+test("security checker requires moduleManifest for bare capability modules", async () => {
   const checker = new DefaultSecurityChecker();
   checker.initialize();
 
   const plan = createPlan("section");
   plan.capabilities.allowedModules = ["preact"];
 
-  const result = checker.checkPlan(plan);
+  const result = await checker.checkPlan(plan);
   assert.equal(result.safe, false);
   assert.ok(
     result.issues.some((issue) => issue.includes("moduleManifest entry")),
   );
 });
 
-test("security checker allows bare capability modules via moduleManifest", () => {
+test("security checker allows bare capability modules via moduleManifest", async () => {
   const checker = new DefaultSecurityChecker();
   checker.initialize();
 
@@ -249,11 +249,11 @@ test("security checker allows bare capability modules via moduleManifest", () =>
     },
   };
 
-  const result = checker.checkPlan(plan);
+  const result = await checker.checkPlan(plan);
   assert.equal(result.safe, true, result.issues.join("; "));
 });
 
-test("security checker strict profile requires integrity for remote modules", () => {
+test("security checker strict profile requires integrity for remote modules", async () => {
   const checker = new DefaultSecurityChecker();
   checker.initialize({ profile: "strict" });
 
@@ -266,14 +266,14 @@ test("security checker strict profile requires integrity for remote modules", ()
     },
   };
 
-  const result = checker.checkPlan(plan);
+  const result = await checker.checkPlan(plan);
   assert.equal(result.safe, false);
   assert.ok(
     result.issues.some((issue) => issue.includes("requires integrity")),
   );
 });
 
-test("security checker blocks banned runtime source patterns", () => {
+test("security checker blocks banned runtime source patterns", async () => {
   const checker = new DefaultSecurityChecker();
   checker.initialize();
 
@@ -288,12 +288,12 @@ test("security checker blocks banned runtime source patterns", () => {
     ].join("\n"),
   };
 
-  const result = checker.checkPlan(plan);
+  const result = await checker.checkPlan(plan);
   assert.equal(result.safe, false);
   assert.ok(result.issues.some((issue) => issue.includes("blocked pattern")));
 });
 
-test("security checker blocks runtime source fetch usage", () => {
+test("security checker blocks runtime source fetch usage", async () => {
   const checker = new DefaultSecurityChecker();
   checker.initialize();
 
@@ -308,12 +308,12 @@ test("security checker blocks runtime source fetch usage", () => {
     ].join("\n"),
   };
 
-  const result = checker.checkPlan(plan);
+  const result = await checker.checkPlan(plan);
   assert.equal(result.safe, false);
   assert.ok(result.issues.some((issue) => issue.includes("\\bfetch\\s*\\(")));
 });
 
-test("security checker blocks runtime source cookie access", () => {
+test("security checker blocks runtime source cookie access", async () => {
   const checker = new DefaultSecurityChecker();
   checker.initialize();
 
@@ -328,7 +328,7 @@ test("security checker blocks runtime source cookie access", () => {
     ].join("\n"),
   };
 
-  const result = checker.checkPlan(plan);
+  const result = await checker.checkPlan(plan);
   assert.equal(result.safe, false);
   assert.ok(
     result.issues.some((issue) =>

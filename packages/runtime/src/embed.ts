@@ -37,7 +37,7 @@ export async function renderPlanInBrowser(
     }
 
     try {
-      const securityResult = security.checkPlan(plan);
+      const securityResult = await security.checkPlan(plan);
       if (!securityResult.safe) {
         throw new RuntimeSecurityViolationError(securityResult);
       }
