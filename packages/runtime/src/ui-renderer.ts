@@ -890,13 +890,41 @@ function sanitizeInlineStyle(style: string): string | undefined {
     return undefined;
   }
 
+  const inspected = normalizeStyleForSecurityInspection(normalized);
+  if (inspected.length === 0) {
+    return undefined;
+  }
+
   for (const pattern of UNSAFE_STYLE_PATTERNS) {
-    if (pattern.test(normalized)) {
+    if (pattern.test(inspected)) {
       return undefined;
     }
   }
 
   return normalized;
+}
+
+function normalizeStyleForSecurityInspection(style: string): string {
+  const withoutComments = style.replace(/\/\*[\s\S]*?\*\//g, "");
+  const decodedEscapes = decodeCssEscapes(withoutComments);
+  return decodedEscapes.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function decodeCssEscapes(input: string): string {
+  return input.replace(
+    /\\(?:([0-9a-fA-F]{1,6})(?:\r\n|[ \t\r\n\f])?|(.))/g,
+    (_match, hexCodePoint: string | undefined, escapedChar: string) => {
+      if (hexCodePoint) {
+        const parsed = Number.parseInt(hexCodePoint, 16);
+        if (!Number.isFinite(parsed) || parsed < 0 || parsed > 0x10ffff) {
+          return "";
+        }
+        return String.fromCodePoint(parsed);
+      }
+
+      return escapedChar;
+    },
+  );
 }
 
 function sanitizeRenderedFragment(fragment: DocumentFragment): void {

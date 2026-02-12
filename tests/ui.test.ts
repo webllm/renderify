@@ -148,3 +148,28 @@ test("ui renderer drops unsafe inline style values", () => {
 
   assert.doesNotMatch(html, /\sstyle=/);
 });
+
+test("ui renderer drops escaped and commented unsafe inline style values", () => {
+  const renderer = new DefaultUIRenderer();
+  const escapedHtml = renderer.renderNode(
+    createElementNode(
+      "div",
+      {
+        style: "background:\\75\\72\\6c(javascript:alert(1));",
+      },
+      [createTextNode("escaped style")],
+    ),
+  );
+  const commentedHtml = renderer.renderNode(
+    createElementNode(
+      "div",
+      {
+        style: "background:u/**/rl(javascript:alert(1));",
+      },
+      [createTextNode("commented style")],
+    ),
+  );
+
+  assert.doesNotMatch(escapedHtml, /\sstyle=/);
+  assert.doesNotMatch(commentedHtml, /\sstyle=/);
+});
