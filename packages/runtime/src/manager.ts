@@ -60,6 +60,7 @@ import {
 } from "./runtime-defaults";
 import { isBrowserRuntime, nowMs } from "./runtime-environment";
 import { resolveRuntimeNode } from "./runtime-node-resolver";
+import { resolveRuntimePlanImports } from "./runtime-plan-imports";
 import { preflightRuntimePlanDependencies } from "./runtime-plan-preflight";
 import type {
   RuntimeDependencyProbeStatus,
@@ -430,75 +431,30 @@ export class DefaultRuntimeManager implements RuntimeManager {
       }
     }
 
-    for (let i = 0; i < imports.length; i += 1) {
-      if (this.isAborted(frame.signal)) {
-        diagnostics.push({
-          level: "error",
-          code: "RUNTIME_ABORTED",
-          message: "Execution aborted before import resolution",
-        });
-        break;
-      }
-      const specifier = imports[i];
-      const resolvedSpecifier = this.resolveRuntimeSpecifier(
+    await resolveRuntimePlanImports({
+      imports,
+      maxImports,
+      moduleManifest: plan.moduleManifest,
+      diagnostics,
+      moduleLoader: this.moduleLoader,
+      resolveRuntimeSpecifier: (
         specifier,
-        plan.moduleManifest,
-        diagnostics,
-        "import",
-      );
-      if (!resolvedSpecifier) {
-        continue;
-      }
-
-      if (i >= maxImports) {
-        diagnostics.push({
-          level: "warning",
-          code: "RUNTIME_IMPORT_LIMIT_EXCEEDED",
-          message: `Import skipped because maxImports=${maxImports}: ${specifier}`,
-        });
-        continue;
-      }
-
-      if (!this.moduleLoader) {
-        diagnostics.push({
-          level: "warning",
-          code: "RUNTIME_LOADER_MISSING",
-          message: `Import skipped because no module loader is configured: ${resolvedSpecifier}`,
-        });
-        continue;
-      }
-
-      if (this.hasExceededBudget(frame)) {
-        diagnostics.push({
-          level: "error",
-          code: "RUNTIME_TIMEOUT",
-          message: `Execution time budget exceeded before importing: ${specifier}`,
-        });
-        break;
-      }
-
-      try {
-        await this.withRemainingBudget(
-          () => this.moduleLoader!.load(resolvedSpecifier),
-          frame,
-          `Import timed out: ${resolvedSpecifier}`,
-        );
-      } catch (error) {
-        if (this.isAbortError(error)) {
-          diagnostics.push({
-            level: "error",
-            code: "RUNTIME_ABORTED",
-            message: `Execution aborted during import: ${resolvedSpecifier}`,
-          });
-          break;
-        }
-        diagnostics.push({
-          level: "error",
-          code: "RUNTIME_IMPORT_FAILED",
-          message: `${resolvedSpecifier}: ${this.errorToMessage(error)}`,
-        });
-      }
-    }
+        moduleManifest,
+        runtimeDiagnostics,
+      ) =>
+        this.resolveRuntimeSpecifier(
+          specifier,
+          moduleManifest,
+          runtimeDiagnostics,
+          "import",
+        ),
+      isAborted: () => this.isAborted(frame.signal),
+      hasExceededBudget: () => this.hasExceededBudget(frame),
+      withRemainingBudget: (operation, timeoutMessage) =>
+        this.withRemainingBudget(operation, frame, timeoutMessage),
+      isAbortError: (error) => this.isAbortError(error),
+      errorToMessage: (error) => this.errorToMessage(error),
+    });
 
     const sourceRoot = plan.source
       ? await this.resolveSourceRoot(
