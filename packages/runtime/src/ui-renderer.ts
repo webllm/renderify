@@ -941,7 +941,11 @@ function decodeCssEscapes(input: string): string {
 }
 
 function sanitizeRenderedFragment(fragment: DocumentFragment): void {
-  const elements = Array.from(fragment.querySelectorAll("*"));
+  sanitizeRenderedSubtree(fragment);
+}
+
+function sanitizeRenderedSubtree(root: ParentNode): void {
+  const elements = Array.from(root.querySelectorAll("*"));
 
   for (const element of elements) {
     if (!element.isConnected) {
@@ -955,6 +959,12 @@ function sanitizeRenderedFragment(fragment: DocumentFragment): void {
     }
 
     sanitizeElementAttributes(element);
+
+    const shadowRoot = (element as Element & { shadowRoot?: ShadowRoot | null })
+      .shadowRoot;
+    if (shadowRoot) {
+      sanitizeRenderedSubtree(shadowRoot);
+    }
   }
 }
 
