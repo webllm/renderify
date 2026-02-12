@@ -1173,26 +1173,26 @@ export class DefaultRuntimeManager implements RuntimeManager {
     moduleManifest: RuntimeModuleManifest | undefined,
     diagnostics: RuntimeDiagnostic[],
   ): Promise<string> {
-    if (this.isCssModuleResponse(fetched)) {
-      return this.createCssProxyModuleSource(fetched.code, fetched.url);
+    if (isCssModuleResponse(fetched)) {
+      return createCssProxyModuleSource(fetched.code, fetched.url);
     }
 
-    if (this.isJsonModuleResponse(fetched)) {
+    if (isJsonModuleResponse(fetched)) {
       return this.createJsonProxyModuleSource(fetched, diagnostics);
     }
 
-    if (!this.isJavaScriptModuleResponse(fetched)) {
+    if (!isJavaScriptModuleResponse(fetched)) {
       diagnostics.push({
         level: "warning",
         code: "RUNTIME_SOURCE_ASSET_PROXY",
         message: `Treating non-JS module as proxied asset: ${fetched.url} (${fetched.contentType || "unknown"})`,
       });
 
-      if (this.isBinaryLikeContentType(fetched.contentType)) {
-        return this.createUrlProxyModuleSource(fetched.url);
+      if (isBinaryLikeContentType(fetched.contentType)) {
+        return createUrlProxyModuleSource(fetched.url);
       }
 
-      return this.createTextProxyModuleSource(fetched.code);
+      return createTextProxyModuleSource(fetched.code);
     }
 
     return this.rewriteImportsAsync(fetched.code, async (childSpecifier) =>
@@ -1209,13 +1209,16 @@ export class DefaultRuntimeManager implements RuntimeManager {
     url: string,
     diagnostics: RuntimeDiagnostic[],
   ): Promise<RemoteModuleFetchResult> {
-    const attempts = this.buildRemoteModuleAttemptUrls(url);
+    const attempts = buildRemoteModuleAttemptUrls(
+      url,
+      this.remoteFallbackCdnBases,
+    );
 
     let lastError: unknown;
     for (const attempt of attempts) {
       for (let retry = 0; retry <= this.remoteFetchRetries; retry += 1) {
         try {
-          const response = await this.fetchWithTimeout(
+          const response = await fetchWithTimeout(
             attempt,
             this.remoteFetchTimeoutMs,
           );
@@ -1253,16 +1256,12 @@ export class DefaultRuntimeManager implements RuntimeManager {
           if (retry >= this.remoteFetchRetries) {
             break;
           }
-          await this.delay(this.remoteFetchBackoffMs * Math.max(1, retry + 1));
+          await delay(this.remoteFetchBackoffMs * Math.max(1, retry + 1));
         }
       }
     }
 
     throw lastError ?? new Error(`Failed to load module: ${url}`);
-  }
-
-  private buildRemoteModuleAttemptUrls(url: string): string[] {
-    return buildRemoteModuleAttemptUrls(url, this.remoteFallbackCdnBases);
   }
 
   private toConfiguredFallbackUrl(
@@ -1279,35 +1278,6 @@ export class DefaultRuntimeManager implements RuntimeManager {
     return toEsmFallbackUrl(url, cdnBase);
   }
 
-  private extractJspmNpmSpecifier(url: string): string | undefined {
-    return extractJspmNpmSpecifier(url);
-  }
-
-  private isCssModuleResponse(fetched: RemoteModuleFetchResult): boolean {
-    return isCssModuleResponse(fetched);
-  }
-
-  private isJsonModuleResponse(fetched: RemoteModuleFetchResult): boolean {
-    return isJsonModuleResponse(fetched);
-  }
-
-  private isJavaScriptModuleResponse(
-    fetched: RemoteModuleFetchResult,
-  ): boolean {
-    return isJavaScriptModuleResponse(fetched);
-  }
-
-  private isBinaryLikeContentType(contentType: string): boolean {
-    return isBinaryLikeContentType(contentType);
-  }
-
-  private createCssProxyModuleSource(
-    cssText: string,
-    sourceUrl: string,
-  ): string {
-    return createCssProxyModuleSource(cssText, sourceUrl);
-  }
-
   private createJsonProxyModuleSource(
     fetched: RemoteModuleFetchResult,
     diagnostics: RuntimeDiagnostic[],
@@ -1321,27 +1291,8 @@ export class DefaultRuntimeManager implements RuntimeManager {
         code: "RUNTIME_SOURCE_JSON_PARSE_FAILED",
         message: `${fetched.requestUrl}: ${this.errorToMessage(error)}`,
       });
-      return this.createTextProxyModuleSource(fetched.code);
+      return createTextProxyModuleSource(fetched.code);
     }
-  }
-
-  private createTextProxyModuleSource(text: string): string {
-    return createTextProxyModuleSource(text);
-  }
-
-  private createUrlProxyModuleSource(url: string): string {
-    return createUrlProxyModuleSource(url);
-  }
-
-  private async fetchWithTimeout(
-    url: string,
-    timeoutMs: number,
-  ): Promise<Response> {
-    return fetchWithTimeout(url, timeoutMs);
-  }
-
-  private async delay(ms: number): Promise<void> {
-    return delay(ms);
   }
 
   private async rewriteImportsAsync(
