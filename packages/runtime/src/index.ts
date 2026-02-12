@@ -9,6 +9,7 @@ import {
   isRuntimeNode,
   isRuntimeValueFromPath,
   type JsonValue,
+  parseRuntimeSourceImportRanges,
   type RuntimeAction,
   type RuntimeDiagnostic,
   type RuntimeEvent,
@@ -31,10 +32,6 @@ import {
   type SecurityCheckResult,
   type SecurityInitializationInput,
 } from "@renderify/security";
-import {
-  init as initModuleLexer,
-  parse as parseModuleImports,
-} from "es-module-lexer";
 import { JspmModuleLoader } from "./jspm-module-loader";
 import {
   DefaultUIRenderer,
@@ -222,12 +219,6 @@ const FALLBACK_ENFORCE_MODULE_MANIFEST = true;
 const FALLBACK_ALLOW_ISOLATION_FALLBACK = false;
 const FALLBACK_BROWSER_SOURCE_SANDBOX_TIMEOUT_MS = 4000;
 const FALLBACK_BROWSER_SOURCE_SANDBOX_FAIL_CLOSED = true;
-const SOURCE_IMPORT_REWRITE_PATTERNS = [
-  /\bfrom\s+["']([^"']+)["']/g,
-  /\bimport\s+["']([^"']+)["']/g,
-  /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g,
-] as const;
-
 interface BabelStandaloneLike {
   transform(
     code: string,
@@ -1633,14 +1624,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
   }
 
   private shouldUsePreactSourceRuntime(source: RuntimeSourceModule): boolean {
-    if (source.runtime === "preact") {
-      return true;
-    }
-
-    return (
-      source.runtime === undefined &&
-      (source.language === "tsx" || source.language === "jsx")
-    );
+    return source.runtime === "preact";
   }
 
   private async rewriteSourceImports(
@@ -2405,81 +2389,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
   private async parseImportSpecifiersFromSource(
     source: string,
   ): Promise<Array<{ start: number; end: number; specifier: string }>> {
-    if (source.trim().length === 0) {
-      return [];
-    }
-
-    try {
-      await initModuleLexer;
-      const [imports] = parseModuleImports(source);
-      const parsed: Array<{ start: number; end: number; specifier: string }> =
-        [];
-
-      for (const item of imports) {
-        const specifier = item.n?.trim();
-        if (!specifier) {
-          continue;
-        }
-
-        if (item.s < 0 || item.e <= item.s) {
-          continue;
-        }
-
-        parsed.push({
-          start: item.s,
-          end: item.e,
-          specifier,
-        });
-      }
-
-      return parsed.sort((left, right) => left.start - right.start);
-    } catch {
-      return this.parseImportSpecifiersFromRegex(source);
-    }
-  }
-
-  private parseImportSpecifiersFromRegex(
-    source: string,
-  ): Array<{ start: number; end: number; specifier: string }> {
-    const parsed = new Map<
-      string,
-      { start: number; end: number; specifier: string }
-    >();
-
-    for (const pattern of SOURCE_IMPORT_REWRITE_PATTERNS) {
-      const regex = new RegExp(
-        pattern.source,
-        pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`,
-      );
-
-      let match = regex.exec(source);
-      while (match) {
-        const fullMatch = String(match[0] ?? "");
-        const capturedSpecifier = String(match[1] ?? "").trim();
-        if (capturedSpecifier.length === 0) {
-          match = regex.exec(source);
-          continue;
-        }
-
-        const relativeIndex = fullMatch.indexOf(capturedSpecifier);
-        if (relativeIndex < 0) {
-          match = regex.exec(source);
-          continue;
-        }
-
-        const start = match.index + relativeIndex;
-        const end = start + capturedSpecifier.length;
-        parsed.set(`${start}:${end}`, {
-          start,
-          end,
-          specifier: capturedSpecifier,
-        });
-
-        match = regex.exec(source);
-      }
-    }
-
-    return [...parsed.values()].sort((left, right) => left.start - right.start);
+    return parseRuntimeSourceImportRanges(source);
   }
 
   private createBrowserBlobModuleUrl(code: string): string {

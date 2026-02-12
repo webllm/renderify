@@ -1,5 +1,6 @@
 import {
   collectComponentModules,
+  collectRuntimeSourceImports,
   createElementNode,
   createTextNode,
   DEFAULT_JSPM_SPECIFIER_OVERRIDES,
@@ -68,8 +69,13 @@ export class DefaultCodeGenerator implements CodeGenerator {
     let buffer = "";
     let lastSignature = "";
 
-    const tryGenerate = (): IncrementalCodeGenerationUpdate | undefined => {
-      const candidate = this.tryBuildIncrementalCandidate(input.prompt, buffer);
+    const tryGenerate = async (): Promise<
+      IncrementalCodeGenerationUpdate | undefined
+    > => {
+      const candidate = await this.tryBuildIncrementalCandidate(
+        input.prompt,
+        buffer,
+      );
       if (!candidate) {
         return undefined;
       }
@@ -89,28 +95,31 @@ export class DefaultCodeGenerator implements CodeGenerator {
           buffer += delta;
         }
 
-        return tryGenerate();
+        return await tryGenerate();
       },
       finalize: async (finalText?: string) => {
         if (typeof finalText === "string" && finalText.length > 0) {
           buffer = finalText;
         }
 
-        const candidate = tryGenerate();
+        const candidate = await tryGenerate();
         return candidate?.plan;
       },
     };
   }
 
   async generatePlan(input: CodeGenerationInput): Promise<RuntimePlan> {
-    const parsedPlan = this.tryParseRuntimePlan(input.llmText, input.prompt);
+    const parsedPlan = await this.tryParseRuntimePlan(
+      input.llmText,
+      input.prompt,
+    );
     if (parsedPlan) {
       return parsedPlan;
     }
 
     const source = this.tryExtractRuntimeSource(input.llmText);
     if (source) {
-      return this.createSourcePlan(input.prompt, source);
+      return await this.createSourcePlan(input.prompt, source);
     }
 
     const parsedRoot = this.tryParseRuntimeNode(input.llmText);
@@ -158,11 +167,11 @@ export class DefaultCodeGenerator implements CodeGenerator {
     ]);
   }
 
-  private tryBuildIncrementalCandidate(
+  private async tryBuildIncrementalCandidate(
     prompt: string,
     llmText: string,
-  ): IncrementalCodeGenerationUpdate | undefined {
-    const parsedPlan = this.tryParseRuntimePlan(llmText, prompt);
+  ): Promise<IncrementalCodeGenerationUpdate | undefined> {
+    const parsedPlan = await this.tryParseRuntimePlan(llmText, prompt);
     if (parsedPlan) {
       return {
         plan: parsedPlan,
@@ -190,7 +199,7 @@ export class DefaultCodeGenerator implements CodeGenerator {
     const source = this.tryExtractRuntimeSource(llmText);
     if (source) {
       return {
-        plan: this.createSourcePlan(prompt, source),
+        plan: await this.createSourcePlan(prompt, source),
         complete: this.hasClosedCodeFence(llmText),
         mode: "runtime-source",
       };
@@ -267,10 +276,10 @@ export class DefaultCodeGenerator implements CodeGenerator {
     };
   }
 
-  private tryParseRuntimePlan(
+  private async tryParseRuntimePlan(
     text: string,
     prompt: string,
-  ): RuntimePlan | undefined {
+  ): Promise<RuntimePlan | undefined> {
     const parsed = this.tryParseJsonPayload(text);
     if (!this.isRecord(parsed) || !("root" in parsed)) {
       return undefined;
@@ -312,7 +321,7 @@ export class DefaultCodeGenerator implements CodeGenerator {
     const imports =
       importsFromPayload ??
       importsFromManifest ??
-      (source ? this.parseImportsFromSource(source.code) : undefined);
+      (source ? await this.parseImportsFromSource(source.code) : undefined);
 
     return this.createPlanFromRoot(root, {
       prompt,
@@ -587,11 +596,11 @@ export class DefaultCodeGenerator implements CodeGenerator {
     });
   }
 
-  private createSourcePlan(
+  private async createSourcePlan(
     prompt: string,
     source: RuntimeSourceModule,
-  ): RuntimePlan {
-    const imports = this.parseImportsFromSource(source.code);
+  ): Promise<RuntimePlan> {
+    const imports = await this.parseImportsFromSource(source.code);
     const normalizedSource = this.normalizeSourceModule(source);
     const sourceRuntime = normalizedSource?.runtime ?? "renderify";
 
@@ -618,28 +627,8 @@ export class DefaultCodeGenerator implements CodeGenerator {
     );
   }
 
-  private parseImportsFromSource(code: string): string[] {
-    const imports = new Set<string>();
-    const staticImportRegex =
-      /\b(?:import|export)\s+(?:[^"']+?\s+from\s+)?["']([^"']+)["']/g;
-    const dynamicImportRegex = /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g;
-
-    for (const regex of [staticImportRegex, dynamicImportRegex]) {
-      let match: RegExpExecArray | null;
-      match = regex.exec(code);
-      while (match !== null) {
-        const specifier = match[1].trim();
-        if (specifier.length === 0) {
-          match = regex.exec(code);
-          continue;
-        }
-
-        imports.add(specifier);
-        match = regex.exec(code);
-      }
-    }
-
-    return [...imports];
+  private async parseImportsFromSource(code: string): Promise<string[]> {
+    return collectRuntimeSourceImports(code);
   }
 
   private isHttpUrl(value: string): boolean {

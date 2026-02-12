@@ -35,7 +35,6 @@
   "dependencies": {
     "@renderify/ir": "workspace:^",
     "@renderify/security": "workspace:^",
-    "es-module-lexer": "^1.7.0",
     "preact": "^10.28.3",
     "preact-render-to-string": "^6.6.5"
   }

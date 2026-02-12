@@ -93,7 +93,11 @@ importers:
         specifier: ^6.6.5
         version: 6.6.5(preact@10.28.3)
 
-  packages/ir: {}
+  packages/ir:
+    dependencies:
+      es-module-lexer:
+        specifier: ^1.7.0
+        version: 1.7.0
 
   packages/llm:
     dependencies:
@@ -112,9 +116,6 @@ importers:
       '@renderify/security':
         specifier: workspace:^
         version: link:../security
-      es-module-lexer:
-        specifier: ^1.7.0
-        version: 1.7.0
       preact:
         specifier: ^10.28.3
         version: 10.28.3

@@ -1,5 +1,11 @@
 export type JsonPrimitive = string | number | boolean | null;
 
+export {
+  collectRuntimeSourceImports,
+  parseRuntimeSourceImportRanges,
+  type RuntimeSourceImportRange,
+} from "./source-imports";
+
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
 
 export interface JsonObject {
