@@ -17,6 +17,7 @@ import {
   readErrorResponse,
   resolveFetch,
   tryParseJson,
+  withTimeoutAbortScope,
 } from "./shared";
 
 export interface OpenAILLMInterpreterOptions {
@@ -574,32 +575,37 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
       );
     }
 
-    const abortScope = createTimeoutAbortScope(this.options.timeoutMs, signal);
-
     try {
-      const response = await fetchImpl(
-        `${this.options.baseUrl.replace(/\/$/, "")}/chat/completions`,
-        {
-          method: "POST",
-          headers: this.createHeaders(apiKey),
-          body: JSON.stringify(body),
-          signal: abortScope.signal,
+      return await withTimeoutAbortScope(
+        this.options.timeoutMs,
+        signal,
+        async (timeoutSignal) => {
+          const response = await fetchImpl(
+            `${this.options.baseUrl.replace(/\/$/, "")}/chat/completions`,
+            {
+              method: "POST",
+              headers: this.createHeaders(apiKey),
+              body: JSON.stringify(body),
+              signal: timeoutSignal,
+            },
+          );
+
+          if (!response.ok) {
+            const details = await readErrorResponse(response);
+            throw new Error(
+              `OpenAI request failed (${response.status}): ${details}`,
+            );
+          }
+
+          const parsed =
+            (await response.json()) as OpenAIChatCompletionsPayload;
+          if (parsed.error?.message) {
+            throw new Error(`OpenAI error: ${parsed.error.message}`);
+          }
+
+          return parsed;
         },
       );
-
-      if (!response.ok) {
-        const details = await readErrorResponse(response);
-        throw new Error(
-          `OpenAI request failed (${response.status}): ${details}`,
-        );
-      }
-
-      const parsed = (await response.json()) as OpenAIChatCompletionsPayload;
-      if (parsed.error?.message) {
-        throw new Error(`OpenAI error: ${parsed.error.message}`);
-      }
-
-      return parsed;
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
         if (signal?.aborted) {
@@ -610,8 +616,6 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
         );
       }
       throw error;
-    } finally {
-      abortScope.release();
     }
   }
 

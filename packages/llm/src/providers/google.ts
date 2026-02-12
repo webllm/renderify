@@ -17,6 +17,7 @@ import {
   readErrorResponse,
   resolveFetch,
   tryParseJson,
+  withTimeoutAbortScope,
 } from "./shared";
 
 export interface GoogleLLMInterpreterOptions {
@@ -522,35 +523,40 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
       );
     }
 
-    const abortScope = createTimeoutAbortScope(this.options.timeoutMs, signal);
-
     try {
-      const response = await fetchImpl(
-        `${this.options.baseUrl.replace(/\/$/, "")}/models/${encodeURIComponent(this.options.model)}:generateContent`,
-        {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-goog-api-key": apiKey,
-          },
-          body: JSON.stringify(body),
-          signal: abortScope.signal,
+      return await withTimeoutAbortScope(
+        this.options.timeoutMs,
+        signal,
+        async (timeoutSignal) => {
+          const response = await fetchImpl(
+            `${this.options.baseUrl.replace(/\/$/, "")}/models/${encodeURIComponent(this.options.model)}:generateContent`,
+            {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                "x-goog-api-key": apiKey,
+              },
+              body: JSON.stringify(body),
+              signal: timeoutSignal,
+            },
+          );
+
+          if (!response.ok) {
+            const details = await readErrorResponse(response);
+            throw new Error(
+              `Google request failed (${response.status}): ${details}`,
+            );
+          }
+
+          const parsed =
+            (await response.json()) as GoogleGenerateContentPayload;
+          if (parsed.error?.message) {
+            throw new Error(`Google error: ${parsed.error.message}`);
+          }
+
+          return parsed;
         },
       );
-
-      if (!response.ok) {
-        const details = await readErrorResponse(response);
-        throw new Error(
-          `Google request failed (${response.status}): ${details}`,
-        );
-      }
-
-      const parsed = (await response.json()) as GoogleGenerateContentPayload;
-      if (parsed.error?.message) {
-        throw new Error(`Google error: ${parsed.error.message}`);
-      }
-
-      return parsed;
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
         if (signal?.aborted) {
@@ -561,8 +567,6 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
         );
       }
       throw error;
-    } finally {
-      abortScope.release();
     }
   }
 

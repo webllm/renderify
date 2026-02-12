@@ -112,6 +112,19 @@ export function createTimeoutAbortScope(
   };
 }
 
+export async function withTimeoutAbortScope<T>(
+  timeoutMs: number,
+  upstreamSignal: AbortSignal | undefined,
+  operation: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const scope = createTimeoutAbortScope(timeoutMs, upstreamSignal);
+  try {
+    return await operation(scope.signal);
+  } finally {
+    scope.release();
+  }
+}
+
 export function formatContext(
   context: Record<string, unknown> | undefined,
 ): string {

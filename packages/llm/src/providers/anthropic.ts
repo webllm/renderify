@@ -17,6 +17,7 @@ import {
   readErrorResponse,
   resolveFetch,
   tryParseJson,
+  withTimeoutAbortScope,
 } from "./shared";
 
 export interface AnthropicLLMInterpreterOptions {
@@ -546,36 +547,40 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
       );
     }
 
-    const abortScope = createTimeoutAbortScope(this.options.timeoutMs, signal);
-
     try {
-      const response = await fetchImpl(
-        `${this.options.baseUrl.replace(/\/$/, "")}/messages`,
-        {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-api-key": apiKey,
-            "anthropic-version": this.options.version,
-          },
-          body: JSON.stringify(body),
-          signal: abortScope.signal,
+      return await withTimeoutAbortScope(
+        this.options.timeoutMs,
+        signal,
+        async (timeoutSignal) => {
+          const response = await fetchImpl(
+            `${this.options.baseUrl.replace(/\/$/, "")}/messages`,
+            {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                "x-api-key": apiKey,
+                "anthropic-version": this.options.version,
+              },
+              body: JSON.stringify(body),
+              signal: timeoutSignal,
+            },
+          );
+
+          if (!response.ok) {
+            const details = await readErrorResponse(response);
+            throw new Error(
+              `Anthropic request failed (${response.status}): ${details}`,
+            );
+          }
+
+          const parsed = (await response.json()) as AnthropicMessagesPayload;
+          if (parsed.error?.message) {
+            throw new Error(`Anthropic error: ${parsed.error.message}`);
+          }
+
+          return parsed;
         },
       );
-
-      if (!response.ok) {
-        const details = await readErrorResponse(response);
-        throw new Error(
-          `Anthropic request failed (${response.status}): ${details}`,
-        );
-      }
-
-      const parsed = (await response.json()) as AnthropicMessagesPayload;
-      if (parsed.error?.message) {
-        throw new Error(`Anthropic error: ${parsed.error.message}`);
-      }
-
-      return parsed;
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
         if (signal?.aborted) {
@@ -586,8 +591,6 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
         );
       }
       throw error;
-    } finally {
-      abortScope.release();
     }
   }
 
