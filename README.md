@@ -127,6 +127,7 @@ pnpm cli -- plan "Build a welcome card"
 
 # Probe RuntimePlan compatibility (policy + runtime preflight diagnostics)
 pnpm cli -- probe-plan examples/runtime/recharts-dashboard-plan.json
+# side-effect free: does not execute plan source/component logic
 
 # Execute RuntimePlan file
 pnpm cli -- render-plan examples/runtime/counter-plan.json

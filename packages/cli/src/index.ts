@@ -203,11 +203,11 @@ async function main() {
 
         const plan = await loadPlanFile(args.planFile);
         const security = renderifyApp.getSecurityChecker().checkPlan(plan);
-        const runtimeResult = await runtime.executePlan(plan);
-        const runtimeErrorDiagnostics = runtimeResult.diagnostics.filter(
+        const runtimeProbe = await runtime.probePlan(plan);
+        const runtimeErrorDiagnostics = runtimeProbe.diagnostics.filter(
           (item) => item.level === "error",
         );
-        const preflightDiagnostics = runtimeResult.diagnostics.filter((item) =>
+        const preflightDiagnostics = runtimeProbe.diagnostics.filter((item) =>
           item.code.startsWith("RUNTIME_PREFLIGHT_"),
         );
 
@@ -223,7 +223,8 @@ async function main() {
             runtimeErrorDiagnostics.length === 0,
           securityIssues: security.issues,
           securityDiagnostics: security.diagnostics,
-          runtimeDiagnostics: runtimeResult.diagnostics,
+          dependencyStatuses: runtimeProbe.dependencies,
+          runtimeDiagnostics: runtimeProbe.diagnostics,
         };
 
         console.log(JSON.stringify(report, null, 2));
