@@ -2,6 +2,7 @@ import {
   collectComponentModules,
   createElementNode,
   createTextNode,
+  DEFAULT_JSPM_SPECIFIER_OVERRIDES,
   DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
   isRuntimeCapabilities,
   isRuntimeModuleManifest,
@@ -59,26 +60,6 @@ export interface CodeGenerator {
     transforms: Array<(plan: RuntimePlan) => RuntimePlan>,
   ): Promise<RuntimePlan>;
 }
-
-const JSPM_SPECIFIER_OVERRIDES: Record<string, string> = {
-  preact: "https://ga.jspm.io/npm:preact@10.28.3/dist/preact.module.js",
-  "preact/hooks":
-    "https://ga.jspm.io/npm:preact@10.28.3/hooks/dist/hooks.module.js",
-  "preact/compat":
-    "https://ga.jspm.io/npm:preact@10.28.3/compat/dist/compat.module.js",
-  "preact/jsx-runtime":
-    "https://ga.jspm.io/npm:preact@10.28.3/jsx-runtime/dist/jsxRuntime.module.js",
-  react: "https://ga.jspm.io/npm:preact@10.28.3/compat/dist/compat.module.js",
-  "react-dom":
-    "https://ga.jspm.io/npm:preact@10.28.3/compat/dist/compat.module.js",
-  "react-dom/client":
-    "https://ga.jspm.io/npm:preact@10.28.3/compat/dist/compat.module.js",
-  "react/jsx-runtime":
-    "https://ga.jspm.io/npm:preact@10.28.3/jsx-runtime/dist/jsxRuntime.module.js",
-  "react/jsx-dev-runtime":
-    "https://ga.jspm.io/npm:preact@10.28.3/jsx-runtime/dist/jsxRuntime.module.js",
-  recharts: "https://ga.jspm.io/npm:recharts@3.3.0/es6/index.js",
-};
 
 export class DefaultCodeGenerator implements CodeGenerator {
   createIncrementalSession(
@@ -715,7 +696,7 @@ export class DefaultCodeGenerator implements CodeGenerator {
       return "https://ga.jspm.io/npm:missing";
     }
 
-    const override = JSPM_SPECIFIER_OVERRIDES[normalized];
+    const override = DEFAULT_JSPM_SPECIFIER_OVERRIDES[normalized];
     if (override) {
       return override;
     }
