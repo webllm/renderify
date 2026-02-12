@@ -115,7 +115,7 @@ flowchart TD
 - RuntimePlan structural guards for safer plan ingestion
 - Browser runtime playground (`renderify playground`) for live prompt/plan/event/state/history flows
 - CLI persisted history (`.renderify/session.json`)
-- Unit tests for `ir/codegen/security/runtime/core`
+- Unit tests for `ir/core/runtime`
 - CI matrix (`Node 22 + Node 24`) for typecheck/unit + quality gates
 - PR changeset enforcement for release-relevant package changes
 - Benchmark workflow with JSON artifacts uploaded per CI run
@@ -231,16 +231,18 @@ Release automation is gated by CI success on `main` and uses Changesets to eithe
 ## Programmatic Example
 
 ```ts
-import { createRenderifyApp } from "@renderify/core";
-import { DefaultContextManager } from "@renderify/core";
-import { DefaultPerformanceOptimizer } from "@renderify/core";
-import { DefaultRenderifyConfig } from "@renderify/config";
-import { DefaultLLMInterpreter } from "@renderify/llm-interpreter";
-import { DefaultCodeGenerator } from "@renderify/codegen";
+import {
+  createRenderifyApp,
+  DefaultCodeGenerator,
+  DefaultContextManager,
+  DefaultLLMInterpreter,
+  DefaultPerformanceOptimizer,
+  DefaultRenderifyConfig,
+  DefaultSecurityChecker,
+  DefaultUIRenderer,
+} from "@renderify/core";
 import { DefaultRuntimeManager } from "@renderify/runtime";
-import { JspmModuleLoader } from "@renderify/runtime-jspm";
-import { DefaultSecurityChecker } from "@renderify/security";
-import { DefaultUIRenderer } from "@renderify/ui";
+import { JspmModuleLoader } from "@renderify/runtime";
 
 const app = createRenderifyApp({
   config: new DefaultRenderifyConfig(),
@@ -272,15 +274,9 @@ await app.stop();
 | Package                      | Responsibility                                                   |
 | ---------------------------- | ---------------------------------------------------------------- |
 | `@renderify/ir`              | Runtime IR contracts (plan/node/state/action/event/capabilities) |
-| `@renderify/security`        | Policy guardrails for plan, transitions, and module capabilities |
-| `@renderify/runtime`         | Runtime execution engine and state transition evaluator          |
-| `@renderify/runtime-jspm`    | JSPM/SystemJS module loader adapter                              |
-| `@renderify/ui`              | Runtime HTML/DOM renderer                                        |
-| `@renderify/core`            | End-to-end pipeline orchestration and lifecycle APIs             |
-| `@renderify/codegen`         | LLM output -> RuntimePlan conversion                             |
-| `@renderify/llm-interpreter` | LLM abstraction layer                                            |
+| `@renderify/runtime`         | Runtime execution engine, state transitions, JSPM module loader  |
+| `@renderify/core`            | Orchestration + codegen + LLM mock + security + UI + config      |
 | `@renderify/llm-openai`      | OpenAI-backed `LLMInterpreter` adapter                           |
-| `@renderify/config`          | Runtime/security config source                                   |
 | `@renderify/cli`             | CLI + browser playground                                         |
 
 ## Integration Docs

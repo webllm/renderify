@@ -11,12 +11,12 @@ import {
 } from "../packages/ir/src/index";
 import {
   DefaultRuntimeManager,
+  JspmModuleLoader,
   type RuntimeComponentFactory,
   type RuntimeModuleLoader,
   type RuntimeSourceTranspileInput,
   type RuntimeSourceTranspiler,
 } from "../packages/runtime/src/index";
-import { JspmModuleLoader } from "../packages/runtime-jspm/src/index";
 
 class MockLoader implements RuntimeModuleLoader {
   constructor(private readonly modules: Record<string, unknown>) {}

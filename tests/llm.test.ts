@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DefaultLLMInterpreter } from "../packages/llm-interpreter/src/index";
+import { DefaultLLMInterpreter } from "../packages/core/src/llm-interpreter";
 
 test("llm structured response returns runtime-plan payload", async () => {
   const llm = new DefaultLLMInterpreter();

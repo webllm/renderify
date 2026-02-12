@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DefaultCodeGenerator } from "../packages/codegen/src/index";
+import { DefaultCodeGenerator } from "../packages/core/src/codegen";
 
 test("codegen parses RuntimePlan JSON output directly", async () => {
   const codegen = new DefaultCodeGenerator();

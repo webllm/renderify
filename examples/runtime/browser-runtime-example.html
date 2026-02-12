@@ -180,12 +180,7 @@
       </div>
     </div>
 
-    <script src="../../packages/config/dist/config.umd.min.js"></script>
-    <script src="../../packages/llm-interpreter/dist/llm-interpreter.umd.min.js"></script>
-    <script src="../../packages/codegen/dist/codegen.umd.min.js"></script>
     <script src="../../packages/runtime/dist/runtime.umd.min.js"></script>
-    <script src="../../packages/security/dist/security.umd.min.js"></script>
-    <script src="../../packages/ui/dist/ui.umd.min.js"></script>
     <script src="../../packages/core/dist/core.umd.min.js"></script>
 
     <script>
@@ -218,14 +213,16 @@
 
         try {
           app = RenderifyCore.createRenderifyApp({
-            config: new RenderifyConfig.DefaultRenderifyConfig(),
+            config: new RenderifyCore.DefaultRenderifyConfig(),
             context: new RenderifyCore.DefaultContextManager(),
-            llm: new RenderifyLLMInterpreter.DefaultLLMInterpreter(),
-            codegen: new RenderifyCodegen.DefaultCodeGenerator(),
-            runtime: new RenderifyRuntime.DefaultRuntimeManager(),
-            security: new RenderifySecurity.DefaultSecurityChecker(),
+            llm: new RenderifyCore.DefaultLLMInterpreter(),
+            codegen: new RenderifyCore.DefaultCodeGenerator(),
+            runtime: new RenderifyRuntime.DefaultRuntimeManager({
+              moduleLoader: new RenderifyRuntime.JspmModuleLoader(),
+            }),
+            security: new RenderifyCore.DefaultSecurityChecker(),
             performance: new RenderifyCore.DefaultPerformanceOptimizer(),
-            ui: new RenderifyUI.DefaultUIRenderer(),
+            ui: new RenderifyCore.DefaultUIRenderer(),
             customization: new RenderifyCore.DefaultCustomizationEngine(),
           });
 

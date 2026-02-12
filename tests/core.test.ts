@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DefaultCodeGenerator } from "../packages/codegen/src/index";
+import { DefaultCodeGenerator } from "../packages/core/src/codegen";
 import {
   DefaultRenderifyConfig,
   type RenderifyConfigValues,
-} from "../packages/config/src/index";
+} from "../packages/core/src/config";
 import {
   createRenderifyApp,
   DefaultContextManager,
@@ -16,22 +16,22 @@ import {
   TenantQuotaExceededError,
 } from "../packages/core/src/index";
 import {
-  createElementNode,
-  createTextNode,
-  DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
-  type RuntimePlan,
-} from "../packages/ir/src/index";
-import {
   DefaultLLMInterpreter,
   type LLMInterpreter,
   type LLMRequest,
   type LLMResponse,
   type LLMStructuredRequest,
   type LLMStructuredResponse,
-} from "../packages/llm-interpreter/src/index";
+} from "../packages/core/src/llm-interpreter";
+import { DefaultSecurityChecker } from "../packages/core/src/security";
+import { DefaultUIRenderer } from "../packages/core/src/ui";
+import {
+  createElementNode,
+  createTextNode,
+  DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+  type RuntimePlan,
+} from "../packages/ir/src/index";
 import { DefaultRuntimeManager } from "../packages/runtime/src/index";
-import { DefaultSecurityChecker } from "../packages/security/src/index";
-import { DefaultUIRenderer } from "../packages/ui/src/index";
 
 class RejectingConfig extends DefaultRenderifyConfig {
   async load(overrides?: Partial<RenderifyConfigValues>): Promise<void> {

@@ -1,16 +1,15 @@
-import { DefaultCodeGenerator } from "@renderify/codegen";
-import { DefaultRenderifyConfig } from "@renderify/config";
 import {
   createRenderifyApp,
+  DefaultCodeGenerator,
   DefaultContextManager,
   DefaultCustomizationEngine,
+  DefaultLLMInterpreter,
   DefaultPerformanceOptimizer,
+  DefaultRenderifyConfig,
+  DefaultSecurityChecker,
+  DefaultUIRenderer,
 } from "@renderify/core";
-import { DefaultLLMInterpreter } from "@renderify/llm-interpreter";
-import { DefaultRuntimeManager } from "@renderify/runtime";
-import { JspmModuleLoader } from "@renderify/runtime-jspm";
-import { DefaultSecurityChecker } from "@renderify/security";
-import { DefaultUIRenderer } from "@renderify/ui";
+import { DefaultRuntimeManager, JspmModuleLoader } from "@renderify/runtime";
 
 async function main() {
   const app = createRenderifyApp({

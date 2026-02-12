@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { JspmModuleLoader } from "../packages/runtime-jspm/src/index";
+import { JspmModuleLoader } from "../packages/runtime/src/index";
 
 test("runtime-jspm resolves known overrides for preact/recharts", () => {
   const loader = new JspmModuleLoader();

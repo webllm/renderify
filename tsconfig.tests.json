@@ -11,34 +11,16 @@
       "path": "packages/cli"
     },
     {
-      "path": "packages/codegen"
-    },
-    {
-      "path": "packages/config"
-    },
-    {
       "path": "packages/core"
     },
     {
       "path": "packages/ir"
     },
     {
-      "path": "packages/llm-interpreter"
-    },
-    {
       "path": "packages/llm-openai"
     },
     {
       "path": "packages/runtime"
-    },
-    {
-      "path": "packages/runtime-jspm"
-    },
-    {
-      "path": "packages/security"
-    },
-    {
-      "path": "packages/ui"
     }
   ]
 }

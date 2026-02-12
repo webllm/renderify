@@ -122,7 +122,7 @@ Fallback behavior:
 
 Current provider adapters:
 
-- `@renderify/llm-interpreter` (mock/default)
+- `@renderify/core` (mock/default)
 - `@renderify/llm-openai` (real provider)
 
 ## LLM Text TSX Contract
@@ -134,12 +134,12 @@ When structured mode is disabled, text output can contain fenced source blocks:
 - ```` ```ts ... ``` ````
 - ```` ```js ... ``` `````
 
-`@renderify/codegen` converts these into `RuntimePlan.source`, and runtime executes
+`@renderify/core` converts these into `RuntimePlan.source`, and runtime executes
 them via Babel transpilation + JSPM-style import resolution.
 
 ## Security Policy Contract
 
-`@renderify/security` validates plan and capabilities before execution.
+`@renderify/core` validates plan and capabilities before execution.
 
 Policy dimensions:
 
@@ -173,4 +173,4 @@ interface RuntimeModuleLoader {
 }
 ```
 
-`@renderify/runtime-jspm` implements JSPM/SystemJS resolution and loading.
+`@renderify/runtime` implements JSPM/SystemJS resolution and loading.

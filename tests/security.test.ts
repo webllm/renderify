@@ -1,17 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  DefaultSecurityChecker,
+  getSecurityProfilePolicy,
+  listSecurityProfiles,
+} from "../packages/core/src/security";
+import {
   createComponentNode,
   createElementNode,
   createTextNode,
   DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
   type RuntimePlan,
 } from "../packages/ir/src/index";
-import {
-  DefaultSecurityChecker,
-  getSecurityProfilePolicy,
-  listSecurityProfiles,
-} from "../packages/security/src/index";
 
 function createPlan(rootTag = "section"): RuntimePlan {
   return {

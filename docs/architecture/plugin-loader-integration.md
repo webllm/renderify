@@ -59,7 +59,7 @@ interface RuntimeModuleLoader {
 
 Default:
 
-- `@renderify/runtime-jspm` (`JspmModuleLoader`)
+- `@renderify/runtime` (`JspmModuleLoader`)
 
 Custom loader example:
 
@@ -91,7 +91,7 @@ const runtime = new DefaultRuntimeManager({
 ```
 
 For TSX/JSX runtime source modules, the loader resolver is used to rewrite bare
-import specifiers to executable URLs. `@renderify/runtime-jspm` provides this behavior.
+import specifiers to executable URLs. `@renderify/runtime` provides this behavior.
 
 For production determinism, include `moduleManifest` in `RuntimePlan` and map each
 bare specifier to a pinned `resolvedUrl` (and optionally `integrity`).
@@ -208,7 +208,7 @@ RENDERIFY_LLM_USE_STRUCTURED_OUTPUT=false
 ```
 
 When structured mode is disabled, you can return fenced `tsx/jsx/ts/js` blocks.
-`@renderify/codegen` will convert those blocks into `plan.source` and runtime will
+`@renderify/core` will convert those blocks into `plan.source` and runtime will
 execute them through Babel + JSPM resolution.
 
 OpenAI provider quick setup:

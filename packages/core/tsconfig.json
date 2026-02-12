@@ -9,25 +9,10 @@
   "include": ["src/**/*"],
   "references": [
     {
-      "path": "../codegen"
-    },
-    {
-      "path": "../config"
-    },
-    {
       "path": "../ir"
     },
     {
-      "path": "../llm-interpreter"
-    },
-    {
       "path": "../runtime"
-    },
-    {
-      "path": "../security"
-    },
-    {
-      "path": "../ui"
     }
   ]
 }

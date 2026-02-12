@@ -3,12 +3,12 @@
 ## Baseline Reliability
 - [x] normalize package structure and workspace graph
 - [x] make `validate`, `typecheck`, `build` pass
-- [x] add unit tests for `ir/codegen/security/runtime/core`
+- [x] add unit tests for `ir/core/runtime`
 - [x] add CI workflow
 
 ## Runtime Capability
 - [x] establish runtime pipeline (`llm -> codegen -> policy -> runtime -> ui`)
-- [x] keep JSPM as default module loader (`@renderify/runtime-jspm`)
+- [x] keep JSPM as default module loader (`@renderify/runtime`)
 - [x] add stateful IR actions/events/transitions
 - [x] add runtime quotas (`maxImports/maxExecutionMs/maxComponentInvocations`)
 - [x] add rollback and plan version registry

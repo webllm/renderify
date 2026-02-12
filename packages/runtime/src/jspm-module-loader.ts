@@ -1,4 +1,4 @@
-import type { RuntimeModuleLoader } from "@renderify/runtime";
+import type { RuntimeModuleLoader } from "./index";
 
 export interface JspmModuleLoaderOptions {
   cdnBaseUrl?: string;

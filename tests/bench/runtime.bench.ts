@@ -2,7 +2,7 @@ import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import process from "node:process";
 import { Bench } from "tinybench";
-import { DefaultCodeGenerator } from "../../packages/codegen/src/index";
+import { DefaultCodeGenerator } from "../../packages/core/src/codegen";
 import {
   createElementNode,
   createTextNode,

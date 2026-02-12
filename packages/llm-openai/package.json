@@ -35,7 +35,7 @@
   "author": "unadlib",
   "license": "MIT",
   "dependencies": {
-    "@renderify/ir": "workspace:^",
-    "@renderify/llm-interpreter": "workspace:^"
+    "@renderify/core": "workspace:^",
+    "@renderify/ir": "workspace:^"
   }
 }

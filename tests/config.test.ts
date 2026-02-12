@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DefaultRenderifyConfig } from "../packages/config/src/index";
+import { DefaultRenderifyConfig } from "../packages/core/src/config";
 
 test("config loads default security profile and tenant quotas", async () => {
   const config = new DefaultRenderifyConfig();

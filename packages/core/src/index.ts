@@ -1,30 +1,10 @@
 import type {
-  CodeGenerationInput,
-  CodeGenerator,
-  IncrementalCodeGenerationSession,
-} from "@renderify/codegen";
-import type { RenderifyConfig } from "@renderify/config";
-import type {
   RuntimeEvent,
   RuntimeExecutionResult,
   RuntimePlan,
   RuntimeStateSnapshot,
 } from "@renderify/ir";
-import type {
-  LLMInterpreter,
-  LLMResponse,
-  LLMResponseStreamChunk,
-  LLMStructuredRequest,
-  LLMStructuredResponse,
-} from "@renderify/llm-interpreter";
 import type { RuntimeExecutionInput, RuntimeManager } from "@renderify/runtime";
-import type {
-  RuntimeSecurityPolicy,
-  RuntimeSecurityProfile,
-  SecurityChecker,
-  SecurityCheckResult,
-} from "@renderify/security";
-import type { RenderTarget, UIRenderer } from "@renderify/ui";
 import type { ApiIntegration } from "./api-integration";
 import {
   type ExecutionAuditLog,
@@ -33,12 +13,25 @@ import {
   type ExecutionStatus,
   InMemoryExecutionAuditLog,
 } from "./audit-log";
+import type {
+  CodeGenerationInput,
+  CodeGenerator,
+  IncrementalCodeGenerationSession,
+} from "./codegen";
+import type { RenderifyConfig } from "./config";
 import type { ContextManager } from "./context";
 import type {
   CustomizationEngine,
   PluginContext,
   PluginHook,
 } from "./customization";
+import type {
+  LLMInterpreter,
+  LLMResponse,
+  LLMResponseStreamChunk,
+  LLMStructuredRequest,
+  LLMStructuredResponse,
+} from "./llm-interpreter";
 import type { PerformanceOptimizer } from "./performance";
 import {
   InMemoryPlanRegistry,
@@ -46,6 +39,12 @@ import {
   type PlanSummary,
   type PlanVersionRecord,
 } from "./plan-registry";
+import type {
+  RuntimeSecurityPolicy,
+  RuntimeSecurityProfile,
+  SecurityChecker,
+  SecurityCheckResult,
+} from "./security";
 import {
   InMemoryTenantGovernor,
   type TenantGovernor,
@@ -53,6 +52,7 @@ import {
   TenantQuotaExceededError,
   type TenantQuotaPolicy,
 } from "./tenant-governor";
+import type { RenderTarget, UIRenderer } from "./ui";
 
 export interface RenderifyCoreDependencies {
   config: RenderifyConfig;
@@ -1135,8 +1135,13 @@ export function createRenderifyApp(
 
 export * from "./api-integration";
 export * from "./audit-log";
+export * from "./codegen";
+export * from "./config";
 export * from "./context";
 export * from "./customization";
+export * from "./llm-interpreter";
 export * from "./performance";
 export * from "./plan-registry";
+export * from "./security";
 export * from "./tenant-governor";
+export * from "./ui";

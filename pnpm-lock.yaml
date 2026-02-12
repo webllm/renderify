@@ -59,81 +59,44 @@ importers:
 
   packages/cli:
     dependencies:
-      '@renderify/codegen':
-        specifier: workspace:^
-        version: link:../codegen
-      '@renderify/config':
-        specifier: workspace:^
-        version: link:../config
       '@renderify/core':
         specifier: workspace:^
         version: link:../core
       '@renderify/ir':
         specifier: workspace:^
         version: link:../ir
-      '@renderify/llm-interpreter':
-        specifier: workspace:^
-        version: link:../llm-interpreter
       '@renderify/llm-openai':
         specifier: workspace:^
         version: link:../llm-openai
       '@renderify/runtime':
         specifier: workspace:^
         version: link:../runtime
-      '@renderify/runtime-jspm':
-        specifier: workspace:^
-        version: link:../runtime-jspm
-      '@renderify/security':
-        specifier: workspace:^
-        version: link:../security
-      '@renderify/ui':
-        specifier: workspace:^
-        version: link:../ui
-
-  packages/codegen:
-    dependencies:
-      '@renderify/ir':
-        specifier: workspace:^
-        version: link:../ir
-
-  packages/config: {}
 
   packages/core:
     dependencies:
-      '@renderify/codegen':
-        specifier: workspace:^
-        version: link:../codegen
-      '@renderify/config':
-        specifier: workspace:^
-        version: link:../config
       '@renderify/ir':
         specifier: workspace:^
         version: link:../ir
-      '@renderify/llm-interpreter':
-        specifier: workspace:^
-        version: link:../llm-interpreter
       '@renderify/runtime':
         specifier: workspace:^
         version: link:../runtime
-      '@renderify/security':
-        specifier: workspace:^
-        version: link:../security
-      '@renderify/ui':
-        specifier: workspace:^
-        version: link:../ui
+      preact:
+        specifier: ^10.28.3
+        version: 10.28.3
+      preact-render-to-string:
+        specifier: ^6.6.5
+        version: 6.6.5(preact@10.28.3)
 
   packages/ir: {}
 
-  packages/llm-interpreter: {}
-
   packages/llm-openai:
     dependencies:
+      '@renderify/core':
+        specifier: workspace:^
+        version: link:../core
       '@renderify/ir':
         specifier: workspace:^
         version: link:../ir
-      '@renderify/llm-interpreter':
-        specifier: workspace:^
-        version: link:../llm-interpreter
 
   packages/runtime:
     dependencies:
@@ -146,30 +109,6 @@ importers:
       preact:
         specifier: ^10.28.3
         version: 10.28.3
-
-  packages/runtime-jspm:
-    dependencies:
-      '@renderify/runtime':
-        specifier: workspace:^
-        version: link:../runtime
-
-  packages/security:
-    dependencies:
-      '@renderify/ir':
-        specifier: workspace:^
-        version: link:../ir
-
-  packages/ui:
-    dependencies:
-      '@renderify/ir':
-        specifier: workspace:^
-        version: link:../ir
-      preact:
-        specifier: ^10.28.3
-        version: 10.28.3
-      preact-render-to-string:
-        specifier: ^6.6.5
-        version: 6.6.5(preact@10.28.3)
 
 packages:
 

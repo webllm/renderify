@@ -2736,3 +2736,6 @@ function getVmSpecifier(): string {
 function getPreactSpecifier(): string {
   return "preact";
 }
+
+export type { JspmModuleLoaderOptions } from "./jspm-module-loader";
+export { JspmModuleLoader } from "./jspm-module-loader";

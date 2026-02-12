@@ -28,7 +28,7 @@ Renderify 目标是做“受控的全动态 runtime UI”：
 
 ### Control Layer
 
-- `@renderify/security`
+- `@renderify/core`
 - 校验：
   - 节点深度/数量
   - 禁用标签
@@ -56,7 +56,7 @@ Renderify 目标是做“受控的全动态 runtime UI”：
   - 模块清单约束（manifest-aware resolution）
   - 隔离不可用默认 fail-closed（可配置）
 
-- `@renderify/runtime-jspm`
+- `@renderify/runtime`
 - 默认 loader：
   - `importMap` 支持
   - JSPM CDN 解析
@@ -64,7 +64,7 @@ Renderify 目标是做“受控的全动态 runtime UI”：
 
 ### Experience Layer
 
-- `@renderify/ui`
+- `@renderify/core`
 - 输出 HTML 并可挂载 DOM
 
 - `@renderify/cli` playground

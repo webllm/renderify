@@ -148,13 +148,7 @@
 
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-    <script src="../../packages/config/dist/config.umd.min.js"></script>
-    <script src="../../packages/llm-interpreter/dist/llm-interpreter.umd.min.js"></script>
-    <script src="../../packages/codegen/dist/codegen.umd.min.js"></script>
     <script src="../../packages/runtime/dist/runtime.umd.min.js"></script>
-    <script src="../../packages/runtime-jspm/dist/runtime-jspm.umd.min.js"></script>
-    <script src="../../packages/security/dist/security.umd.min.js"></script>
-    <script src="../../packages/ui/dist/ui.umd.min.js"></script>
     <script src="../../packages/core/dist/core.umd.min.js"></script>
 
     <script>
@@ -166,7 +160,7 @@
         const planJsonEl = document.getElementById("planJson");
         const sourceCodeEl = document.getElementById("sourceCode");
 
-        class BrowserExampleConfig extends RenderifyConfig.DefaultRenderifyConfig {
+        class BrowserExampleConfig extends RenderifyCore.DefaultRenderifyConfig {
           async load(overrides) {
             await super.load(overrides);
             this.set("llmUseStructuredOutput", false);
@@ -212,13 +206,13 @@
           config: new BrowserExampleConfig(),
           context: new RenderifyCore.DefaultContextManager(),
           llm: new TsxDemoLLM(),
-          codegen: new RenderifyCodegen.DefaultCodeGenerator(),
+          codegen: new RenderifyCore.DefaultCodeGenerator(),
           runtime: new RenderifyRuntime.DefaultRuntimeManager({
-            moduleLoader: new RenderifyRuntimeJspm.JspmModuleLoader(),
+            moduleLoader: new RenderifyRuntime.JspmModuleLoader(),
           }),
-          security: new RenderifySecurity.DefaultSecurityChecker(),
+          security: new RenderifyCore.DefaultSecurityChecker(),
           performance: new RenderifyCore.DefaultPerformanceOptimizer(),
-          ui: new RenderifyUI.DefaultUIRenderer(),
+          ui: new RenderifyCore.DefaultUIRenderer(),
           customization: new RenderifyCore.DefaultCustomizationEngine(),
         });
 

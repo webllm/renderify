@@ -2,20 +2,22 @@ import fs from "node:fs";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
-import { DefaultCodeGenerator } from "@renderify/codegen";
-import {
-  DefaultRenderifyConfig,
-  type LLMProviderConfig,
-} from "@renderify/config";
 import {
   createRenderifyApp,
   DefaultApiIntegration,
+  DefaultCodeGenerator,
   DefaultContextManager,
   DefaultCustomizationEngine,
+  DefaultLLMInterpreter,
   DefaultPerformanceOptimizer,
+  DefaultRenderifyConfig,
+  DefaultSecurityChecker,
+  DefaultUIRenderer,
   type ExecutionAuditRecord,
   InMemoryExecutionAuditLog,
   InMemoryPlanRegistry,
+  type LLMInterpreter,
+  type LLMProviderConfig,
   type RenderifyApp,
   type RenderPlanResult,
   type RenderPromptResult,
@@ -29,15 +31,8 @@ import {
   type RuntimePlan,
   type RuntimeStateSnapshot,
 } from "@renderify/ir";
-import {
-  DefaultLLMInterpreter,
-  type LLMInterpreter,
-} from "@renderify/llm-interpreter";
 import { OpenAILLMInterpreter } from "@renderify/llm-openai";
-import { DefaultRuntimeManager } from "@renderify/runtime";
-import { JspmModuleLoader } from "@renderify/runtime-jspm";
-import { DefaultSecurityChecker } from "@renderify/security";
-import { DefaultUIRenderer } from "@renderify/ui";
+import { DefaultRuntimeManager, JspmModuleLoader } from "@renderify/runtime";
 
 interface CliSessionData {
   plans: RuntimePlan[];

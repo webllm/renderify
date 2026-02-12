@@ -9,34 +9,16 @@
   "include": ["src/**/*"],
   "references": [
     {
-      "path": "../codegen"
-    },
-    {
-      "path": "../config"
-    },
-    {
       "path": "../core"
     },
     {
       "path": "../ir"
     },
     {
-      "path": "../llm-interpreter"
-    },
-    {
       "path": "../llm-openai"
     },
     {
       "path": "../runtime"
-    },
-    {
-      "path": "../runtime-jspm"
-    },
-    {
-      "path": "../security"
-    },
-    {
-      "path": "../ui"
     }
   ]
 }

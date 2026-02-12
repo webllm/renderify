@@ -1,11 +1,11 @@
-import { isRuntimePlan } from "@renderify/ir";
 import type {
   LLMInterpreter,
   LLMRequest,
   LLMResponse,
   LLMStructuredRequest,
   LLMStructuredResponse,
-} from "@renderify/llm-interpreter";
+} from "@renderify/core";
+import { isRuntimePlan } from "@renderify/ir";
 
 export interface OpenAILLMInterpreterOptions {
   apiKey?: string;

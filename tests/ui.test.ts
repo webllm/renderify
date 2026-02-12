@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { DefaultUIRenderer } from "../packages/core/src/ui";
 import {
   createElementNode,
   createTextNode,
   type RuntimeExecutionResult,
 } from "../packages/ir/src/index";
-import { DefaultUIRenderer } from "../packages/ui/src/index";
 
 test("ui renderer can stringify preact render artifacts", async () => {
   const preact = (await import("preact")) as {
