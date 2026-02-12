@@ -138,7 +138,7 @@ test("runtime reports warning when no loader is configured", async () => {
   await runtime.terminate();
 });
 
-test("runtime applies event transitions and interpolates state/context values", async () => {
+test("runtime keeps initial state and ignores declarative transitions", async () => {
   const runtime = new DefaultRuntimeManager();
   await runtime.initialize();
 
@@ -190,11 +190,11 @@ test("runtime applies event transitions and interpolates state/context values", 
 
   assert.deepEqual(
     result.appliedActions?.map((item) => item.type),
-    ["increment", "set", "set"],
+    [],
   );
-  assert.equal(result.state?.count, 1);
-  assert.equal(result.state?.last, 3);
-  assert.equal(result.state?.actor, "user_42");
+  assert.equal(result.state?.count, 0);
+  assert.equal(result.state?.last, 0);
+  assert.equal(result.state?.actor, "");
   assert.equal(result.root.type, "element");
   if (result.root.type !== "element") {
     throw new Error("expected element root");
@@ -204,7 +204,7 @@ test("runtime applies event transitions and interpolates state/context values", 
   if (!textNode || textNode.type !== "text") {
     throw new Error("expected text child");
   }
-  assert.equal(textNode.value, "Count=1 Last=3 Actor=user_42");
+  assert.equal(textNode.value, "Count=0 Last=0 Actor=");
 
   await runtime.terminate();
 });

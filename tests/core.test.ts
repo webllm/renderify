@@ -317,7 +317,7 @@ test("core pipeline records rejected audits when policy blocks plan", async () =
   await app.stop();
 });
 
-test("core dispatchEvent updates state and records event audit mode", async () => {
+test("core dispatchEvent no longer mutates declarative state", async () => {
   const app = createRenderifyApp(createDependencies());
 
   await app.start();
@@ -347,8 +347,8 @@ test("core dispatchEvent updates state and records event audit mode", async () =
 
   assert.equal(eventResult.audit.mode, "event");
   assert.equal(eventResult.audit.status, "succeeded");
-  assert.equal(eventResult.execution.state?.count, 1);
-  assert.equal(app.getPlanState(plan.id)?.count, 1);
+  assert.equal(eventResult.execution.state?.count, 0);
+  assert.equal(app.getPlanState(plan.id), undefined);
   assert.equal(eventResult.execution.handledEvent?.type, "increment");
 
   await app.stop();
@@ -382,7 +382,7 @@ test("core clearHistory clears plan/audit records and runtime state", async () =
   await app.renderPlan(plan, { prompt: "seed" });
   await app.dispatchEvent(plan.id, { type: "increment" });
 
-  assert.equal(app.getPlanState(plan.id)?.count, 1);
+  assert.equal(app.getPlanState(plan.id), undefined);
   assert.ok(app.listPlans().length > 0);
   assert.ok(app.listAudits().length > 0);
 

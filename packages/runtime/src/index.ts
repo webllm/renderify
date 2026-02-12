@@ -454,13 +454,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
     }
 
     const state = this.resolveState(plan, stateOverride);
-    const appliedActions = this.applyEvent(
-      plan,
-      event,
-      state,
-      context,
-      diagnostics,
-    );
+    const appliedActions: RuntimeAction[] = [];
 
     const frame: ExecutionFrame = {
       startedAt: nowMs(),
@@ -487,7 +481,6 @@ export class DefaultRuntimeManager implements RuntimeManager {
             item.code.startsWith("RUNTIME_PREFLIGHT_"),
         )
       ) {
-        this.states.set(plan.id, cloneJsonValue(state));
         return {
           planId: plan.id,
           root: plan.root,
@@ -587,8 +580,6 @@ export class DefaultRuntimeManager implements RuntimeManager {
           frame,
         );
 
-    this.states.set(plan.id, cloneJsonValue(state));
-
     return {
       planId: plan.id,
       root: resolvedRoot,
@@ -630,14 +621,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
     stateOverride?: RuntimeStateSnapshot,
   ): RuntimeStateSnapshot {
     if (stateOverride) {
-      const cloned = cloneJsonValue(stateOverride);
-      this.states.set(plan.id, cloneJsonValue(cloned));
-      return cloned;
-    }
-
-    const existing = this.states.get(plan.id);
-    if (existing) {
-      return cloneJsonValue(existing);
+      return cloneJsonValue(stateOverride);
     }
 
     if (plan.state?.initial) {

@@ -71,19 +71,15 @@ test("e2e: cli persisted runtime flow (render-plan -> event -> state -> history)
         env,
       );
       assert.equal(result.code, 0, result.stderr);
-      assert.match(result.stdout, /Count: 1/);
-      assert.match(result.stdout, /History: \[1\]/);
+      assert.match(result.stdout, /Count: 0/);
+      assert.match(result.stdout, /History: \[\]/);
     }
 
     {
       const result = await runCli(["state", "example_counter_plan"], env);
       assert.equal(result.code, 0, result.stderr);
-      const state = JSON.parse(result.stdout.trim()) as {
-        count: number;
-        history: number[];
-      };
-      assert.equal(state.count, 1);
-      assert.deepEqual(state.history, [1]);
+      const state = JSON.parse(result.stdout.trim()) as Record<string, unknown>;
+      assert.deepEqual(state, {});
     }
 
     {
