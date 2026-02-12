@@ -13,16 +13,10 @@ import {
   type RuntimeModuleManifest,
   type RuntimeNode,
   type RuntimePlan,
-  type RuntimeSourceLanguage,
   type RuntimeSourceModule,
   type RuntimeStateSnapshot,
   resolveRuntimePlanSpecVersion,
 } from "@renderify/ir";
-import type {
-  SecurityChecker,
-  SecurityCheckResult,
-  SecurityInitializationInput,
-} from "@renderify/security";
 import {
   type RemoteModuleFetchResult,
   toConfiguredFallbackUrl,
@@ -59,6 +53,16 @@ import {
   normalizeSupportedSpecVersions,
 } from "./runtime-defaults";
 import { isBrowserRuntime, nowMs } from "./runtime-environment";
+import type {
+  CompileOptions,
+  RuntimeExecutionInput,
+  RuntimeManager,
+  RuntimeManagerOptions,
+  RuntimeModuleLoader,
+  RuntimePlanProbeResult,
+  RuntimeSourceSandboxMode,
+  RuntimeSourceTranspiler,
+} from "./runtime-manager.types";
 import { resolveRuntimeNode } from "./runtime-node-resolver";
 import { resolveRuntimePlanImports } from "./runtime-plan-imports";
 import { preflightRuntimePlanDependencies } from "./runtime-plan-preflight";
@@ -72,7 +76,6 @@ import {
 } from "./runtime-source-execution";
 import { RuntimeSourceModuleLoader } from "./runtime-source-module-loader";
 import {
-  type RuntimeSourceSandboxMode as RuntimeSourceRuntimeMode,
   resolveSourceSandboxMode,
   shouldUsePreactSourceRuntime,
   transpileRuntimeSource,
@@ -90,116 +93,23 @@ import {
   resolveSourceImportLoaderCandidate,
 } from "./runtime-specifier";
 import { BabelRuntimeSourceTranspiler } from "./transpiler";
-import type { RenderTarget, UIRenderer } from "./ui-renderer";
 
-export interface CompileOptions {
-  pretty?: boolean;
-}
-
-export interface RuntimeModuleLoader {
-  load(specifier: string): Promise<unknown>;
-  unload?(specifier: string): Promise<void>;
-}
-
-export interface RuntimeExecutionInput {
-  plan: RuntimePlan;
-  context?: RuntimeExecutionContext;
-  event?: RuntimeEvent;
-  stateOverride?: RuntimeStateSnapshot;
-  signal?: AbortSignal;
-}
-
-export type {
-  RuntimeDependencyProbeStatus,
-  RuntimeDependencyUsage,
-} from "./runtime-preflight";
-
-export interface RuntimePlanProbeResult {
-  planId: string;
-  diagnostics: RuntimeDiagnostic[];
-  dependencies: RuntimeDependencyProbeStatus[];
-}
-
-export interface RuntimeManager {
-  initialize(): Promise<void>;
-  terminate(): Promise<void>;
-  probePlan(plan: RuntimePlan): Promise<RuntimePlanProbeResult>;
-  executePlan(
-    plan: RuntimePlan,
-    context?: RuntimeExecutionContext,
-    event?: RuntimeEvent,
-    stateOverride?: RuntimeStateSnapshot,
-    signal?: AbortSignal,
-  ): Promise<RuntimeExecutionResult>;
-  execute(input: RuntimeExecutionInput): Promise<RuntimeExecutionResult>;
-  compile(plan: RuntimePlan, options?: CompileOptions): Promise<string>;
-  getPlanState(planId: string): RuntimeStateSnapshot | undefined;
-  setPlanState(planId: string, snapshot: RuntimeStateSnapshot): void;
-  clearPlanState(planId: string): void;
-}
-
-export interface RuntimeManagerOptions {
-  moduleLoader?: RuntimeModuleLoader;
-  sourceTranspiler?: RuntimeSourceTranspiler;
-  defaultMaxImports?: number;
-  defaultMaxComponentInvocations?: number;
-  defaultMaxExecutionMs?: number;
-  defaultExecutionProfile?: RuntimeExecutionProfile;
-  supportedPlanSpecVersions?: string[];
-  enforceModuleManifest?: boolean;
-  allowIsolationFallback?: boolean;
-  browserSourceSandboxMode?: RuntimeSourceSandboxMode;
-  browserSourceSandboxTimeoutMs?: number;
-  browserSourceSandboxFailClosed?: boolean;
-  enableDependencyPreflight?: boolean;
-  failOnDependencyPreflightError?: boolean;
-  remoteFetchTimeoutMs?: number;
-  remoteFetchRetries?: number;
-  remoteFetchBackoffMs?: number;
-  remoteFallbackCdnBases?: string[];
-}
-
-export interface RuntimeSourceTranspileInput {
-  code: string;
-  language: RuntimeSourceLanguage;
-  filename?: string;
-  runtime?: RuntimeSourceModule["runtime"];
-}
-
-export interface RuntimeSourceTranspiler {
-  transpile(input: RuntimeSourceTranspileInput): Promise<string>;
-}
-
-export interface RuntimeEmbedRenderOptions {
-  target?: RenderTarget;
-  context?: RuntimeExecutionContext;
-  signal?: AbortSignal;
-  runtime?: RuntimeManager;
-  runtimeOptions?: RuntimeManagerOptions;
-  security?: SecurityChecker;
-  securityInitialization?: SecurityInitializationInput;
-  ui?: UIRenderer;
-  autoInitializeRuntime?: boolean;
-  autoTerminateRuntime?: boolean;
-  serializeTargetRenders?: boolean;
-}
-
-export interface RuntimeEmbedRenderResult {
-  html: string;
-  execution: RuntimeExecutionResult;
-  security: SecurityCheckResult;
-  runtime: RuntimeManager;
-}
-
-export class RuntimeSecurityViolationError extends Error {
-  readonly result: SecurityCheckResult;
-
-  constructor(result: SecurityCheckResult) {
-    super(`Security policy rejected runtime plan: ${result.issues.join("; ")}`);
-    this.name = "RuntimeSecurityViolationError";
-    this.result = result;
-  }
-}
+export {
+  type CompileOptions,
+  type RuntimeDependencyProbeStatus,
+  type RuntimeDependencyUsage,
+  type RuntimeEmbedRenderOptions,
+  type RuntimeEmbedRenderResult,
+  type RuntimeExecutionInput,
+  type RuntimeManager,
+  type RuntimeManagerOptions,
+  type RuntimeModuleLoader,
+  type RuntimePlanProbeResult,
+  RuntimeSecurityViolationError,
+  type RuntimeSourceSandboxMode,
+  type RuntimeSourceTranspileInput,
+  type RuntimeSourceTranspiler,
+} from "./runtime-manager.types";
 
 interface ExecutionFrame {
   startedAt: number;
@@ -209,8 +119,6 @@ interface ExecutionFrame {
   executionProfile: RuntimeExecutionProfile;
   signal?: AbortSignal;
 }
-
-export type RuntimeSourceSandboxMode = RuntimeSourceRuntimeMode;
 
 export type { RuntimeComponentFactory } from "./runtime-component-runtime";
 
