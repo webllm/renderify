@@ -233,6 +233,9 @@ export class DefaultCodeGenerator implements CodeGenerator {
   }
 
   private hashIncrementalSignatureValue(value: unknown): string {
+    // 64-bit FNV-1a is a deliberate performance trade-off for streaming updates:
+    // collisions are possible (though rare), so this prioritizes low allocation
+    // and speed over cryptographic uniqueness.
     const FNV_OFFSET_BASIS = 0xcbf29ce484222325n;
     const FNV_PRIME = 0x100000001b3n;
     const UINT64_MASK = 0xffffffffffffffffn;
