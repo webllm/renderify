@@ -2,7 +2,6 @@ import fs from "node:fs";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
-import { DefaultApiIntegration } from "@renderify/api-integration";
 import { DefaultCodeGenerator } from "@renderify/codegen";
 import {
   DefaultRenderifyConfig,
@@ -10,6 +9,7 @@ import {
 } from "@renderify/config";
 import {
   createRenderifyApp,
+  DefaultApiIntegration,
   DefaultContextManager,
   DefaultCustomizationEngine,
   DefaultPerformanceOptimizer,

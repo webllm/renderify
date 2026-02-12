@@ -1,4 +1,3 @@
-import type { ApiIntegration } from "@renderify/api-integration";
 import type {
   CodeGenerationInput,
   CodeGenerator,
@@ -26,6 +25,7 @@ import type {
   SecurityCheckResult,
 } from "@renderify/security";
 import type { RenderTarget, UIRenderer } from "@renderify/ui";
+import type { ApiIntegration } from "./api-integration";
 import {
   type ExecutionAuditLog,
   type ExecutionAuditRecord,
@@ -1133,6 +1133,7 @@ export function createRenderifyApp(
   return new RenderifyApp(deps);
 }
 
+export * from "./api-integration";
 export * from "./audit-log";
 export * from "./context";
 export * from "./customization";

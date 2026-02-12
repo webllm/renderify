@@ -237,7 +237,6 @@ await app.stop();
 | `@renderify/llm-interpreter` | LLM abstraction layer |
 | `@renderify/llm-openai` | OpenAI-backed `LLMInterpreter` adapter |
 | `@renderify/config` | Runtime/security config source |
-| `@renderify/api-integration` | Typed external API invocation helper |
 | `@renderify/cli` | CLI + browser playground |
 
 ## Integration Docs

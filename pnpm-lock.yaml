@@ -57,13 +57,8 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
-  packages/api-integration: {}
-
   packages/cli:
     dependencies:
-      '@renderify/api-integration':
-        specifier: workspace:^
-        version: link:../api-integration
       '@renderify/codegen':
         specifier: workspace:^
         version: link:../codegen
@@ -105,9 +100,6 @@ importers:
 
   packages/core:
     dependencies:
-      '@renderify/api-integration':
-        specifier: workspace:^
-        version: link:../api-integration
       '@renderify/codegen':
         specifier: workspace:^
         version: link:../codegen

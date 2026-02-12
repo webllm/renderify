@@ -2,9 +2,6 @@
   "files": [],
   "references": [
     {
-      "path": "packages/api-integration"
-    },
-    {
       "path": "packages/cli"
     },
     {

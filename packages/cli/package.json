@@ -34,7 +34,6 @@
   "license": "MIT",
   "description": "A CLI for Renderify",
   "dependencies": {
-    "@renderify/api-integration": "workspace:^",
     "@renderify/codegen": "workspace:^",
     "@renderify/config": "workspace:^",
     "@renderify/core": "workspace:^",

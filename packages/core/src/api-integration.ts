@@ -11,31 +11,34 @@ export interface ApiIntegration {
   listApis(): ApiDefinition[];
   callApi<TResponse = unknown>(
     name: string,
-    params?: Record<string, unknown>
+    params?: Record<string, unknown>,
   ): Promise<TResponse>;
 }
 
 export class DefaultApiIntegration implements ApiIntegration {
   private readonly apis: Map<string, ApiDefinition> = new Map();
 
-  registerApi(api: ApiDefinition) {
+  registerApi(api: ApiDefinition): void {
     this.apis.set(api.name, api);
   }
 
-  listApis() {
+  listApis(): ApiDefinition[] {
     return [...this.apis.values()];
   }
 
   async callApi<TResponse = unknown>(
     name: string,
-    params?: Record<string, unknown>
+    params?: Record<string, unknown>,
   ): Promise<TResponse> {
     const api = this.apis.get(name);
     if (!api) {
       throw new Error(`API not found: ${name}`);
     }
 
-    const controller = typeof AbortController !== "undefined" ? new AbortController() : undefined;
+    const controller =
+      typeof AbortController !== "undefined"
+        ? new AbortController()
+        : undefined;
     const timeout = this.createTimeout(controller, api.timeoutMs ?? 10_000);
 
     try {
@@ -56,7 +59,9 @@ export class DefaultApiIntegration implements ApiIntegration {
       const response = await fetch(url, init);
       if (!response.ok) {
         const bodyText = await response.text();
-        throw new Error(`API ${name} failed with ${response.status}: ${bodyText}`);
+        throw new Error(
+          `API ${name} failed with ${response.status}: ${bodyText}`,
+        );
       }
 
       const contentType = response.headers.get("content-type") ?? "";
@@ -74,7 +79,7 @@ export class DefaultApiIntegration implements ApiIntegration {
 
   private buildUrl(
     api: ApiDefinition,
-    params?: Record<string, unknown>
+    params?: Record<string, unknown>,
   ): string {
     if (!params || (api.method !== "GET" && api.method !== "DELETE")) {
       return api.endpoint;
@@ -94,7 +99,7 @@ export class DefaultApiIntegration implements ApiIntegration {
 
   private createTimeout(
     controller: AbortController | undefined,
-    timeoutMs: number
+    timeoutMs: number,
   ): ReturnType<typeof setTimeout> | undefined {
     if (!controller || timeoutMs <= 0) {
       return undefined;

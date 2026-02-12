@@ -35,7 +35,6 @@
   "license": "MIT",
   "description": "The core module for Renderify",
   "dependencies": {
-    "@renderify/api-integration": "workspace:^",
     "@renderify/codegen": "workspace:^",
     "@renderify/config": "workspace:^",
     "@renderify/ir": "workspace:^",
