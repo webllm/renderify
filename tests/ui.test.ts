@@ -97,10 +97,16 @@ test("ui renderer sanitizes blocked tag names at render time", () => {
 
   assert.match(html, /data-renderify-sanitized-tag="script"/);
   assert.doesNotMatch(html, /<script/);
+  assert.doesNotMatch(html, /bad/);
 });
 
-test("ui renderer blocks base and form tags at render time", () => {
+test("ui renderer blocks style/base/form tags at render time", () => {
   const renderer = new DefaultUIRenderer();
+  const styleHtml = renderer.renderNode(
+    createElementNode("style", undefined, [
+      createTextNode("body{display:none}"),
+    ]),
+  );
   const baseHtml = renderer.renderNode(
     createElementNode("base", { href: "https://evil.example.com/" }),
   );
@@ -110,10 +116,14 @@ test("ui renderer blocks base and form tags at render time", () => {
     ]),
   );
 
+  assert.match(styleHtml, /data-renderify-sanitized-tag="style"/);
+  assert.doesNotMatch(styleHtml, /<style/);
+  assert.doesNotMatch(styleHtml, /display:none/);
   assert.match(baseHtml, /data-renderify-sanitized-tag="base"/);
   assert.doesNotMatch(baseHtml, /<base/);
   assert.match(formHtml, /data-renderify-sanitized-tag="form"/);
   assert.doesNotMatch(formHtml, /<form/);
+  assert.doesNotMatch(formHtml, />x</);
 });
 
 test("ui renderer drops unsafe javascript urls and adds rel for _blank", () => {

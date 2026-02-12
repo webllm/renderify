@@ -150,14 +150,17 @@ export class DefaultUIRenderer implements UIRenderer {
     const children = (node.children ?? [])
       .map((child) => this.renderNodeInternal(child, context))
       .join("");
-    const safeTag = sanitizeTagName(node.tag);
-    if (!safeTag) {
+    const normalizedTag = normalizeTagName(node.tag);
+    if (!normalizedTag) {
       return `<div data-renderify-sanitized-tag="${escapeHtml(node.tag)}">${children}</div>`;
+    }
+    if (BLOCKED_TAG_NAMES.has(normalizedTag)) {
+      return `<div data-renderify-sanitized-tag="${escapeHtml(node.tag)}"></div>`;
     }
 
     const attributes = serializeProps(node.props, context);
 
-    return `<${safeTag}${attributes}>${children}</${safeTag}>`;
+    return `<${normalizedTag}${attributes}>${children}</${normalizedTag}>`;
   }
 
   private resolveRenderTarget(
@@ -697,6 +700,7 @@ function getBindingAttributeName(domEvent: string): string {
 
 const BLOCKED_TAG_NAMES = new Set([
   "script",
+  "style",
   "iframe",
   "object",
   "embed",
@@ -733,12 +737,21 @@ const UNSAFE_STYLE_PATTERNS = [
 ] as const;
 
 function sanitizeTagName(tag: string): string | undefined {
-  const normalized = tag.trim().toLowerCase();
-  if (!/^[a-z][a-z0-9-]*$/.test(normalized)) {
+  const normalized = normalizeTagName(tag);
+  if (!normalized) {
     return undefined;
   }
 
   if (BLOCKED_TAG_NAMES.has(normalized)) {
+    return undefined;
+  }
+
+  return normalized;
+}
+
+function normalizeTagName(tag: string): string | undefined {
+  const normalized = tag.trim().toLowerCase();
+  if (!/^[a-z][a-z0-9-]*$/.test(normalized)) {
     return undefined;
   }
 
@@ -948,11 +961,6 @@ function sanitizeRenderedFragment(fragment: DocumentFragment): void {
 function replaceBlockedElement(element: Element, tagName: string): void {
   const replacement = element.ownerDocument.createElement("div");
   replacement.setAttribute("data-renderify-sanitized-tag", tagName);
-
-  while (element.firstChild) {
-    replacement.appendChild(element.firstChild);
-  }
-
   element.replaceWith(replacement);
 }
 
