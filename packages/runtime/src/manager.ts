@@ -42,6 +42,13 @@ import {
   toEsmFallbackUrl,
 } from "./module-fetch";
 import { applyRuntimeAction } from "./runtime-actions";
+import {
+  hasExceededBudget as hasRuntimeExceededBudget,
+  isAbortError as isRuntimeAbortError,
+  isAborted as isRuntimeAborted,
+  throwIfAborted as throwIfRuntimeAborted,
+  withRemainingBudget as withRuntimeRemainingBudget,
+} from "./runtime-budget";
 import { createPreactRenderArtifact as createPreactRenderArtifactFromComponentRuntime } from "./runtime-component-runtime";
 import {
   FALLBACK_ALLOW_ISOLATION_FALLBACK,
@@ -1425,7 +1432,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
   }
 
   private hasExceededBudget(frame: ExecutionFrame): boolean {
-    return nowMs() - frame.startedAt > frame.maxExecutionMs;
+    return hasRuntimeExceededBudget(frame);
   }
 
   private async withRemainingBudget<T>(
@@ -1433,64 +1440,19 @@ export class DefaultRuntimeManager implements RuntimeManager {
     frame: ExecutionFrame,
     timeoutMessage: string,
   ): Promise<T> {
-    this.throwIfAborted(frame.signal);
-    const remainingMs = frame.maxExecutionMs - (nowMs() - frame.startedAt);
-    if (remainingMs <= 0) {
-      throw new Error(timeoutMessage);
-    }
-
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let onAbort: (() => void) | undefined;
-
-    const timeoutPromise = new Promise<T>((_resolve, reject) => {
-      timer = setTimeout(() => {
-        reject(new Error(timeoutMessage));
-      }, remainingMs);
-    });
-
-    const signal = frame.signal;
-    const abortPromise =
-      signal &&
-      new Promise<T>((_resolve, reject) => {
-        onAbort = () => {
-          reject(this.createAbortError("Runtime execution aborted"));
-        };
-        signal.addEventListener("abort", onAbort!, { once: true });
-      });
-
-    try {
-      const pending = abortPromise
-        ? [operation(), timeoutPromise, abortPromise]
-        : [operation(), timeoutPromise];
-      return await Promise.race(pending);
-    } finally {
-      if (timer !== undefined) {
-        clearTimeout(timer);
-      }
-      if (signal && onAbort) {
-        signal.removeEventListener("abort", onAbort);
-      }
-    }
+    return withRuntimeRemainingBudget(operation, frame, timeoutMessage);
   }
 
   private throwIfAborted(signal?: AbortSignal): void {
-    if (this.isAborted(signal)) {
-      throw this.createAbortError("Runtime execution aborted");
-    }
+    throwIfRuntimeAborted(signal);
   }
 
   private isAborted(signal?: AbortSignal): boolean {
-    return Boolean(signal?.aborted);
+    return isRuntimeAborted(signal);
   }
 
   private isAbortError(error: unknown): boolean {
-    return error instanceof Error && error.name === "AbortError";
-  }
-
-  private createAbortError(message: string): Error {
-    const error = new Error(message);
-    error.name = "AbortError";
-    return error;
+    return isRuntimeAbortError(error);
   }
 
   private errorToMessage(error: unknown): string {
