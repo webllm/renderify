@@ -712,7 +712,7 @@ export class DefaultCodeGenerator implements CodeGenerator {
   private resolveJspmSpecifier(specifier: string): string {
     const normalized = specifier.trim();
     if (normalized.length === 0) {
-      return "https://ga.jspm.io/npm:missing/index.js";
+      return "https://ga.jspm.io/npm:missing";
     }
 
     const override = JSPM_SPECIFIER_OVERRIDES[normalized];
@@ -720,33 +720,6 @@ export class DefaultCodeGenerator implements CodeGenerator {
       return override;
     }
 
-    const withEntry = this.withDefaultJspmEntry(normalized);
-    return `https://ga.jspm.io/npm:${withEntry}`;
-  }
-
-  private withDefaultJspmEntry(specifier: string): string {
-    if (/\.[mc]?js$/i.test(specifier)) {
-      return specifier;
-    }
-
-    if (specifier.startsWith("@")) {
-      const secondSlash = specifier.indexOf("/", 1);
-      if (secondSlash === -1) {
-        return `${specifier}/index.js`;
-      }
-
-      const subpathSlash = specifier.indexOf("/", secondSlash + 1);
-      if (subpathSlash === -1) {
-        return `${specifier}/index.js`;
-      }
-
-      return `${specifier}.js`;
-    }
-
-    if (!specifier.includes("/")) {
-      return `${specifier}/index.js`;
-    }
-
-    return `${specifier}.js`;
+    return `https://ga.jspm.io/npm:${normalized}`;
   }
 }

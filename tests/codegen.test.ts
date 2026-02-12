@@ -78,7 +78,7 @@ test("codegen extracts tsx source module from fenced output", async () => {
   assert.deepEqual(plan.imports, ["npm:nanoid@5"]);
   assert.equal(
     plan.moduleManifest?.["npm:nanoid@5"]?.resolvedUrl,
-    "https://ga.jspm.io/npm:nanoid@5/index.js",
+    "https://ga.jspm.io/npm:nanoid@5",
   );
   assert.ok(plan.metadata?.tags?.includes("source-module"));
 });
@@ -117,7 +117,7 @@ test("codegen preserves source module when RuntimePlan JSON contains source", as
   assert.deepEqual(plan.imports, ["npm:nanoid@5"]);
   assert.equal(
     plan.moduleManifest?.["npm:nanoid@5"]?.resolvedUrl,
-    "https://ga.jspm.io/npm:nanoid@5/index.js",
+    "https://ga.jspm.io/npm:nanoid@5",
   );
 });
 

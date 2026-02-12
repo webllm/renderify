@@ -51,6 +51,12 @@ class ResolveOnlyLoader implements RuntimeModuleLoader {
   }
 }
 
+class FailingLoader implements RuntimeModuleLoader {
+  async load(specifier: string): Promise<unknown> {
+    throw new Error(`preflight reject: ${specifier}`);
+  }
+}
+
 function createPlan(root: RuntimeNode, imports: string[] = []): RuntimePlan {
   const moduleManifest: RuntimeModuleManifest = {};
   for (const specifier of imports) {
@@ -530,4 +536,146 @@ test("runtime emits preact render artifact for source.runtime=preact modules", a
   assert.ok(result.renderArtifact?.payload);
 
   await runtime.terminate();
+});
+
+test("runtime can fail-fast on dependency preflight import errors", async () => {
+  const runtime = new DefaultRuntimeManager({
+    moduleLoader: new FailingLoader(),
+    failOnDependencyPreflightError: true,
+  });
+  await runtime.initialize();
+
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "runtime_preflight_fail_fast_plan",
+    version: 1,
+    root: createElementNode("div", undefined, [createTextNode("fallback")]),
+    imports: ["npm:acme/missing"],
+    moduleManifest: {
+      "npm:acme/missing": {
+        resolvedUrl: "npm:acme/missing",
+        signer: "tests",
+      },
+    },
+    capabilities: {
+      domWrite: true,
+    },
+  };
+
+  const result = await runtime.executePlan(plan);
+  assert.ok(
+    result.diagnostics.some(
+      (item) => item.code === "RUNTIME_PREFLIGHT_IMPORT_FAILED",
+    ),
+  );
+  assert.ok(
+    !result.diagnostics.some((item) => item.code === "RUNTIME_IMPORT_FAILED"),
+  );
+  assert.equal(result.root.type, "element");
+
+  await runtime.terminate();
+});
+
+test("runtime preflight rejects unresolved relative source imports", async () => {
+  const runtime = new DefaultRuntimeManager({
+    sourceTranspiler: new PassthroughSourceTranspiler(),
+    failOnDependencyPreflightError: true,
+  });
+  await runtime.initialize();
+
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "runtime_preflight_relative_source_plan",
+    version: 1,
+    root: createElementNode("div", undefined, [createTextNode("fallback")]),
+    capabilities: {
+      domWrite: true,
+    },
+    source: {
+      language: "js",
+      code: [
+        'import "./styles.css";',
+        "export default () => ({ type: 'text', value: 'ok' });",
+      ].join("\n"),
+    },
+  };
+
+  const result = await runtime.executePlan(plan);
+  assert.ok(
+    result.diagnostics.some(
+      (item) =>
+        item.code === "RUNTIME_PREFLIGHT_SOURCE_IMPORT_RELATIVE_UNRESOLVED",
+    ),
+  );
+  assert.equal(result.root.type, "element");
+  if (result.root.type !== "element") {
+    throw new Error("expected fallback element root");
+  }
+  assert.equal(result.root.children?.[0]?.type, "text");
+  if (!result.root.children?.[0] || result.root.children[0].type !== "text") {
+    throw new Error("expected fallback text child");
+  }
+  assert.equal(result.root.children[0].value, "fallback");
+
+  await runtime.terminate();
+});
+
+test("runtime materializes css and json remote modules into executable proxies", async () => {
+  const runtime = new DefaultRuntimeManager();
+
+  const diagnostics: Array<{ code: string; message: string; level: string }> =
+    [];
+  const cssProxy = await (
+    runtime as unknown as {
+      materializeFetchedModuleSource: (
+        fetched: {
+          url: string;
+          code: string;
+          contentType: string;
+          requestUrl: string;
+        },
+        moduleManifest: RuntimeModuleManifest | undefined,
+        diagnostics: Array<{ code: string; message: string; level: string }>,
+      ) => Promise<string>;
+    }
+  ).materializeFetchedModuleSource(
+    {
+      url: "https://cdn.example.com/theme.css",
+      code: "body{color:red}",
+      contentType: "text/css; charset=utf-8",
+      requestUrl: "https://cdn.example.com/theme.css",
+    },
+    undefined,
+    diagnostics,
+  );
+
+  assert.match(cssProxy, /document\.createElement\("style"\)/);
+  assert.match(cssProxy, /export default __css/);
+
+  const jsonProxy = await (
+    runtime as unknown as {
+      materializeFetchedModuleSource: (
+        fetched: {
+          url: string;
+          code: string;
+          contentType: string;
+          requestUrl: string;
+        },
+        moduleManifest: RuntimeModuleManifest | undefined,
+        diagnostics: Array<{ code: string; message: string; level: string }>,
+      ) => Promise<string>;
+    }
+  ).materializeFetchedModuleSource(
+    {
+      url: "https://cdn.example.com/data.json",
+      code: '{"ok":true}',
+      contentType: "application/json",
+      requestUrl: "https://cdn.example.com/data.json",
+    },
+    undefined,
+    diagnostics,
+  );
+
+  assert.match(jsonProxy, /const __json/);
+  assert.equal(diagnostics.length, 0);
 });

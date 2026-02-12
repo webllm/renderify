@@ -121,33 +121,7 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
       return override;
     }
 
-    return `${this.cdnBaseUrl}/npm:${this.withDefaultEntry(normalized)}`;
-  }
-
-  private withDefaultEntry(specifier: string): string {
-    if (/\.[mc]?js$/i.test(specifier)) {
-      return specifier;
-    }
-
-    if (specifier.startsWith("@")) {
-      const secondSlash = specifier.indexOf("/", 1);
-      if (secondSlash === -1) {
-        return `${specifier}/index.js`;
-      }
-
-      const subpathSlash = specifier.indexOf("/", secondSlash + 1);
-      if (subpathSlash === -1) {
-        return `${specifier}/index.js`;
-      }
-
-      return `${specifier}.js`;
-    }
-
-    if (!specifier.includes("/")) {
-      return `${specifier}/index.js`;
-    }
-
-    return `${specifier}.js`;
+    return `${this.cdnBaseUrl}/npm:${normalized}`;
   }
 
   private normalizeCdnBaseUrl(input?: string): string {

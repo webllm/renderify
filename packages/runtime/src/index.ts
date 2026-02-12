@@ -1,6 +1,7 @@
 import {
   asJsonValue,
   cloneJsonValue,
+  collectComponentModules,
   createElementNode,
   createTextNode,
   DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
@@ -67,6 +68,12 @@ export interface RuntimeManagerOptions {
   supportedPlanSpecVersions?: string[];
   enforceModuleManifest?: boolean;
   allowIsolationFallback?: boolean;
+  enableDependencyPreflight?: boolean;
+  failOnDependencyPreflightError?: boolean;
+  remoteFetchTimeoutMs?: number;
+  remoteFetchRetries?: number;
+  remoteFetchBackoffMs?: number;
+  remoteFallbackCdnBases?: string[];
 }
 
 export interface RuntimeSourceTranspileInput {
@@ -93,6 +100,20 @@ interface ResolvedSourceOutput {
   renderArtifact?: RuntimeRenderArtifact;
 }
 
+type DependencyProbeUsage = "import" | "component" | "source-import";
+
+interface DependencyProbe {
+  usage: DependencyProbeUsage;
+  specifier: string;
+}
+
+interface RemoteModuleFetchResult {
+  url: string;
+  code: string;
+  contentType: string;
+  requestUrl: string;
+}
+
 export type RuntimeComponentFactory = (
   props: Record<string, JsonValue>,
   context: RuntimeExecutionContext,
@@ -105,6 +126,12 @@ const FALLBACK_MAX_EXECUTION_MS = 1500;
 const FALLBACK_EXECUTION_PROFILE: RuntimeExecutionProfile = "standard";
 const FALLBACK_JSPM_CDN_BASE = "https://ga.jspm.io/npm";
 const FALLBACK_ESM_CDN_BASE = "https://esm.sh";
+const FALLBACK_ENABLE_DEPENDENCY_PREFLIGHT = true;
+const FALLBACK_FAIL_ON_DEPENDENCY_PREFLIGHT_ERROR = false;
+const FALLBACK_REMOTE_FETCH_TIMEOUT_MS = 12_000;
+const FALLBACK_REMOTE_FETCH_RETRIES = 2;
+const FALLBACK_REMOTE_FETCH_BACKOFF_MS = 150;
+const FALLBACK_REMOTE_FALLBACK_CDN_BASES = [FALLBACK_ESM_CDN_BASE];
 const FALLBACK_SUPPORTED_SPEC_VERSIONS = [DEFAULT_RUNTIME_PLAN_SPEC_VERSION];
 const FALLBACK_ENFORCE_MODULE_MANIFEST = true;
 const FALLBACK_ALLOW_ISOLATION_FALLBACK = false;
@@ -257,6 +284,12 @@ export class DefaultRuntimeManager implements RuntimeManager {
   private readonly supportedPlanSpecVersions: Set<string>;
   private readonly enforceModuleManifest: boolean;
   private readonly allowIsolationFallback: boolean;
+  private readonly enableDependencyPreflight: boolean;
+  private readonly failOnDependencyPreflightError: boolean;
+  private readonly remoteFetchTimeoutMs: number;
+  private readonly remoteFetchRetries: number;
+  private readonly remoteFetchBackoffMs: number;
+  private readonly remoteFallbackCdnBases: string[];
   private readonly browserModuleUrlCache = new Map<string, string>();
   private readonly browserModuleInflight = new Map<string, Promise<string>>();
   private readonly browserBlobUrls = new Set<string>();
@@ -281,6 +314,26 @@ export class DefaultRuntimeManager implements RuntimeManager {
       options.enforceModuleManifest ?? FALLBACK_ENFORCE_MODULE_MANIFEST;
     this.allowIsolationFallback =
       options.allowIsolationFallback ?? FALLBACK_ALLOW_ISOLATION_FALLBACK;
+    this.enableDependencyPreflight =
+      options.enableDependencyPreflight ?? FALLBACK_ENABLE_DEPENDENCY_PREFLIGHT;
+    this.failOnDependencyPreflightError =
+      options.failOnDependencyPreflightError ??
+      FALLBACK_FAIL_ON_DEPENDENCY_PREFLIGHT_ERROR;
+    this.remoteFetchTimeoutMs = this.normalizePositiveInteger(
+      options.remoteFetchTimeoutMs,
+      FALLBACK_REMOTE_FETCH_TIMEOUT_MS,
+    );
+    this.remoteFetchRetries = this.normalizeNonNegativeInteger(
+      options.remoteFetchRetries,
+      FALLBACK_REMOTE_FETCH_RETRIES,
+    );
+    this.remoteFetchBackoffMs = this.normalizeNonNegativeInteger(
+      options.remoteFetchBackoffMs,
+      FALLBACK_REMOTE_FETCH_BACKOFF_MS,
+    );
+    this.remoteFallbackCdnBases = this.normalizeFallbackCdnBases(
+      options.remoteFallbackCdnBases,
+    );
   }
 
   async initialize(): Promise<void> {
@@ -359,6 +412,28 @@ export class DefaultRuntimeManager implements RuntimeManager {
 
     const maxImports = plan.capabilities.maxImports ?? this.defaultMaxImports;
     const imports = plan.imports ?? [];
+
+    if (this.enableDependencyPreflight) {
+      await this.preflightPlanDependencies(plan, diagnostics, frame);
+      if (
+        this.failOnDependencyPreflightError &&
+        diagnostics.some(
+          (item) =>
+            item.level === "error" &&
+            item.code.startsWith("RUNTIME_PREFLIGHT_"),
+        )
+      ) {
+        this.states.set(plan.id, cloneJsonValue(state));
+        return {
+          planId: plan.id,
+          root: plan.root,
+          diagnostics,
+          state: cloneJsonValue(state),
+          handledEvent: event,
+          appliedActions,
+        };
+      }
+    }
 
     for (let i = 0; i < imports.length; i += 1) {
       const specifier = imports[i];
@@ -555,6 +630,210 @@ export class DefaultRuntimeManager implements RuntimeManager {
     }
 
     return applied;
+  }
+
+  private async preflightPlanDependencies(
+    plan: RuntimePlan,
+    diagnostics: RuntimeDiagnostic[],
+    frame: ExecutionFrame,
+  ): Promise<void> {
+    const probes = this.collectDependencyProbes(plan);
+
+    for (const probe of probes) {
+      if (this.hasExceededBudget(frame)) {
+        diagnostics.push({
+          level: "error",
+          code: "RUNTIME_TIMEOUT",
+          message: `Execution time budget exceeded during dependency preflight (${probe.usage}:${probe.specifier})`,
+        });
+        return;
+      }
+
+      await this.preflightDependencyProbe(
+        probe,
+        plan.moduleManifest,
+        diagnostics,
+        frame,
+      );
+    }
+  }
+
+  private collectDependencyProbes(plan: RuntimePlan): DependencyProbe[] {
+    const probes: DependencyProbe[] = [];
+    const seen = new Set<string>();
+
+    const pushProbe = (usage: DependencyProbeUsage, specifier: string) => {
+      const trimmed = specifier.trim();
+      if (trimmed.length === 0) {
+        return;
+      }
+
+      const key = `${usage}:${trimmed}`;
+      if (seen.has(key)) {
+        return;
+      }
+
+      seen.add(key);
+      probes.push({
+        usage,
+        specifier: trimmed,
+      });
+    };
+
+    for (const specifier of plan.imports ?? []) {
+      pushProbe("import", specifier);
+    }
+
+    for (const specifier of collectComponentModules(plan.root)) {
+      pushProbe("component", specifier);
+    }
+
+    if (plan.source) {
+      for (const specifier of this.parseSourceImportSpecifiers(
+        plan.source.code,
+      )) {
+        pushProbe("source-import", specifier);
+      }
+    }
+
+    return probes;
+  }
+
+  private parseSourceImportSpecifiers(code: string): string[] {
+    if (code.trim().length === 0) {
+      return [];
+    }
+
+    const imports = new Set<string>();
+    for (const pattern of SOURCE_IMPORT_REWRITE_PATTERNS) {
+      const regex = new RegExp(
+        pattern.source,
+        pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`,
+      );
+      let match = regex.exec(code);
+      while (match) {
+        const specifier = String(match[1] ?? "").trim();
+        if (specifier.length > 0) {
+          imports.add(specifier);
+        }
+        match = regex.exec(code);
+      }
+    }
+
+    return [...imports];
+  }
+
+  private async preflightDependencyProbe(
+    probe: DependencyProbe,
+    moduleManifest: RuntimeModuleManifest | undefined,
+    diagnostics: RuntimeDiagnostic[],
+    frame: ExecutionFrame,
+  ): Promise<void> {
+    if (probe.usage === "source-import") {
+      const resolved = this.resolveRuntimeSourceSpecifier(
+        probe.specifier,
+        moduleManifest,
+        diagnostics,
+        false,
+      );
+
+      if (
+        resolved.startsWith("./") ||
+        resolved.startsWith("../") ||
+        resolved.startsWith("/")
+      ) {
+        diagnostics.push({
+          level: "error",
+          code: "RUNTIME_PREFLIGHT_SOURCE_IMPORT_RELATIVE_UNRESOLVED",
+          message: `Runtime source entry import must resolve to URL or bare package alias: ${probe.specifier}`,
+        });
+        return;
+      }
+
+      const timeoutMessage = `Dependency preflight timed out: ${probe.specifier}`;
+
+      try {
+        if (this.isHttpUrl(resolved)) {
+          await this.withRemainingBudget(
+            async () => {
+              if (this.canMaterializeBrowserModules()) {
+                await this.materializeBrowserRemoteModule(
+                  resolved,
+                  moduleManifest,
+                  diagnostics,
+                );
+              } else {
+                await this.fetchRemoteModuleCodeWithFallback(
+                  resolved,
+                  diagnostics,
+                );
+              }
+            },
+            frame,
+            timeoutMessage,
+          );
+          return;
+        }
+
+        if (!this.moduleLoader) {
+          diagnostics.push({
+            level: "warning",
+            code: "RUNTIME_PREFLIGHT_SKIPPED",
+            message: `Dependency preflight skipped (no module loader): ${probe.usage}:${resolved}`,
+          });
+          return;
+        }
+
+        await this.withRemainingBudget(
+          () => this.moduleLoader!.load(resolved),
+          frame,
+          timeoutMessage,
+        );
+      } catch (error) {
+        diagnostics.push({
+          level: "error",
+          code: "RUNTIME_PREFLIGHT_SOURCE_IMPORT_FAILED",
+          message: `${probe.specifier}: ${this.errorToMessage(error)}`,
+        });
+      }
+      return;
+    }
+
+    const resolved = this.resolveRuntimeSpecifier(
+      probe.specifier,
+      moduleManifest,
+      diagnostics,
+      probe.usage,
+    );
+    if (!resolved) {
+      return;
+    }
+
+    if (!this.moduleLoader) {
+      diagnostics.push({
+        level: "warning",
+        code: "RUNTIME_PREFLIGHT_SKIPPED",
+        message: `Dependency preflight skipped (no module loader): ${probe.usage}:${resolved}`,
+      });
+      return;
+    }
+
+    try {
+      await this.withRemainingBudget(
+        () => this.moduleLoader!.load(resolved),
+        frame,
+        `Dependency preflight timed out: ${resolved}`,
+      );
+    } catch (error) {
+      diagnostics.push({
+        level: "error",
+        code:
+          probe.usage === "component"
+            ? "RUNTIME_PREFLIGHT_COMPONENT_FAILED"
+            : "RUNTIME_PREFLIGHT_IMPORT_FAILED",
+        message: `${resolved}: ${this.errorToMessage(error)}`,
+      });
+    }
   }
 
   private applyAction(
@@ -824,8 +1103,17 @@ export class DefaultRuntimeManager implements RuntimeManager {
     requireManifest = true,
   ): string {
     const trimmed = specifier.trim();
+    const manifestResolved = this.resolveOptionalManifestSpecifier(
+      trimmed,
+      moduleManifest,
+    );
+
+    if (manifestResolved && manifestResolved !== trimmed) {
+      return this.resolveSourceSpecifierWithLoader(manifestResolved);
+    }
+
     if (!this.shouldRewriteSpecifier(trimmed)) {
-      return trimmed;
+      return manifestResolved ?? trimmed;
     }
 
     const resolvedFromPolicy = requireManifest
@@ -835,18 +1123,16 @@ export class DefaultRuntimeManager implements RuntimeManager {
           diagnostics,
           "source-import",
         )
-      : this.resolveOptionalManifestSpecifier(trimmed, moduleManifest);
+      : manifestResolved;
 
     if (!resolvedFromPolicy) {
       return trimmed;
     }
 
-    if (this.moduleLoader && this.hasResolveSpecifier(this.moduleLoader)) {
-      try {
-        return this.moduleLoader.resolveSpecifier(resolvedFromPolicy);
-      } catch {
-        // fall through to default resolver
-      }
+    const loaderResolved =
+      this.resolveSourceSpecifierWithLoader(resolvedFromPolicy);
+    if (loaderResolved !== resolvedFromPolicy) {
+      return loaderResolved;
     }
 
     if (resolvedFromPolicy.startsWith("npm:")) {
@@ -862,6 +1148,18 @@ export class DefaultRuntimeManager implements RuntimeManager {
     }
 
     return `${FALLBACK_JSPM_CDN_BASE}/${resolvedFromPolicy}`;
+  }
+
+  private resolveSourceSpecifierWithLoader(specifier: string): string {
+    if (this.moduleLoader && this.hasResolveSpecifier(this.moduleLoader)) {
+      try {
+        return this.moduleLoader.resolveSpecifier(specifier);
+      } catch {
+        // fall through to default resolver
+      }
+    }
+
+    return specifier;
   }
 
   private resolveOptionalManifestSpecifier(
@@ -1124,17 +1422,14 @@ export class DefaultRuntimeManager implements RuntimeManager {
     }
 
     const loading = (async () => {
-      const fetched =
-        await this.fetchRemoteModuleCodeWithFallback(normalizedUrl);
-      const rewritten = await this.rewriteImportsAsync(
-        fetched.code,
-        async (childSpecifier) =>
-          this.resolveBrowserImportSpecifier(
-            childSpecifier,
-            fetched.url,
-            moduleManifest,
-            diagnostics,
-          ),
+      const fetched = await this.fetchRemoteModuleCodeWithFallback(
+        normalizedUrl,
+        diagnostics,
+      );
+      const rewritten = await this.materializeFetchedModuleSource(
+        fetched,
+        moduleManifest,
+        diagnostics,
       );
 
       const blobUrl = this.createBrowserBlobModuleUrl(rewritten);
@@ -1151,41 +1446,117 @@ export class DefaultRuntimeManager implements RuntimeManager {
     }
   }
 
-  private async fetchRemoteModuleCodeWithFallback(url: string): Promise<{
-    url: string;
-    code: string;
-  }> {
-    const fallback = this.toEsmFallbackUrl(url);
-    const attempts = [url, fallback].filter(
-      (entry, index, array): entry is string =>
-        typeof entry === "string" &&
-        entry.trim().length > 0 &&
-        array.indexOf(entry) === index,
+  private async materializeFetchedModuleSource(
+    fetched: RemoteModuleFetchResult,
+    moduleManifest: RuntimeModuleManifest | undefined,
+    diagnostics: RuntimeDiagnostic[],
+  ): Promise<string> {
+    if (this.isCssModuleResponse(fetched)) {
+      return this.createCssProxyModuleSource(fetched.code, fetched.url);
+    }
+
+    if (this.isJsonModuleResponse(fetched)) {
+      return this.createJsonProxyModuleSource(fetched, diagnostics);
+    }
+
+    if (!this.isJavaScriptModuleResponse(fetched)) {
+      diagnostics.push({
+        level: "warning",
+        code: "RUNTIME_SOURCE_ASSET_PROXY",
+        message: `Treating non-JS module as proxied asset: ${fetched.url} (${fetched.contentType || "unknown"})`,
+      });
+
+      if (this.isBinaryLikeContentType(fetched.contentType)) {
+        return this.createUrlProxyModuleSource(fetched.url);
+      }
+
+      return this.createTextProxyModuleSource(fetched.code);
+    }
+
+    return this.rewriteImportsAsync(fetched.code, async (childSpecifier) =>
+      this.resolveBrowserImportSpecifier(
+        childSpecifier,
+        fetched.url,
+        moduleManifest,
+        diagnostics,
+      ),
     );
+  }
+
+  private async fetchRemoteModuleCodeWithFallback(
+    url: string,
+    diagnostics: RuntimeDiagnostic[],
+  ): Promise<RemoteModuleFetchResult> {
+    const attempts = this.buildRemoteModuleAttemptUrls(url);
 
     let lastError: unknown;
     for (const attempt of attempts) {
-      try {
-        const response = await fetch(attempt);
-        if (!response.ok) {
-          throw new Error(
-            `Failed to load module ${attempt}: HTTP ${response.status}`,
+      for (let retry = 0; retry <= this.remoteFetchRetries; retry += 1) {
+        try {
+          const response = await this.fetchWithTimeout(
+            attempt,
+            this.remoteFetchTimeoutMs,
           );
-        }
+          if (!response.ok) {
+            throw new Error(
+              `Failed to load module ${attempt}: HTTP ${response.status}`,
+            );
+          }
 
-        return {
-          url: response.url || attempt,
-          code: await response.text(),
-        };
-      } catch (error) {
-        lastError = error;
+          if (attempt !== url) {
+            diagnostics.push({
+              level: "warning",
+              code: "RUNTIME_SOURCE_IMPORT_FALLBACK_USED",
+              message: `Loaded module via fallback URL: ${url} -> ${attempt}`,
+            });
+          }
+
+          if (retry > 0) {
+            diagnostics.push({
+              level: "warning",
+              code: "RUNTIME_SOURCE_IMPORT_RETRY_SUCCEEDED",
+              message: `Recovered remote module after retry ${retry}: ${attempt}`,
+            });
+          }
+
+          return {
+            url: response.url || attempt,
+            code: await response.text(),
+            contentType:
+              response.headers.get("content-type")?.toLowerCase() ?? "",
+            requestUrl: attempt,
+          };
+        } catch (error) {
+          lastError = error;
+          if (retry >= this.remoteFetchRetries) {
+            break;
+          }
+          await this.delay(this.remoteFetchBackoffMs * Math.max(1, retry + 1));
+        }
       }
     }
 
     throw lastError ?? new Error(`Failed to load module: ${url}`);
   }
 
-  private toEsmFallbackUrl(url: string): string | undefined {
+  private buildRemoteModuleAttemptUrls(url: string): string[] {
+    const candidates = new Set<string>();
+    candidates.add(url);
+
+    for (const fallbackBase of this.remoteFallbackCdnBases) {
+      const fallback = this.toEsmFallbackUrl(url, fallbackBase);
+      if (fallback) {
+        candidates.add(fallback);
+      }
+    }
+
+    return [...candidates];
+  }
+
+  private toEsmFallbackUrl(
+    url: string,
+    cdnBase = FALLBACK_ESM_CDN_BASE,
+  ): string | undefined {
     const prefix = "https://ga.jspm.io/npm:";
     if (!url.startsWith(prefix)) {
       return undefined;
@@ -1202,7 +1573,180 @@ export class DefaultRuntimeManager implements RuntimeManager {
     ].join("&");
 
     const separator = specifier.includes("?") ? "&" : "?";
-    return `${FALLBACK_ESM_CDN_BASE}/${specifier}${separator}${aliasQuery}`;
+    return `${cdnBase}/${specifier}${separator}${aliasQuery}`;
+  }
+
+  private isCssModuleResponse(fetched: RemoteModuleFetchResult): boolean {
+    return (
+      fetched.contentType.includes("text/css") || this.isCssUrl(fetched.url)
+    );
+  }
+
+  private isJsonModuleResponse(fetched: RemoteModuleFetchResult): boolean {
+    return (
+      fetched.contentType.includes("application/json") ||
+      fetched.contentType.includes("text/json") ||
+      this.isJsonUrl(fetched.url)
+    );
+  }
+
+  private isJavaScriptModuleResponse(
+    fetched: RemoteModuleFetchResult,
+  ): boolean {
+    if (this.isJavaScriptLikeContentType(fetched.contentType)) {
+      return true;
+    }
+
+    return this.isJavaScriptUrl(fetched.url);
+  }
+
+  private isJavaScriptLikeContentType(contentType: string): boolean {
+    return (
+      contentType.includes("javascript") ||
+      contentType.includes("ecmascript") ||
+      contentType.includes("typescript") ||
+      contentType.includes("module")
+    );
+  }
+
+  private isBinaryLikeContentType(contentType: string): boolean {
+    return (
+      contentType.includes("application/wasm") ||
+      contentType.includes("image/") ||
+      contentType.includes("font/")
+    );
+  }
+
+  private isJavaScriptUrl(url: string): boolean {
+    const pathname = this.toUrlPathname(url);
+    return /\.(?:m?js|cjs|jsx|ts|tsx)$/i.test(pathname);
+  }
+
+  private isCssUrl(url: string): boolean {
+    const pathname = this.toUrlPathname(url);
+    return /\.css$/i.test(pathname);
+  }
+
+  private isJsonUrl(url: string): boolean {
+    const pathname = this.toUrlPathname(url);
+    return /\.json$/i.test(pathname);
+  }
+
+  private toUrlPathname(url: string): string {
+    try {
+      return new URL(url).pathname;
+    } catch {
+      return url;
+    }
+  }
+
+  private createCssProxyModuleSource(
+    cssText: string,
+    sourceUrl: string,
+  ): string {
+    const styleId = `renderify-css-${this.hashString(sourceUrl)}`;
+    const cssLiteral = JSON.stringify(cssText);
+    const styleIdLiteral = JSON.stringify(styleId);
+    return [
+      "const __css = " + cssLiteral + ";",
+      "const __styleId = " + styleIdLiteral + ";",
+      'if (typeof document !== "undefined") {',
+      "  let __style = null;",
+      '  const __styles = document.querySelectorAll("style[data-renderify-style-id]");',
+      "  for (const __candidate of __styles) {",
+      '    if (__candidate.getAttribute("data-renderify-style-id") === __styleId) {',
+      "      __style = __candidate;",
+      "      break;",
+      "    }",
+      "  }",
+      "  if (!__style) {",
+      '    __style = document.createElement("style");',
+      '    __style.setAttribute("data-renderify-style-id", __styleId);',
+      "    __style.textContent = __css;",
+      "    document.head.appendChild(__style);",
+      "  }",
+      "}",
+      "export default __css;",
+      "export const cssText = __css;",
+    ].join("\n");
+  }
+
+  private createJsonProxyModuleSource(
+    fetched: RemoteModuleFetchResult,
+    diagnostics: RuntimeDiagnostic[],
+  ): string {
+    try {
+      const parsed = JSON.parse(fetched.code) as unknown;
+      return [
+        `const __json = ${JSON.stringify(parsed)};`,
+        "export default __json;",
+      ].join("\n");
+    } catch (error) {
+      diagnostics.push({
+        level: "warning",
+        code: "RUNTIME_SOURCE_JSON_PARSE_FAILED",
+        message: `${fetched.requestUrl}: ${this.errorToMessage(error)}`,
+      });
+      return this.createTextProxyModuleSource(fetched.code);
+    }
+  }
+
+  private createTextProxyModuleSource(text: string): string {
+    return [
+      `const __text = ${JSON.stringify(text)};`,
+      "export default __text;",
+      "export const text = __text;",
+    ].join("\n");
+  }
+
+  private createUrlProxyModuleSource(url: string): string {
+    return [
+      `const __assetUrl = ${JSON.stringify(url)};`,
+      "export default __assetUrl;",
+      "export const assetUrl = __assetUrl;",
+    ].join("\n");
+  }
+
+  private hashString(value: string): string {
+    let hash = 2166136261;
+    for (let i = 0; i < value.length; i += 1) {
+      hash ^= value.charCodeAt(i);
+      hash +=
+        (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+    }
+    return (hash >>> 0).toString(36);
+  }
+
+  private async fetchWithTimeout(
+    url: string,
+    timeoutMs: number,
+  ): Promise<Response> {
+    if (typeof AbortController === "undefined") {
+      return fetch(url);
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      controller.abort();
+    }, timeoutMs);
+
+    try {
+      return await fetch(url, {
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private async delay(ms: number): Promise<void> {
+    if (ms <= 0) {
+      return;
+    }
+
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, ms);
+    });
   }
 
   private async rewriteImportsAsync(
@@ -1782,6 +2326,56 @@ export class DefaultRuntimeManager implements RuntimeManager {
     }
 
     return normalized;
+  }
+
+  private normalizeFallbackCdnBases(input?: string[]): string[] {
+    const candidates = input ?? FALLBACK_REMOTE_FALLBACK_CDN_BASES;
+    const normalized = new Set<string>();
+
+    for (const entry of candidates) {
+      if (typeof entry !== "string") {
+        continue;
+      }
+      const trimmed = entry.trim().replace(/\/$/, "");
+      if (trimmed.length > 0) {
+        normalized.add(trimmed);
+      }
+    }
+
+    if (normalized.size === 0) {
+      normalized.add(FALLBACK_ESM_CDN_BASE);
+    }
+
+    return [...normalized];
+  }
+
+  private normalizePositiveInteger(value: unknown, fallback: number): number {
+    if (
+      typeof value !== "number" ||
+      !Number.isFinite(value) ||
+      !Number.isInteger(value) ||
+      value <= 0
+    ) {
+      return fallback;
+    }
+
+    return value;
+  }
+
+  private normalizeNonNegativeInteger(
+    value: unknown,
+    fallback: number,
+  ): number {
+    if (
+      typeof value !== "number" ||
+      !Number.isFinite(value) ||
+      !Number.isInteger(value) ||
+      value < 0
+    ) {
+      return fallback;
+    }
+
+    return value;
   }
 
   private ensureInitialized(): void {

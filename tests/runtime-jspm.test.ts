@@ -30,6 +30,14 @@ test("runtime-jspm resolves bare package and npm: package specifiers", () => {
     loader.resolveSpecifier("react/jsx-runtime"),
     "https://ga.jspm.io/npm:preact@10.28.3/jsx-runtime/dist/jsxRuntime.module.js",
   );
+  assert.equal(
+    loader.resolveSpecifier("npm:nanoid@5"),
+    "https://ga.jspm.io/npm:nanoid@5",
+  );
+  assert.equal(
+    loader.resolveSpecifier("@mui/material"),
+    "https://ga.jspm.io/npm:@mui/material",
+  );
 });
 
 test("runtime-jspm keeps custom import map entries", () => {
