@@ -60,13 +60,10 @@ import {
 } from "./runtime-defaults";
 import { isBrowserRuntime, nowMs } from "./runtime-environment";
 import { resolveRuntimeNode } from "./runtime-node-resolver";
-import {
-  collectDependencyProbes,
-  type DependencyProbe,
-  executeDependencyProbe,
-  type RuntimeDependencyProbeStatus,
-  type RuntimeDependencyUsage,
-  runDependencyPreflight,
+import { preflightRuntimePlanDependencies } from "./runtime-plan-preflight";
+import type {
+  RuntimeDependencyProbeStatus,
+  RuntimeDependencyUsage,
 } from "./runtime-preflight";
 import {
   executeRuntimeSourceRoot,
@@ -83,12 +80,10 @@ import {
   canMaterializeBrowserModules,
   createBrowserBlobModuleUrl,
   normalizeRuntimeSourceOutput,
-  parseImportSpecifiersFromSource,
   revokeBrowserBlobUrls,
   rewriteImportsAsync,
 } from "./runtime-source-utils";
 import {
-  isHttpUrl,
   resolveRuntimeSourceSpecifier,
   resolveRuntimeSpecifier,
   resolveSourceImportLoaderCandidate,
@@ -595,49 +590,9 @@ export class DefaultRuntimeManager implements RuntimeManager {
     diagnostics: RuntimeDiagnostic[],
     frame: ExecutionFrame,
   ): Promise<RuntimeDependencyProbeStatus[]> {
-    const probes = await collectDependencyProbes(
+    return preflightRuntimePlanDependencies({
       plan,
-      this.parseSourceImportSpecifiers.bind(this),
-    );
-
-    return runDependencyPreflight(
-      probes,
       diagnostics,
-      (probe) =>
-        this.preflightDependencyProbe(
-          probe,
-          plan.moduleManifest,
-          diagnostics,
-          frame,
-        ),
-      {
-        isAborted: () => this.isAborted(frame.signal),
-        hasExceededBudget: () => this.hasExceededBudget(frame),
-      },
-    );
-  }
-
-  private async parseSourceImportSpecifiers(code: string): Promise<string[]> {
-    if (code.trim().length === 0) {
-      return [];
-    }
-
-    const imports = new Set<string>();
-    const parsedSpecifiers = await parseImportSpecifiersFromSource(code);
-    for (const entry of parsedSpecifiers) {
-      imports.add(entry.specifier);
-    }
-
-    return [...imports];
-  }
-
-  private async preflightDependencyProbe(
-    probe: DependencyProbe,
-    moduleManifest: RuntimeModuleManifest | undefined,
-    diagnostics: RuntimeDiagnostic[],
-    frame: ExecutionFrame,
-  ): Promise<RuntimeDependencyProbeStatus> {
-    return executeDependencyProbe(probe, moduleManifest, diagnostics, {
       moduleLoader: this.moduleLoader,
       withRemainingBudget: (operation, timeoutMessage) =>
         this.withRemainingBudget(operation, frame, timeoutMessage),
@@ -667,8 +622,6 @@ export class DefaultRuntimeManager implements RuntimeManager {
           runtimeDiagnostics,
           usage,
         ),
-      isHttpUrl,
-      canMaterializeBrowserModules: () => canMaterializeBrowserModules(),
       materializeBrowserRemoteModule: (url, manifest, runtimeDiagnostics) =>
         this.createSourceModuleLoader(
           manifest,
@@ -681,6 +634,8 @@ export class DefaultRuntimeManager implements RuntimeManager {
         ).fetchRemoteModuleCodeWithFallback(url),
       isAbortError: (error) => this.isAbortError(error),
       errorToMessage: (error) => this.errorToMessage(error),
+      isAborted: () => this.isAborted(frame.signal),
+      hasExceededBudget: () => this.hasExceededBudget(frame),
     });
   }
 
