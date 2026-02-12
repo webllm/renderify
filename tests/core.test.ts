@@ -21,7 +21,6 @@ import type {
   LLMStructuredRequest,
   LLMStructuredResponse,
 } from "../packages/core/src/llm-interpreter";
-import { DefaultSecurityChecker } from "../packages/core/src/security";
 import { DefaultUIRenderer } from "../packages/core/src/ui";
 import {
   createElementNode,
@@ -30,6 +29,7 @@ import {
   type RuntimePlan,
 } from "../packages/ir/src/index";
 import { DefaultRuntimeManager } from "../packages/runtime/src/index";
+import { DefaultSecurityChecker } from "../packages/security/src/index";
 
 class RejectingConfig extends DefaultRenderifyConfig {
   async load(overrides?: Partial<RenderifyConfigValues>): Promise<void> {

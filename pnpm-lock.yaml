@@ -71,6 +71,9 @@ importers:
       '@renderify/runtime':
         specifier: workspace:^
         version: link:../runtime
+      '@renderify/security':
+        specifier: workspace:^
+        version: link:../security
 
   packages/core:
     dependencies:
@@ -80,6 +83,9 @@ importers:
       '@renderify/runtime':
         specifier: workspace:^
         version: link:../runtime
+      '@renderify/security':
+        specifier: workspace:^
+        version: link:../security
       preact:
         specifier: ^10.28.3
         version: 10.28.3
@@ -103,12 +109,24 @@ importers:
       '@renderify/ir':
         specifier: workspace:^
         version: link:../ir
+      '@renderify/security':
+        specifier: workspace:^
+        version: link:../security
       es-module-lexer:
         specifier: ^1.7.0
         version: 1.7.0
       preact:
         specifier: ^10.28.3
         version: 10.28.3
+      preact-render-to-string:
+        specifier: ^6.6.5
+        version: 6.6.5(preact@10.28.3)
+
+  packages/security:
+    dependencies:
+      '@renderify/ir':
+        specifier: workspace:^
+        version: link:../ir
 
 packages:
 

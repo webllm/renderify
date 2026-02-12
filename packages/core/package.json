@@ -36,6 +36,7 @@
   "description": "The core module for Renderify",
   "dependencies": {
     "@renderify/ir": "workspace:^",
+    "@renderify/security": "workspace:^",
     "@renderify/runtime": "workspace:^",
     "preact": "^10.28.3",
     "preact-render-to-string": "^6.6.5"

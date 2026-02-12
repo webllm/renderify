@@ -37,6 +37,7 @@
     "@renderify/core": "workspace:^",
     "@renderify/ir": "workspace:^",
     "@renderify/llm": "workspace:^",
+    "@renderify/security": "workspace:^",
     "@renderify/runtime": "workspace:^"
   },
   "bin": {

@@ -11,6 +11,9 @@
       "path": "packages/ir"
     },
     {
+      "path": "packages/security"
+    },
+    {
       "path": "packages/llm"
     },
     {
