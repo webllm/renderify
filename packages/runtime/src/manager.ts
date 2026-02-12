@@ -4,10 +4,7 @@ import {
   collectComponentModules,
   createElementNode,
   createTextNode,
-  DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
-  getValueByPath,
   isRuntimeNode,
-  isRuntimeValueFromPath,
   type JsonValue,
   parseRuntimeSourceImportRanges,
   type RuntimeAction,
@@ -24,7 +21,6 @@ import {
   type RuntimeSourceModule,
   type RuntimeStateSnapshot,
   resolveRuntimePlanSpecVersion,
-  setValueByPath,
 } from "@renderify/ir";
 import type {
   SecurityChecker,
@@ -37,7 +33,6 @@ import {
   createJsonProxyModuleSource,
   createTextProxyModuleSource,
   createUrlProxyModuleSource,
-  DEFAULT_ESM_CDN_BASE,
   delay,
   extractJspmNpmSpecifier,
   fetchWithTimeout,
@@ -49,6 +44,39 @@ import {
   toConfiguredFallbackUrl,
   toEsmFallbackUrl,
 } from "./module-fetch";
+import { applyRuntimeAction } from "./runtime-actions";
+import {
+  FALLBACK_ALLOW_ISOLATION_FALLBACK,
+  FALLBACK_BROWSER_SOURCE_SANDBOX_FAIL_CLOSED,
+  FALLBACK_BROWSER_SOURCE_SANDBOX_TIMEOUT_MS,
+  FALLBACK_ENABLE_DEPENDENCY_PREFLIGHT,
+  FALLBACK_ENFORCE_MODULE_MANIFEST,
+  FALLBACK_ESM_CDN_BASE,
+  FALLBACK_EXECUTION_PROFILE,
+  FALLBACK_FAIL_ON_DEPENDENCY_PREFLIGHT_ERROR,
+  FALLBACK_JSPM_CDN_BASE,
+  FALLBACK_MAX_COMPONENT_INVOCATIONS,
+  FALLBACK_MAX_EXECUTION_MS,
+  FALLBACK_MAX_IMPORTS,
+  FALLBACK_REMOTE_FETCH_BACKOFF_MS,
+  FALLBACK_REMOTE_FETCH_RETRIES,
+  FALLBACK_REMOTE_FETCH_TIMEOUT_MS,
+  normalizeFallbackCdnBases,
+  normalizeNonNegativeInteger,
+  normalizePositiveInteger,
+  normalizeSourceSandboxMode,
+  normalizeSupportedSpecVersions,
+} from "./runtime-defaults";
+import {
+  getPreactSpecifier,
+  getVmSpecifier,
+  hasPreactFactory,
+  hasVmScript,
+  isBrowserRuntime,
+  type NodeVmModule,
+  nowMs,
+  type PreactLikeModule,
+} from "./runtime-environment";
 import {
   executeSourceInBrowserSandbox,
   type RuntimeSandboxRequest,
@@ -198,24 +226,6 @@ export type RuntimeComponentFactory = (
   children: RuntimeNode[],
 ) => Promise<RuntimeNode | string> | RuntimeNode | string;
 
-const FALLBACK_MAX_IMPORTS = 50;
-const FALLBACK_MAX_COMPONENT_INVOCATIONS = 200;
-const FALLBACK_MAX_EXECUTION_MS = 1500;
-const FALLBACK_EXECUTION_PROFILE: RuntimeExecutionProfile = "standard";
-const FALLBACK_JSPM_CDN_BASE = "https://ga.jspm.io/npm";
-const FALLBACK_ESM_CDN_BASE = DEFAULT_ESM_CDN_BASE;
-const FALLBACK_ENABLE_DEPENDENCY_PREFLIGHT = true;
-const FALLBACK_FAIL_ON_DEPENDENCY_PREFLIGHT_ERROR = false;
-const FALLBACK_REMOTE_FETCH_TIMEOUT_MS = 12_000;
-const FALLBACK_REMOTE_FETCH_RETRIES = 2;
-const FALLBACK_REMOTE_FETCH_BACKOFF_MS = 150;
-const FALLBACK_REMOTE_FALLBACK_CDN_BASES = [FALLBACK_ESM_CDN_BASE];
-const FALLBACK_SUPPORTED_SPEC_VERSIONS = [DEFAULT_RUNTIME_PLAN_SPEC_VERSION];
-const FALLBACK_ENFORCE_MODULE_MANIFEST = true;
-const FALLBACK_ALLOW_ISOLATION_FALLBACK = false;
-const FALLBACK_BROWSER_SOURCE_SANDBOX_TIMEOUT_MS = 4000;
-const FALLBACK_BROWSER_SOURCE_SANDBOX_FAIL_CLOSED = true;
-
 export class DefaultRuntimeManager implements RuntimeManager {
   private readonly moduleLoader?: RuntimeModuleLoader;
   private readonly sourceTranspiler: RuntimeSourceTranspiler;
@@ -253,17 +263,17 @@ export class DefaultRuntimeManager implements RuntimeManager {
       options.defaultMaxExecutionMs ?? FALLBACK_MAX_EXECUTION_MS;
     this.defaultExecutionProfile =
       options.defaultExecutionProfile ?? FALLBACK_EXECUTION_PROFILE;
-    this.supportedPlanSpecVersions = this.normalizeSupportedSpecVersions(
+    this.supportedPlanSpecVersions = normalizeSupportedSpecVersions(
       options.supportedPlanSpecVersions,
     );
     this.enforceModuleManifest =
       options.enforceModuleManifest ?? FALLBACK_ENFORCE_MODULE_MANIFEST;
     this.allowIsolationFallback =
       options.allowIsolationFallback ?? FALLBACK_ALLOW_ISOLATION_FALLBACK;
-    this.browserSourceSandboxMode = this.normalizeSourceSandboxMode(
+    this.browserSourceSandboxMode = normalizeSourceSandboxMode(
       options.browserSourceSandboxMode,
     );
-    this.browserSourceSandboxTimeoutMs = this.normalizePositiveInteger(
+    this.browserSourceSandboxTimeoutMs = normalizePositiveInteger(
       options.browserSourceSandboxTimeoutMs,
       FALLBACK_BROWSER_SOURCE_SANDBOX_TIMEOUT_MS,
     );
@@ -275,19 +285,19 @@ export class DefaultRuntimeManager implements RuntimeManager {
     this.failOnDependencyPreflightError =
       options.failOnDependencyPreflightError ??
       FALLBACK_FAIL_ON_DEPENDENCY_PREFLIGHT_ERROR;
-    this.remoteFetchTimeoutMs = this.normalizePositiveInteger(
+    this.remoteFetchTimeoutMs = normalizePositiveInteger(
       options.remoteFetchTimeoutMs,
       FALLBACK_REMOTE_FETCH_TIMEOUT_MS,
     );
-    this.remoteFetchRetries = this.normalizeNonNegativeInteger(
+    this.remoteFetchRetries = normalizeNonNegativeInteger(
       options.remoteFetchRetries,
       FALLBACK_REMOTE_FETCH_RETRIES,
     );
-    this.remoteFetchBackoffMs = this.normalizeNonNegativeInteger(
+    this.remoteFetchBackoffMs = normalizeNonNegativeInteger(
       options.remoteFetchBackoffMs,
       FALLBACK_REMOTE_FETCH_BACKOFF_MS,
     );
-    this.remoteFallbackCdnBases = this.normalizeFallbackCdnBases(
+    this.remoteFallbackCdnBases = normalizeFallbackCdnBases(
       options.remoteFallbackCdnBases,
     );
   }
@@ -623,7 +633,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
 
     for (const action of actions) {
       try {
-        this.applyAction(action, state, event, context);
+        applyRuntimeAction(action, state, event, context);
         applied.push(action);
       } catch (error) {
         diagnostics.push({
@@ -958,76 +968,6 @@ export class DefaultRuntimeManager implements RuntimeManager {
         message: this.errorToMessage(error),
       };
     }
-  }
-
-  private applyAction(
-    action: RuntimeAction,
-    state: RuntimeStateSnapshot,
-    event: RuntimeEvent,
-    context: RuntimeExecutionContext,
-  ): void {
-    if (action.type === "set") {
-      const next = this.resolveActionValue(action.value, state, event, context);
-      setValueByPath(state, action.path, next);
-      return;
-    }
-
-    if (action.type === "increment") {
-      const current = getValueByPath(state, action.path);
-      const currentNumber = typeof current === "number" ? current : 0;
-      const by = action.by ?? 1;
-      setValueByPath(state, action.path, asJsonValue(currentNumber + by));
-      return;
-    }
-
-    if (action.type === "toggle") {
-      const current = getValueByPath(state, action.path);
-      const next = typeof current === "boolean" ? !current : true;
-      setValueByPath(state, action.path, next);
-      return;
-    }
-
-    const next = this.resolveActionValue(action.value, state, event, context);
-    const current = getValueByPath(state, action.path);
-
-    if (Array.isArray(current)) {
-      setValueByPath(state, action.path, [...current, next]);
-      return;
-    }
-
-    setValueByPath(state, action.path, [next]);
-  }
-
-  private resolveActionValue(
-    value: JsonValue | { $from: string },
-    state: RuntimeStateSnapshot,
-    event: RuntimeEvent,
-    context: RuntimeExecutionContext,
-  ): JsonValue {
-    if (!isRuntimeValueFromPath(value)) {
-      return value;
-    }
-
-    const sourcePath = value.$from.trim();
-    if (sourcePath.startsWith("state.")) {
-      return asJsonValue(getValueByPath(state, sourcePath.slice(6)));
-    }
-
-    if (sourcePath.startsWith("event.")) {
-      return asJsonValue(getValueByPath(event, sourcePath.slice(6)));
-    }
-
-    if (sourcePath.startsWith("context.")) {
-      return asJsonValue(getValueByPath(context, sourcePath.slice(8)));
-    }
-
-    if (sourcePath.startsWith("vars.")) {
-      return asJsonValue(
-        getValueByPath(context.variables, sourcePath.slice(5)),
-      );
-    }
-
-    return asJsonValue(getValueByPath(state, sourcePath));
   }
 
   private async resolveSourceRoot(
@@ -2308,90 +2248,6 @@ export class DefaultRuntimeManager implements RuntimeManager {
     }
   }
 
-  private normalizeSupportedSpecVersions(versions?: string[]): Set<string> {
-    const normalized = new Set<string>();
-    const input =
-      versions && versions.length > 0
-        ? versions
-        : FALLBACK_SUPPORTED_SPEC_VERSIONS;
-
-    for (const entry of input) {
-      if (typeof entry !== "string") {
-        continue;
-      }
-      const trimmed = entry.trim();
-      if (trimmed.length > 0) {
-        normalized.add(trimmed);
-      }
-    }
-
-    if (normalized.size === 0) {
-      normalized.add(DEFAULT_RUNTIME_PLAN_SPEC_VERSION);
-    }
-
-    return normalized;
-  }
-
-  private normalizeSourceSandboxMode(
-    mode: RuntimeSourceSandboxMode | undefined,
-  ): RuntimeSourceSandboxMode {
-    if (mode === "none" || mode === "worker" || mode === "iframe") {
-      return mode;
-    }
-
-    return isBrowserRuntime() ? "worker" : "none";
-  }
-
-  private normalizeFallbackCdnBases(input?: string[]): string[] {
-    const candidates = input ?? FALLBACK_REMOTE_FALLBACK_CDN_BASES;
-    const normalized = new Set<string>();
-
-    for (const entry of candidates) {
-      if (typeof entry !== "string") {
-        continue;
-      }
-      const trimmed = entry.trim().replace(/\/$/, "");
-      if (trimmed.length > 0) {
-        normalized.add(trimmed);
-      }
-    }
-
-    if (normalized.size === 0) {
-      normalized.add(FALLBACK_ESM_CDN_BASE);
-    }
-
-    return [...normalized];
-  }
-
-  private normalizePositiveInteger(value: unknown, fallback: number): number {
-    if (
-      typeof value !== "number" ||
-      !Number.isFinite(value) ||
-      !Number.isInteger(value) ||
-      value <= 0
-    ) {
-      return fallback;
-    }
-
-    return value;
-  }
-
-  private normalizeNonNegativeInteger(
-    value: unknown,
-    fallback: number,
-  ): number {
-    if (
-      typeof value !== "number" ||
-      !Number.isFinite(value) ||
-      !Number.isInteger(value) ||
-      value < 0
-    ) {
-      return fallback;
-    }
-
-    return value;
-  }
-
   private ensureInitialized(): void {
     if (!this.initialized) {
       throw new Error("RuntimeManager is not initialized");
@@ -2475,73 +2331,3 @@ export class DefaultRuntimeManager implements RuntimeManager {
     return String(error);
   }
 }
-
-function nowMs(): number {
-  if (
-    typeof performance !== "undefined" &&
-    typeof performance.now === "function"
-  ) {
-    return performance.now();
-  }
-
-  return Date.now();
-}
-
-function isBrowserRuntime(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    typeof document !== "undefined" &&
-    typeof navigator !== "undefined"
-  );
-}
-
-interface NodeVmScript {
-  runInNewContext(
-    contextObject: Record<string, unknown>,
-    options: { timeout?: number },
-  ): unknown;
-}
-
-interface NodeVmModule {
-  Script: new (code: string) => NodeVmScript;
-}
-
-interface PreactLikeModule {
-  h(type: unknown, props: unknown, ...children: unknown[]): unknown;
-}
-
-function hasVmScript(value: unknown): value is NodeVmModule {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const candidate = value as { Script?: unknown };
-  return typeof candidate.Script === "function";
-}
-
-function hasPreactFactory(value: unknown): value is PreactLikeModule {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-
-  const candidate = value as { h?: unknown };
-  return typeof candidate.h === "function";
-}
-
-function getVmSpecifier(): string {
-  return "node:vm";
-}
-
-function getPreactSpecifier(): string {
-  return "preact";
-}
-
-export type { JspmModuleLoaderOptions } from "./jspm-module-loader";
-export { JspmModuleLoader } from "./jspm-module-loader";
-export type {
-  InteractiveRenderTarget,
-  RenderTarget,
-  RuntimeEventDispatchRequest,
-  UIRenderer,
-} from "./ui-renderer";
-export { DefaultUIRenderer } from "./ui-renderer";
