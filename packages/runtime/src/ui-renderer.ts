@@ -84,8 +84,7 @@ export class DefaultUIRenderer implements UIRenderer {
     }
 
     const { mountPoint, onRuntimeEvent } = resolvedTarget;
-    const sanitizedHtml = this.sanitizeHtmlForMount(serialized.html);
-    this.patchMountPoint(mountPoint, sanitizedHtml);
+    this.patchMountPoint(mountPoint, serialized.html);
     this.syncMountSession(
       mountPoint,
       result.planId,
@@ -197,13 +196,14 @@ export class DefaultUIRenderer implements UIRenderer {
   }
 
   private patchMountPoint(mountPoint: HTMLElement, nextHtml: string): void {
+    const sanitizedHtml = this.sanitizeHtmlForMount(nextHtml);
     const session = this.mountSessions.get(mountPoint);
     if (!session) {
-      mountPoint.innerHTML = nextHtml;
+      mountPoint.innerHTML = sanitizedHtml;
       return;
     }
 
-    if (session.html === nextHtml) {
+    if (session.html === sanitizedHtml) {
       return;
     }
 
@@ -211,7 +211,7 @@ export class DefaultUIRenderer implements UIRenderer {
     const scrollLeft = mountPoint.scrollLeft;
 
     const template = document.createElement("template");
-    template.innerHTML = nextHtml;
+    template.innerHTML = sanitizedHtml;
     this.reconcileChildren(mountPoint, template.content);
     mountPoint.scrollTop = scrollTop;
     mountPoint.scrollLeft = scrollLeft;
