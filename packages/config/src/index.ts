@@ -20,6 +20,12 @@ export interface RenderifyConfigValues {
   runtimeEnforceModuleManifest: boolean;
   runtimeAllowIsolationFallback: boolean;
   runtimeSupportedSpecVersions: string[];
+  runtimeEnableDependencyPreflight: boolean;
+  runtimeFailOnDependencyPreflightError: boolean;
+  runtimeRemoteFetchTimeoutMs: number;
+  runtimeRemoteFetchRetries: number;
+  runtimeRemoteFetchBackoffMs: number;
+  runtimeRemoteFallbackCdnBases: string[];
   [key: string]: unknown;
 }
 
@@ -48,6 +54,12 @@ export class DefaultRenderifyConfig implements RenderifyConfig {
       runtimeEnforceModuleManifest: true,
       runtimeAllowIsolationFallback: false,
       runtimeSupportedSpecVersions: ["runtime-plan/v1"],
+      runtimeEnableDependencyPreflight: true,
+      runtimeFailOnDependencyPreflightError: false,
+      runtimeRemoteFetchTimeoutMs: 12000,
+      runtimeRemoteFetchRetries: 2,
+      runtimeRemoteFetchBackoffMs: 150,
+      runtimeRemoteFallbackCdnBases: ["https://esm.sh"],
       tenantQuotaPolicy: {
         maxExecutionsPerMinute: 120,
         maxConcurrentExecutions: 4,
@@ -106,6 +118,24 @@ function getEnvironmentValues(): Partial<RenderifyConfigValues> {
     runtimeSupportedSpecVersions: parseSpecVersions(
       process.env.RENDERIFY_RUNTIME_SPEC_VERSIONS,
     ),
+    runtimeEnableDependencyPreflight:
+      process.env.RENDERIFY_RUNTIME_PREFLIGHT !== "false",
+    runtimeFailOnDependencyPreflightError:
+      process.env.RENDERIFY_RUNTIME_PREFLIGHT_FAIL_FAST === "true",
+    runtimeRemoteFetchTimeoutMs:
+      parsePositiveInt(process.env.RENDERIFY_RUNTIME_REMOTE_FETCH_TIMEOUT_MS) ??
+      12000,
+    runtimeRemoteFetchRetries:
+      parseNonNegativeInt(process.env.RENDERIFY_RUNTIME_REMOTE_FETCH_RETRIES) ??
+      2,
+    runtimeRemoteFetchBackoffMs:
+      parseNonNegativeInt(
+        process.env.RENDERIFY_RUNTIME_REMOTE_FETCH_BACKOFF_MS,
+      ) ?? 150,
+    runtimeRemoteFallbackCdnBases: parseCsvValues(
+      process.env.RENDERIFY_RUNTIME_REMOTE_FALLBACK_CDNS,
+      ["https://esm.sh"],
+    ),
     tenantQuotaPolicy: {
       maxExecutionsPerMinute:
         parsePositiveInt(process.env.RENDERIFY_MAX_EXECUTIONS_PER_MINUTE) ??
@@ -156,6 +186,19 @@ function parsePositiveInt(value: string | undefined): number | undefined {
   return parsed;
 }
 
+function parseNonNegativeInt(value: string | undefined): number | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    return undefined;
+  }
+
+  return parsed;
+}
+
 function parseSecurityProfile(
   value: string | undefined,
 ): SecurityProfileConfig {
@@ -185,4 +228,20 @@ function parseSpecVersions(value: string | undefined): string[] {
     .filter((entry) => entry.length > 0);
 
   return parsed.length > 0 ? parsed : ["runtime-plan/v1"];
+}
+
+function parseCsvValues(
+  value: string | undefined,
+  fallback: string[],
+): string[] {
+  if (!value || value.trim().length === 0) {
+    return [...fallback];
+  }
+
+  const parsed = value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+
+  return parsed.length > 0 ? parsed : [...fallback];
 }

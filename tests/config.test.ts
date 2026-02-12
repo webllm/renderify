@@ -13,6 +13,14 @@ test("config loads default security profile and tenant quotas", async () => {
   assert.equal(config.get("llmRequestTimeoutMs"), 30000);
   assert.equal(config.get("runtimeEnforceModuleManifest"), true);
   assert.equal(config.get("runtimeAllowIsolationFallback"), false);
+  assert.equal(config.get("runtimeEnableDependencyPreflight"), true);
+  assert.equal(config.get("runtimeFailOnDependencyPreflightError"), false);
+  assert.equal(config.get("runtimeRemoteFetchTimeoutMs"), 12000);
+  assert.equal(config.get("runtimeRemoteFetchRetries"), 2);
+  assert.equal(config.get("runtimeRemoteFetchBackoffMs"), 150);
+  assert.deepEqual(config.get("runtimeRemoteFallbackCdnBases"), [
+    "https://esm.sh",
+  ]);
   assert.deepEqual(config.get("runtimeSupportedSpecVersions"), [
     "runtime-plan/v1",
   ]);
@@ -89,11 +97,29 @@ test("config reads runtime policy values from env", async () => {
   const previousIsolationFallback =
     process.env.RENDERIFY_RUNTIME_ALLOW_ISOLATION_FALLBACK;
   const previousSpecVersions = process.env.RENDERIFY_RUNTIME_SPEC_VERSIONS;
+  const previousPreflight = process.env.RENDERIFY_RUNTIME_PREFLIGHT;
+  const previousPreflightFailFast =
+    process.env.RENDERIFY_RUNTIME_PREFLIGHT_FAIL_FAST;
+  const previousFetchTimeout =
+    process.env.RENDERIFY_RUNTIME_REMOTE_FETCH_TIMEOUT_MS;
+  const previousFetchRetries =
+    process.env.RENDERIFY_RUNTIME_REMOTE_FETCH_RETRIES;
+  const previousFetchBackoff =
+    process.env.RENDERIFY_RUNTIME_REMOTE_FETCH_BACKOFF_MS;
+  const previousFallbackCdns =
+    process.env.RENDERIFY_RUNTIME_REMOTE_FALLBACK_CDNS;
 
   process.env.RENDERIFY_RUNTIME_ENFORCE_MANIFEST = "false";
   process.env.RENDERIFY_RUNTIME_ALLOW_ISOLATION_FALLBACK = "true";
   process.env.RENDERIFY_RUNTIME_SPEC_VERSIONS =
     "runtime-plan/v1,runtime-plan/v2-draft";
+  process.env.RENDERIFY_RUNTIME_PREFLIGHT = "false";
+  process.env.RENDERIFY_RUNTIME_PREFLIGHT_FAIL_FAST = "true";
+  process.env.RENDERIFY_RUNTIME_REMOTE_FETCH_TIMEOUT_MS = "9000";
+  process.env.RENDERIFY_RUNTIME_REMOTE_FETCH_RETRIES = "4";
+  process.env.RENDERIFY_RUNTIME_REMOTE_FETCH_BACKOFF_MS = "275";
+  process.env.RENDERIFY_RUNTIME_REMOTE_FALLBACK_CDNS =
+    "https://esm.sh,https://cdn.jsdelivr.net";
 
   try {
     const config = new DefaultRenderifyConfig();
@@ -101,6 +127,15 @@ test("config reads runtime policy values from env", async () => {
 
     assert.equal(config.get("runtimeEnforceModuleManifest"), false);
     assert.equal(config.get("runtimeAllowIsolationFallback"), true);
+    assert.equal(config.get("runtimeEnableDependencyPreflight"), false);
+    assert.equal(config.get("runtimeFailOnDependencyPreflightError"), true);
+    assert.equal(config.get("runtimeRemoteFetchTimeoutMs"), 9000);
+    assert.equal(config.get("runtimeRemoteFetchRetries"), 4);
+    assert.equal(config.get("runtimeRemoteFetchBackoffMs"), 275);
+    assert.deepEqual(config.get("runtimeRemoteFallbackCdnBases"), [
+      "https://esm.sh",
+      "https://cdn.jsdelivr.net",
+    ]);
     assert.deepEqual(config.get("runtimeSupportedSpecVersions"), [
       "runtime-plan/v1",
       "runtime-plan/v2-draft",
@@ -112,5 +147,20 @@ test("config reads runtime policy values from env", async () => {
       previousIsolationFallback,
     );
     restoreEnv("RENDERIFY_RUNTIME_SPEC_VERSIONS", previousSpecVersions);
+    restoreEnv("RENDERIFY_RUNTIME_PREFLIGHT", previousPreflight);
+    restoreEnv(
+      "RENDERIFY_RUNTIME_PREFLIGHT_FAIL_FAST",
+      previousPreflightFailFast,
+    );
+    restoreEnv(
+      "RENDERIFY_RUNTIME_REMOTE_FETCH_TIMEOUT_MS",
+      previousFetchTimeout,
+    );
+    restoreEnv("RENDERIFY_RUNTIME_REMOTE_FETCH_RETRIES", previousFetchRetries);
+    restoreEnv(
+      "RENDERIFY_RUNTIME_REMOTE_FETCH_BACKOFF_MS",
+      previousFetchBackoff,
+    );
+    restoreEnv("RENDERIFY_RUNTIME_REMOTE_FALLBACK_CDNS", previousFallbackCdns);
   }
 });

@@ -49,6 +49,7 @@ interface CliArgs {
   command:
     | "run"
     | "plan"
+    | "probe-plan"
     | "render-plan"
     | "event"
     | "state"
@@ -134,6 +135,18 @@ async function main() {
     supportedPlanSpecVersions: config.get<string[]>(
       "runtimeSupportedSpecVersions",
     ),
+    enableDependencyPreflight:
+      config.get<boolean>("runtimeEnableDependencyPreflight") !== false,
+    failOnDependencyPreflightError:
+      config.get<boolean>("runtimeFailOnDependencyPreflightError") === true,
+    remoteFetchTimeoutMs:
+      config.get<number>("runtimeRemoteFetchTimeoutMs") ?? 12000,
+    remoteFetchRetries: config.get<number>("runtimeRemoteFetchRetries") ?? 2,
+    remoteFetchBackoffMs:
+      config.get<number>("runtimeRemoteFetchBackoffMs") ?? 150,
+    remoteFallbackCdnBases: config.get<string[]>(
+      "runtimeRemoteFallbackCdnBases",
+    ) ?? ["https://esm.sh"],
   });
 
   const renderifyApp = createRenderifyApp({
@@ -181,6 +194,39 @@ async function main() {
           args.prompt ?? DEFAULT_PROMPT,
         );
         console.log(JSON.stringify(result.plan, null, 2));
+        break;
+      }
+      case "probe-plan": {
+        if (!args.planFile) {
+          throw new Error("probe-plan requires a JSON file path");
+        }
+
+        const plan = await loadPlanFile(args.planFile);
+        const security = renderifyApp.getSecurityChecker().checkPlan(plan);
+        const runtimeResult = await runtime.executePlan(plan);
+        const runtimeErrorDiagnostics = runtimeResult.diagnostics.filter(
+          (item) => item.level === "error",
+        );
+        const preflightDiagnostics = runtimeResult.diagnostics.filter((item) =>
+          item.code.startsWith("RUNTIME_PREFLIGHT_"),
+        );
+
+        const report = {
+          planId: plan.id,
+          safe: security.safe,
+          securityIssueCount: security.issues.length,
+          runtimeErrorCount: runtimeErrorDiagnostics.length,
+          preflightIssueCount: preflightDiagnostics.length,
+          ok:
+            security.safe &&
+            security.issues.length === 0 &&
+            runtimeErrorDiagnostics.length === 0,
+          securityIssues: security.issues,
+          securityDiagnostics: security.diagnostics,
+          runtimeDiagnostics: runtimeResult.diagnostics,
+        };
+
+        console.log(JSON.stringify(report, null, 2));
         break;
       }
       case "render-plan": {
@@ -278,6 +324,8 @@ function parseArgs(argv: string[]): CliArgs {
         command: "plan",
         prompt: rest.join(" ").trim() || DEFAULT_PROMPT,
       };
+    case "probe-plan":
+      return { command: "probe-plan", planFile: rest[0] };
     case "render-plan":
       return { command: "render-plan", planFile: rest[0] };
     case "event":
@@ -365,6 +413,7 @@ function printHelp(): void {
   console.log(`Usage:
   renderify run <prompt>                     Render prompt and print HTML
   renderify plan <prompt>                    Print runtime plan JSON
+  renderify probe-plan <file>                Probe RuntimePlan dependencies and policy compatibility
   renderify render-plan <file>               Execute RuntimePlan JSON file
   renderify event <planId> <type> [payload]  Dispatch runtime event to a stored plan
   renderify state <planId>                   Print current runtime state for a plan

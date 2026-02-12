@@ -173,6 +173,66 @@ test("e2e: cli render-plan executes runtime source module", async () => {
   }
 });
 
+test("e2e: cli probe-plan reports dependency preflight failures", async () => {
+  const tempDir = await mkdtemp(
+    path.join(os.tmpdir(), "renderify-e2e-probe-plan-"),
+  );
+  const sessionFile = path.join(tempDir, "session.json");
+  const probePlanPath = path.join(tempDir, "probe-plan.json");
+
+  try {
+    const probePlan = {
+      specVersion: "runtime-plan/v1",
+      id: "probe_plan_preflight",
+      version: 1,
+      capabilities: {
+        domWrite: true,
+      },
+      root: {
+        type: "element",
+        tag: "section",
+        children: [
+          {
+            type: "text",
+            value: "fallback probe root",
+          },
+        ],
+      },
+      source: {
+        language: "js",
+        code: [
+          'import "./styles.css";',
+          "export default () => ({ type: 'text', value: 'ok' });",
+        ].join("\n"),
+      },
+    };
+
+    await writeFile(probePlanPath, JSON.stringify(probePlan, null, 2), "utf8");
+
+    const result = await runCli(["probe-plan", probePlanPath], {
+      RENDERIFY_SESSION_FILE: sessionFile,
+      RENDERIFY_RUNTIME_PREFLIGHT: "true",
+      RENDERIFY_RUNTIME_PREFLIGHT_FAIL_FAST: "true",
+    });
+
+    assert.equal(result.code, 0, result.stderr);
+    const report = JSON.parse(result.stdout.trim()) as {
+      ok: boolean;
+      runtimeDiagnostics: Array<{ code?: string }>;
+    };
+
+    assert.equal(report.ok, false);
+    assert.ok(
+      report.runtimeDiagnostics.some(
+        (item) =>
+          item.code === "RUNTIME_PREFLIGHT_SOURCE_IMPORT_RELATIVE_UNRESOLVED",
+      ),
+    );
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("e2e: cli uses openai provider when configured", async () => {
   const tempDir = await mkdtemp(
     path.join(os.tmpdir(), "renderify-e2e-openai-"),
