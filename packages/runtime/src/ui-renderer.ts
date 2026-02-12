@@ -919,7 +919,7 @@ function sanitizeInlineStyle(style: string): string | undefined {
 
 function normalizeStyleForSecurityInspection(style: string): string {
   const withoutComments = style.replace(/\/\*[\s\S]*?\*\//g, "");
-  const decodedEscapes = decodeCssEscapes(withoutComments);
+  const decodedEscapes = decodeCssEscapes(withoutComments).replace(/\0/g, "");
   return decodedEscapes.replace(/\s+/g, " ").trim().toLowerCase();
 }
 

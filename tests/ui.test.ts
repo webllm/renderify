@@ -183,3 +183,56 @@ test("ui renderer drops escaped and commented unsafe inline style values", () =>
   assert.doesNotMatch(escapedHtml, /\sstyle=/);
   assert.doesNotMatch(commentedHtml, /\sstyle=/);
 });
+
+test("ui renderer drops null-byte obfuscated unsafe inline styles", () => {
+  const renderer = new DefaultUIRenderer();
+  const escapedNullHtml = renderer.renderNode(
+    createElementNode(
+      "div",
+      {
+        style: "width:exp\\0ression(alert(1));",
+      },
+      [createTextNode("escaped null style")],
+    ),
+  );
+  const literalNullHtml = renderer.renderNode(
+    createElementNode(
+      "div",
+      {
+        style: "width:exp\0ression(alert(1));",
+      },
+      [createTextNode("literal null style")],
+    ),
+  );
+
+  assert.doesNotMatch(escapedNullHtml, /\sstyle=/);
+  assert.doesNotMatch(literalNullHtml, /\sstyle=/);
+});
+
+test("ui renderer tolerates css escape edge cases in safe styles", () => {
+  const renderer = new DefaultUIRenderer();
+  const safeEscapedHtml = renderer.renderNode(
+    createElementNode(
+      "div",
+      {
+        style: "color:red;--glyph:\\10ffff;--invalid:\\110000;",
+      },
+      [createTextNode("safe escape style")],
+    ),
+  );
+  const escapedUrlHtml = renderer.renderNode(
+    createElementNode(
+      "div",
+      {
+        style: "background:\\75\\72\\6c(https://example.com/x.png);",
+      },
+      [createTextNode("escaped url style")],
+    ),
+  );
+
+  assert.match(
+    safeEscapedHtml,
+    /\sstyle="color:red;--glyph:\\10ffff;--invalid:\\110000;"/,
+  );
+  assert.doesNotMatch(escapedUrlHtml, /\sstyle=/);
+});
