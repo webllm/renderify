@@ -20,6 +20,9 @@ export interface RenderifyConfigValues {
   runtimeRemoteFetchRetries: number;
   runtimeRemoteFetchBackoffMs: number;
   runtimeRemoteFallbackCdnBases: string[];
+  runtimeBrowserSourceSandboxMode: "none" | "worker" | "iframe";
+  runtimeBrowserSourceSandboxTimeoutMs: number;
+  runtimeBrowserSourceSandboxFailClosed: boolean;
   [key: string]: unknown;
 }
 
@@ -54,6 +57,9 @@ export class DefaultRenderifyConfig implements RenderifyConfig {
       runtimeRemoteFetchRetries: 2,
       runtimeRemoteFetchBackoffMs: 150,
       runtimeRemoteFallbackCdnBases: ["https://esm.sh"],
+      runtimeBrowserSourceSandboxMode: "worker",
+      runtimeBrowserSourceSandboxTimeoutMs: 4000,
+      runtimeBrowserSourceSandboxFailClosed: true,
     };
 
     this.config = {
@@ -121,6 +127,11 @@ function getEnvironmentValues(): Partial<RenderifyConfigValues> {
       process.env.RENDERIFY_RUNTIME_REMOTE_FALLBACK_CDNS,
       ["https://esm.sh"],
     ),
+    runtimeBrowserSourceSandboxMode: parseSourceSandboxMode(
+      process.env.RENDERIFY_RUNTIME_BROWSER_SANDBOX_MODE,
+    ),
+    runtimeBrowserSourceSandboxFailClosed:
+      process.env.RENDERIFY_RUNTIME_BROWSER_SANDBOX_FAIL_CLOSED !== "false",
   };
 
   if (process.env.RENDERIFY_LLM_API_KEY) {
@@ -146,6 +157,13 @@ function getEnvironmentValues(): Partial<RenderifyConfigValues> {
 
   if (process.env.RENDERIFY_JSPM_CDN_URL) {
     values.jspmCdnUrl = process.env.RENDERIFY_JSPM_CDN_URL;
+  }
+
+  const browserSandboxTimeout = parsePositiveInt(
+    process.env.RENDERIFY_RUNTIME_BROWSER_SANDBOX_TIMEOUT_MS,
+  );
+  if (browserSandboxTimeout !== undefined) {
+    values.runtimeBrowserSourceSandboxTimeoutMs = browserSandboxTimeout;
   }
 
   return values;
@@ -222,4 +240,14 @@ function parseCsvValues(
     .filter((entry) => entry.length > 0);
 
   return parsed.length > 0 ? parsed : [...fallback];
+}
+
+function parseSourceSandboxMode(
+  value: string | undefined,
+): "none" | "worker" | "iframe" {
+  if (value === "none" || value === "worker" || value === "iframe") {
+    return value;
+  }
+
+  return "worker";
 }

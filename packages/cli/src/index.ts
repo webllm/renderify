@@ -10,7 +10,6 @@ import {
   DefaultCustomizationEngine,
   DefaultPerformanceOptimizer,
   DefaultRenderifyConfig,
-  DefaultSecurityChecker,
   DefaultUIRenderer,
   type LLMInterpreter,
   type LLMProviderConfig,
@@ -22,6 +21,7 @@ import {
 import { isRuntimePlan, type RuntimePlan } from "@renderify/ir";
 import { createLLMInterpreter } from "@renderify/llm";
 import { DefaultRuntimeManager, JspmModuleLoader } from "@renderify/runtime";
+import { DefaultSecurityChecker } from "@renderify/security";
 
 interface CliArgs {
   command:
@@ -110,6 +110,13 @@ async function main() {
     remoteFallbackCdnBases: config.get<string[]>(
       "runtimeRemoteFallbackCdnBases",
     ) ?? ["https://esm.sh"],
+    browserSourceSandboxMode: config.get<"none" | "worker" | "iframe">(
+      "runtimeBrowserSourceSandboxMode",
+    ),
+    browserSourceSandboxTimeoutMs:
+      config.get<number>("runtimeBrowserSourceSandboxTimeoutMs") ?? 4000,
+    browserSourceSandboxFailClosed:
+      config.get<boolean>("runtimeBrowserSourceSandboxFailClosed") !== false,
   });
 
   const renderifyApp = createRenderifyApp({

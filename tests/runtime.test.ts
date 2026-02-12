@@ -14,8 +14,10 @@ import {
   JspmModuleLoader,
   type RuntimeComponentFactory,
   type RuntimeModuleLoader,
+  RuntimeSecurityViolationError,
   type RuntimeSourceTranspileInput,
   type RuntimeSourceTranspiler,
+  renderPlanInBrowser,
 } from "../packages/runtime/src/index";
 
 class MockLoader implements RuntimeModuleLoader {
@@ -57,6 +59,206 @@ class FailingLoader implements RuntimeModuleLoader {
   }
 }
 
+type WorkerMessageHandler = (event: MessageEvent<unknown>) => void;
+type WorkerErrorHandler = (event: ErrorEvent) => void;
+
+class SandboxSuccessWorker {
+  private readonly messageHandlers = new Set<WorkerMessageHandler>();
+  private readonly errorHandlers = new Set<WorkerErrorHandler>();
+  terminated = false;
+
+  constructor(_url: string, _options?: { type?: string; name?: string }) {}
+
+  addEventListener(type: string, handler: EventListener): void {
+    if (type === "message") {
+      this.messageHandlers.add(handler as WorkerMessageHandler);
+      return;
+    }
+    if (type === "error") {
+      this.errorHandlers.add(handler as WorkerErrorHandler);
+    }
+  }
+
+  removeEventListener(type: string, handler: EventListener): void {
+    if (type === "message") {
+      this.messageHandlers.delete(handler as WorkerMessageHandler);
+      return;
+    }
+    if (type === "error") {
+      this.errorHandlers.delete(handler as WorkerErrorHandler);
+    }
+  }
+
+  postMessage(payload: unknown): void {
+    const request = payload as {
+      id?: string;
+      runtimeInput?: {
+        state?: {
+          count?: number;
+        };
+      };
+    };
+    const count = request.runtimeInput?.state?.count ?? 0;
+    const response = {
+      renderifySandbox: "runtime-source",
+      id: request.id,
+      ok: true,
+      output: {
+        type: "element",
+        tag: "section",
+        children: [{ type: "text", value: `sandbox-count:${count}` }],
+      },
+    };
+
+    queueMicrotask(() => {
+      for (const handler of this.messageHandlers) {
+        handler({ data: response } as MessageEvent<unknown>);
+      }
+    });
+  }
+
+  terminate(): void {
+    this.terminated = true;
+  }
+}
+
+class SandboxFailWorker {
+  private readonly messageHandlers = new Set<WorkerMessageHandler>();
+  private readonly errorHandlers = new Set<WorkerErrorHandler>();
+
+  constructor(_url: string, _options?: { type?: string; name?: string }) {}
+
+  addEventListener(type: string, handler: EventListener): void {
+    if (type === "message") {
+      this.messageHandlers.add(handler as WorkerMessageHandler);
+      return;
+    }
+    if (type === "error") {
+      this.errorHandlers.add(handler as WorkerErrorHandler);
+    }
+  }
+
+  removeEventListener(type: string, handler: EventListener): void {
+    if (type === "message") {
+      this.messageHandlers.delete(handler as WorkerMessageHandler);
+      return;
+    }
+    if (type === "error") {
+      this.errorHandlers.delete(handler as WorkerErrorHandler);
+    }
+  }
+
+  postMessage(payload: unknown): void {
+    const request = payload as {
+      id?: string;
+    };
+
+    queueMicrotask(() => {
+      for (const handler of this.messageHandlers) {
+        handler({
+          data: {
+            renderifySandbox: "runtime-source",
+            id: request.id,
+            ok: false,
+            error: "sandbox exploded",
+          },
+        } as MessageEvent<unknown>);
+      }
+    });
+  }
+
+  terminate(): void {}
+}
+
+function installBrowserSandboxGlobals(workerCtor: unknown): () => void {
+  const root = globalThis as Record<string, unknown>;
+  const urlStatics = URL as unknown as {
+    createObjectURL?: (blob: Blob) => string;
+    revokeObjectURL?: (url: string) => void;
+  };
+
+  const previousWindow = Object.getOwnPropertyDescriptor(root, "window");
+  const previousDocument = Object.getOwnPropertyDescriptor(root, "document");
+  const previousNavigator = Object.getOwnPropertyDescriptor(root, "navigator");
+  const previousWorker = Object.getOwnPropertyDescriptor(root, "Worker");
+  const previousCreateObjectURL = urlStatics.createObjectURL;
+  const previousRevokeObjectURL = urlStatics.revokeObjectURL;
+
+  Object.defineProperty(root, "window", {
+    configurable: true,
+    writable: true,
+    value: {} as Window,
+  });
+  Object.defineProperty(root, "document", {
+    configurable: true,
+    writable: true,
+    value: {} as Document,
+  });
+  Object.defineProperty(root, "navigator", {
+    configurable: true,
+    writable: true,
+    value: {} as Navigator,
+  });
+  Object.defineProperty(root, "Worker", {
+    configurable: true,
+    writable: true,
+    value: workerCtor,
+  });
+
+  Object.defineProperty(urlStatics, "createObjectURL", {
+    configurable: true,
+    writable: true,
+    value: () => "blob:runtime-test",
+  });
+  Object.defineProperty(urlStatics, "revokeObjectURL", {
+    configurable: true,
+    writable: true,
+    value: () => {},
+  });
+
+  return () => {
+    restoreDescriptor(root, "window", previousWindow);
+    restoreDescriptor(root, "document", previousDocument);
+    restoreDescriptor(root, "navigator", previousNavigator);
+    restoreDescriptor(root, "Worker", previousWorker);
+    restoreDescriptor(
+      urlStatics as unknown as Record<string, unknown>,
+      "createObjectURL",
+      previousCreateObjectURL
+        ? {
+            configurable: true,
+            writable: true,
+            value: previousCreateObjectURL,
+          }
+        : undefined,
+    );
+    restoreDescriptor(
+      urlStatics as unknown as Record<string, unknown>,
+      "revokeObjectURL",
+      previousRevokeObjectURL
+        ? {
+            configurable: true,
+            writable: true,
+            value: previousRevokeObjectURL,
+          }
+        : undefined,
+    );
+  };
+}
+
+function restoreDescriptor(
+  target: Record<string, unknown>,
+  key: string,
+  descriptor: PropertyDescriptor | undefined,
+): void {
+  if (descriptor) {
+    Object.defineProperty(target, key, descriptor);
+    return;
+  }
+
+  delete target[key];
+}
+
 function createPlan(root: RuntimeNode, imports: string[] = []): RuntimePlan {
   const moduleManifest: RuntimeModuleManifest = {};
   for (const specifier of imports) {
@@ -79,6 +281,50 @@ function createPlan(root: RuntimeNode, imports: string[] = []): RuntimePlan {
     },
   };
 }
+
+test("renderPlanInBrowser renders runtime node HTML without mount target", async () => {
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "embed_runtime_plan",
+    version: 1,
+    root: createElementNode("section", undefined, [createTextNode("hello")]),
+    capabilities: {
+      domWrite: true,
+    },
+  };
+
+  const result = await renderPlanInBrowser(plan, {
+    runtimeOptions: {
+      browserSourceSandboxMode: "none",
+    },
+  });
+
+  assert.match(result.html, /<section>/);
+  assert.match(result.html, /hello/);
+  assert.equal(result.security.safe, true);
+});
+
+test("renderPlanInBrowser rejects plan when security policy fails", async () => {
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "embed_runtime_blocked",
+    version: 1,
+    root: createElementNode("script", undefined, [createTextNode("bad")]),
+    capabilities: {
+      domWrite: true,
+    },
+  };
+
+  await assert.rejects(
+    () =>
+      renderPlanInBrowser(plan, {
+        runtimeOptions: {
+          browserSourceSandboxMode: "none",
+        },
+      }),
+    (error: unknown) => error instanceof RuntimeSecurityViolationError,
+  );
+});
 
 test("runtime resolves component nodes through module loader", async () => {
   const component: RuntimeComponentFactory = (props) => {
@@ -382,6 +628,108 @@ test("runtime executes source module export using custom transpiler", async () =
   assert.equal(result.root.children[0].value, "Count=7");
 
   await runtime.terminate();
+});
+
+test("runtime executes source modules inside worker sandbox in browser mode", async () => {
+  const restoreGlobals = installBrowserSandboxGlobals(SandboxSuccessWorker);
+  const runtime = new DefaultRuntimeManager({
+    sourceTranspiler: new PassthroughSourceTranspiler(),
+    browserSourceSandboxMode: "worker",
+    browserSourceSandboxFailClosed: true,
+  });
+
+  try {
+    await runtime.initialize();
+
+    const plan: RuntimePlan = {
+      specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+      id: "runtime_source_worker_sandbox_plan",
+      version: 1,
+      root: createElementNode("div", undefined, [createTextNode("fallback")]),
+      capabilities: {
+        domWrite: true,
+      },
+      state: {
+        initial: {
+          count: 12,
+        },
+      },
+      source: {
+        language: "js",
+        code: "this is not valid js but worker mock handles it",
+      },
+    };
+
+    const result = await runtime.executePlan(plan);
+    assert.equal(result.root.type, "element");
+    if (result.root.type !== "element") {
+      throw new Error("expected element root");
+    }
+    assert.equal(result.root.children?.[0]?.type, "text");
+    if (!result.root.children?.[0] || result.root.children[0].type !== "text") {
+      throw new Error("expected text child");
+    }
+    assert.equal(result.root.children[0].value, "sandbox-count:12");
+    assert.ok(
+      result.diagnostics.some(
+        (item) => item.code === "RUNTIME_SOURCE_SANDBOX_EXECUTED",
+      ),
+    );
+  } finally {
+    await runtime.terminate();
+    restoreGlobals();
+  }
+});
+
+test("runtime sandbox fail-closed keeps fallback root and reports diagnostics", async () => {
+  const restoreGlobals = installBrowserSandboxGlobals(SandboxFailWorker);
+  const runtime = new DefaultRuntimeManager({
+    sourceTranspiler: new PassthroughSourceTranspiler(),
+    browserSourceSandboxMode: "worker",
+    browserSourceSandboxFailClosed: true,
+  });
+
+  try {
+    await runtime.initialize();
+
+    const plan: RuntimePlan = {
+      specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+      id: "runtime_source_worker_sandbox_fail_plan",
+      version: 1,
+      root: createElementNode("div", undefined, [createTextNode("fallback")]),
+      capabilities: {
+        domWrite: true,
+      },
+      source: {
+        language: "js",
+        code: "export default () => ({ type: 'text', value: 'should-not-run' });",
+      },
+    };
+
+    const result = await runtime.executePlan(plan);
+    assert.equal(result.root.type, "element");
+    if (result.root.type !== "element") {
+      throw new Error("expected element root");
+    }
+    assert.equal(result.root.children?.[0]?.type, "text");
+    if (!result.root.children?.[0] || result.root.children[0].type !== "text") {
+      throw new Error("expected text child");
+    }
+    assert.equal(result.root.children[0].value, "fallback");
+    assert.ok(
+      result.diagnostics.some(
+        (item) => item.code === "RUNTIME_SOURCE_SANDBOX_FAILED",
+      ),
+    );
+    assert.ok(
+      result.diagnostics.some(
+        (item) => item.code === "RUNTIME_SOURCE_EXEC_FAILED",
+      ),
+    );
+  } finally {
+    await runtime.terminate();
+    restoreGlobals();
+  }
 });
 
 test("runtime rewrites source imports through module loader resolver", async () => {

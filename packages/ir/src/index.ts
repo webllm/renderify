@@ -31,7 +31,11 @@ export type RuntimeNode =
   | RuntimeElementNode
   | RuntimeComponentNode;
 
-export type RuntimeExecutionProfile = "standard" | "isolated-vm";
+export type RuntimeExecutionProfile =
+  | "standard"
+  | "isolated-vm"
+  | "sandbox-worker"
+  | "sandbox-iframe";
 
 export type RuntimeSourceLanguage = "js" | "jsx" | "ts" | "tsx";
 export type RuntimeSourceRuntime = "renderify" | "preact";
@@ -340,7 +344,9 @@ export function isRuntimeCapabilities(
   if (
     value.executionProfile !== undefined &&
     value.executionProfile !== "standard" &&
-    value.executionProfile !== "isolated-vm"
+    value.executionProfile !== "isolated-vm" &&
+    value.executionProfile !== "sandbox-worker" &&
+    value.executionProfile !== "sandbox-iframe"
   ) {
     return false;
   }

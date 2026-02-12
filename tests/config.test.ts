@@ -18,6 +18,9 @@ test("config loads default security profile and runtime defaults", async () => {
   assert.equal(config.get("runtimeRemoteFetchTimeoutMs"), 12000);
   assert.equal(config.get("runtimeRemoteFetchRetries"), 2);
   assert.equal(config.get("runtimeRemoteFetchBackoffMs"), 150);
+  assert.equal(config.get("runtimeBrowserSourceSandboxMode"), "worker");
+  assert.equal(config.get("runtimeBrowserSourceSandboxTimeoutMs"), 4000);
+  assert.equal(config.get("runtimeBrowserSourceSandboxFailClosed"), true);
   assert.deepEqual(config.get("runtimeRemoteFallbackCdnBases"), [
     "https://esm.sh",
   ]);
@@ -94,6 +97,12 @@ test("config reads runtime policy values from env", async () => {
     process.env.RENDERIFY_RUNTIME_REMOTE_FETCH_BACKOFF_MS;
   const previousFallbackCdns =
     process.env.RENDERIFY_RUNTIME_REMOTE_FALLBACK_CDNS;
+  const previousBrowserSandboxMode =
+    process.env.RENDERIFY_RUNTIME_BROWSER_SANDBOX_MODE;
+  const previousBrowserSandboxTimeout =
+    process.env.RENDERIFY_RUNTIME_BROWSER_SANDBOX_TIMEOUT_MS;
+  const previousBrowserSandboxFailClosed =
+    process.env.RENDERIFY_RUNTIME_BROWSER_SANDBOX_FAIL_CLOSED;
 
   process.env.RENDERIFY_RUNTIME_ENFORCE_MANIFEST = "false";
   process.env.RENDERIFY_RUNTIME_ALLOW_ISOLATION_FALLBACK = "true";
@@ -106,6 +115,9 @@ test("config reads runtime policy values from env", async () => {
   process.env.RENDERIFY_RUNTIME_REMOTE_FETCH_BACKOFF_MS = "275";
   process.env.RENDERIFY_RUNTIME_REMOTE_FALLBACK_CDNS =
     "https://esm.sh,https://cdn.jsdelivr.net";
+  process.env.RENDERIFY_RUNTIME_BROWSER_SANDBOX_MODE = "iframe";
+  process.env.RENDERIFY_RUNTIME_BROWSER_SANDBOX_TIMEOUT_MS = "6200";
+  process.env.RENDERIFY_RUNTIME_BROWSER_SANDBOX_FAIL_CLOSED = "false";
 
   try {
     const config = new DefaultRenderifyConfig();
@@ -118,6 +130,9 @@ test("config reads runtime policy values from env", async () => {
     assert.equal(config.get("runtimeRemoteFetchTimeoutMs"), 9000);
     assert.equal(config.get("runtimeRemoteFetchRetries"), 4);
     assert.equal(config.get("runtimeRemoteFetchBackoffMs"), 275);
+    assert.equal(config.get("runtimeBrowserSourceSandboxMode"), "iframe");
+    assert.equal(config.get("runtimeBrowserSourceSandboxTimeoutMs"), 6200);
+    assert.equal(config.get("runtimeBrowserSourceSandboxFailClosed"), false);
     assert.deepEqual(config.get("runtimeRemoteFallbackCdnBases"), [
       "https://esm.sh",
       "https://cdn.jsdelivr.net",
@@ -148,5 +163,17 @@ test("config reads runtime policy values from env", async () => {
       previousFetchBackoff,
     );
     restoreEnv("RENDERIFY_RUNTIME_REMOTE_FALLBACK_CDNS", previousFallbackCdns);
+    restoreEnv(
+      "RENDERIFY_RUNTIME_BROWSER_SANDBOX_MODE",
+      previousBrowserSandboxMode,
+    );
+    restoreEnv(
+      "RENDERIFY_RUNTIME_BROWSER_SANDBOX_TIMEOUT_MS",
+      previousBrowserSandboxTimeout,
+    );
+    restoreEnv(
+      "RENDERIFY_RUNTIME_BROWSER_SANDBOX_FAIL_CLOSED",
+      previousBrowserSandboxFailClosed,
+    );
   }
 });

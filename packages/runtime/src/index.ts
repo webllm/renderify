@@ -26,9 +26,16 @@ import {
   setValueByPath,
 } from "@renderify/ir";
 import {
+  DefaultSecurityChecker,
+  type SecurityChecker,
+  type SecurityCheckResult,
+  type SecurityInitializationInput,
+} from "@renderify/security";
+import {
   init as initModuleLexer,
   parse as parseModuleImports,
 } from "es-module-lexer";
+import { JspmModuleLoader } from "./jspm-module-loader";
 
 export interface CompileOptions {
   pretty?: boolean;
@@ -89,6 +96,9 @@ export interface RuntimeManagerOptions {
   supportedPlanSpecVersions?: string[];
   enforceModuleManifest?: boolean;
   allowIsolationFallback?: boolean;
+  browserSourceSandboxMode?: RuntimeSourceSandboxMode;
+  browserSourceSandboxTimeoutMs?: number;
+  browserSourceSandboxFailClosed?: boolean;
   enableDependencyPreflight?: boolean;
   failOnDependencyPreflightError?: boolean;
   remoteFetchTimeoutMs?: number;
@@ -106,6 +116,34 @@ export interface RuntimeSourceTranspileInput {
 
 export interface RuntimeSourceTranspiler {
   transpile(input: RuntimeSourceTranspileInput): Promise<string>;
+}
+
+export interface RuntimeEmbedRenderOptions {
+  target?: string | HTMLElement;
+  context?: RuntimeExecutionContext;
+  runtime?: RuntimeManager;
+  runtimeOptions?: RuntimeManagerOptions;
+  security?: SecurityChecker;
+  securityInitialization?: SecurityInitializationInput;
+  autoInitializeRuntime?: boolean;
+  autoTerminateRuntime?: boolean;
+}
+
+export interface RuntimeEmbedRenderResult {
+  html: string;
+  execution: RuntimeExecutionResult;
+  security: SecurityCheckResult;
+  runtime: RuntimeManager;
+}
+
+export class RuntimeSecurityViolationError extends Error {
+  readonly result: SecurityCheckResult;
+
+  constructor(result: SecurityCheckResult) {
+    super(`Security policy rejected runtime plan: ${result.issues.join("; ")}`);
+    this.name = "RuntimeSecurityViolationError";
+    this.result = result;
+  }
 }
 
 interface ExecutionFrame {
@@ -133,6 +171,28 @@ interface RemoteModuleFetchResult {
   requestUrl: string;
 }
 
+interface RuntimeSandboxResult {
+  output: unknown;
+}
+
+interface RuntimeSandboxRequest {
+  renderifySandbox: "runtime-source";
+  id: string;
+  code: string;
+  exportName: string;
+  runtimeInput: Record<string, JsonValue>;
+}
+
+interface RuntimeSandboxResponse {
+  renderifySandbox: "runtime-source";
+  id: string;
+  ok: boolean;
+  output?: unknown;
+  error?: string;
+}
+
+export type RuntimeSourceSandboxMode = "none" | "worker" | "iframe";
+
 export type RuntimeComponentFactory = (
   props: Record<string, JsonValue>,
   context: RuntimeExecutionContext,
@@ -154,6 +214,8 @@ const FALLBACK_REMOTE_FALLBACK_CDN_BASES = [FALLBACK_ESM_CDN_BASE];
 const FALLBACK_SUPPORTED_SPEC_VERSIONS = [DEFAULT_RUNTIME_PLAN_SPEC_VERSION];
 const FALLBACK_ENFORCE_MODULE_MANIFEST = true;
 const FALLBACK_ALLOW_ISOLATION_FALLBACK = false;
+const FALLBACK_BROWSER_SOURCE_SANDBOX_TIMEOUT_MS = 4000;
+const FALLBACK_BROWSER_SOURCE_SANDBOX_FAIL_CLOSED = true;
 const SOURCE_IMPORT_REWRITE_PATTERNS = [
   /\bfrom\s+["']([^"']+)["']/g,
   /\bimport\s+["']([^"']+)["']/g,
@@ -303,6 +365,9 @@ export class DefaultRuntimeManager implements RuntimeManager {
   private readonly supportedPlanSpecVersions: Set<string>;
   private readonly enforceModuleManifest: boolean;
   private readonly allowIsolationFallback: boolean;
+  private readonly browserSourceSandboxMode: RuntimeSourceSandboxMode;
+  private readonly browserSourceSandboxTimeoutMs: number;
+  private readonly browserSourceSandboxFailClosed: boolean;
   private readonly enableDependencyPreflight: boolean;
   private readonly failOnDependencyPreflightError: boolean;
   private readonly remoteFetchTimeoutMs: number;
@@ -333,6 +398,16 @@ export class DefaultRuntimeManager implements RuntimeManager {
       options.enforceModuleManifest ?? FALLBACK_ENFORCE_MODULE_MANIFEST;
     this.allowIsolationFallback =
       options.allowIsolationFallback ?? FALLBACK_ALLOW_ISOLATION_FALLBACK;
+    this.browserSourceSandboxMode = this.normalizeSourceSandboxMode(
+      options.browserSourceSandboxMode,
+    );
+    this.browserSourceSandboxTimeoutMs = this.normalizePositiveInteger(
+      options.browserSourceSandboxTimeoutMs,
+      FALLBACK_BROWSER_SOURCE_SANDBOX_TIMEOUT_MS,
+    );
+    this.browserSourceSandboxFailClosed =
+      options.browserSourceSandboxFailClosed ??
+      FALLBACK_BROWSER_SOURCE_SANDBOX_FAIL_CLOSED;
     this.enableDependencyPreflight =
       options.enableDependencyPreflight ?? FALLBACK_ENABLE_DEPENDENCY_PREFLIGHT;
     this.failOnDependencyPreflightError =
@@ -1040,6 +1115,12 @@ export class DefaultRuntimeManager implements RuntimeManager {
     frame: ExecutionFrame,
   ): Promise<ResolvedSourceOutput | undefined> {
     try {
+      const exportName = source.exportName ?? "default";
+      const runtimeInput = {
+        context: cloneJsonValue(asJsonValue(context)),
+        state: cloneJsonValue(state),
+        event: event ? cloneJsonValue(asJsonValue(event)) : null,
+      };
       const transpiled = await this.withRemainingBudget(
         () => this.transpileRuntimeSource(source),
         frame,
@@ -1050,6 +1131,63 @@ export class DefaultRuntimeManager implements RuntimeManager {
         plan.moduleManifest,
         diagnostics,
       );
+
+      const sandboxMode = this.resolveSourceSandboxMode(
+        source,
+        frame.executionProfile,
+      );
+      if (sandboxMode !== "none") {
+        try {
+          const sandboxResult = await this.withRemainingBudget(
+            () =>
+              this.executeSourceInBrowserSandbox(
+                sandboxMode,
+                rewritten,
+                exportName,
+                runtimeInput,
+              ),
+            frame,
+            `Runtime source sandbox (${sandboxMode}) timed out`,
+          );
+
+          const normalized = this.normalizeSourceOutput(sandboxResult.output);
+          if (!normalized) {
+            diagnostics.push({
+              level: "error",
+              code: "RUNTIME_SOURCE_OUTPUT_INVALID",
+              message:
+                "Runtime source output from sandbox is not a supported RuntimeNode payload",
+            });
+            return undefined;
+          }
+
+          diagnostics.push({
+            level: "info",
+            code: "RUNTIME_SOURCE_SANDBOX_EXECUTED",
+            message: `Runtime source executed in ${sandboxMode} sandbox`,
+          });
+
+          return {
+            root: normalized,
+          };
+        } catch (error) {
+          const message = this.errorToMessage(error);
+          diagnostics.push({
+            level: this.browserSourceSandboxFailClosed ? "error" : "warning",
+            code: this.browserSourceSandboxFailClosed
+              ? "RUNTIME_SOURCE_SANDBOX_FAILED"
+              : "RUNTIME_SOURCE_SANDBOX_FALLBACK",
+            message,
+          });
+
+          if (this.browserSourceSandboxFailClosed) {
+            throw new Error(
+              `Runtime source sandbox (${sandboxMode}) failed: ${message}`,
+            );
+          }
+        }
+      }
+
       const namespace = await this.withRemainingBudget(
         () =>
           this.importSourceModuleFromCode(
@@ -1061,7 +1199,6 @@ export class DefaultRuntimeManager implements RuntimeManager {
         "Runtime source module loading timed out",
       );
 
-      const exportName = source.exportName ?? "default";
       const selected = this.selectExport(namespace, exportName);
       if (selected === undefined) {
         diagnostics.push({
@@ -1071,12 +1208,6 @@ export class DefaultRuntimeManager implements RuntimeManager {
         });
         return undefined;
       }
-
-      const runtimeInput = {
-        context: cloneJsonValue(asJsonValue(context)),
-        state: cloneJsonValue(state),
-        event: event ? cloneJsonValue(asJsonValue(event)) : null,
-      };
 
       if (this.shouldUsePreactSourceRuntime(source)) {
         const preactArtifact = await this.createPreactRenderArtifact(
@@ -1123,6 +1254,309 @@ export class DefaultRuntimeManager implements RuntimeManager {
       });
       return undefined;
     }
+  }
+
+  private resolveSourceSandboxMode(
+    source: RuntimeSourceModule,
+    executionProfile: RuntimeExecutionProfile,
+  ): RuntimeSourceSandboxMode {
+    const requested = this.executionProfileToSandboxMode(executionProfile);
+    const mode = requested ?? this.browserSourceSandboxMode;
+
+    if (mode === "none") {
+      return "none";
+    }
+
+    if (!isBrowserRuntime()) {
+      return "none";
+    }
+
+    if (this.shouldUsePreactSourceRuntime(source)) {
+      if (requested) {
+        throw new Error(
+          `${requested} executionProfile is not supported with source.runtime=preact`,
+        );
+      }
+      return "none";
+    }
+
+    return mode;
+  }
+
+  private executionProfileToSandboxMode(
+    executionProfile: RuntimeExecutionProfile,
+  ): RuntimeSourceSandboxMode | undefined {
+    if (executionProfile === "sandbox-worker") {
+      return "worker";
+    }
+
+    if (executionProfile === "sandbox-iframe") {
+      return "iframe";
+    }
+
+    return undefined;
+  }
+
+  private async executeSourceInBrowserSandbox(
+    mode: RuntimeSourceSandboxMode,
+    code: string,
+    exportName: string,
+    runtimeInput: Record<string, JsonValue>,
+  ): Promise<RuntimeSandboxResult> {
+    const request: RuntimeSandboxRequest = {
+      renderifySandbox: "runtime-source",
+      id: `sandbox_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`,
+      code,
+      exportName,
+      runtimeInput,
+    };
+
+    if (mode === "worker") {
+      return this.executeSourceInWorkerSandbox(request);
+    }
+
+    if (mode === "iframe") {
+      return this.executeSourceInIframeSandbox(request);
+    }
+
+    throw new Error(`Unsupported runtime source sandbox mode: ${mode}`);
+  }
+
+  private async executeSourceInWorkerSandbox(
+    request: RuntimeSandboxRequest,
+  ): Promise<RuntimeSandboxResult> {
+    if (
+      typeof Worker === "undefined" ||
+      typeof Blob === "undefined" ||
+      typeof URL === "undefined" ||
+      typeof URL.createObjectURL !== "function" ||
+      typeof URL.revokeObjectURL !== "function"
+    ) {
+      throw new Error("Worker sandbox is unavailable in this runtime");
+    }
+
+    const workerSource = [
+      "const CHANNEL = 'runtime-source';",
+      "self.onmessage = async (event) => {",
+      "  const request = event.data;",
+      "  if (!request || request.renderifySandbox !== CHANNEL) {",
+      "    return;",
+      "  }",
+      "  const send = (payload) => {",
+      "    self.postMessage({ renderifySandbox: CHANNEL, id: request.id, ...payload });",
+      "  };",
+      "  try {",
+      "    const moduleUrl = URL.createObjectURL(new Blob([String(request.code ?? '')], { type: 'text/javascript' }));",
+      "    try {",
+      "      const namespace = await import(moduleUrl);",
+      "      const exportName = typeof request.exportName === 'string' && request.exportName.trim().length > 0",
+      "        ? request.exportName.trim()",
+      "        : 'default';",
+      "      const selected = namespace[exportName];",
+      "      if (selected === undefined) {",
+      '        throw new Error(`Runtime source export "${exportName}" is missing`);',
+      "      }",
+      "      const output = typeof selected === 'function'",
+      "        ? await selected(request.runtimeInput ?? {})",
+      "        : selected;",
+      "      send({ ok: true, output });",
+      "    } finally {",
+      "      URL.revokeObjectURL(moduleUrl);",
+      "    }",
+      "  } catch (error) {",
+      "    const message = error && typeof error === 'object' && 'message' in error",
+      "      ? String(error.message)",
+      "      : String(error);",
+      "    send({ ok: false, error: message });",
+      "  }",
+      "};",
+    ].join("\n");
+
+    const workerUrl = URL.createObjectURL(
+      new Blob([workerSource], {
+        type: "text/javascript",
+      }),
+    );
+
+    const worker = new Worker(workerUrl, {
+      type: "module",
+      name: "renderify-runtime-source-sandbox",
+    });
+    URL.revokeObjectURL(workerUrl);
+
+    return new Promise<RuntimeSandboxResult>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        worker.terminate();
+        reject(new Error("Worker sandbox timed out"));
+      }, this.browserSourceSandboxTimeoutMs);
+
+      const cleanup = () => {
+        clearTimeout(timer);
+        worker.removeEventListener("message", onMessage);
+        worker.removeEventListener("error", onError);
+      };
+
+      const onMessage = (event: MessageEvent<RuntimeSandboxResponse>) => {
+        const payload = event.data;
+        if (!this.isRuntimeSandboxResponse(payload, request.id)) {
+          return;
+        }
+
+        cleanup();
+        worker.terminate();
+
+        if (!payload.ok) {
+          reject(new Error(payload.error ?? "Worker sandbox execution failed"));
+          return;
+        }
+
+        resolve({
+          output: payload.output,
+        });
+      };
+
+      const onError = (event: ErrorEvent) => {
+        cleanup();
+        worker.terminate();
+        reject(
+          new Error(
+            event.message || "Worker sandbox terminated with an unknown error",
+          ),
+        );
+      };
+
+      worker.addEventListener("message", onMessage);
+      worker.addEventListener("error", onError);
+      worker.postMessage(request);
+    });
+  }
+
+  private async executeSourceInIframeSandbox(
+    request: RuntimeSandboxRequest,
+  ): Promise<RuntimeSandboxResult> {
+    if (
+      typeof document === "undefined" ||
+      typeof window === "undefined" ||
+      typeof Blob === "undefined" ||
+      typeof URL === "undefined" ||
+      typeof URL.createObjectURL !== "function" ||
+      typeof URL.revokeObjectURL !== "function"
+    ) {
+      throw new Error("Iframe sandbox is unavailable in this runtime");
+    }
+
+    const iframe = document.createElement("iframe");
+    iframe.setAttribute("sandbox", "allow-scripts");
+    iframe.style.display = "none";
+
+    const channel = `renderify-runtime-source-${request.id}`;
+    const channelLiteral = JSON.stringify(channel);
+
+    iframe.srcdoc = [
+      "<!doctype html><html><body><script>",
+      `const CHANNEL = ${channelLiteral};`,
+      "window.addEventListener('message', async (event) => {",
+      "  const data = event.data;",
+      "  if (!data || data.channel !== CHANNEL) {",
+      "    return;",
+      "  }",
+      "  const request = data.request || {};",
+      "  const send = (payload) => {",
+      "    parent.postMessage({ channel: CHANNEL, ...payload }, '*');",
+      "  };",
+      "  try {",
+      "    const moduleUrl = URL.createObjectURL(new Blob([String(request.code ?? '')], { type: 'text/javascript' }));",
+      "    try {",
+      "      const namespace = await import(moduleUrl);",
+      "      const exportName = typeof request.exportName === 'string' && request.exportName.trim().length > 0",
+      "        ? request.exportName.trim()",
+      "        : 'default';",
+      "      const selected = namespace[exportName];",
+      "      if (selected === undefined) {",
+      '        throw new Error(`Runtime source export "${exportName}" is missing`);',
+      "      }",
+      "      const output = typeof selected === 'function'",
+      "        ? await selected(request.runtimeInput ?? {})",
+      "        : selected;",
+      "      send({ ok: true, output });",
+      "    } finally {",
+      "      URL.revokeObjectURL(moduleUrl);",
+      "    }",
+      "  } catch (error) {",
+      "    const message = error && typeof error === 'object' && 'message' in error",
+      "      ? String(error.message)",
+      "      : String(error);",
+      "    send({ ok: false, error: message });",
+      "  }",
+      "});",
+      "</script></body></html>",
+    ].join("");
+
+    document.body.appendChild(iframe);
+
+    return new Promise<RuntimeSandboxResult>((resolve, reject) => {
+      let settled = false;
+
+      const timer = setTimeout(() => {
+        cleanup();
+        reject(new Error("Iframe sandbox timed out"));
+      }, this.browserSourceSandboxTimeoutMs);
+
+      const cleanup = () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        window.removeEventListener("message", onMessage);
+        iframe.remove();
+      };
+
+      const onMessage = (event: MessageEvent<unknown>) => {
+        const data = event.data as
+          | { channel?: string; ok?: boolean; output?: unknown; error?: string }
+          | undefined;
+        if (!data || data.channel !== channel) {
+          return;
+        }
+
+        cleanup();
+
+        if (!data.ok) {
+          reject(new Error(data.error ?? "Iframe sandbox execution failed"));
+          return;
+        }
+
+        resolve({
+          output: data.output,
+        });
+      };
+
+      window.addEventListener("message", onMessage);
+      iframe.addEventListener(
+        "load",
+        () => {
+          iframe.contentWindow?.postMessage({ channel, request }, "*");
+        },
+        { once: true },
+      );
+    });
+  }
+
+  private isRuntimeSandboxResponse(
+    value: unknown,
+    expectedId: string,
+  ): value is RuntimeSandboxResponse {
+    if (typeof value !== "object" || value === null) {
+      return false;
+    }
+
+    const candidate = value as Partial<RuntimeSandboxResponse>;
+    return (
+      candidate.renderifySandbox === "runtime-source" &&
+      candidate.id === expectedId &&
+      typeof candidate.ok === "boolean"
+    );
   }
 
   private async transpileRuntimeSource(
@@ -2573,6 +3007,16 @@ export class DefaultRuntimeManager implements RuntimeManager {
     return normalized;
   }
 
+  private normalizeSourceSandboxMode(
+    mode: RuntimeSourceSandboxMode | undefined,
+  ): RuntimeSourceSandboxMode {
+    if (mode === "none" || mode === "worker" || mode === "iframe") {
+      return mode;
+    }
+
+    return isBrowserRuntime() ? "worker" : "none";
+  }
+
   private normalizeFallbackCdnBases(input?: string[]): string[] {
     const candidates = input ?? FALLBACK_REMOTE_FALLBACK_CDN_BASES;
     const normalized = new Set<string>();
@@ -2669,6 +3113,160 @@ export class DefaultRuntimeManager implements RuntimeManager {
   }
 }
 
+export async function renderPlanInBrowser(
+  plan: RuntimePlan,
+  options: RuntimeEmbedRenderOptions = {},
+): Promise<RuntimeEmbedRenderResult> {
+  const runtime =
+    options.runtime ??
+    new DefaultRuntimeManager({
+      moduleLoader: new JspmModuleLoader(),
+      ...(options.runtimeOptions ?? {}),
+    });
+  const security = options.security ?? new DefaultSecurityChecker();
+
+  const shouldInitializeRuntime =
+    options.autoInitializeRuntime !== false || options.runtime === undefined;
+  const shouldTerminateRuntime =
+    options.autoTerminateRuntime !== false && options.runtime === undefined;
+
+  security.initialize(options.securityInitialization);
+
+  if (shouldInitializeRuntime) {
+    await runtime.initialize();
+  }
+
+  try {
+    const securityResult = security.checkPlan(plan);
+    if (!securityResult.safe) {
+      throw new RuntimeSecurityViolationError(securityResult);
+    }
+
+    const execution = await runtime.execute({
+      plan,
+      context: options.context,
+    });
+    const html = await renderExecutionHtml(execution, options.target);
+
+    return {
+      html,
+      execution,
+      security: securityResult,
+      runtime,
+    };
+  } finally {
+    if (shouldTerminateRuntime) {
+      await runtime.terminate();
+    }
+  }
+}
+
+async function renderExecutionHtml(
+  execution: RuntimeExecutionResult,
+  target?: string | HTMLElement,
+): Promise<string> {
+  const mountPoint = resolveEmbedMountPoint(target);
+  if (execution.renderArtifact?.mode === "preact-vnode") {
+    if (mountPoint) {
+      const preact = (await import(getPreactSpecifier())) as {
+        render: (vnode: unknown, container: Element) => void;
+      };
+      preact.render(execution.renderArtifact.payload, mountPoint);
+      return mountPoint.innerHTML;
+    }
+
+    const renderToString = (await import("preact-render-to-string"))
+      .default as (vnode: unknown) => string;
+    return renderToString(execution.renderArtifact.payload);
+  }
+
+  const html = stringifyRuntimeNode(execution.root);
+  if (mountPoint) {
+    mountPoint.innerHTML = html;
+    return mountPoint.innerHTML;
+  }
+
+  return html;
+}
+
+function resolveEmbedMountPoint(
+  target?: string | HTMLElement,
+): HTMLElement | undefined {
+  if (!target || typeof document === "undefined") {
+    return undefined;
+  }
+
+  if (typeof target === "string") {
+    return document.querySelector<HTMLElement>(target) ?? undefined;
+  }
+
+  return target;
+}
+
+function stringifyRuntimeNode(node: RuntimeNode): string {
+  if (node.type === "text") {
+    return escapeHtml(node.value);
+  }
+
+  if (node.type === "component") {
+    return `<div data-renderify-unresolved-component="${escapeHtml(node.module)}"></div>`;
+  }
+
+  const tag = sanitizeTagName(node.tag);
+  const children = (node.children ?? [])
+    .map((child) => stringifyRuntimeNode(child))
+    .join("");
+  if (!tag) {
+    return `<div data-renderify-sanitized-tag="${escapeHtml(node.tag)}">${children}</div>`;
+  }
+
+  const attrs = Object.entries(node.props ?? {})
+    .filter(([key]) => !/^on[A-Z]|^on[a-z]/.test(key))
+    .map(([key, value]) => {
+      if (value === null) {
+        return "";
+      }
+
+      if (typeof value === "boolean") {
+        return value ? ` ${escapeHtml(key)}` : "";
+      }
+
+      return ` ${escapeHtml(key)}="${escapeHtml(String(value))}"`;
+    })
+    .join("");
+
+  return `<${tag}${attrs}>${children}</${tag}>`;
+}
+
+function sanitizeTagName(tagName: string): string | undefined {
+  const normalized = tagName.trim().toLowerCase();
+  if (!/^[a-z][a-z0-9-]*$/.test(normalized)) {
+    return undefined;
+  }
+
+  if (
+    normalized === "script" ||
+    normalized === "iframe" ||
+    normalized === "object" ||
+    normalized === "embed" ||
+    normalized === "link" ||
+    normalized === "meta"
+  ) {
+    return undefined;
+  }
+
+  return normalized;
+}
+
+function escapeHtml(raw: string): string {
+  return raw
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function nowMs(): number {
   if (
     typeof performance !== "undefined" &&
@@ -2678,6 +3276,14 @@ function nowMs(): number {
   }
 
   return Date.now();
+}
+
+function isBrowserRuntime(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof document !== "undefined" &&
+    typeof navigator !== "undefined"
+  );
 }
 
 interface NodeVmScript {
