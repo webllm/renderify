@@ -12,9 +12,6 @@ import {
   DefaultRenderifyConfig,
   DefaultSecurityChecker,
   DefaultUIRenderer,
-  type ExecutionAuditRecord,
-  InMemoryExecutionAuditLog,
-  InMemoryPlanRegistry,
   type LLMInterpreter,
   type LLMProviderConfig,
   type RenderifyApp,
@@ -22,22 +19,9 @@ import {
   type RenderPromptResult,
   type RenderPromptStreamChunk,
 } from "@renderify/core";
-import {
-  asJsonValue,
-  isRuntimePlan,
-  type JsonValue,
-  type RuntimeEvent,
-  type RuntimePlan,
-  type RuntimeStateSnapshot,
-} from "@renderify/ir";
+import { isRuntimePlan, type RuntimePlan } from "@renderify/ir";
 import { OpenAILLMInterpreter } from "@renderify/llm-openai";
 import { DefaultRuntimeManager, JspmModuleLoader } from "@renderify/runtime";
-
-interface CliSessionData {
-  plans: RuntimePlan[];
-  audits: ExecutionAuditRecord[];
-  states: Record<string, RuntimeStateSnapshot>;
-}
 
 interface CliArgs {
   command:
@@ -45,34 +29,22 @@ interface CliArgs {
     | "plan"
     | "probe-plan"
     | "render-plan"
-    | "event"
-    | "state"
-    | "history"
-    | "rollback"
-    | "replay"
-    | "clear-history"
     | "playground"
     | "help";
   prompt?: string;
   planFile?: string;
-  planId?: string;
-  version?: number;
-  traceId?: string;
-  eventType?: string;
-  payloadJson?: string;
   port?: number;
 }
 
 interface PlaygroundServerOptions {
   app: RenderifyApp;
   port: number;
-  persistSession: () => Promise<void>;
 }
 
 const DEFAULT_PROMPT = "Hello Renderify runtime";
 const DEFAULT_PORT = 4317;
 const JSON_BODY_LIMIT_BYTES = 1_000_000;
-const { readFile, mkdir, writeFile } = fs.promises;
+const { readFile } = fs.promises;
 
 function createLLM(config: DefaultRenderifyConfig): LLMInterpreter {
   const provider = config.get<LLMProviderConfig>("llmProvider") ?? "openai";
@@ -94,19 +66,6 @@ async function main() {
   if (args.command === "help") {
     printHelp();
     return;
-  }
-
-  const sessionPath = resolveSessionPath();
-  const persisted = await loadSessionData(sessionPath);
-
-  const planRegistry = new InMemoryPlanRegistry();
-  for (const plan of persisted.plans) {
-    planRegistry.register(plan);
-  }
-
-  const auditLog = new InMemoryExecutionAuditLog();
-  for (const audit of persisted.audits) {
-    auditLog.append(audit);
   }
 
   const config = new DefaultRenderifyConfig();
@@ -149,25 +108,9 @@ async function main() {
     ui: new DefaultUIRenderer(),
     apiIntegration: new DefaultApiIntegration(),
     customization: new DefaultCustomizationEngine(),
-    planRegistry,
-    auditLog,
   });
 
   await renderifyApp.start();
-
-  for (const [planId, state] of Object.entries(persisted.states)) {
-    renderifyApp.setPlanState(planId, state);
-  }
-
-  const persistSession = async (): Promise<void> => {
-    await saveSessionData(sessionPath, {
-      plans: flattenPlans(renderifyApp.listPlans(), (planId, version) =>
-        renderifyApp.getPlan(planId, version),
-      ),
-      audits: renderifyApp.listAudits(),
-      states: collectStates(renderifyApp),
-    });
-  };
 
   try {
     switch (args.command) {
@@ -231,69 +174,16 @@ async function main() {
         console.log(result.html);
         break;
       }
-      case "event": {
-        if (!args.planId || !args.eventType) {
-          throw new Error("event requires <planId> <eventType> [payloadJson]");
-        }
-
-        const event = parseEvent(args.eventType, args.payloadJson);
-        const result = await renderifyApp.dispatchEvent(args.planId, event);
-        console.log(result.html);
-        break;
-      }
-      case "state": {
-        if (!args.planId) {
-          throw new Error("state requires <planId>");
-        }
-
-        const state = renderifyApp.getPlanState(args.planId);
-        console.log(JSON.stringify(state ?? {}, null, 2));
-        break;
-      }
-      case "history": {
-        printHistory(
-          renderifyApp.listPlans(),
-          renderifyApp.listAudits(50),
-          collectStates(renderifyApp),
-        );
-        break;
-      }
-      case "rollback": {
-        if (!args.planId || args.version === undefined) {
-          throw new Error("rollback requires <planId> <version>");
-        }
-        const result = await renderifyApp.rollbackPlan(
-          args.planId,
-          args.version,
-        );
-        console.log(result.html);
-        break;
-      }
-      case "replay": {
-        if (!args.traceId) {
-          throw new Error("replay requires <traceId>");
-        }
-        const result = await renderifyApp.replayTrace(args.traceId);
-        console.log(result.html);
-        break;
-      }
-      case "clear-history": {
-        renderifyApp.clearHistory();
-        console.log("history cleared");
-        break;
-      }
       case "playground": {
         const port = args.port ?? resolvePlaygroundPort();
         await runPlaygroundServer({
           app: renderifyApp,
           port,
-          persistSession,
         });
         break;
       }
     }
   } finally {
-    await persistSession();
     await renderifyApp.stop();
   }
 }
@@ -318,33 +208,6 @@ function parseArgs(argv: string[]): CliArgs {
       return { command: "probe-plan", planFile: rest[0] };
     case "render-plan":
       return { command: "render-plan", planFile: rest[0] };
-    case "event":
-      return {
-        command: "event",
-        planId: rest[0],
-        eventType: rest[1],
-        payloadJson: rest[2],
-      };
-    case "state":
-      return {
-        command: "state",
-        planId: rest[0],
-      };
-    case "history":
-      return { command: "history" };
-    case "rollback":
-      return {
-        command: "rollback",
-        planId: rest[0],
-        version: rest[1] ? Number(rest[1]) : undefined,
-      };
-    case "replay":
-      return {
-        command: "replay",
-        traceId: rest[0],
-      };
-    case "clear-history":
-      return { command: "clear-history" };
     case "playground":
       return {
         command: "playground",
@@ -405,34 +268,7 @@ function printHelp(): void {
   renderify plan <prompt>                    Print runtime plan JSON
   renderify probe-plan <file>                Probe RuntimePlan dependencies and policy compatibility
   renderify render-plan <file>               Execute RuntimePlan JSON file
-  renderify event <planId> <type> [payload]  Dispatch runtime event to a stored plan
-  renderify state <planId>                   Print current runtime state for a plan
-  renderify history                          Print persisted plan/audit/state history
-  renderify rollback <id> <version>          Roll back to a persisted plan version
-  renderify replay <traceId>                 Replay a previous trace
-  renderify clear-history                    Remove persisted runtime history
   renderify playground [port]                Start browser runtime playground`);
-}
-
-function parseEvent(eventType: string, payloadJson?: string): RuntimeEvent {
-  if (!payloadJson) {
-    return { type: eventType };
-  }
-
-  const parsed = JSON.parse(payloadJson) as unknown;
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw new Error("event payload must be a JSON object");
-  }
-
-  const payload: Record<string, JsonValue> = {};
-  for (const [key, value] of Object.entries(parsed)) {
-    payload[key] = asJsonValue(value);
-  }
-
-  return {
-    type: eventType,
-    payload,
-  };
 }
 
 async function loadPlanFile(filePath: string): Promise<RuntimePlan> {
@@ -446,128 +282,13 @@ async function loadPlanFile(filePath: string): Promise<RuntimePlan> {
   return parsed;
 }
 
-function resolveSessionPath(): string {
-  const configured = process.env.RENDERIFY_SESSION_FILE;
-  if (configured && configured.trim().length > 0) {
-    return path.resolve(configured);
-  }
-
-  return path.resolve(process.cwd(), ".renderify", "session.json");
-}
-
-async function loadSessionData(filePath: string): Promise<CliSessionData> {
-  try {
-    const raw = await readFile(filePath, "utf8");
-    const parsed = JSON.parse(raw) as Partial<CliSessionData>;
-
-    return {
-      plans: Array.isArray(parsed.plans) ? parsed.plans : [],
-      audits: Array.isArray(parsed.audits) ? parsed.audits : [],
-      states:
-        typeof parsed.states === "object" && parsed.states !== null
-          ? (parsed.states as Record<string, RuntimeStateSnapshot>)
-          : {},
-    };
-  } catch {
-    return { plans: [], audits: [], states: {} };
-  }
-}
-
-async function saveSessionData(
-  filePath: string,
-  data: CliSessionData,
-): Promise<void> {
-  await mkdir(path.dirname(filePath), { recursive: true });
-  await writeFile(filePath, JSON.stringify(data, null, 2), "utf8");
-}
-
-function flattenPlans(
-  summaries: Array<{ planId: string; versions: number[] }>,
-  getter: (
-    planId: string,
-    version: number,
-  ) => { plan: RuntimePlan } | undefined,
-): RuntimePlan[] {
-  const plans: RuntimePlan[] = [];
-
-  for (const summary of summaries) {
-    for (const version of summary.versions) {
-      const record = getter(summary.planId, version);
-      if (record) {
-        plans.push(record.plan);
-      }
-    }
-  }
-
-  return plans;
-}
-
-function collectStates(
-  app: Pick<RenderifyApp, "listPlans" | "getPlanState">,
-): Record<string, RuntimeStateSnapshot> {
-  const states: Record<string, RuntimeStateSnapshot> = {};
-
-  for (const summary of app.listPlans()) {
-    const state = app.getPlanState(summary.planId);
-    if (state) {
-      states[summary.planId] = state;
-    }
-  }
-
-  return states;
-}
-
-function printHistory(
-  planSummaries: Array<{
-    planId: string;
-    latestVersion: number;
-    versions: number[];
-  }>,
-  audits: ExecutionAuditRecord[],
-  states: Record<string, RuntimeStateSnapshot>,
-): void {
-  console.log("[plans]");
-  if (planSummaries.length === 0) {
-    console.log("  (none)");
-  } else {
-    for (const plan of planSummaries) {
-      console.log(
-        `  ${plan.planId} latest=${plan.latestVersion} versions=${plan.versions.join(",")}`,
-      );
-    }
-  }
-
-  console.log("[audits]");
-  if (audits.length === 0) {
-    console.log("  (none)");
-  } else {
-    for (const audit of audits) {
-      const eventLabel = audit.event ? ` event=${audit.event.type}` : "";
-      const tenantLabel = audit.tenantId ? ` tenant=${audit.tenantId}` : "";
-      console.log(
-        `  ${audit.traceId} mode=${audit.mode} status=${audit.status} plan=${audit.planId ?? "-"}@${audit.planVersion ?? "-"}${tenantLabel}${eventLabel}`,
-      );
-    }
-  }
-
-  console.log("[states]");
-  if (Object.keys(states).length === 0) {
-    console.log("  (none)");
-    return;
-  }
-
-  for (const [planId, state] of Object.entries(states)) {
-    console.log(`  ${planId} ${JSON.stringify(state)}`);
-  }
-}
-
 async function runPlaygroundServer(
   options: PlaygroundServerOptions,
 ): Promise<void> {
-  const { app, port, persistSession } = options;
+  const { app, port } = options;
 
   const server = http.createServer((req, res) => {
-    void handlePlaygroundRequest(req, res, app, persistSession);
+    void handlePlaygroundRequest(req, res, app);
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -625,7 +346,6 @@ async function handlePlaygroundRequest(
   req: IncomingMessage,
   res: ServerResponse,
   app: RenderifyApp,
-  persistSession: () => Promise<void>,
 ): Promise<void> {
   const method = (req.method ?? "GET").toUpperCase();
   const parsedUrl = new URL(req.url ?? "/", "http://127.0.0.1");
@@ -642,37 +362,6 @@ async function handlePlaygroundRequest(
       return;
     }
 
-    if (method === "GET" && pathname === "/api/history") {
-      sendJson(res, 200, {
-        security: {
-          profile: app.getSecurityChecker().getProfile(),
-          policy: app.getSecurityChecker().getPolicy(),
-        },
-        tenantGovernor: {
-          policy: app.getTenantGovernor().getPolicy(),
-          snapshots: app.getTenantGovernor().listSnapshots(),
-        },
-        plans: app.listPlans(),
-        audits: app.listAudits(100),
-        states: collectStates(app),
-      });
-      return;
-    }
-
-    if (method === "GET" && pathname === "/api/state") {
-      const planId = parsedUrl.searchParams.get("planId");
-      if (!planId) {
-        sendJson(res, 400, { error: "planId query param is required" });
-        return;
-      }
-
-      sendJson(res, 200, {
-        planId,
-        state: app.getPlanState(planId) ?? {},
-      });
-      return;
-    }
-
     if (method === "POST" && pathname === "/api/prompt") {
       const body = await readJsonBody(req);
       const prompt =
@@ -680,7 +369,6 @@ async function handlePlaygroundRequest(
           ? body.prompt.trim()
           : DEFAULT_PROMPT;
       const result = await app.renderPrompt(prompt);
-      await persistSession();
       sendJson(res, 200, serializeRenderResult(result));
       return;
     }
@@ -692,7 +380,7 @@ async function handlePlaygroundRequest(
           ? body.prompt.trim()
           : DEFAULT_PROMPT;
 
-      await sendPromptStream(res, app, prompt, persistSession);
+      await sendPromptStream(res, app, prompt);
       return;
     }
 
@@ -707,70 +395,27 @@ async function handlePlaygroundRequest(
       const result = await app.renderPlan(plan, {
         prompt: "playground:plan",
       });
-      await persistSession();
       sendJson(res, 200, serializeRenderResult(result));
       return;
     }
 
-    if (method === "POST" && pathname === "/api/event") {
+    if (method === "POST" && pathname === "/api/probe-plan") {
       const body = await readJsonBody(req);
-      const planId = typeof body.planId === "string" ? body.planId.trim() : "";
-      const eventType =
-        typeof body.eventType === "string" ? body.eventType.trim() : "";
-
-      if (!planId || !eventType) {
-        sendJson(res, 400, { error: "planId and eventType are required" });
+      const plan = body.plan;
+      if (!isRuntimePlan(plan)) {
+        sendJson(res, 400, { error: "body.plan must be a RuntimePlan object" });
         return;
       }
 
-      const payload = normalizePayload(body.payload);
-      const event: RuntimeEvent = payload
-        ? { type: eventType, payload }
-        : { type: eventType };
-
-      const result = await app.dispatchEvent(planId, event);
-      await persistSession();
-      sendJson(res, 200, serializeRenderResult(result));
-      return;
-    }
-
-    if (method === "POST" && pathname === "/api/rollback") {
-      const body = await readJsonBody(req);
-      const planId = typeof body.planId === "string" ? body.planId.trim() : "";
-      const version =
-        typeof body.version === "number" ? body.version : Number(body.version);
-
-      if (!planId || !Number.isInteger(version) || version < 1) {
-        sendJson(res, 400, { error: "planId and valid version are required" });
-        return;
-      }
-
-      const result = await app.rollbackPlan(planId, version);
-      await persistSession();
-      sendJson(res, 200, serializeRenderResult(result));
-      return;
-    }
-
-    if (method === "POST" && pathname === "/api/replay") {
-      const body = await readJsonBody(req);
-      const traceId =
-        typeof body.traceId === "string" ? body.traceId.trim() : "";
-
-      if (!traceId) {
-        sendJson(res, 400, { error: "traceId is required" });
-        return;
-      }
-
-      const result = await app.replayTrace(traceId);
-      await persistSession();
-      sendJson(res, 200, serializeRenderResult(result));
-      return;
-    }
-
-    if (method === "POST" && pathname === "/api/clear-history") {
-      app.clearHistory();
-      await persistSession();
-      sendJson(res, 200, { cleared: true });
+      const security = app.getSecurityChecker().checkPlan(plan);
+      const runtimeProbe = await app.getRuntimeManager().probePlan(plan);
+      sendJson(res, 200, {
+        safe: security.safe,
+        securityIssues: security.issues,
+        securityDiagnostics: security.diagnostics,
+        dependencies: runtimeProbe.dependencies,
+        runtimeDiagnostics: runtimeProbe.diagnostics,
+      });
       return;
     }
 
@@ -795,7 +440,6 @@ function serializeRenderResult(
     planDetail: result.plan,
     diagnostics: result.execution.diagnostics,
     state: result.execution.state ?? {},
-    audit: result.audit,
   };
 }
 
@@ -831,21 +475,6 @@ async function readJsonBody(
   return parsed;
 }
 
-function normalizePayload(
-  value: unknown,
-): Record<string, JsonValue> | undefined {
-  if (!isRecord(value)) {
-    return undefined;
-  }
-
-  const payload: Record<string, JsonValue> = {};
-  for (const [key, entry] of Object.entries(value)) {
-    payload[key] = asJsonValue(entry);
-  }
-
-  return payload;
-}
-
 function sendJson(
   res: ServerResponse,
   statusCode: number,
@@ -873,7 +502,6 @@ async function sendPromptStream(
   res: ServerResponse,
   app: RenderifyApp,
   prompt: string,
-  persistSession: () => Promise<void>,
 ): Promise<void> {
   res.writeHead(200, {
     "content-type": "application/x-ndjson; charset=utf-8",
@@ -886,10 +514,6 @@ async function sendPromptStream(
     for await (const chunk of app.renderPromptStream(prompt)) {
       const serialized = serializePromptStreamChunk(chunk);
       res.write(`${JSON.stringify(serialized)}\n`);
-
-      if (chunk.type === "final") {
-        await persistSession();
-      }
     }
   } catch (error) {
     res.write(
@@ -943,15 +567,15 @@ const PLAYGROUND_HTML = `<!doctype html>
     <title>Renderify Runtime Playground</title>
     <style>
       :root {
-        --bg-top: #f1f7ff;
-        --bg-bottom: #fff8ef;
-        --panel: rgba(255, 255, 255, 0.82);
+        --bg-top: #e7f3ff;
+        --bg-bottom: #fff9f0;
+        --panel: rgba(255, 255, 255, 0.86);
         --line: rgba(17, 24, 39, 0.12);
-        --ink: #111827;
+        --ink: #0f172a;
         --subtle: #475569;
         --brand: #0f766e;
+        --brand-2: #0369a1;
         --danger: #b91c1c;
-        --radius: 14px;
       }
 
       * {
@@ -962,7 +586,7 @@ const PLAYGROUND_HTML = `<!doctype html>
         margin: 0;
         color: var(--ink);
         font-family: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
-        background: linear-gradient(160deg, var(--bg-top), var(--bg-bottom));
+        background: radial-gradient(circle at 10% 0%, var(--bg-top), var(--bg-bottom));
       }
 
       .shell {
@@ -971,867 +595,376 @@ const PLAYGROUND_HTML = `<!doctype html>
       }
 
       .title {
-        margin: 0 0 14px;
+        margin: 0 0 8px;
         font-size: 28px;
-        letter-spacing: 0.4px;
       }
 
       .sub {
-        margin: 0 0 18px;
+        margin: 0 0 16px;
         color: var(--subtle);
       }
 
-      .layout {
+      .grid {
         display: grid;
-        grid-template-columns: minmax(360px, 520px) 1fr;
-        gap: 16px;
+        grid-template-columns: repeat(12, minmax(0, 1fr));
+        gap: 14px;
       }
 
-      .panel {
+      .card {
         background: var(--panel);
         border: 1px solid var(--line);
-        border-radius: var(--radius);
-        backdrop-filter: blur(8px);
+        border-radius: 14px;
         padding: 14px;
+        backdrop-filter: blur(8px);
       }
 
-      .panel h2 {
-        margin: 4px 0 10px;
+      .span-4 {
+        grid-column: span 4;
+      }
+
+      .span-8 {
+        grid-column: span 8;
+      }
+
+      .span-12 {
+        grid-column: span 12;
+      }
+
+      h2 {
+        margin: 0 0 10px;
         font-size: 16px;
       }
 
-      .group {
-        margin-bottom: 12px;
-      }
-
-      label {
-        display: block;
-        font-size: 12px;
-        font-weight: 600;
-        color: var(--subtle);
-        margin-bottom: 4px;
-      }
-
-      input,
-      textarea,
-      button {
+      textarea {
         width: 100%;
-        border-radius: 10px;
+        min-height: 118px;
         border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 10px 11px;
         font: inherit;
-      }
-
-      input,
-      textarea {
-        padding: 9px 11px;
-        background: rgba(255, 255, 255, 0.9);
-      }
-
-      textarea {
-        min-height: 80px;
         resize: vertical;
+        background: #fff;
       }
 
-      .row {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
         gap: 8px;
-      }
-
-      .row-3 {
-        display: grid;
-        grid-template-columns: 2fr 1fr 1fr;
-        gap: 8px;
+        margin-top: 10px;
       }
 
       button {
-        padding: 10px 12px;
-        border: 0;
-        font-weight: 700;
+        border: 1px solid transparent;
+        border-radius: 10px;
+        padding: 8px 12px;
+        font: inherit;
+        font-weight: 600;
         cursor: pointer;
+        background: linear-gradient(160deg, var(--brand), var(--brand-2));
+        color: #fff;
       }
 
-      .primary {
-        background: var(--brand);
-        color: white;
+      button.secondary {
+        background: #fff;
+        color: var(--ink);
+        border-color: var(--line);
       }
 
-      .muted {
-        background: #e2e8f0;
-        color: #0f172a;
+      button.danger {
+        background: var(--danger);
       }
 
-      .danger {
-        background: #fee2e2;
-        color: var(--danger);
+      button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      .status {
+        min-height: 20px;
+        margin-top: 10px;
+        color: var(--subtle);
+        font-size: 13px;
+      }
+
+      .render-output {
+        min-height: 130px;
+        border: 1px dashed rgba(15, 118, 110, 0.35);
+        border-radius: 10px;
+        padding: 10px;
+        background: rgba(255, 255, 255, 0.9);
       }
 
       pre {
         margin: 0;
-        padding: 10px;
-        border-radius: 10px;
-        border: 1px solid var(--line);
-        background: rgba(255, 255, 255, 0.9);
+        max-height: 360px;
         overflow: auto;
-        max-height: 180px;
+        padding: 10px;
         font-size: 12px;
-        line-height: 1.45;
-      }
-
-      .preview {
-        min-height: 420px;
-        border-radius: 12px;
-        border: 1px solid var(--line);
-        background: white;
-        padding: 14px;
-      }
-
-      .status {
-        margin-top: 10px;
-        color: var(--subtle);
-        font-size: 12px;
+        border-radius: 10px;
+        background: #0f172a;
+        color: #dbeafe;
       }
 
       @media (max-width: 980px) {
-        .layout {
-          grid-template-columns: 1fr;
+        .span-4,
+        .span-8 {
+          grid-column: span 12;
         }
       }
     </style>
   </head>
   <body>
     <div class="shell">
-      <h1 class="title">Renderify Runtime Playground</h1>
-      <p class="sub">No build-per-change: prompt/plan/event execute directly in runtime.</p>
-      <div class="layout">
-        <div class="panel">
+      <h1 class="title">Renderify Playground</h1>
+      <p class="sub">Prompt -> RuntimePlan -> Runtime execution -> Browser render</p>
+
+      <div class="grid">
+        <section class="card span-4">
           <h2>Prompt</h2>
-          <div class="group">
-            <label for="prompt-input">Prompt</label>
-            <textarea id="prompt-input">Build an analytics dashboard with a chart and KPI toggle buttons</textarea>
+          <textarea id="prompt">Build an analytics dashboard with a chart and KPI cards</textarea>
+          <div class="actions">
+            <button id="run-prompt">Render Prompt</button>
+            <button id="stream-prompt" class="secondary">Stream Prompt</button>
+            <button id="clear" class="danger">Clear</button>
           </div>
-          <button id="prompt-run" class="primary">Run Prompt</button>
+          <div class="status" id="status">Ready.</div>
+        </section>
 
-          <h2>Plan</h2>
-          <div class="group">
-            <label for="plan-input">RuntimePlan JSON</label>
-            <textarea id="plan-input"></textarea>
-          </div>
-          <button id="plan-run" class="primary">Run Plan</button>
+        <section class="card span-8">
+          <h2>Rendered HTML</h2>
+          <div class="render-output" id="html-output"></div>
+        </section>
 
-          <h2>Event</h2>
-          <div class="row">
-            <div class="group">
-              <label for="event-plan-id">Plan ID</label>
-              <input id="event-plan-id" placeholder="plan_xxx" />
-            </div>
-            <div class="group">
-              <label for="event-type">Event Type</label>
-              <input id="event-type" placeholder="increment" value="increment" />
-            </div>
+        <section class="card span-6">
+          <h2>Plan JSON</h2>
+          <textarea id="plan-editor">{}</textarea>
+          <div class="actions">
+            <button id="run-plan">Render Plan</button>
+            <button id="probe-plan" class="secondary">Probe Plan</button>
           </div>
-          <div class="group">
-            <label for="event-payload">Payload JSON (optional)</label>
-            <textarea id="event-payload">{"count":1}</textarea>
-          </div>
-          <button id="event-run" class="primary">Dispatch Event</button>
+        </section>
 
-          <h2>Ops</h2>
-          <div class="row-3">
-            <div class="group">
-              <label for="rollback-plan-id">Rollback Plan</label>
-              <input id="rollback-plan-id" placeholder="plan_xxx" />
-            </div>
-            <div class="group">
-              <label for="rollback-version">Version</label>
-              <input id="rollback-version" placeholder="1" />
-            </div>
-            <div class="group" style="align-self:end;">
-              <button id="rollback-run" class="muted">Rollback</button>
-            </div>
-          </div>
-          <div class="row">
-            <div class="group">
-              <label for="replay-trace-id">Replay Trace ID</label>
-              <input id="replay-trace-id" placeholder="trace_xxx" />
-            </div>
-            <div class="group" style="align-self:end;">
-              <button id="replay-run" class="muted">Replay</button>
-            </div>
-          </div>
-          <button id="clear-history" class="danger">Clear History</button>
+        <section class="card span-6">
+          <h2>Diagnostics</h2>
+          <pre id="diagnostics">{}</pre>
+        </section>
 
-          <h2>State</h2>
-          <div class="row">
-            <div class="group">
-              <label for="state-plan-id">Plan ID</label>
-              <input id="state-plan-id" placeholder="plan_xxx" />
-            </div>
-            <div class="group" style="align-self:end;">
-              <button id="state-refresh" class="muted">Refresh State</button>
-            </div>
-          </div>
-          <pre id="state-output">{}</pre>
-
-          <h2>History</h2>
-          <button id="history-refresh" class="muted">Refresh History</button>
-          <pre id="history-output">{}</pre>
-        </div>
-
-        <div class="panel">
-          <h2>Rendered UI</h2>
-          <div id="preview" class="preview"></div>
-          <div id="status" class="status">idle</div>
-          <h2>Last Result</h2>
-          <pre id="result-output">{}</pre>
-        </div>
+        <section class="card span-12">
+          <h2>Streaming Feed</h2>
+          <pre id="stream-output">[]</pre>
+        </section>
       </div>
     </div>
 
     <script>
       const byId = (id) => document.getElementById(id);
-      const preview = byId("preview");
-      const status = byId("status");
-      const resultOutput = byId("result-output");
-      const historyOutput = byId("history-output");
-      const stateOutput = byId("state-output");
-      const BABEL_STANDALONE_URL =
-        "https://unpkg.com/@babel/standalone@7.29.0/babel.min.js";
-      const BROWSER_MODULE_FALLBACKS = {
-        preact: "https://esm.sh/preact@10.28.3",
-        "preact/hooks": "https://esm.sh/preact@10.28.3/hooks",
-        "preact/jsx-runtime":
-          "https://esm.sh/preact@10.28.3/jsx-runtime",
-        "preact/jsx-dev-runtime":
-          "https://esm.sh/preact@10.28.3/jsx-runtime",
-        recharts:
-          "https://esm.sh/recharts@3.3.0?alias=react:preact/compat,react-dom:preact/compat,react-dom/client:preact/compat,react/jsx-runtime:preact/jsx-runtime,react/jsx-dev-runtime:preact/jsx-runtime",
-        "@mui/material":
-          "https://esm.sh/@mui/material@7.3.5?alias=react:preact/compat,react-dom:preact/compat,react-dom/client:preact/compat,react/jsx-runtime:preact/jsx-runtime,react/jsx-dev-runtime:preact/jsx-runtime",
-        react: "https://esm.sh/preact@10.28.3/compat",
-        "react-dom": "https://esm.sh/preact@10.28.3/compat",
-        "react-dom/client": "https://esm.sh/preact@10.28.3/compat",
-        "react/jsx-runtime": "https://esm.sh/preact@10.28.3/jsx-runtime",
-        "react/jsx-dev-runtime": "https://esm.sh/preact@10.28.3/jsx-runtime"
-      };
-      const IMPORT_PATTERNS = [
-        /\\bfrom\\s+["']([^"']+)["']/g,
-        /\\bimport\\s+["']([^"']+)["']/g,
-        /\\bimport\\s*\\(\\s*["']([^"']+)["']\\s*\\)/g
-      ];
-      const moduleGraphCache = new Map();
-      const moduleGraphInflight = new Map();
-      let babelStandalonePromise;
+      const statusEl = byId("status");
+      const promptEl = byId("prompt");
+      const htmlOutputEl = byId("html-output");
+      const planEditorEl = byId("plan-editor");
+      const diagnosticsEl = byId("diagnostics");
+      const streamOutputEl = byId("stream-output");
 
-      const safeJson = (value) => {
-        try {
-          return JSON.stringify(value, null, 2);
-        } catch {
-          return String(value);
-        }
+      const controls = [
+        byId("run-prompt"),
+        byId("stream-prompt"),
+        byId("run-plan"),
+        byId("probe-plan"),
+        byId("clear"),
+      ];
+
+      const setBusy = (busy) => {
+        controls.forEach((button) => {
+          button.disabled = busy;
+        });
       };
 
       const setStatus = (text) => {
-        status.textContent = text;
+        statusEl.textContent = text;
       };
 
-      const loadScript = (src) =>
-        new Promise((resolve, reject) => {
-          const existing = Array.from(document.querySelectorAll("script")).find(
-            (entry) => entry.src === src
-          );
-          if (existing) {
-            if (existing.dataset.loaded === "true") {
-              resolve();
-              return;
-            }
-            existing.addEventListener("load", () => resolve(), { once: true });
-            existing.addEventListener(
-              "error",
-              () => reject(new Error("Failed to load script: " + src)),
-              { once: true }
-            );
-            return;
-          }
-
-          const script = document.createElement("script");
-          script.src = src;
-          script.async = true;
-          script.referrerPolicy = "no-referrer";
-          script.addEventListener("load", () => {
-            script.dataset.loaded = "true";
-            resolve();
-          });
-          script.addEventListener(
-            "error",
-            () => reject(new Error("Failed to load script: " + src)),
-            { once: true }
-          );
-          document.head.appendChild(script);
-        });
-
-      const ensureBabelStandalone = async () => {
-        if (window.Babel && typeof window.Babel.transform === "function") {
-          return window.Babel;
-        }
-
-        if (!babelStandalonePromise) {
-          babelStandalonePromise = loadScript(BABEL_STANDALONE_URL).then(() => {
-            if (window.Babel && typeof window.Babel.transform === "function") {
-              return window.Babel;
-            }
-            throw new Error("Babel standalone is unavailable");
-          });
-        }
-
-        return babelStandalonePromise;
-      };
-
-      const isRecord = (value) =>
-        typeof value === "object" && value !== null && !Array.isArray(value);
-
-      const resolveManifestSpecifier = (specifier, moduleManifest) => {
-        if (isRecord(BROWSER_MODULE_FALLBACKS) && BROWSER_MODULE_FALLBACKS[specifier]) {
-          return BROWSER_MODULE_FALLBACKS[specifier];
-        }
-
-        if (isRecord(moduleManifest) && isRecord(moduleManifest[specifier])) {
-          const resolvedUrl = String(moduleManifest[specifier].resolvedUrl || "").trim();
-          if (resolvedUrl.length > 0) {
-            return resolvedUrl;
-          }
-        }
-        return specifier;
-      };
-
-      const isHttpUrl = (specifier) =>
-        typeof specifier === "string" &&
-        (specifier.startsWith("http://") || specifier.startsWith("https://"));
-
-      const toEsmFallbackUrl = (url) => {
-        if (typeof url !== "string" || !url.startsWith("https://ga.jspm.io/npm:")) {
-          return undefined;
-        }
-
-        const specifier = url.slice("https://ga.jspm.io/npm:".length).trim();
-        if (specifier.length === 0) {
-          return undefined;
-        }
-
-        const aliasQuery =
-          "alias=react:preact/compat,react-dom:preact/compat,react-dom/client:preact/compat,react/jsx-runtime:preact/jsx-runtime,react/jsx-dev-runtime:preact/jsx-runtime&target=es2022";
-        const separator = specifier.includes("?") ? "&" : "?";
-        return "https://esm.sh/" + specifier + separator + aliasQuery;
-      };
-
-      const fetchModuleCodeWithFallback = async (url) => {
-        const fallbackUrl = toEsmFallbackUrl(url);
-        const attempts = [url, fallbackUrl].filter(
-          (entry, index, array) =>
-            typeof entry === "string" &&
-            entry.length > 0 &&
-            array.indexOf(entry) === index
-        );
-
-        let lastError;
-        for (const attempt of attempts) {
-          try {
-            const response = await fetch(attempt);
-            if (!response.ok) {
-              throw new Error("HTTP " + response.status + " for " + attempt);
-            }
-            return {
-              url: response.url || attempt,
-              code: await response.text()
-            };
-          } catch (error) {
-            lastError = error;
-          }
-        }
-
-        throw (
-          lastError ||
-          new Error("Failed to load module code for " + String(url))
-        );
-      };
-
-      const replaceImportSpecifiersAsync = async (source, pattern, replacer) => {
-        const flags = pattern.flags.includes("g")
-          ? pattern.flags
-          : pattern.flags + "g";
-        const regex = new RegExp(pattern.source, flags);
-
-        let rewritten = "";
-        let lastIndex = 0;
-        let match = regex.exec(source);
-        while (match) {
-          const full = match[0];
-          const specifier = match[1];
-          const start = match.index;
-          const end = start + full.length;
-
-          rewritten += source.slice(lastIndex, start);
-          rewritten += await replacer(full, specifier);
-          lastIndex = end;
-          match = regex.exec(source);
-        }
-
-        rewritten += source.slice(lastIndex);
-        return rewritten;
-      };
-
-      const rewriteImportsWithManifest = async (code, moduleManifest, parentUrl) => {
-        let rewritten = code;
-        for (const pattern of IMPORT_PATTERNS) {
-          rewritten = await replaceImportSpecifiersAsync(
-            rewritten,
-            pattern,
-            async (full, specifier) => {
-              const trimmed = String(specifier || "").trim();
-              if (trimmed.length === 0) {
-                return full;
-              }
-
-              if (trimmed.startsWith("data:") || trimmed.startsWith("blob:")) {
-                return full;
-              }
-
-              if (isHttpUrl(trimmed)) {
-                const blobUrl = await materializeRemoteModule(trimmed, moduleManifest);
-                return full.replace(specifier, blobUrl);
-              }
-
-              if (
-                trimmed.startsWith("./") ||
-                trimmed.startsWith("../") ||
-                trimmed.startsWith("/")
-              ) {
-                if (!parentUrl || !isHttpUrl(parentUrl)) {
-                  return full;
-                }
-
-                const resolved = new URL(trimmed, parentUrl).toString();
-                const blobUrl = await materializeRemoteModule(resolved, moduleManifest);
-                return full.replace(specifier, blobUrl);
-              }
-
-              const resolved = resolveManifestSpecifier(trimmed, moduleManifest);
-              if (isHttpUrl(resolved)) {
-                const blobUrl = await materializeRemoteModule(resolved, moduleManifest);
-                return full.replace(specifier, blobUrl);
-              }
-
-              return full.replace(specifier, resolved);
-            }
-          );
-        }
-
-        return rewritten;
-      };
-
-      const materializeRemoteModule = async (url, moduleManifest) => {
-        if (moduleGraphCache.has(url)) {
-          return moduleGraphCache.get(url);
-        }
-        if (moduleGraphInflight.has(url)) {
-          return moduleGraphInflight.get(url);
-        }
-
-        const loading = (async () => {
-          const fetched = await fetchModuleCodeWithFallback(url);
-          const rewritten = await rewriteImportsWithManifest(
-            fetched.code,
-            moduleManifest,
-            fetched.url
-          );
-          const blobUrl = URL.createObjectURL(
-            new Blob([rewritten], { type: "text/javascript" })
-          );
-          moduleGraphCache.set(url, blobUrl);
-          moduleGraphCache.set(fetched.url, blobUrl);
-          return blobUrl;
-        })();
-
-        moduleGraphInflight.set(url, loading);
+      const safeJson = (value) => {
         try {
-          return await loading;
-        } finally {
-          moduleGraphInflight.delete(url);
+          return JSON.stringify(value ?? {}, null, 2);
+        } catch (error) {
+          return String(error);
         }
       };
 
-      const transpileSourceForBrowser = async (source) => {
-        if (!isRecord(source) || typeof source.code !== "string") {
-          throw new Error("Invalid runtime source payload");
-        }
-
-        const language = String(source.language || "js");
-        if (language === "js") {
-          return source.code;
-        }
-
-        const babel = await ensureBabelStandalone();
-        const presets = [];
-
-        if (language === "ts" || language === "tsx") {
-          presets.push("typescript");
-        }
-
-        if (language === "jsx" || language === "tsx") {
-          presets.push([
-            "react",
-            {
-              runtime: "automatic",
-              importSource: "preact"
-            }
-          ]);
-        }
-
-        const transformed = babel.transform(source.code, {
-          sourceType: "module",
-          presets,
-          filename: "renderify-playground-source." + language,
-          babelrc: false,
-          configFile: false,
-          comments: false
-        });
-
-        if (!transformed || typeof transformed.code !== "string") {
-          throw new Error("Babel returned empty output");
-        }
-
-        return transformed.code;
-      };
-
-      const importSourceModuleFromCode = async (code, moduleManifest) => {
-        const rewritten = await rewriteImportsWithManifest(
-          code,
-          moduleManifest,
-          undefined
-        );
-        const blobUrl = URL.createObjectURL(
-          new Blob([rewritten], { type: "text/javascript" })
-        );
-        return await import(blobUrl);
-      };
-
-      const renderSourcePlanInBrowser = async (plan, state) => {
-        if (!isRecord(plan) || !isRecord(plan.source)) {
-          return false;
-        }
-
-        const source = plan.source;
-        const language = String(source.language || "js");
-        const runtime =
-          source.runtime ||
-          (language === "tsx" || language === "jsx" ? "preact" : "renderify");
-
-        if (runtime !== "preact") {
-          return false;
-        }
-
-        const transpiled = await transpileSourceForBrowser(source);
-        const namespace = await importSourceModuleFromCode(
-          transpiled,
-          isRecord(plan.moduleManifest) ? plan.moduleManifest : undefined
-        );
-        const exportName =
-          typeof source.exportName === "string" && source.exportName.trim().length > 0
-            ? source.exportName
-            : "default";
-        const selected = namespace ? namespace[exportName] : undefined;
-
-        if (typeof selected !== "function") {
-          throw new Error('Runtime source export "' + exportName + '" is not callable');
-        }
-
-        const preactSpecifier = resolveManifestSpecifier(
-          "preact",
-          isRecord(plan.moduleManifest) ? plan.moduleManifest : undefined
-        );
-        const preact = await import(preactSpecifier);
-        if (
-          !isRecord(preact) ||
-          typeof preact.h !== "function" ||
-          typeof preact.render !== "function"
-        ) {
-          throw new Error("Failed to load preact runtime in browser");
-        }
-
-        const runtimeInput = {
-          context: {},
-          state: isRecord(state) ? state : {},
-          event: null
-        };
-        const vnode = preact.h(selected, runtimeInput);
-        preact.render(vnode, preview);
-        return true;
-      };
-
-      const applyRenderResult = async (payload) => {
-        if (typeof payload.html === "string") {
-          preview.innerHTML = payload.html;
-        }
-
-        if (payload.plan && payload.plan.id) {
-          byId("event-plan-id").value = payload.plan.id;
-          byId("rollback-plan-id").value = payload.plan.id;
-          byId("state-plan-id").value = payload.plan.id;
-        }
-
-        if (payload.traceId) {
-          byId("replay-trace-id").value = payload.traceId;
-        }
-
-        resultOutput.textContent = safeJson(payload);
-
-        if (payload.planDetail) {
-          try {
-            await renderSourcePlanInBrowser(payload.planDetail, payload.state);
-          } catch (error) {
-            console.warn("Browser source render failed", error);
-          }
-        }
-      };
-
-      const request = async (url, method, body) => {
-        const response = await fetch(url, {
+      async function request(path, method, body) {
+        const response = await fetch(path, {
           method,
           headers: { "content-type": "application/json" },
-          body: body ? JSON.stringify(body) : undefined
+          body: body ? JSON.stringify(body) : undefined,
         });
 
         const payload = await response.json();
         if (!response.ok) {
-          throw new Error(payload.error || ("HTTP " + response.status));
+          throw new Error(payload && payload.error ? String(payload.error) : "request failed");
         }
         return payload;
+      }
+
+      const applyRenderPayload = (payload) => {
+        htmlOutputEl.innerHTML = String(payload.html ?? "");
+        planEditorEl.value = safeJson(payload.planDetail ?? {});
+        diagnosticsEl.textContent = safeJson({
+          traceId: payload.traceId,
+          state: payload.state ?? {},
+          diagnostics: payload.diagnostics ?? [],
+        });
       };
 
-      const requestPromptStream = async (prompt) => {
-        const response = await fetch("/api/prompt-stream", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ prompt })
-        });
-
-        if (!response.ok || !response.body) {
-          let errorText = "Streaming request failed";
-          try {
-            const payload = await response.json();
-            errorText = payload.error || errorText;
-          } catch {}
-          throw new Error(errorText);
+      async function runPrompt() {
+        const prompt = promptEl.value.trim();
+        if (!prompt) {
+          setStatus("Prompt is required.");
+          return;
         }
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
+        setBusy(true);
+        setStatus("Rendering prompt...");
+        try {
+          const payload = await request("/api/prompt", "POST", { prompt });
+          applyRenderPayload(payload);
+          streamOutputEl.textContent = "[]";
+          setStatus("Prompt rendered.");
+        } catch (error) {
+          setStatus("Prompt render failed.");
+          diagnosticsEl.textContent = String(error);
+        } finally {
+          setBusy(false);
+        }
+      }
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) {
-            break;
+      async function streamPrompt() {
+        const prompt = promptEl.value.trim();
+        if (!prompt) {
+          setStatus("Prompt is required.");
+          return;
+        }
+
+        setBusy(true);
+        setStatus("Streaming prompt...");
+        const streamEvents = [];
+
+        try {
+          const response = await fetch("/api/prompt-stream", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ prompt }),
+          });
+
+          if (!response.ok || !response.body) {
+            throw new Error("stream request failed");
           }
 
-          buffer += decoder.decode(value, { stream: true });
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
 
-          let newlineIndex = buffer.indexOf("\\n");
-          while (newlineIndex >= 0) {
-            const line = buffer.slice(0, newlineIndex).trim();
-            buffer = buffer.slice(newlineIndex + 1);
-
-            if (line.length > 0) {
-              const payload = JSON.parse(line);
-              if (payload.type === "error") {
-                throw new Error(payload.error || "stream error");
-              }
-              await handleStreamChunk(payload);
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+              break;
             }
 
-            newlineIndex = buffer.indexOf("\\n");
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\\n");
+            buffer = lines.pop() ?? "";
+
+            for (const line of lines) {
+              if (!line.trim()) {
+                continue;
+              }
+              const event = JSON.parse(line);
+              streamEvents.push({
+                type: event.type,
+                planId: event.planId ?? null,
+                llmTextLength: String(event.llmText ?? "").length,
+              });
+
+              if (event.html) {
+                htmlOutputEl.innerHTML = String(event.html);
+              }
+              if (event.type === "final" && event.final) {
+                applyRenderPayload(event.final);
+              }
+            }
           }
-        }
-      };
 
-      const handleStreamChunk = async (chunk) => {
-        if (chunk.type === "llm-delta") {
-          setStatus("streaming llm... " + chunk.llmText.length + " chars");
-          return;
-        }
-
-        if (chunk.type === "preview") {
-          if (typeof chunk.html === "string") {
-            preview.innerHTML = chunk.html;
-          }
-          resultOutput.textContent = safeJson(chunk);
-          setStatus("stream preview ready");
-          return;
-        }
-
-        if (chunk.type === "final") {
-          const finalPayload = chunk.final || chunk;
-          await applyRenderResult(finalPayload);
-          setStatus("prompt stream done");
-        }
-      };
-
-      const runPrompt = async () => {
-        setStatus("streaming prompt...");
-        try {
-          await requestPromptStream(byId("prompt-input").value);
-          await refreshHistory();
-          await refreshState();
+          streamOutputEl.textContent = safeJson(streamEvents);
+          setStatus("Stream completed.");
         } catch (error) {
-          setStatus("prompt failed");
-          resultOutput.textContent = String(error);
+          setStatus("Stream failed.");
+          diagnosticsEl.textContent = String(error);
+        } finally {
+          setBusy(false);
         }
-      };
+      }
 
-      const runPlan = async () => {
-        setStatus("running plan...");
+      async function runPlan() {
+        const raw = planEditorEl.value.trim();
+        if (!raw) {
+          setStatus("Plan JSON is required.");
+          return;
+        }
+
+        setBusy(true);
+        setStatus("Rendering plan...");
         try {
-          const plan = JSON.parse(byId("plan-input").value);
+          const plan = JSON.parse(raw);
           const payload = await request("/api/plan", "POST", { plan });
-          await applyRenderResult(payload);
-          await refreshHistory();
-          await refreshState();
-          setStatus("plan done");
+          applyRenderPayload(payload);
+          setStatus("Plan rendered.");
         } catch (error) {
-          setStatus("plan failed");
-          resultOutput.textContent = String(error);
+          setStatus("Plan render failed.");
+          diagnosticsEl.textContent = String(error);
+        } finally {
+          setBusy(false);
         }
-      };
+      }
 
-      const runEvent = async () => {
-        setStatus("dispatching event...");
-        try {
-          const payloadRaw = byId("event-payload").value.trim();
-          const payload = payloadRaw ? JSON.parse(payloadRaw) : undefined;
-          const result = await request("/api/event", "POST", {
-            planId: byId("event-plan-id").value.trim(),
-            eventType: byId("event-type").value.trim(),
-            payload
-          });
-          await applyRenderResult(result);
-          await refreshHistory();
-          await refreshState();
-          setStatus("event done");
-        } catch (error) {
-          setStatus("event failed");
-          resultOutput.textContent = String(error);
-        }
-      };
-
-      const runRollback = async () => {
-        setStatus("rolling back...");
-        try {
-          const payload = await request("/api/rollback", "POST", {
-            planId: byId("rollback-plan-id").value.trim(),
-            version: Number(byId("rollback-version").value)
-          });
-          await applyRenderResult(payload);
-          await refreshHistory();
-          await refreshState();
-          setStatus("rollback done");
-        } catch (error) {
-          setStatus("rollback failed");
-          resultOutput.textContent = String(error);
-        }
-      };
-
-      const runReplay = async () => {
-        setStatus("replaying...");
-        try {
-          const payload = await request("/api/replay", "POST", {
-            traceId: byId("replay-trace-id").value.trim()
-          });
-          await applyRenderResult(payload);
-          await refreshHistory();
-          await refreshState();
-          setStatus("replay done");
-        } catch (error) {
-          setStatus("replay failed");
-          resultOutput.textContent = String(error);
-        }
-      };
-
-      const clearHistory = async () => {
-        setStatus("clearing history...");
-        try {
-          await request("/api/clear-history", "POST", {});
-          preview.innerHTML = "";
-          resultOutput.textContent = "{}";
-          await refreshHistory();
-          await refreshState();
-          setStatus("history cleared");
-        } catch (error) {
-          setStatus("clear failed");
-          resultOutput.textContent = String(error);
-        }
-      };
-
-      const refreshHistory = async () => {
-        try {
-          const payload = await request("/api/history", "GET");
-          historyOutput.textContent = safeJson(payload);
-        } catch (error) {
-          historyOutput.textContent = String(error);
-        }
-      };
-
-      const refreshState = async () => {
-        const planId = byId("state-plan-id").value.trim();
-        if (!planId) {
-          stateOutput.textContent = "{}";
+      async function probePlan() {
+        const raw = planEditorEl.value.trim();
+        if (!raw) {
+          setStatus("Plan JSON is required.");
           return;
         }
 
+        setBusy(true);
+        setStatus("Probing plan...");
         try {
-          const payload = await request("/api/state?planId=" + encodeURIComponent(planId), "GET");
-          stateOutput.textContent = safeJson(payload);
+          const plan = JSON.parse(raw);
+          const payload = await request("/api/probe-plan", "POST", { plan });
+          diagnosticsEl.textContent = safeJson(payload);
+          setStatus("Plan probe completed.");
         } catch (error) {
-          stateOutput.textContent = String(error);
+          setStatus("Plan probe failed.");
+          diagnosticsEl.textContent = String(error);
+        } finally {
+          setBusy(false);
         }
-      };
+      }
 
-      byId("prompt-run").addEventListener("click", runPrompt);
-      byId("plan-run").addEventListener("click", runPlan);
-      byId("event-run").addEventListener("click", runEvent);
-      byId("rollback-run").addEventListener("click", runRollback);
-      byId("replay-run").addEventListener("click", runReplay);
-      byId("clear-history").addEventListener("click", clearHistory);
-      byId("history-refresh").addEventListener("click", refreshHistory);
-      byId("state-refresh").addEventListener("click", refreshState);
+      function clearAll() {
+        htmlOutputEl.innerHTML = "";
+        diagnosticsEl.textContent = "{}";
+        streamOutputEl.textContent = "[]";
+        setStatus("Cleared.");
+      }
 
-      byId("plan-input").value = safeJson({
-        id: "playground_counter",
-        version: 1,
-        capabilities: { domWrite: true },
-        state: {
-          initial: { count: 0 },
-          transitions: {
-            increment: [{ type: "increment", path: "count", by: 1 }],
-            reset: [{ type: "set", path: "count", value: 0 }]
-          }
-        },
-        root: {
-          type: "element",
-          tag: "section",
-          props: { class: "counter-shell" },
-          children: [
-            { type: "element", tag: "h2", children: [{ type: "text", value: "Runtime Counter" }] },
-            { type: "element", tag: "p", children: [{ type: "text", value: "Count: {{state.count}}" }] }
-          ]
-        }
-      });
-
-      refreshHistory();
+      byId("run-prompt").addEventListener("click", runPrompt);
+      byId("stream-prompt").addEventListener("click", streamPrompt);
+      byId("run-plan").addEventListener("click", runPlan);
+      byId("probe-plan").addEventListener("click", probePlan);
+      byId("clear").addEventListener("click", clearAll);
     </script>
   </body>
 </html>`;
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
+void main().catch((error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(message);
+  process.exitCode = 1;
 });

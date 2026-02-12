@@ -21,7 +21,8 @@
 
       body {
         margin: 0;
-        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+          sans-serif;
         color: var(--text);
         background: radial-gradient(circle at 10% 20%, #dff6f3 0%, var(--bg) 42%);
       }
@@ -152,11 +153,13 @@
       <div class="grid">
         <section class="panel">
           <h2>Prompt</h2>
-          <textarea id="promptInput">Generate a runtime counter section</textarea>
+          <textarea id="promptInput"
+            >Generate a runtime dashboard section</textarea
+          >
           <div class="actions">
             <button id="renderPromptButton">Render Prompt</button>
-            <button id="incrementButton" class="secondary" disabled>
-              Dispatch increment
+            <button id="streamPromptButton" class="secondary">
+              Stream Prompt
             </button>
             <button id="clearButton" class="secondary">Clear</button>
           </div>
@@ -174,8 +177,8 @@
         </section>
 
         <section class="panel">
-          <h2>State</h2>
-          <pre id="stateJson">{}</pre>
+          <h2>Streaming Chunks</h2>
+          <pre id="streamJson">[]</pre>
         </section>
       </div>
     </div>
@@ -188,19 +191,18 @@
         const statusEl = document.getElementById("status");
         const promptInput = document.getElementById("promptInput");
         const renderButton = document.getElementById("renderPromptButton");
-        const incrementButton = document.getElementById("incrementButton");
+        const streamButton = document.getElementById("streamPromptButton");
         const clearButton = document.getElementById("clearButton");
         const renderResultEl = document.getElementById("renderResult");
         const planJsonEl = document.getElementById("planJson");
-        const stateJsonEl = document.getElementById("stateJson");
+        const streamJsonEl = document.getElementById("streamJson");
 
         let app;
-        let currentPlanId = "";
 
         function setBusy(busy) {
           renderButton.disabled = busy;
+          streamButton.disabled = busy;
           clearButton.disabled = busy;
-          incrementButton.disabled = busy || !currentPlanId;
         }
 
         function setStatus(text) {
@@ -219,7 +221,7 @@
           }
           async generateResponse(req) {
             return {
-              text: `Counter demo for: ${req.prompt}`,
+              text: `Dashboard demo for: ${req.prompt}`,
               model: "demo-llm",
             };
           }
@@ -229,12 +231,6 @@
                 id: "browser_demo_plan",
                 version: 1,
                 capabilities: { domWrite: true },
-                state: {
-                  initial: { count: 0 },
-                  transitions: {
-                    increment: [{ type: "increment", path: "count", by: 1 }],
-                  },
-                },
                 root: {
                   type: "element",
                   tag: "section",
@@ -247,7 +243,7 @@
                     {
                       type: "element",
                       tag: "p",
-                      children: [{ type: "text", value: "Count={{state.count}}" }],
+                      children: [{ type: "text", value: "Runtime render ready." }],
                     },
                   ],
                 },
@@ -276,7 +272,10 @@
           await app.start();
           setStatus("Renderify runtime ready.");
         } catch (error) {
-          setStatus("Boot failed: " + (error && error.message ? error.message : String(error)));
+          setStatus(
+            "Boot failed: " +
+              (error && error.message ? error.message : String(error)),
+          );
           setBusy(true);
           return;
         }
@@ -293,52 +292,70 @@
 
           try {
             const result = await app.renderPrompt(prompt);
-            currentPlanId = result.plan.id;
             renderResultEl.innerHTML = result.html;
             planJsonEl.textContent = toJson(result.plan);
-            stateJsonEl.textContent = toJson(app.getPlanState(currentPlanId));
+            streamJsonEl.textContent = "[]";
             setStatus(
               "Rendered. planId=" +
                 result.plan.id +
                 " version=" +
-                result.plan.version
+                result.plan.version,
             );
           } catch (error) {
-            setStatus("Render failed: " + (error && error.message ? error.message : String(error)));
+            setStatus(
+              "Render failed: " +
+                (error && error.message ? error.message : String(error)),
+            );
           } finally {
             setBusy(false);
           }
         });
 
-        incrementButton.addEventListener("click", async function () {
-          if (!currentPlanId) {
-            setStatus("请先执行 Render Prompt。");
+        streamButton.addEventListener("click", async function () {
+          const prompt = promptInput.value.trim();
+          if (!prompt) {
+            setStatus("Prompt 不能为空。");
             return;
           }
 
           setBusy(true);
-          setStatus("Dispatching increment...");
+          setStatus("Streaming prompt...");
+          const chunks = [];
 
           try {
-            const result = await app.dispatchEvent(currentPlanId, {
-              type: "increment",
-              payload: { delta: 1 },
-            });
-            renderResultEl.innerHTML = result.html;
-            stateJsonEl.textContent = toJson(app.getPlanState(currentPlanId));
-            setStatus("Increment dispatched.");
+            for await (const chunk of app.renderPromptStream(prompt, {
+              previewEveryChunks: 1,
+            })) {
+              chunks.push({
+                type: chunk.type,
+                planId: chunk.planId ?? null,
+                llmTextLength: String(chunk.llmText ?? "").length,
+              });
+
+              if (chunk.html) {
+                renderResultEl.innerHTML = chunk.html;
+              }
+              if (chunk.type === "final" && chunk.final) {
+                planJsonEl.textContent = toJson(chunk.final.plan);
+              }
+            }
+
+            streamJsonEl.textContent = toJson(chunks);
+            setStatus("Stream complete.");
           } catch (error) {
-            setStatus("Dispatch failed: " + (error && error.message ? error.message : String(error)));
+            setStatus(
+              "Stream failed: " +
+                (error && error.message ? error.message : String(error)),
+            );
           } finally {
             setBusy(false);
           }
         });
 
         clearButton.addEventListener("click", function () {
-          currentPlanId = "";
           renderResultEl.innerHTML = "";
           planJsonEl.textContent = "{}";
-          stateJsonEl.textContent = "{}";
+          streamJsonEl.textContent = "[]";
           setStatus("Cleared.");
           setBusy(false);
         });

@@ -1,18 +1,6 @@
-import type {
-  RuntimeEvent,
-  RuntimeExecutionResult,
-  RuntimePlan,
-  RuntimeStateSnapshot,
-} from "@renderify/ir";
+import type { RuntimeExecutionResult, RuntimePlan } from "@renderify/ir";
 import type { RuntimeExecutionInput, RuntimeManager } from "@renderify/runtime";
 import type { ApiIntegration } from "./api-integration";
-import {
-  type ExecutionAuditLog,
-  type ExecutionAuditRecord,
-  type ExecutionMode,
-  type ExecutionStatus,
-  InMemoryExecutionAuditLog,
-} from "./audit-log";
 import type {
   CodeGenerationInput,
   CodeGenerator,
@@ -33,25 +21,12 @@ import type {
   LLMStructuredResponse,
 } from "./llm-interpreter";
 import type { PerformanceOptimizer } from "./performance";
-import {
-  InMemoryPlanRegistry,
-  type PlanRegistry,
-  type PlanSummary,
-  type PlanVersionRecord,
-} from "./plan-registry";
 import type {
   RuntimeSecurityPolicy,
   RuntimeSecurityProfile,
   SecurityChecker,
   SecurityCheckResult,
 } from "./security";
-import {
-  InMemoryTenantGovernor,
-  type TenantGovernor,
-  type TenantLease,
-  TenantQuotaExceededError,
-  type TenantQuotaPolicy,
-} from "./tenant-governor";
 import type { RenderTarget, UIRenderer } from "./ui";
 
 export interface RenderifyCoreDependencies {
@@ -65,9 +40,6 @@ export interface RenderifyCoreDependencies {
   ui: UIRenderer;
   apiIntegration?: ApiIntegration;
   customization?: CustomizationEngine;
-  planRegistry?: PlanRegistry;
-  auditLog?: ExecutionAuditLog;
-  tenantGovernor?: TenantGovernor;
 }
 
 export interface RenderPromptOptions {
@@ -78,10 +50,7 @@ export interface RenderPromptOptions {
 export interface RenderPlanOptions {
   target?: RenderTarget;
   traceId?: string;
-  mode?: ExecutionMode;
   prompt?: string;
-  event?: RuntimeEvent;
-  stateOverride?: RuntimeStateSnapshot;
 }
 
 export interface RenderPlanResult {
@@ -90,7 +59,6 @@ export interface RenderPlanResult {
   security: SecurityCheckResult;
   execution: RuntimeExecutionResult;
   html: string;
-  audit: ExecutionAuditRecord;
 }
 
 export interface RenderPromptResult extends RenderPlanResult {
@@ -117,13 +85,9 @@ export interface RenderPromptStreamChunk {
 interface ExecutePlanFlowParams {
   traceId: string;
   metricLabel: string;
-  startedAt: number;
-  mode: ExecutionMode;
   plan: RuntimePlan;
   target?: RenderTarget;
   prompt?: string;
-  event?: RuntimeEvent;
-  stateOverride?: RuntimeStateSnapshot;
 }
 
 type EventCallback = (...args: unknown[]) => void;
@@ -141,16 +105,10 @@ export class PolicyRejectionError extends Error {
 export class RenderifyApp {
   private readonly deps: RenderifyCoreDependencies;
   private readonly listeners = new Map<string, Set<EventCallback>>();
-  private readonly planRegistry: PlanRegistry;
-  private readonly auditLog: ExecutionAuditLog;
-  private readonly tenantGovernor: TenantGovernor;
   private running = false;
 
   constructor(deps: RenderifyCoreDependencies) {
     this.deps = deps;
-    this.planRegistry = deps.planRegistry ?? new InMemoryPlanRegistry();
-    this.auditLog = deps.auditLog ?? new InMemoryExecutionAuditLog();
-    this.tenantGovernor = deps.tenantGovernor ?? new InMemoryTenantGovernor();
   }
 
   public async start(): Promise<void> {
@@ -170,10 +128,6 @@ export class RenderifyApp {
       profile: securityProfile,
       overrides: policyOverrides,
     });
-
-    const tenantQuotaPolicy =
-      this.deps.config.get<Partial<TenantQuotaPolicy>>("tenantQuotaPolicy");
-    this.tenantGovernor.initialize(tenantQuotaPolicy);
 
     await this.deps.runtime.initialize();
 
@@ -199,7 +153,6 @@ export class RenderifyApp {
 
     const traceId = options.traceId ?? this.createTraceId();
     const metricLabel = this.createMetricLabel(traceId);
-    const startedAt = Date.now();
     this.deps.performance.startMeasurement(metricLabel);
 
     let llmResponse: LLMResponse | undefined;
@@ -304,8 +257,6 @@ export class RenderifyApp {
       const planFlowResult = await this.executePlanFlow({
         traceId,
         metricLabel,
-        startedAt,
-        mode: "prompt",
         prompt: promptAfterHook,
         plan: planAfterCodegen,
         target: options.target,
@@ -319,19 +270,7 @@ export class RenderifyApp {
     } catch (error) {
       if (!handoffToPlanFlow) {
         const metric = this.deps.performance.endMeasurement(metricLabel);
-        const audit = this.recordAudit({
-          traceId,
-          mode: "prompt",
-          status: "failed",
-          startedAt,
-          prompt: promptAfterHook,
-          tenantId: this.resolveTenantId(),
-          plan: undefined,
-          diagnosticsCount: 0,
-          securityIssueCount: 0,
-          errorMessage: this.errorToMessage(error),
-        });
-        this.emit("renderFailed", { traceId, metric, audit, error });
+        this.emit("renderFailed", { traceId, metric, error });
       }
 
       throw error;
@@ -346,7 +285,6 @@ export class RenderifyApp {
 
     const traceId = options.traceId ?? this.createTraceId();
     const metricLabel = this.createMetricLabel(traceId);
-    const startedAt = Date.now();
     this.deps.performance.startMeasurement(metricLabel);
 
     let promptAfterHook = prompt;
@@ -612,8 +550,6 @@ export class RenderifyApp {
       const planFlowResult = await this.executePlanFlow({
         traceId,
         metricLabel,
-        startedAt,
-        mode: "prompt",
         prompt: promptAfterHook,
         plan: planAfterCodegen,
         target: options.target,
@@ -640,19 +576,7 @@ export class RenderifyApp {
     } catch (error) {
       if (!handoffToPlanFlow) {
         const metric = this.deps.performance.endMeasurement(metricLabel);
-        const audit = this.recordAudit({
-          traceId,
-          mode: "prompt",
-          status: "failed",
-          startedAt,
-          prompt: promptAfterHook,
-          tenantId: this.resolveTenantId(),
-          plan: undefined,
-          diagnosticsCount: 0,
-          securityIssueCount: 0,
-          errorMessage: this.errorToMessage(error),
-        });
-        this.emit("renderFailed", { traceId, metric, audit, error });
+        this.emit("renderFailed", { traceId, metric, error });
       }
 
       throw error;
@@ -667,122 +591,15 @@ export class RenderifyApp {
 
     const traceId = options.traceId ?? this.createTraceId();
     const metricLabel = this.createMetricLabel(traceId);
-    const startedAt = Date.now();
     this.deps.performance.startMeasurement(metricLabel);
 
     return this.executePlanFlow({
       traceId,
       metricLabel,
-      startedAt,
-      mode: options.mode ?? "plan",
       prompt: options.prompt,
-      event: options.event,
-      stateOverride: options.stateOverride,
       plan,
       target: options.target,
     });
-  }
-
-  public async dispatchEvent(
-    planId: string,
-    event: RuntimeEvent,
-    options: Omit<RenderPlanOptions, "mode" | "event"> = {},
-  ): Promise<RenderPlanResult> {
-    const record = this.planRegistry.get(planId);
-    if (!record) {
-      throw new Error(`Plan ${planId} not found`);
-    }
-
-    return this.renderPlan(record.plan, {
-      ...options,
-      mode: "event",
-      event,
-      prompt: options.prompt ?? `event:${event.type}`,
-    });
-  }
-
-  public async rollbackPlan(
-    planId: string,
-    version: number,
-    options: Omit<RenderPlanOptions, "mode"> = {},
-  ): Promise<RenderPlanResult> {
-    const record = this.planRegistry.get(planId, version);
-    if (!record) {
-      throw new Error(`Plan ${planId}@${version} not found`);
-    }
-
-    this.deps.runtime.clearPlanState(planId);
-
-    return this.renderPlan(record.plan, {
-      ...options,
-      mode: "rollback",
-      prompt: options.prompt ?? `rollback:${planId}@${version}`,
-    });
-  }
-
-  public async replayTrace(
-    traceId: string,
-    options: Omit<RenderPlanOptions, "mode"> = {},
-  ): Promise<RenderPlanResult> {
-    const audit = this.auditLog.get(traceId);
-    if (!audit || !audit.planId || audit.planVersion === undefined) {
-      throw new Error(`Replay source trace ${traceId} not found`);
-    }
-
-    const record = this.planRegistry.get(audit.planId, audit.planVersion);
-    if (!record) {
-      throw new Error(
-        `Replay source plan ${audit.planId}@${audit.planVersion} not found`,
-      );
-    }
-
-    return this.renderPlan(record.plan, {
-      ...options,
-      mode: "replay",
-      prompt: audit.prompt,
-      event: audit.event,
-    });
-  }
-
-  public listPlans(): PlanSummary[] {
-    return this.planRegistry.list();
-  }
-
-  public listPlanVersions(planId: string): PlanVersionRecord[] {
-    return this.planRegistry.listVersions(planId);
-  }
-
-  public getPlan(
-    planId: string,
-    version?: number,
-  ): PlanVersionRecord | undefined {
-    return this.planRegistry.get(planId, version);
-  }
-
-  public getPlanState(planId: string): RuntimeStateSnapshot | undefined {
-    return this.deps.runtime.getPlanState(planId);
-  }
-
-  public setPlanState(planId: string, state: RuntimeStateSnapshot): void {
-    this.deps.runtime.setPlanState(planId, state);
-  }
-
-  public listAudits(limit?: number): ExecutionAuditRecord[] {
-    return this.auditLog.list(limit);
-  }
-
-  public getAudit(traceId: string): ExecutionAuditRecord | undefined {
-    return this.auditLog.get(traceId);
-  }
-
-  public clearHistory(): void {
-    for (const plan of this.planRegistry.list()) {
-      this.deps.runtime.clearPlanState(plan.planId);
-    }
-
-    this.planRegistry.clear();
-    this.auditLog.clear();
-    this.tenantGovernor.reset();
   }
 
   public getConfig() {
@@ -801,12 +618,12 @@ export class RenderifyApp {
     return this.deps.codegen;
   }
 
-  public getSecurityChecker() {
-    return this.deps.security;
+  public getRuntimeManager() {
+    return this.deps.runtime;
   }
 
-  public getTenantGovernor() {
-    return this.tenantGovernor;
+  public getSecurityChecker() {
+    return this.deps.security;
   }
 
   public on(eventName: string, callback: EventCallback): () => void {
@@ -835,23 +652,7 @@ export class RenderifyApp {
   private async executePlanFlow(
     params: ExecutePlanFlowParams,
   ): Promise<RenderPlanResult> {
-    const {
-      traceId,
-      metricLabel,
-      startedAt,
-      mode,
-      prompt,
-      plan,
-      target,
-      event,
-      stateOverride,
-    } = params;
-
-    let registeredPlan: RuntimePlan | undefined;
-    let securityResult: SecurityCheckResult | undefined;
-    let diagnosticsCount = 0;
-    const tenantId = this.resolveTenantId();
-    let tenantLease: TenantLease | undefined;
+    const { traceId, metricLabel, prompt, plan, target } = params;
 
     try {
       const pluginContextFactory = (hookName: PluginHook): PluginContext => ({
@@ -859,17 +660,14 @@ export class RenderifyApp {
         hookName,
       });
 
-      registeredPlan = this.planRegistry.register(plan).plan;
-      tenantLease = this.tenantGovernor.acquire(tenantId);
-
       const planBeforePolicy = await this.runHook(
         "beforePolicyCheck",
-        registeredPlan,
+        plan,
         pluginContextFactory("beforePolicyCheck"),
       );
 
       const securityResultRaw = this.deps.security.checkPlan(planBeforePolicy);
-      securityResult = await this.runHook(
+      const securityResult = await this.runHook(
         "afterPolicyCheck",
         securityResultRaw,
         pluginContextFactory("afterPolicyCheck"),
@@ -882,10 +680,8 @@ export class RenderifyApp {
 
       const runtimeInputRaw: RuntimeExecutionInput = {
         plan: planBeforePolicy,
-        event,
-        stateOverride,
         context: {
-          userId: tenantId,
+          userId: this.resolveUserId(),
           variables: {},
         },
       };
@@ -904,8 +700,6 @@ export class RenderifyApp {
         pluginContextFactory("afterRuntime"),
       );
 
-      diagnosticsCount = runtimeExecution.diagnostics.length;
-
       const renderInput = await this.runHook(
         "beforeRender",
         runtimeExecution,
@@ -921,22 +715,12 @@ export class RenderifyApp {
       );
 
       const metric = this.deps.performance.endMeasurement(metricLabel);
-
-      const audit = this.recordAudit({
+      this.emit("rendered", {
         traceId,
-        mode,
-        status: "succeeded",
-        startedAt,
+        metric,
         prompt,
-        tenantId,
-        event,
-        plan: planBeforePolicy,
-        diagnosticsCount,
-        securityIssueCount: 0,
+        planId: planBeforePolicy.id,
       });
-
-      this.emit("rendered", { traceId, metric, audit });
-      tenantLease.release();
 
       return {
         traceId,
@@ -944,74 +728,12 @@ export class RenderifyApp {
         security: securityResult,
         execution: runtimeExecution,
         html,
-        audit,
       };
     } catch (error) {
       const metric = this.deps.performance.endMeasurement(metricLabel);
-
-      const status: ExecutionStatus =
-        error instanceof PolicyRejectionError
-          ? "rejected"
-          : error instanceof TenantQuotaExceededError
-            ? "throttled"
-            : "failed";
-
-      const audit = this.recordAudit({
-        traceId,
-        mode,
-        status,
-        startedAt,
-        prompt,
-        tenantId,
-        event,
-        plan: registeredPlan,
-        diagnosticsCount,
-        securityIssueCount:
-          error instanceof PolicyRejectionError
-            ? error.result.issues.length
-            : (securityResult?.issues.length ?? 0),
-        errorMessage: this.errorToMessage(error),
-      });
-
-      this.emit("renderFailed", { traceId, metric, audit, error });
-      tenantLease?.release();
+      this.emit("renderFailed", { traceId, metric, prompt, error });
       throw error;
     }
-  }
-
-  private recordAudit(input: {
-    traceId: string;
-    mode: ExecutionMode;
-    status: ExecutionStatus;
-    startedAt: number;
-    prompt?: string;
-    tenantId?: string;
-    event?: RuntimeEvent;
-    plan?: RuntimePlan;
-    diagnosticsCount: number;
-    securityIssueCount: number;
-    errorMessage?: string;
-  }): ExecutionAuditRecord {
-    const completedAt = Date.now();
-    const record: ExecutionAuditRecord = {
-      traceId: input.traceId,
-      mode: input.mode,
-      status: input.status,
-      startedAt: input.startedAt,
-      completedAt,
-      durationMs: Math.max(0, completedAt - input.startedAt),
-      prompt: input.prompt,
-      tenantId: input.tenantId,
-      planId: input.plan?.id,
-      planVersion: input.plan?.version,
-      diagnosticsCount: input.diagnosticsCount,
-      securityIssueCount: input.securityIssueCount,
-      event: input.event,
-      errorMessage: input.errorMessage,
-    };
-
-    this.auditLog.append(record);
-    return record;
   }
 
   private ensureRunning(): void {
@@ -1048,15 +770,7 @@ export class RenderifyApp {
     return `pipeline:${traceId}`;
   }
 
-  private errorToMessage(error: unknown): string {
-    if (error instanceof Error) {
-      return error.message;
-    }
-
-    return String(error);
-  }
-
-  private resolveTenantId(): string {
+  private resolveUserId(): string {
     const candidate = this.deps.context.getContext().user?.id;
     if (typeof candidate === "string" && candidate.trim().length > 0) {
       return candidate.trim();
@@ -1109,12 +823,11 @@ export class RenderifyApp {
       const execution = await this.deps.runtime.execute({
         plan,
         context: {
-          userId: this.resolveTenantId(),
+          userId: this.resolveUserId(),
           variables: {},
         },
       });
       const html = await this.deps.ui.render(execution, target);
-      this.deps.runtime.clearPlanState(plan.id);
 
       return {
         plan,
@@ -1134,14 +847,11 @@ export function createRenderifyApp(
 }
 
 export * from "./api-integration";
-export * from "./audit-log";
 export * from "./codegen";
 export * from "./config";
 export * from "./context";
 export * from "./customization";
 export * from "./llm-interpreter";
 export * from "./performance";
-export * from "./plan-registry";
 export * from "./security";
-export * from "./tenant-governor";
 export * from "./ui";

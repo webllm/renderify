@@ -109,8 +109,6 @@ config.set("securityPolicy", {
   allowedModules: ["npm:", "/"],
   allowedNetworkHosts: ["ga.jspm.io", "cdn.jspm.io"],
   allowArbitraryNetwork: false,
-  maxTransitionsPerPlan: 80,
-  maxActionsPerTransition: 40,
   maxAllowedImports: 100,
   maxAllowedExecutionMs: 5000,
   maxAllowedComponentInvocations: 200,
@@ -129,34 +127,7 @@ Environment:
 RENDERIFY_SECURITY_PROFILE=strict
 ```
 
-## 4. Tenant Quota Governance
-
-Set tenant limits through config:
-
-```ts
-config.set("tenantQuotaPolicy", {
-  maxExecutionsPerMinute: 60,
-  maxConcurrentExecutions: 2,
-});
-```
-
-Environment:
-
-```bash
-RENDERIFY_MAX_EXECUTIONS_PER_MINUTE=60
-RENDERIFY_MAX_CONCURRENT_EXECUTIONS=2
-```
-
-## 5. Runtime State/Event Integration Notes
-
-When authoring plans, actions can read from:
-
-- `state.*`
-- `event.*`
-- `context.*`
-- `vars.*`
-
-Use this to keep runtime deterministic and auditable.
+## 4. Runtime Isolation Notes
 
 To enable VM-isolated component execution for compatible sync components:
 
@@ -168,14 +139,14 @@ To enable VM-isolated component execution for compatible sync components:
 }
 ```
 
-## 6. Recommended Extension Strategy
+## 5. Recommended Extension Strategy
 
 1. Keep IR stable and small.
 2. Extend via hooks before modifying core orchestration.
-3. Add policy checks before enabling new action semantics.
+3. Add policy checks before enabling new runtime capabilities.
 4. Add unit tests for each plugin/loader customization path.
 
-## 7. LLM Structured Adapter Notes
+## 6. LLM Structured Adapter Notes
 
 `RenderifyApp.renderPrompt` now prefers structured `runtime-plan` output when the
 interpreter exposes `generateStructuredResponse`.

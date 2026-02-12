@@ -1,11 +1,6 @@
 export type SecurityProfileConfig = "strict" | "balanced" | "relaxed";
 export type LLMProviderConfig = "openai";
 
-export interface TenantQuotaPolicyConfig {
-  maxExecutionsPerMinute: number;
-  maxConcurrentExecutions: number;
-}
-
 export interface RenderifyConfigValues {
   llmApiKey?: string;
   llmProvider: LLMProviderConfig;
@@ -16,7 +11,6 @@ export interface RenderifyConfigValues {
   jspmCdnUrl: string;
   strictSecurity: boolean;
   securityProfile: SecurityProfileConfig;
-  tenantQuotaPolicy: TenantQuotaPolicyConfig;
   runtimeEnforceModuleManifest: boolean;
   runtimeAllowIsolationFallback: boolean;
   runtimeSupportedSpecVersions: string[];
@@ -60,21 +54,12 @@ export class DefaultRenderifyConfig implements RenderifyConfig {
       runtimeRemoteFetchRetries: 2,
       runtimeRemoteFetchBackoffMs: 150,
       runtimeRemoteFallbackCdnBases: ["https://esm.sh"],
-      tenantQuotaPolicy: {
-        maxExecutionsPerMinute: 120,
-        maxConcurrentExecutions: 4,
-      },
     };
 
     this.config = {
       ...defaultValues,
       ...env,
       ...(overrides ?? {}),
-      tenantQuotaPolicy: {
-        ...defaultValues.tenantQuotaPolicy,
-        ...(env.tenantQuotaPolicy ?? {}),
-        ...(overrides?.tenantQuotaPolicy ?? {}),
-      },
     };
   }
 
@@ -136,13 +121,6 @@ function getEnvironmentValues(): Partial<RenderifyConfigValues> {
       process.env.RENDERIFY_RUNTIME_REMOTE_FALLBACK_CDNS,
       ["https://esm.sh"],
     ),
-    tenantQuotaPolicy: {
-      maxExecutionsPerMinute:
-        parsePositiveInt(process.env.RENDERIFY_MAX_EXECUTIONS_PER_MINUTE) ??
-        120,
-      maxConcurrentExecutions:
-        parsePositiveInt(process.env.RENDERIFY_MAX_CONCURRENT_EXECUTIONS) ?? 4,
-    },
   };
 
   if (process.env.RENDERIFY_LLM_API_KEY) {

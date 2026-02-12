@@ -20,7 +20,7 @@ class DemoLLMInterpreter implements LLMInterpreter {
 
   async generateResponse(req: LLMRequest): Promise<LLMResponse> {
     return {
-      text: `Build runtime counter for: ${req.prompt}`,
+      text: `Build runtime card for: ${req.prompt}`,
       model: "demo-llm",
     };
   }
@@ -33,12 +33,6 @@ class DemoLLMInterpreter implements LLMInterpreter {
         id: "basic_demo_plan",
         version: 1,
         capabilities: { domWrite: true },
-        state: {
-          initial: { count: 0 },
-          transitions: {
-            increment: [{ type: "increment", path: "count", by: 1 }],
-          },
-        },
         root: {
           type: "element",
           tag: "section",
@@ -51,7 +45,7 @@ class DemoLLMInterpreter implements LLMInterpreter {
             {
               type: "element",
               tag: "p",
-              children: [{ type: "text", value: "Count={{state.count}}" }],
+              children: [{ type: "text", value: "Runtime render is ready." }],
             },
           ],
         },
@@ -86,21 +80,17 @@ async function main() {
 
   await app.start();
 
-  const planResult = await app.renderPrompt(
-    "Generate a runtime counter section",
+  const promptResult = await app.renderPrompt(
+    "Generate a runtime welcome card",
   );
-  console.log("[initial]");
-  console.log(planResult.html);
+  console.log("[prompt html]");
+  console.log(promptResult.html);
 
-  const eventResult = await app.dispatchEvent(planResult.plan.id, {
-    type: "increment",
-    payload: { delta: 1 },
+  const planResult = await app.renderPlan(promptResult.plan, {
+    prompt: "re-render structured plan",
   });
-
-  console.log("[after event]");
-  console.log(eventResult.html);
-  console.log("[state]");
-  console.log(app.getPlanState(planResult.plan.id));
+  console.log("[render-plan html]");
+  console.log(planResult.html);
 
   await app.stop();
 }

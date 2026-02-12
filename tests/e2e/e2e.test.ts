@@ -18,20 +18,6 @@ interface CommandResult {
   stderr: string;
 }
 
-interface HistoryResponseBody {
-  security?: {
-    profile?: string;
-  };
-  tenantGovernor?: {
-    policy?: {
-      maxExecutionsPerMinute?: number;
-    };
-  };
-  audits?: Array<{
-    status?: string;
-  }>;
-}
-
 const REPO_ROOT = process.cwd();
 const TSX_CLI = path.join(REPO_ROOT, "node_modules", "tsx", "dist", "cli.mjs");
 const RENDERIFY_CLI_ENTRY = path.join(
@@ -42,53 +28,19 @@ const RENDERIFY_CLI_ENTRY = path.join(
   "index.ts",
 );
 
-test("e2e: cli persisted runtime flow (render-plan -> event -> state -> history)", async () => {
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), "renderify-e2e-cli-"));
-  const sessionFile = path.join(tempDir, "session.json");
-  const env = {
-    RENDERIFY_SESSION_FILE: sessionFile,
-  };
+test("e2e: cli render-plan executes plan file", async () => {
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "renderify-e2e-plan-"));
 
   try {
-    {
-      const result = await runCli(["clear-history"], env);
-      assert.equal(result.code, 0, result.stderr);
-      assert.match(result.stdout, /history cleared/);
-    }
+    const result = await runCli(
+      ["render-plan", "examples/runtime/counter-plan.json"],
+      {
+        RENDERIFY_SESSION_FILE: path.join(tempDir, "session.json"),
+      },
+    );
 
-    {
-      const result = await runCli(
-        ["render-plan", "examples/runtime/counter-plan.json"],
-        env,
-      );
-      assert.equal(result.code, 0, result.stderr);
-      assert.match(result.stdout, /Count: 0/);
-    }
-
-    {
-      const result = await runCli(
-        ["event", "example_counter_plan", "increment", '{"delta":1}'],
-        env,
-      );
-      assert.equal(result.code, 0, result.stderr);
-      assert.match(result.stdout, /Count: 0/);
-      assert.match(result.stdout, /History: \[\]/);
-    }
-
-    {
-      const result = await runCli(["state", "example_counter_plan"], env);
-      assert.equal(result.code, 0, result.stderr);
-      const state = JSON.parse(result.stdout.trim()) as Record<string, unknown>;
-      assert.deepEqual(state, {});
-    }
-
-    {
-      const result = await runCli(["history"], env);
-      assert.equal(result.code, 0, result.stderr);
-      assert.match(result.stdout, /\[plans\]/);
-      assert.match(result.stdout, /example_counter_plan/);
-      assert.match(result.stdout, /mode=event/);
-    }
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stdout, /Count: 0/);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
@@ -98,14 +50,13 @@ test("e2e: cli rejects invalid runtime plan file", async () => {
   const tempDir = await mkdtemp(
     path.join(os.tmpdir(), "renderify-e2e-invalid-plan-"),
   );
-  const sessionFile = path.join(tempDir, "session.json");
   const invalidPlanPath = path.join(tempDir, "bad-plan.json");
 
   try {
     await writeFile(invalidPlanPath, '{"id":"bad"}', "utf8");
 
     const result = await runCli(["render-plan", invalidPlanPath], {
-      RENDERIFY_SESSION_FILE: sessionFile,
+      RENDERIFY_SESSION_FILE: path.join(tempDir, "session.json"),
     });
 
     assert.notEqual(result.code, 0);
@@ -119,7 +70,6 @@ test("e2e: cli render-plan executes runtime source module", async () => {
   const tempDir = await mkdtemp(
     path.join(os.tmpdir(), "renderify-e2e-source-plan-"),
   );
-  const sessionFile = path.join(tempDir, "session.json");
   const sourcePlanPath = path.join(tempDir, "source-plan.json");
 
   try {
@@ -159,7 +109,7 @@ test("e2e: cli render-plan executes runtime source module", async () => {
     );
 
     const result = await runCli(["render-plan", sourcePlanPath], {
-      RENDERIFY_SESSION_FILE: sessionFile,
+      RENDERIFY_SESSION_FILE: path.join(tempDir, "session.json"),
     });
 
     assert.equal(result.code, 0, result.stderr);
@@ -173,7 +123,6 @@ test("e2e: cli probe-plan reports dependency preflight failures", async () => {
   const tempDir = await mkdtemp(
     path.join(os.tmpdir(), "renderify-e2e-probe-plan-"),
   );
-  const sessionFile = path.join(tempDir, "session.json");
   const probePlanPath = path.join(tempDir, "probe-plan.json");
 
   try {
@@ -206,7 +155,6 @@ test("e2e: cli probe-plan reports dependency preflight failures", async () => {
     await writeFile(probePlanPath, JSON.stringify(probePlan, null, 2), "utf8");
 
     const result = await runCli(["probe-plan", probePlanPath], {
-      RENDERIFY_SESSION_FILE: sessionFile,
       RENDERIFY_RUNTIME_PREFLIGHT: "true",
       RENDERIFY_RUNTIME_PREFLIGHT_FAIL_FAST: "true",
     });
@@ -243,13 +191,12 @@ test("e2e: cli uses openai provider when configured", async () => {
   const tempDir = await mkdtemp(
     path.join(os.tmpdir(), "renderify-e2e-openai-"),
   );
-  const sessionFile = path.join(tempDir, "session.json");
   const port = await allocatePort();
   const { requests, close } = await startFakeOpenAIServer(port);
 
   try {
     const result = await runCli(["plan", "runtime from openai provider"], {
-      RENDERIFY_SESSION_FILE: sessionFile,
+      RENDERIFY_SESSION_FILE: path.join(tempDir, "session.json"),
       RENDERIFY_LLM_PROVIDER: "openai",
       RENDERIFY_LLM_API_KEY: "test-key",
       RENDERIFY_LLM_BASE_URL: `http://127.0.0.1:${port}/v1`,
@@ -285,63 +232,72 @@ test("e2e: cli uses openai provider when configured", async () => {
   }
 });
 
-test("e2e: playground api flow enforces tenant quota in process", async () => {
+test("e2e: playground api supports prompt and stream flow", async () => {
   const tempDir = await mkdtemp(
     path.join(os.tmpdir(), "renderify-e2e-playground-"),
   );
-  const sessionFile = path.join(tempDir, "session.json");
   const port = await allocatePort();
   const openaiPort = await allocatePort();
   const { close } = await startFakeOpenAIServer(openaiPort);
   const baseUrl = `http://127.0.0.1:${port}`;
 
   const processHandle = startPlayground(port, {
-    RENDERIFY_SESSION_FILE: sessionFile,
+    RENDERIFY_SESSION_FILE: path.join(tempDir, "session.json"),
     RENDERIFY_LLM_PROVIDER: "openai",
     RENDERIFY_LLM_API_KEY: "test-key",
     RENDERIFY_LLM_BASE_URL: `http://127.0.0.1:${openaiPort}/v1`,
     RENDERIFY_LLM_MODEL: "gpt-4.1-mini",
-    RENDERIFY_MAX_EXECUTIONS_PER_MINUTE: "1",
-    RENDERIFY_MAX_CONCURRENT_EXECUTIONS: "1",
   });
 
   try {
     await waitForHealth(`${baseUrl}/api/health`, 10000);
 
-    const first = await fetchJson(`${baseUrl}/api/prompt`, {
+    const promptResponse = await fetchJson(`${baseUrl}/api/prompt`, {
       method: "POST",
       body: {
-        prompt: "e2e playground first",
+        prompt: "e2e playground prompt",
       },
     });
-    const firstBody = first.body as { traceId?: unknown };
-    assert.equal(first.status, 200);
-    assert.equal(typeof firstBody.traceId, "string");
+    const promptBody = promptResponse.body as {
+      traceId?: unknown;
+      html?: unknown;
+      plan?: { id?: unknown };
+    };
+    assert.equal(promptResponse.status, 200);
+    assert.equal(typeof promptBody.traceId, "string");
+    assert.equal(typeof promptBody.html, "string");
+    assert.equal(typeof promptBody.plan?.id, "string");
 
-    const second = await fetchJson(`${baseUrl}/api/prompt`, {
+    const streamEvents = await fetchNdjson(`${baseUrl}/api/prompt-stream`, {
+      prompt: "e2e playground stream",
+    });
+    assert.ok(streamEvents.length > 0);
+    assert.ok(streamEvents.some((item) => item.type === "llm-delta"));
+    assert.ok(streamEvents.some((item) => item.type === "final"));
+
+    const probeResponse = await fetchJson(`${baseUrl}/api/probe-plan`, {
       method: "POST",
       body: {
-        prompt: "e2e playground second",
+        plan: {
+          specVersion: "runtime-plan/v1",
+          id: "playground_probe_plan",
+          version: 1,
+          capabilities: { domWrite: true },
+          root: {
+            type: "element",
+            tag: "section",
+            children: [{ type: "text", value: "probe" }],
+          },
+        },
       },
     });
-    const secondBody = second.body as { error?: unknown };
-    assert.equal(second.status, 500);
-    assert.match(
-      String(secondBody.error ?? ""),
-      /exceeded max executions per minute/,
-    );
-
-    const history = await fetchJson(`${baseUrl}/api/history`, {
-      method: "GET",
-    });
-    const historyBody = history.body as HistoryResponseBody;
-    assert.equal(history.status, 200);
-    assert.equal(historyBody.security?.profile, "balanced");
-    assert.equal(historyBody.tenantGovernor?.policy?.maxExecutionsPerMinute, 1);
-    assert.ok(
-      Array.isArray(historyBody.audits) &&
-        historyBody.audits.some((audit) => audit.status === "throttled"),
-    );
+    assert.equal(probeResponse.status, 200);
+    const probeBody = probeResponse.body as {
+      safe?: unknown;
+      runtimeDiagnostics?: unknown;
+    };
+    assert.equal(probeBody.safe, true);
+    assert.ok(Array.isArray(probeBody.runtimeDiagnostics));
   } finally {
     processHandle.kill("SIGTERM");
     await onceExit(processHandle, 3000);
@@ -447,6 +403,31 @@ async function fetchJson(
     status: response.status,
     body,
   };
+}
+
+async function fetchNdjson(
+  url: string,
+  body: Record<string, unknown>,
+): Promise<Array<Record<string, unknown>>> {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    throw new Error(`NDJSON request failed with status ${response.status}`);
+  }
+
+  const text = await response.text();
+  const lines = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  return lines.map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
 async function startFakeOpenAIServer(port: number): Promise<{

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { DefaultRenderifyConfig } from "../packages/core/src/config";
 
-test("config loads default security profile and tenant quotas", async () => {
+test("config loads default security profile and runtime defaults", async () => {
   const config = new DefaultRenderifyConfig();
   await config.load();
 
@@ -24,34 +24,20 @@ test("config loads default security profile and tenant quotas", async () => {
   assert.deepEqual(config.get("runtimeSupportedSpecVersions"), [
     "runtime-plan/v1",
   ]);
-  assert.deepEqual(config.get("tenantQuotaPolicy"), {
-    maxExecutionsPerMinute: 120,
-    maxConcurrentExecutions: 4,
-  });
 });
 
-test("config reads security/tenant values from env", async () => {
+test("config reads security profile from env", async () => {
   const previousProfile = process.env.RENDERIFY_SECURITY_PROFILE;
-  const previousPerMinute = process.env.RENDERIFY_MAX_EXECUTIONS_PER_MINUTE;
-  const previousConcurrent = process.env.RENDERIFY_MAX_CONCURRENT_EXECUTIONS;
 
   process.env.RENDERIFY_SECURITY_PROFILE = "strict";
-  process.env.RENDERIFY_MAX_EXECUTIONS_PER_MINUTE = "30";
-  process.env.RENDERIFY_MAX_CONCURRENT_EXECUTIONS = "2";
 
   try {
     const config = new DefaultRenderifyConfig();
     await config.load();
 
     assert.equal(config.get("securityProfile"), "strict");
-    assert.deepEqual(config.get("tenantQuotaPolicy"), {
-      maxExecutionsPerMinute: 30,
-      maxConcurrentExecutions: 2,
-    });
   } finally {
     restoreEnv("RENDERIFY_SECURITY_PROFILE", previousProfile);
-    restoreEnv("RENDERIFY_MAX_EXECUTIONS_PER_MINUTE", previousPerMinute);
-    restoreEnv("RENDERIFY_MAX_CONCURRENT_EXECUTIONS", previousConcurrent);
   }
 });
 

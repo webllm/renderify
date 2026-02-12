@@ -10,10 +10,8 @@ import {
   DefaultContextManager,
   DefaultCustomizationEngine,
   DefaultPerformanceOptimizer,
-  InMemoryTenantGovernor,
   PolicyRejectionError,
   type RenderifyCoreDependencies,
-  TenantQuotaExceededError,
 } from "../packages/core/src/index";
 import type {
   LLMInterpreter,
@@ -44,16 +42,6 @@ class RejectingConfig extends DefaultRenderifyConfig {
       allowedModules: ["/", "npm:"],
       allowedNetworkHosts: ["ga.jspm.io", "cdn.jspm.io"],
       allowArbitraryNetwork: false,
-    });
-  }
-}
-
-class ThrottledConfig extends DefaultRenderifyConfig {
-  async load(overrides?: Partial<RenderifyConfigValues>): Promise<void> {
-    await super.load(overrides);
-    this.set("tenantQuotaPolicy", {
-      maxExecutionsPerMinute: 1,
-      maxConcurrentExecutions: 1,
     });
   }
 }
@@ -260,39 +248,21 @@ function createDependencies(
   };
 }
 
-test("core pipeline records plans, audits, rollback and replay", async () => {
+test("core renderPrompt returns plan/html with diagnostics", async () => {
   const app = createRenderifyApp(createDependencies());
 
   await app.start();
 
-  const first = await app.renderPrompt("Build runtime welcome");
-
-  assert.equal(first.audit.status, "succeeded");
-  assert.equal(first.audit.mode, "prompt");
-  assert.ok(first.html.includes("Build runtime welcome"));
-
-  const plans = app.listPlans();
-  assert.equal(plans.length, 1);
-
-  const versions = app.listPlanVersions(first.plan.id);
-  assert.equal(versions.length, 1);
-  assert.equal(versions[0].version, first.plan.version);
-
-  const rollback = await app.rollbackPlan(first.plan.id, first.plan.version);
-  assert.equal(rollback.audit.mode, "rollback");
-  assert.equal(rollback.audit.status, "succeeded");
-
-  const replay = await app.replayTrace(first.traceId);
-  assert.equal(replay.audit.mode, "replay");
-  assert.equal(replay.audit.status, "succeeded");
-
-  const audits = app.listAudits();
-  assert.equal(audits.length, 3);
+  const result = await app.renderPrompt("Build runtime welcome");
+  assert.ok(result.traceId.startsWith("trace_"));
+  assert.ok(result.plan.id.length > 0);
+  assert.match(result.html, /Build runtime welcome/);
+  assert.ok(Array.isArray(result.execution.diagnostics));
 
   await app.stop();
 });
 
-test("core pipeline records rejected audits when policy blocks plan", async () => {
+test("core rejects blocked plan with policy rejection error", async () => {
   const app = createRenderifyApp(
     createDependencies({
       config: new RejectingConfig(),
@@ -308,114 +278,29 @@ test("core pipeline records rejected audits when policy blocks plan", async () =
     },
   );
 
-  const audits = app.listAudits();
-  assert.equal(audits.length, 1);
-  assert.equal(audits[0].status, "rejected");
-  assert.equal(audits[0].mode, "prompt");
-  assert.ok((audits[0].securityIssueCount ?? 0) > 0);
-
   await app.stop();
 });
 
-test("core dispatchEvent no longer mutates declarative state", async () => {
+test("core renderPlan executes provided plan", async () => {
   const app = createRenderifyApp(createDependencies());
 
   await app.start();
 
   const plan: RuntimePlan = {
     specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
-    id: "core_counter_plan",
+    id: "core_render_plan",
     version: 1,
     root: createElementNode("section", undefined, [
-      createTextNode("Count={{state.count}}"),
+      createTextNode("Hello from render plan"),
     ]),
     capabilities: {
       domWrite: true,
     },
-    state: {
-      initial: {
-        count: 0,
-      },
-      transitions: {
-        increment: [{ type: "increment", path: "count", by: 1 }],
-      },
-    },
   };
 
-  await app.renderPlan(plan, { prompt: "seed plan" });
-  const eventResult = await app.dispatchEvent(plan.id, { type: "increment" });
-
-  assert.equal(eventResult.audit.mode, "event");
-  assert.equal(eventResult.audit.status, "succeeded");
-  assert.equal(eventResult.execution.state?.count, 0);
-  assert.equal(app.getPlanState(plan.id), undefined);
-  assert.equal(eventResult.execution.handledEvent?.type, "increment");
-
-  await app.stop();
-});
-
-test("core clearHistory clears plan/audit records and runtime state", async () => {
-  const app = createRenderifyApp(createDependencies());
-
-  await app.start();
-
-  const plan: RuntimePlan = {
-    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
-    id: "core_clear_history_plan",
-    version: 1,
-    root: createElementNode("section", undefined, [
-      createTextNode("Count={{state.count}}"),
-    ]),
-    capabilities: {
-      domWrite: true,
-    },
-    state: {
-      initial: {
-        count: 0,
-      },
-      transitions: {
-        increment: [{ type: "increment", path: "count", by: 1 }],
-      },
-    },
-  };
-
-  await app.renderPlan(plan, { prompt: "seed" });
-  await app.dispatchEvent(plan.id, { type: "increment" });
-
-  assert.equal(app.getPlanState(plan.id), undefined);
-  assert.ok(app.listPlans().length > 0);
-  assert.ok(app.listAudits().length > 0);
-
-  app.clearHistory();
-
-  assert.equal(app.getPlanState(plan.id), undefined);
-  assert.equal(app.listPlans().length, 0);
-  assert.equal(app.listAudits().length, 0);
-
-  await app.stop();
-});
-
-test("core enforces tenant quota and records throttled audit", async () => {
-  const app = createRenderifyApp(
-    createDependencies({
-      config: new ThrottledConfig(),
-      tenantGovernor: new InMemoryTenantGovernor(),
-    }),
-  );
-
-  await app.start();
-
-  await app.renderPrompt("first run ok");
-
-  await assert.rejects(
-    () => app.renderPrompt("second run throttled"),
-    (error: unknown) => error instanceof TenantQuotaExceededError,
-  );
-
-  const audits = app.listAudits();
-  assert.equal(audits.length, 2);
-  assert.ok(audits.some((audit) => audit.status === "throttled"));
-  assert.ok(audits.some((audit) => audit.tenantId === "anonymous"));
+  const result = await app.renderPlan(plan, { prompt: "plan mode" });
+  assert.match(result.html, /Hello from render plan/);
+  assert.equal(result.plan.id, "core_render_plan");
 
   await app.stop();
 });

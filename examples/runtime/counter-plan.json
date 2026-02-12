@@ -9,45 +9,7 @@
   },
   "state": {
     "initial": {
-      "count": 0,
-      "history": []
-    },
-    "transitions": {
-      "increment": [
-        {
-          "type": "increment",
-          "path": "count",
-          "by": 1
-        },
-        {
-          "type": "push",
-          "path": "history",
-          "value": {
-            "$from": "state.count"
-          }
-        }
-      ],
-      "set": [
-        {
-          "type": "set",
-          "path": "count",
-          "value": {
-            "$from": "event.payload.value"
-          }
-        }
-      ],
-      "reset": [
-        {
-          "type": "set",
-          "path": "count",
-          "value": 0
-        },
-        {
-          "type": "set",
-          "path": "history",
-          "value": []
-        }
-      ]
+      "count": 0
     }
   },
   "root": {
@@ -74,16 +36,6 @@
           {
             "type": "text",
             "value": "Count: {{state.count}}"
-          }
-        ]
-      },
-      {
-        "type": "element",
-        "tag": "p",
-        "children": [
-          {
-            "type": "text",
-            "value": "History: {{state.history}}"
           }
         ]
       }

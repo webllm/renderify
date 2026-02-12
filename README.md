@@ -29,11 +29,9 @@ LLM output (JSX/TSX or structured plan)
 - **Zero-build rendering**: LLM-generated JSX/TSX runs directly in the browser via `@babel/standalone` + JSPM CDN. No webpack, no vite, no server round-trip.
 - **Any npm package at runtime**: Import `recharts`, `lodash`, `date-fns`, or any package available on JSPM — resolved and loaded on the fly.
 - **Security-first execution**: Every plan passes through a policy checker (blocked tags, module allowlists, tree depth limits, execution budgets) _before_ any code runs. Three built-in profiles: `strict`, `balanced`, `relaxed`.
-- **Stateful UI with event-driven transitions**: Plans carry a declarative state model (`initial` → `transitions[event] → actions[]`), enabling interactive UIs without requiring the LLM to manage a full component lifecycle.
 - **Dual input paths**: Accepts both structured JSON RuntimePlans (for precise LLM structured output) and raw TSX/JSX code blocks (for natural LLM text generation).
-- **Full audit trail**: Every execution is logged with trace IDs, enabling rollback to any prior plan version and deterministic replay of past renders.
+- **Streaming-first rendering**: `renderPromptStream` emits `llm-delta` / `preview` / `final` chunks so chat UIs can progressively render.
 - **Pluggable at every stage**: 10 hook points (`beforeLLM`, `afterCodeGen`, `beforeRender`, etc.) let you inject custom logic without forking the core.
-- **Multi-tenant governance**: Built-in rate limiting and concurrency quotas per tenant, ready for shared/hosted deployments.
 
 ## Who This Is For
 
@@ -63,13 +61,7 @@ flowchart TD
 
 ## Implemented Capabilities
 
-- Versioned plan registry with rollback
-- Execution audit log with replay
-- Stateful plan model:
-  - `state.initial`
-  - `state.transitions[eventType] -> actions[]`
-  - action types: `set`, `increment`, `toggle`, `push`
-  - value sources: `state.*`, `event.*`, `context.*`, `vars.*`
+- Runtime plan model with optional `state.initial`
 - Runtime quotas and limits:
   - `maxImports`
   - `maxExecutionMs`
@@ -102,19 +94,12 @@ flowchart TD
   - `react`, `react-dom`, `react-dom/client`, `react/jsx-runtime` are mapped to `preact/compat` equivalents
   - enables direct runtime rendering for React-first packages (e.g. `recharts`, `@mui/material`)
 - Real OpenAI provider adapter (`@renderify/llm-openai`) with structured JSON schema requests
-- Security policy checks for state transitions and quota requests
 - Runtime source static policy checks (blocked patterns, dynamic import policy, source import count)
 - Streaming prompt pipeline (`renderPromptStream`) with progressive preview updates
 - Preact DOM reconciliation path for runtime source modules (diff-based UI updates)
 - Security profiles: `strict | balanced | relaxed`
-- Tenant quota governance:
-  - max executions per minute
-  - max concurrent executions
-  - throttled audit status on quota exceed
-  - enforced in long-running runtime process (e.g. playground/server mode)
 - RuntimePlan structural guards for safer plan ingestion
-- Browser runtime playground (`renderify playground`) for live prompt/plan/event/state/history flows
-- CLI persisted history (`.renderify/session.json`)
+- Browser runtime playground (`renderify playground`) for live prompt/plan/stream/probe flows
 - Unit tests for `ir/core/runtime`
 - CI matrix (`Node 22 + Node 24`) for typecheck/unit + quality gates
 - PR changeset enforcement for release-relevant package changes
@@ -158,23 +143,11 @@ pnpm cli -- probe-plan examples/runtime/recharts-dashboard-plan.json
 # Execute RuntimePlan file
 pnpm cli -- render-plan examples/runtime/counter-plan.json
 
-# Dispatch runtime event to a stored plan
-pnpm cli -- event <planId> increment '{"delta":1}'
-
-# Inspect runtime state and history
-pnpm cli -- state <planId>
-pnpm cli -- history
-
-# Rollback / replay
-pnpm cli -- rollback <planId> <version>
-pnpm cli -- replay <traceId>
-
 # Browser playground
 pnpm playground
 
-# Optional security/tenant env
+# Optional security env
 RENDERIFY_SECURITY_PROFILE=strict pnpm playground
-RENDERIFY_MAX_EXECUTIONS_PER_MINUTE=60 RENDERIFY_MAX_CONCURRENT_EXECUTIONS=2 pnpm playground
 RENDERIFY_LLM_USE_STRUCTURED_OUTPUT=false pnpm playground
 
 # Optional LLM provider env
@@ -261,13 +234,9 @@ const app = createRenderifyApp({
 
 await app.start();
 
-const planResult = await app.renderPrompt("Build a runtime counter");
-await app.dispatchEvent(planResult.plan.id, {
-  type: "increment",
-  payload: { delta: 1 },
-});
-
-console.log(app.getPlanState(planResult.plan.id));
+const promptResult = await app.renderPrompt("Build a runtime dashboard");
+console.log(promptResult.html);
+console.log(promptResult.plan.id);
 await app.stop();
 ```
 
@@ -276,7 +245,7 @@ await app.stop();
 | Package                      | Responsibility                                                   |
 | ---------------------------- | ---------------------------------------------------------------- |
 | `@renderify/ir`              | Runtime IR contracts (plan/node/state/action/event/capabilities) |
-| `@renderify/runtime`         | Runtime execution engine, state transitions, JSPM module loader  |
+| `@renderify/runtime`         | Runtime execution engine + JSPM module loader                    |
 | `@renderify/core`            | Orchestration + codegen + LLM interfaces + security + UI + config |
 | `@renderify/llm-openai`      | OpenAI-backed `LLMInterpreter` adapter                           |
 | `@renderify/cli`             | CLI + browser playground                                         |
