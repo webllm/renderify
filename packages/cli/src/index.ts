@@ -48,14 +48,28 @@ const { readFile } = fs.promises;
 
 function createLLM(config: DefaultRenderifyConfig): LLMInterpreter {
   const provider = config.get<LLMProviderConfig>("llmProvider") ?? "openai";
+  const providerOptions: Record<string, unknown> = {
+    apiKey: config.get<string>("llmApiKey"),
+    timeoutMs: config.get<number>("llmRequestTimeoutMs"),
+  };
+
+  if (
+    provider === "openai" ||
+    typeof process.env.RENDERIFY_LLM_MODEL === "string"
+  ) {
+    providerOptions.model = config.get<string>("llmModel");
+  }
+
+  if (
+    provider === "openai" ||
+    typeof process.env.RENDERIFY_LLM_BASE_URL === "string"
+  ) {
+    providerOptions.baseUrl = config.get<string>("llmBaseUrl");
+  }
+
   return createLLMInterpreter({
     provider,
-    providerOptions: {
-      apiKey: config.get<string>("llmApiKey"),
-      model: config.get<string>("llmModel"),
-      baseUrl: config.get<string>("llmBaseUrl"),
-      timeoutMs: config.get<number>("llmRequestTimeoutMs"),
-    },
+    providerOptions,
   });
 }
 

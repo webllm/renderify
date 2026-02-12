@@ -153,6 +153,8 @@ RENDERIFY_LLM_USE_STRUCTURED_OUTPUT=false pnpm playground
 # Optional LLM provider env
 RENDERIFY_LLM_PROVIDER=openai RENDERIFY_LLM_API_KEY=<your_key> pnpm playground
 RENDERIFY_LLM_PROVIDER=openai RENDERIFY_LLM_MODEL=gpt-4.1-mini RENDERIFY_LLM_BASE_URL=https://api.openai.com/v1 pnpm playground
+RENDERIFY_LLM_PROVIDER=anthropic RENDERIFY_LLM_API_KEY=<your_key> pnpm playground
+RENDERIFY_LLM_PROVIDER=anthropic RENDERIFY_LLM_MODEL=claude-3-5-sonnet-latest RENDERIFY_LLM_BASE_URL=https://api.anthropic.com/v1 pnpm playground
 
 # Runtime protocol/runtime safety env
 RENDERIFY_RUNTIME_ENFORCE_MANIFEST=true pnpm playground
@@ -250,7 +252,7 @@ await app.stop();
 | `@renderify/ir`              | Runtime IR contracts (plan/node/state/action/event/capabilities) |
 | `@renderify/runtime`         | Runtime execution engine + JSPM module loader                    |
 | `@renderify/core`            | Orchestration + codegen + LLM interfaces + security + UI + config |
-| `@renderify/llm`              | LLM provider package (currently ships OpenAI provider)           |
+| `@renderify/llm`              | LLM provider package (currently ships OpenAI + Anthropic)        |
 | `@renderify/cli`             | CLI + browser playground                                         |
 
 ## Integration Docs
@@ -272,8 +274,8 @@ await app.stop();
 
 - Web Worker execution boundary for untrusted runtime source
 - ShadowRealm integration when available in browsers
-  **Next — Ecosystem expansion**
-- Additional LLM provider adapters (Anthropic, Google, local models)
+**Next — Ecosystem expansion**
+- Additional LLM provider adapters (Google, local models)
 - Reliability strategies (retry, backoff, circuit breaking)
 - Pre-built component themes and layout primitives
 - Framework adapter plugins (Vue, Svelte, Solid)

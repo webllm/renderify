@@ -1,5 +1,9 @@
 import type { LLMInterpreter } from "@renderify/core";
 import {
+  AnthropicLLMInterpreter,
+  type AnthropicLLMInterpreterOptions,
+} from "./providers/anthropic";
+import {
   OpenAILLMInterpreter,
   type OpenAILLMInterpreterOptions,
 } from "./providers/openai";
@@ -17,6 +21,12 @@ export const openaiLLMProvider: LLMProviderDefinition<OpenAILLMInterpreterOption
   {
     name: "openai",
     create: (options) => new OpenAILLMInterpreter(options),
+  };
+
+export const anthropicLLMProvider: LLMProviderDefinition<AnthropicLLMInterpreterOptions> =
+  {
+    name: "anthropic",
+    create: (options) => new AnthropicLLMInterpreter(options),
   };
 
 export class LLMProviderRegistry {
@@ -64,6 +74,7 @@ export class LLMProviderRegistry {
 
 export function createDefaultLLMProviderRegistry(): LLMProviderRegistry {
   const registry = new LLMProviderRegistry();
+  registry.register(anthropicLLMProvider);
   registry.register(openaiLLMProvider);
   return registry;
 }

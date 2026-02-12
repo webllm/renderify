@@ -198,6 +198,22 @@ const llm = createLLMInterpreter({
 });
 ```
 
+Anthropic provider quick setup:
+
+```ts
+import { createLLMInterpreter } from "@renderify/llm";
+
+const llm = createLLMInterpreter({
+  provider: "anthropic",
+  providerOptions: {
+    apiKey: process.env.RENDERIFY_LLM_API_KEY,
+    model: process.env.RENDERIFY_LLM_MODEL ?? "claude-3-5-sonnet-latest",
+    baseUrl:
+      process.env.RENDERIFY_LLM_BASE_URL ?? "https://api.anthropic.com/v1",
+  },
+});
+```
+
 CLI/provider env:
 
 ```bash

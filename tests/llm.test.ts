@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { LLMInterpreter } from "../packages/core/src/llm-interpreter";
 import {
+  AnthropicLLMInterpreter,
   createDefaultLLMProviderRegistry,
   createLLMInterpreter,
   OpenAILLMInterpreter,
@@ -189,6 +190,105 @@ test("openai interpreter accepts fenced json in structured mode", async () => {
   assert.equal((response.value as { id?: string }).id, "fenced_plan");
 });
 
+test("anthropic interpreter generates text response", async () => {
+  const requests: Array<{
+    url: string;
+    headers: Headers;
+    body: Record<string, unknown>;
+  }> = [];
+
+  const llm = new AnthropicLLMInterpreter({
+    apiKey: "anthropic-key",
+    model: "claude-3-5-sonnet-latest",
+    baseUrl: "https://example.anthropic.test/v1",
+    fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        headers: new Headers(init?.headers),
+        body: parseBody(init?.body),
+      });
+
+      return jsonResponse({
+        id: "msg_001",
+        model: "claude-3-5-sonnet-latest",
+        usage: {
+          input_tokens: 9,
+          output_tokens: 12,
+        },
+        content: [
+          {
+            type: "text",
+            text: "anthropic text response",
+          },
+        ],
+      });
+    },
+  });
+
+  const response = await llm.generateResponse({
+    prompt: "build runtime card",
+  });
+
+  assert.equal(response.text, "anthropic text response");
+  assert.equal(response.model, "claude-3-5-sonnet-latest");
+  assert.equal(response.tokensUsed, 21);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, "https://example.anthropic.test/v1/messages");
+  assert.equal(requests[0].headers.get("x-api-key"), "anthropic-key");
+  assert.equal(requests[0].headers.get("anthropic-version"), "2023-06-01");
+  assert.equal(requests[0].body.model, "claude-3-5-sonnet-latest");
+});
+
+test("anthropic interpreter validates structured runtime plan response", async () => {
+  const plan = {
+    id: "anthropic_runtime_plan_1",
+    version: 1,
+    capabilities: {
+      domWrite: true,
+    },
+    root: {
+      type: "element",
+      tag: "section",
+      children: [
+        {
+          type: "text",
+          value: "structured anthropic plan",
+        },
+      ],
+    },
+  };
+
+  const llm = new AnthropicLLMInterpreter({
+    apiKey: "anthropic-key",
+    fetchImpl: async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      jsonResponse({
+        id: "msg_002",
+        model: "claude-3-5-sonnet-latest",
+        usage: {
+          input_tokens: 10,
+          output_tokens: 13,
+        },
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify(plan),
+          },
+        ],
+      }),
+  });
+
+  const response = await llm.generateStructuredResponse({
+    prompt: "build structured runtime plan",
+    format: "runtime-plan",
+    strict: true,
+  });
+
+  assert.equal(response.valid, true);
+  assert.equal(response.model, "claude-3-5-sonnet-latest");
+  assert.equal(response.tokensUsed, 23);
+  assert.deepEqual(response.value, plan);
+});
+
 test("llm provider registry can create builtin openai interpreter", async () => {
   const llm = createLLMInterpreter({
     provider: "openai",
@@ -208,6 +308,27 @@ test("llm provider registry can create builtin openai interpreter", async () => 
     prompt: "test provider",
   });
   assert.equal(response.text, "ok");
+});
+
+test("llm provider registry can create builtin anthropic interpreter", async () => {
+  const llm = createLLMInterpreter({
+    provider: "anthropic",
+    providerOptions: {
+      apiKey: "anthropic-key",
+      fetchImpl: async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        jsonResponse({
+          id: "msg_provider_anthropic",
+          model: "claude-3-5-sonnet-latest",
+          content: [{ type: "text", text: "ok-anthropic" }],
+        }),
+    },
+  });
+
+  assert.ok(llm instanceof AnthropicLLMInterpreter);
+  const response = await llm.generateResponse({
+    prompt: "test provider",
+  });
+  assert.equal(response.text, "ok-anthropic");
 });
 
 test("llm provider registry supports custom provider registration", async () => {

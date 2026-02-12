@@ -122,7 +122,7 @@ Fallback behavior:
 
 Current provider adapters:
 
-- `@renderify/llm` (provider package; currently includes OpenAI provider)
+- `@renderify/llm` (provider package; currently includes OpenAI + Anthropic providers)
 - `createLLMInterpreter({ provider, providerOptions })` for provider-based construction
 
 ## LLM Text TSX Contract
