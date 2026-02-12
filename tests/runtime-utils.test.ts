@@ -113,3 +113,48 @@ test("interpolateTemplate safely handles circular object values", () => {
 
   assert.equal(resolved, "node=");
 });
+
+test("interpolateTemplate truncates deeply nested object serialization", () => {
+  let deep: Record<string, unknown> = {
+    leaf: true,
+  };
+
+  for (let index = 0; index < 12; index += 1) {
+    deep = {
+      next: deep,
+    };
+  }
+
+  const resolved = interpolateTemplate(
+    "value={{state.deep}}",
+    {},
+    {
+      deep: deep as never,
+    },
+    undefined,
+  );
+
+  assert.match(resolved, /\[Truncated\]/);
+});
+
+test("interpolateTemplate caps oversized serialized object payloads", () => {
+  const huge = {
+    data: "x".repeat(10000),
+  };
+
+  const resolved = interpolateTemplate(
+    "blob={{state.huge}}",
+    {},
+    {
+      huge: huge as never,
+    },
+    undefined,
+  );
+
+  assert.match(resolved, /^blob=/);
+  assert.match(resolved, /\.\.\.$/);
+  assert.ok(
+    resolved.length <= 4104,
+    `expected capped template output, got length=${resolved.length}`,
+  );
+});

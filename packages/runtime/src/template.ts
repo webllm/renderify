@@ -6,6 +6,12 @@ import {
   type RuntimeStateSnapshot,
 } from "@renderify/ir";
 
+const TEMPLATE_STRINGIFY_MAX_DEPTH = 8;
+const TEMPLATE_STRINGIFY_MAX_NODES = 256;
+const TEMPLATE_STRINGIFY_MAX_LENGTH = 4096;
+const TEMPLATE_TRUNCATED_MARKER = "[Truncated]";
+const TEMPLATE_CIRCULAR = Symbol("renderify-template-circular");
+
 export function resolveProps(
   props: Record<string, JsonValue> | undefined,
   context: RuntimeExecutionContext,
@@ -92,15 +98,114 @@ export function interpolateTemplate(
     }
 
     if (typeof resolved === "object") {
-      try {
-        return JSON.stringify(resolved);
-      } catch {
-        return "";
-      }
+      return serializeTemplateObject(resolved);
     }
 
     return String(resolved);
   });
+}
+
+function serializeTemplateObject(value: object): string {
+  const normalized = toTemplateSerializable(value, 0, new WeakSet(), {
+    nodes: 0,
+  });
+  if (normalized === TEMPLATE_CIRCULAR || normalized === undefined) {
+    return "";
+  }
+
+  try {
+    const serialized = JSON.stringify(normalized);
+    if (typeof serialized !== "string") {
+      return "";
+    }
+
+    if (serialized.length > TEMPLATE_STRINGIFY_MAX_LENGTH) {
+      return `${serialized.slice(0, TEMPLATE_STRINGIFY_MAX_LENGTH)}...`;
+    }
+
+    return serialized;
+  } catch {
+    return "";
+  }
+}
+
+function toTemplateSerializable(
+  value: unknown,
+  depth: number,
+  seen: WeakSet<object>,
+  budget: { nodes: number },
+): unknown | typeof TEMPLATE_CIRCULAR | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean"
+  ) {
+    return value;
+  }
+
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+
+  if (typeof value === "bigint") {
+    return value.toString();
+  }
+
+  if (typeof value === "function" || typeof value === "symbol") {
+    return String(value);
+  }
+
+  if (typeof value !== "object") {
+    return String(value);
+  }
+
+  if (seen.has(value)) {
+    return TEMPLATE_CIRCULAR;
+  }
+
+  if (
+    depth >= TEMPLATE_STRINGIFY_MAX_DEPTH ||
+    budget.nodes >= TEMPLATE_STRINGIFY_MAX_NODES
+  ) {
+    return TEMPLATE_TRUNCATED_MARKER;
+  }
+
+  seen.add(value);
+  budget.nodes += 1;
+
+  if (Array.isArray(value)) {
+    const normalizedArray: unknown[] = [];
+    for (const entry of value) {
+      const normalized = toTemplateSerializable(entry, depth + 1, seen, budget);
+      if (normalized === TEMPLATE_CIRCULAR) {
+        seen.delete(value);
+        return TEMPLATE_CIRCULAR;
+      }
+      normalizedArray.push(normalized === undefined ? null : normalized);
+    }
+    seen.delete(value);
+    return normalizedArray;
+  }
+
+  const normalizedRecord: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    const normalized = toTemplateSerializable(entry, depth + 1, seen, budget);
+    if (normalized === TEMPLATE_CIRCULAR) {
+      seen.delete(value);
+      return TEMPLATE_CIRCULAR;
+    }
+
+    if (normalized !== undefined) {
+      normalizedRecord[key] = normalized;
+    }
+  }
+
+  seen.delete(value);
+  return normalizedRecord;
 }
 
 function resolveExpression(
