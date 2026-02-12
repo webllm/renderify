@@ -64,6 +64,70 @@ test("openai interpreter generates text response", async () => {
   assert.equal(messages[messages.length - 1].role, "user");
 });
 
+test("openai interpreter streams text response chunks", async () => {
+  const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+
+  const llm = new OpenAILLMInterpreter({
+    apiKey: "test-key",
+    model: "gpt-4.1-mini",
+    baseUrl: "https://example.openai.test/v1",
+    fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: parseBody(init?.body),
+      });
+
+      return sseResponse([
+        `data: ${JSON.stringify({
+          id: "chatcmpl_stream_1",
+          model: "gpt-4.1-mini",
+          choices: [{ delta: { content: "hello " } }],
+        })}`,
+        `data: ${JSON.stringify({
+          id: "chatcmpl_stream_1",
+          model: "gpt-4.1-mini",
+          choices: [{ delta: { content: "world" } }],
+        })}`,
+        `data: ${JSON.stringify({
+          id: "chatcmpl_stream_1",
+          model: "gpt-4.1-mini",
+          usage: { total_tokens: 77 },
+          choices: [],
+        })}`,
+        "data: [DONE]",
+      ]);
+    },
+  });
+
+  const chunks = [];
+  for await (const chunk of llm.generateResponseStream({
+    prompt: "stream this",
+  })) {
+    chunks.push(chunk);
+  }
+
+  assert.equal(requests.length, 1);
+  assert.equal(
+    requests[0].url,
+    "https://example.openai.test/v1/chat/completions",
+  );
+  assert.equal(requests[0].body.stream, true);
+  assert.deepEqual(requests[0].body.stream_options, {
+    include_usage: true,
+  });
+
+  assert.equal(chunks.length, 3);
+  assert.equal(chunks[0].delta, "hello ");
+  assert.equal(chunks[0].text, "hello ");
+  assert.equal(chunks[0].done, false);
+  assert.equal(chunks[1].delta, "world");
+  assert.equal(chunks[1].text, "hello world");
+  assert.equal(chunks[1].done, false);
+  assert.equal(chunks[2].done, true);
+  assert.equal(chunks[2].text, "hello world");
+  assert.equal(chunks[2].tokensUsed, 77);
+});
+
 test("openai interpreter validates structured runtime plan response", async () => {
   const requests: Array<Record<string, unknown>> = [];
 
@@ -526,4 +590,25 @@ function jsonResponse(payload: unknown): Response {
       "content-type": "application/json",
     },
   });
+}
+
+function sseResponse(lines: string[]): Response {
+  const encoder = new TextEncoder();
+
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const line of lines) {
+          controller.enqueue(encoder.encode(`${line}\n\n`));
+        }
+        controller.close();
+      },
+    }),
+    {
+      status: 200,
+      headers: {
+        "content-type": "text/event-stream",
+      },
+    },
+  );
 }

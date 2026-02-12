@@ -2,6 +2,7 @@ import type {
   LLMInterpreter,
   LLMRequest,
   LLMResponse,
+  LLMResponseStreamChunk,
   LLMStructuredRequest,
   LLMStructuredResponse,
 } from "@renderify/core";
@@ -34,6 +35,23 @@ interface OpenAIChatCompletionsPayload {
   model?: string;
   usage?: OpenAIUsagePayload;
   choices?: OpenAIChoicePayload[];
+  error?: {
+    message?: string;
+  };
+}
+
+interface OpenAIStreamChoicePayload {
+  delta?: {
+    content?: string | Array<{ type?: string; text?: string }>;
+    refusal?: string | null;
+  };
+}
+
+interface OpenAIChatCompletionsStreamPayload {
+  id?: string;
+  model?: string;
+  usage?: OpenAIUsagePayload;
+  choices?: OpenAIStreamChoicePayload[];
   error?: {
     message?: string;
   };
@@ -212,6 +230,196 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
         responseId: payload.id,
       },
     };
+  }
+
+  async *generateResponseStream(
+    req: LLMRequest,
+  ): AsyncIterable<LLMResponseStreamChunk> {
+    const fetchImpl = this.resolveFetch();
+    const apiKey = this.options.apiKey;
+
+    if (!apiKey || apiKey.trim().length === 0) {
+      throw new Error(
+        "OpenAI apiKey is missing. Set RENDERIFY_LLM_API_KEY or configure apiKey.",
+      );
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => {
+      controller.abort();
+    }, this.options.timeoutMs);
+
+    let aggregatedText = "";
+    let chunkIndex = 0;
+    let tokensUsed: number | undefined;
+    let model = this.options.model;
+    let doneEmitted = false;
+
+    const processEvents = (events: string[]): Array<LLMResponseStreamChunk> => {
+      const chunks: LLMResponseStreamChunk[] = [];
+
+      for (const eventData of events) {
+        if (eventData === "[DONE]") {
+          if (!doneEmitted) {
+            chunkIndex += 1;
+            doneEmitted = true;
+            chunks.push({
+              delta: "",
+              text: aggregatedText,
+              done: true,
+              index: chunkIndex,
+              tokensUsed,
+              model,
+              raw: {
+                mode: "stream",
+                done: true,
+              },
+            });
+          }
+          continue;
+        }
+
+        let payload: OpenAIChatCompletionsStreamPayload;
+        try {
+          payload = JSON.parse(eventData) as OpenAIChatCompletionsStreamPayload;
+        } catch (error) {
+          throw new Error(
+            `OpenAI stream chunk parse failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+
+        if (payload.error?.message) {
+          throw new Error(`OpenAI error: ${payload.error.message}`);
+        }
+
+        if (
+          typeof payload.model === "string" &&
+          payload.model.trim().length > 0
+        ) {
+          model = payload.model;
+        }
+
+        if (
+          typeof payload.usage?.total_tokens === "number" &&
+          Number.isFinite(payload.usage.total_tokens)
+        ) {
+          tokensUsed = payload.usage.total_tokens;
+        }
+
+        const output = this.extractStreamDelta(payload);
+        if (output.refusal) {
+          throw new Error(`OpenAI refused request: ${output.refusal}`);
+        }
+
+        if (output.text.length === 0) {
+          continue;
+        }
+
+        aggregatedText += output.text;
+        chunkIndex += 1;
+        chunks.push({
+          delta: output.text,
+          text: aggregatedText,
+          done: false,
+          index: chunkIndex,
+          tokensUsed,
+          model,
+          raw: {
+            mode: "stream",
+            chunk: payload,
+          },
+        });
+      }
+
+      return chunks;
+    };
+
+    try {
+      const response = await fetchImpl(
+        `${this.options.baseUrl.replace(/\/$/, "")}/chat/completions`,
+        {
+          method: "POST",
+          headers: this.createHeaders(apiKey),
+          body: JSON.stringify({
+            model: this.options.model,
+            messages: this.buildMessages(req),
+            stream: true,
+            stream_options: {
+              include_usage: true,
+            },
+          }),
+          signal: controller.signal,
+        },
+      );
+
+      if (!response.ok) {
+        const details = await this.readErrorResponse(response);
+        throw new Error(
+          `OpenAI request failed (${response.status}): ${details}`,
+        );
+      }
+
+      if (!response.body) {
+        throw new Error("OpenAI streaming response body is empty");
+      }
+
+      const decoder = new TextDecoder();
+      const reader = response.body.getReader();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+
+        if (value) {
+          buffer += decoder.decode(value, { stream: true });
+        }
+
+        const parsedEvents = this.consumeSseEvents(buffer);
+        buffer = parsedEvents.remaining;
+
+        for (const chunk of processEvents(parsedEvents.events)) {
+          yield chunk;
+        }
+      }
+
+      buffer += decoder.decode();
+      const finalEvents = this.consumeSseEvents(buffer, true);
+      for (const chunk of processEvents(finalEvents.events)) {
+        yield chunk;
+      }
+
+      if (!doneEmitted) {
+        chunkIndex += 1;
+        doneEmitted = true;
+        yield {
+          delta: "",
+          text: aggregatedText,
+          done: true,
+          index: chunkIndex,
+          tokensUsed,
+          model,
+          raw: {
+            mode: "stream",
+            done: true,
+            reason: "eof",
+          },
+        };
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new Error(
+          `OpenAI request timed out after ${this.options.timeoutMs}ms`,
+        );
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   async generateStructuredResponse<T = unknown>(
@@ -486,6 +694,90 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
     return {
       text: "",
     };
+  }
+
+  private extractStreamDelta(
+    payload: OpenAIChatCompletionsStreamPayload,
+  ): OpenAIExtractedOutput {
+    const choices = payload.choices ?? [];
+    let text = "";
+
+    for (const choice of choices) {
+      const refusal = choice.delta?.refusal;
+      if (typeof refusal === "string" && refusal.trim().length > 0) {
+        return {
+          text: "",
+          refusal: refusal.trim(),
+        };
+      }
+
+      const content = choice.delta?.content;
+      if (typeof content === "string") {
+        text += content;
+        continue;
+      }
+
+      if (Array.isArray(content)) {
+        text += content
+          .map((part) => (typeof part.text === "string" ? part.text : ""))
+          .join("");
+      }
+    }
+
+    return {
+      text,
+    };
+  }
+
+  private consumeSseEvents(
+    buffer: string,
+    flush = false,
+  ): { events: string[]; remaining: string } {
+    const events: string[] = [];
+    const separator = /\r?\n\r?\n/g;
+    let cursor = 0;
+    let match = separator.exec(buffer);
+    while (match) {
+      const block = buffer.slice(cursor, match.index);
+      const eventData = this.extractSseData(block);
+      if (eventData !== undefined) {
+        events.push(eventData);
+      }
+      cursor = match.index + match[0].length;
+      match = separator.exec(buffer);
+    }
+
+    let remaining = buffer.slice(cursor);
+    if (flush) {
+      const tailData = this.extractSseData(remaining);
+      if (tailData !== undefined) {
+        events.push(tailData);
+      }
+      remaining = "";
+    }
+
+    return {
+      events,
+      remaining,
+    };
+  }
+
+  private extractSseData(block: string): string | undefined {
+    const lines = block.split(/\r?\n/);
+    const payloadLines: string[] = [];
+
+    for (const line of lines) {
+      if (line.startsWith("data:")) {
+        payloadLines.push(line.slice(5).trimStart());
+      }
+    }
+
+    if (payloadLines.length === 0) {
+      return undefined;
+    }
+
+    const payload = payloadLines.join("\n").trim();
+    return payload.length > 0 ? payload : undefined;
   }
 
   private tryParseJson(
