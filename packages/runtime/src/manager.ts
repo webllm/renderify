@@ -84,6 +84,12 @@ import {
   runDependencyPreflight,
 } from "./runtime-preflight";
 import {
+  type RuntimeSourceSandboxMode as RuntimeSourceRuntimeMode,
+  resolveSourceSandboxMode,
+  shouldUsePreactSourceRuntime,
+  transpileRuntimeSource,
+} from "./runtime-source-runtime";
+import {
   canMaterializeBrowserModules,
   createBrowserBlobModuleUrl,
   normalizeRuntimeSourceOutput,
@@ -228,7 +234,7 @@ interface ResolvedSourceOutput {
   renderArtifact?: RuntimeRenderArtifact;
 }
 
-export type RuntimeSourceSandboxMode = "none" | "worker" | "iframe";
+export type RuntimeSourceSandboxMode = RuntimeSourceRuntimeMode;
 
 export type RuntimeComponentFactory = (
   props: Record<string, JsonValue>,
@@ -912,56 +918,18 @@ export class DefaultRuntimeManager implements RuntimeManager {
     source: RuntimeSourceModule,
     executionProfile: RuntimeExecutionProfile,
   ): RuntimeSourceSandboxMode {
-    const requested = this.executionProfileToSandboxMode(executionProfile);
-    const mode = requested ?? this.browserSourceSandboxMode;
-
-    if (mode === "none") {
-      return "none";
-    }
-
-    if (!isBrowserRuntime()) {
-      return "none";
-    }
-
-    if (this.shouldUsePreactSourceRuntime(source)) {
-      if (requested) {
-        throw new Error(
-          `${requested} executionProfile is not supported with source.runtime=preact`,
-        );
-      }
-      return "none";
-    }
-
-    return mode;
-  }
-
-  private executionProfileToSandboxMode(
-    executionProfile: RuntimeExecutionProfile,
-  ): RuntimeSourceSandboxMode | undefined {
-    if (executionProfile === "sandbox-worker") {
-      return "worker";
-    }
-
-    if (executionProfile === "sandbox-iframe") {
-      return "iframe";
-    }
-
-    return undefined;
+    return resolveSourceSandboxMode({
+      source,
+      executionProfile,
+      defaultMode: this.browserSourceSandboxMode,
+      isBrowserRuntime: isBrowserRuntime(),
+    });
   }
 
   private async transpileRuntimeSource(
     source: RuntimeSourceModule,
   ): Promise<string> {
-    const mergedSource = BabelRuntimeSourceTranspiler.mergeRuntimeHelpers(
-      source.code,
-      source.runtime,
-    );
-    return this.sourceTranspiler.transpile({
-      code: mergedSource,
-      language: source.language,
-      filename: `renderify-runtime-source.${source.language}`,
-      runtime: source.runtime,
-    });
+    return transpileRuntimeSource(source, this.sourceTranspiler);
   }
 
   private async createPreactRenderArtifact(
@@ -1017,7 +985,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
   }
 
   private shouldUsePreactSourceRuntime(source: RuntimeSourceModule): boolean {
-    return source.runtime === "preact";
+    return shouldUsePreactSourceRuntime(source);
   }
 
   private async rewriteSourceImports(
