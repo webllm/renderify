@@ -218,10 +218,20 @@ test("e2e: cli probe-plan reports dependency preflight failures", async () => {
     assert.equal(result.code, 0, result.stderr);
     const report = JSON.parse(result.stdout.trim()) as {
       ok: boolean;
+      dependencyStatuses?: Array<{
+        usage?: string;
+        ok?: boolean;
+      }>;
       runtimeDiagnostics: Array<{ code?: string }>;
     };
 
     assert.equal(report.ok, false);
+    assert.ok(Array.isArray(report.dependencyStatuses));
+    assert.ok(
+      report.dependencyStatuses?.some(
+        (item) => item.usage === "source-import" && item.ok === false,
+      ),
+    );
     assert.ok(
       report.runtimeDiagnostics.some(
         (item) =>
