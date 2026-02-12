@@ -1,20 +1,46 @@
 # Renderify
 
-> Runtime-first UI: interpret -> plan -> policy-check -> execute -> render, without build-per-change for product UI iteration.
+> LLM generates JSX/TSX → browser renders it directly at runtime — no compiler, no build step, any npm package from JSPM.
+> Renderify is a runtime-first dynamic renderer that lets LLMs produce real, interactive UI on the fly. It bridges the gap between "LLM can generate code" and "users can see and interact with that UI instantly" — without a backend compiler or deploy pipeline in the loop.
 
-Renderify is a runtime-first UI engine that executes LLM-generated JSX/TSX directly in the browser via Babel and JSPM, with no build or publish step.
+## The Problem
 
-## Why Renderify
+LLMs are increasingly capable of generating UI code, but **there is no good way to render that output directly in the browser**:
+| Existing Approach | Limitation |
+| --- | --- |
+| **v0 / Bolt.new** | Requires a full build backend (Next.js compile + deploy). Not embeddable as a runtime in your own app. |
+| **Streamlit / Gradio** | Python-based, server-rendered. Not a frontend runtime. |
+| **MCP UI** | Limited to Markdown + a small fixed component set. Cannot express arbitrary UI. |
+| **Anthropic Artifacts** | Closed implementation, not open-source, not embeddable. |
+| **JSON schema renderers (A2UI, json-render)** | LLM fills parameters into a predefined component catalog. Cannot express anything outside the schema. |
+| **Sandpack / WebContainers** | Full in-browser bundlers — powerful but heavyweight, not optimized for the LLM → UI hot path. |
+**The missing piece**: a lightweight, security-governed runtime where LLMs output JSX/TSX (or structured plans) and the browser renders it immediately — with access to the entire npm ecosystem via JSPM, without any compile step.
 
-Most AI UI stacks stop at generation + preview, then require build/deploy to become usable.
+## What Renderify Does
 
-Renderify focuses on:
+```
+LLM output (JSX/TSX or structured plan)
+  → CodeGen (parse + normalize)
+    → Security policy check (before any execution)
+      → Runtime execution (Babel transpile + JSPM module resolution)
+        → Rendered UI in the browser
+```
 
-- Runtime-direct rendering (validated plans execute immediately)
-- Controlled dynamic execution (policy-first, not unrestricted eval)
-- Stateful runtime transitions (event -> actions -> updated UI)
-- Traceable rollback/replay with audit logs
-- Swappable adapters (LLM, module loader, renderer, plugins)
+- **Zero-build rendering**: LLM-generated JSX/TSX runs directly in the browser via `@babel/standalone` + JSPM CDN. No webpack, no vite, no server round-trip.
+- **Any npm package at runtime**: Import `recharts`, `lodash`, `date-fns`, or any package available on JSPM — resolved and loaded on the fly.
+- **Security-first execution**: Every plan passes through a policy checker (blocked tags, module allowlists, tree depth limits, execution budgets) _before_ any code runs. Three built-in profiles: `strict`, `balanced`, `relaxed`.
+- **Stateful UI with event-driven transitions**: Plans carry a declarative state model (`initial` → `transitions[event] → actions[]`), enabling interactive UIs without requiring the LLM to manage a full component lifecycle.
+- **Dual input paths**: Accepts both structured JSON RuntimePlans (for precise LLM structured output) and raw TSX/JSX code blocks (for natural LLM text generation).
+- **Full audit trail**: Every execution is logged with trace IDs, enabling rollback to any prior plan version and deterministic replay of past renders.
+- **Pluggable at every stage**: 10 hook points (`beforeLLM`, `afterCodeGen`, `beforeRender`, etc.) let you inject custom logic without forking the core.
+- **Multi-tenant governance**: Built-in rate limiting and concurrency quotas per tenant, ready for shared/hosted deployments.
+
+## Who This Is For
+
+- **LLM chat / agent platforms** that need to render dynamic UI from model output (dashboards, forms, cards, data visualizations)
+- **AI-powered tools** where the model generates UI on-the-fly based on user intent, tool results, or API data
+- **Rapid prototyping** workflows where you want to go from prompt → rendered UI in seconds, not minutes
+- **Any application** that needs to safely render untrusted, dynamically-generated UI in the browser
 
 ## Runtime Pipeline
 
@@ -243,19 +269,19 @@ await app.stop();
 
 ## Package Topology
 
-| Package | Responsibility |
-| --- | --- |
-| `@renderify/ir` | Runtime IR contracts (plan/node/state/action/event/capabilities) |
-| `@renderify/security` | Policy guardrails for plan, transitions, and module capabilities |
-| `@renderify/runtime` | Runtime execution engine and state transition evaluator |
-| `@renderify/runtime-jspm` | JSPM/SystemJS module loader adapter |
-| `@renderify/ui` | Runtime HTML/DOM renderer |
-| `@renderify/core` | End-to-end pipeline orchestration and lifecycle APIs |
-| `@renderify/codegen` | LLM output -> RuntimePlan conversion |
-| `@renderify/llm-interpreter` | LLM abstraction layer |
-| `@renderify/llm-openai` | OpenAI-backed `LLMInterpreter` adapter |
-| `@renderify/config` | Runtime/security config source |
-| `@renderify/cli` | CLI + browser playground |
+| Package                      | Responsibility                                                   |
+| ---------------------------- | ---------------------------------------------------------------- |
+| `@renderify/ir`              | Runtime IR contracts (plan/node/state/action/event/capabilities) |
+| `@renderify/security`        | Policy guardrails for plan, transitions, and module capabilities |
+| `@renderify/runtime`         | Runtime execution engine and state transition evaluator          |
+| `@renderify/runtime-jspm`    | JSPM/SystemJS module loader adapter                              |
+| `@renderify/ui`              | Runtime HTML/DOM renderer                                        |
+| `@renderify/core`            | End-to-end pipeline orchestration and lifecycle APIs             |
+| `@renderify/codegen`         | LLM output -> RuntimePlan conversion                             |
+| `@renderify/llm-interpreter` | LLM abstraction layer                                            |
+| `@renderify/llm-openai`      | OpenAI-backed `LLMInterpreter` adapter                           |
+| `@renderify/config`          | Runtime/security config source                                   |
+| `@renderify/cli`             | CLI + browser playground                                         |
 
 ## Integration Docs
 
@@ -270,11 +296,17 @@ await app.stop();
 - TSX runtime flow (Babel + JSPM): `examples/runtime/browser-tsx-jspm-example.html`
 - Recharts + Preact RuntimePlan: `examples/runtime/recharts-dashboard-plan.json`
 
-## Next Focus
+## Roadmap
 
-- Production-grade sandbox isolation boundary (Worker/VM execution profile)
-- Additional provider adapters and reliability strategies (retry, backoff, circuit breaking)
-- Multi-tenant policy profile presets and quota governance
+**Next — Hardened sandbox & isolation**
+
+- Web Worker execution boundary for untrusted runtime source
+- ShadowRealm integration when available in browsers
+  **Next — Ecosystem expansion**
+- Additional LLM provider adapters (Anthropic, Google, local models)
+- Reliability strategies (retry, backoff, circuit breaking)
+- Pre-built component themes and layout primitives
+- Framework adapter plugins (Vue, Svelte, Solid)
 
 ## License
 
