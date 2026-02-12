@@ -1,7 +1,7 @@
 # Renderify
 
-> LLM generates JSX/TSX → browser renders it directly at runtime — no compiler, no build step, any npm package from JSPM.
-> Renderify is a runtime-first dynamic renderer that lets LLMs produce real, interactive UI on the fly. It bridges the gap between "LLM can generate code" and "users can see and interact with that UI instantly" — without a backend compiler or deploy pipeline in the loop.
+> LLM generates JSX/TSX → browser renders it directly at runtime — no backend build server, no deploy step, JSPM package support with an explicit compatibility contract.
+> Renderify is a runtime-first dynamic renderer that lets LLMs produce real, interactive UI on the fly. It bridges the gap between "LLM can generate code" and "users can see and interact with that UI instantly" — with inline transpilation via `@babel/standalone`, and no backend compiler/deploy pipeline in the loop.
 
 ## The Problem
 
@@ -14,7 +14,7 @@ LLMs are increasingly capable of generating UI code, but **there is no good way 
 | **Anthropic Artifacts** | Closed implementation, not open-source, not embeddable. |
 | **JSON schema renderers (A2UI, json-render)** | LLM fills parameters into a predefined component catalog. Cannot express anything outside the schema. |
 | **Sandpack / WebContainers** | Full in-browser bundlers — powerful but heavyweight, not optimized for the LLM → UI hot path. |
-**The missing piece**: a lightweight, security-governed runtime where LLMs output JSX/TSX (or structured plans) and the browser renders it immediately — with access to the entire npm ecosystem via JSPM, without any compile step.
+**The missing piece**: a lightweight, security-governed runtime where LLMs output JSX/TSX (or structured plans) and the browser renders it immediately — with broad browser-ESM npm access via JSPM, without any backend compile step.
 
 ## What Renderify Does
 
@@ -26,8 +26,8 @@ LLM output (JSX/TSX or structured plan)
         → Rendered UI in the browser
 ```
 
-- **Zero-build rendering**: LLM-generated JSX/TSX runs directly in the browser via `@babel/standalone` + JSPM CDN. No webpack, no vite, no server round-trip.
-- **Any npm package at runtime**: Import `recharts`, `lodash`, `date-fns`, or any package available on JSPM — resolved and loaded on the fly.
+- **Zero-build rendering**: LLM-generated JSX/TSX runs directly in the browser via `@babel/standalone` + JSPM CDN. No backend build server, no deploy step, no server round-trip.
+- **JSPM package support (tiered contract)**: Compatibility aliases (`preact`/`react` bridge, `recharts`) are guaranteed; pure browser ESM packages (for example `lodash-es`, `date-fns`, `@mui/material`) are best-effort. Node.js builtins and unsupported schemes are rejected deterministically.
 - **Security-first execution**: Every plan passes through a policy checker (blocked tags, module allowlists, tree depth limits, execution budgets) _before_ any code runs. Three built-in profiles: `strict`, `balanced`, `relaxed`.
 - **Dual input paths**: Accepts both structured JSON RuntimePlans (for precise LLM structured output) and raw TSX/JSX code blocks (for natural LLM text generation).
 - **Streaming-first rendering**: `renderPromptStream` emits `llm-delta` / `preview` / `final` chunks so chat UIs can progressively render.
@@ -36,7 +36,9 @@ LLM output (JSX/TSX or structured plan)
 ## Who This Is For
 
 - **LLM chat / agent platforms** that need to render dynamic UI from model output (dashboards, forms, cards, data visualizations)
-- **AI-powered tools** where the model generates UI on-the-fly based on user intent, tool results, or API data
+- **AI Agent toolchains** — an Agent analyzes user data and dynamically generates an interactive dashboard or operation interface, rather than just returning text
+- **Low-code / No-code AI backends** — users describe intent in natural language, the LLM generates a runnable UI component on the fly
+- **Dynamic forms & approval flows** — generate context-aware forms at runtime, more flexible than JSON Schema renderers
 - **Rapid prototyping** workflows where you want to go from prompt → rendered UI in seconds, not minutes
 - **Any application** that needs to safely render untrusted, dynamically-generated UI in the browser
 
@@ -225,18 +227,19 @@ await renderPlanInBrowser(plan, { target: "#mount" });
 
 ## Package Topology
 
-| Package                      | Responsibility                                                   |
-| ---------------------------- | ---------------------------------------------------------------- |
-| `@renderify/ir`              | Runtime IR contracts (plan/node/state/action/event/capabilities) |
-| `@renderify/runtime`         | Runtime execution engine + JSPM loader + one-line embed API      |
-| `@renderify/security`        | Policy profiles + plan/module/source static checks               |
-| `@renderify/core`            | Legacy orchestration facade (optional compatibility layer)       |
-| `@renderify/llm`             | LLM provider package (OpenAI + Anthropic + Google)               |
-| `@renderify/cli`             | CLI + browser playground                                         |
+| Package               | Responsibility                                                   |
+| --------------------- | ---------------------------------------------------------------- |
+| `@renderify/ir`       | Runtime IR contracts (plan/node/state/action/event/capabilities) |
+| `@renderify/runtime`  | Runtime execution engine + JSPM loader + one-line embed API      |
+| `@renderify/security` | Policy profiles + plan/module/source static checks               |
+| `@renderify/core`     | Legacy orchestration facade (optional compatibility layer)       |
+| `@renderify/llm`      | LLM provider package (OpenAI + Anthropic + Google)               |
+| `@renderify/cli`      | CLI + browser playground                                         |
 
 ## Integration Docs
 
 - Runtime contracts: `docs/architecture/runtime-contracts.md`
+- Package support contract: `docs/architecture/package-support-contract.md`
 - Framework design: `docs/architecture/framework-design.md`
 - Implementation status: `docs/architecture/implementation-status.md`
 - Plugin/loader integration guide: `docs/architecture/plugin-loader-integration.md`
@@ -250,13 +253,23 @@ await renderPlanInBrowser(plan, { target: "#mount" });
 - Killer demo: one-line form/state/date-fns embed: `examples/killer/one-line-chat-form.html`
 - Killer demo: one-line worker-sandbox source embed: `examples/killer/one-line-sandbox-worker.html`
 
+## Technical Highlights
+
+Beyond the end-to-end pipeline, several components have standalone value:
+
+- **RuntimePlan IR** — a standardized intermediate representation for "LLM-generated interactive UI." Even outside Renderify, the IR design provides a reusable schema for any system that needs to describe dynamic, composable UI from model output.
+- **Security policy framework** — a systematic approach to executing untrusted dynamic code: blocked tags, module allowlists, execution budgets, and source pattern analysis. The policy model is reusable for any browser-side dynamic code execution scenario.
+- **Browser ESM module graph materialization** — the `fetch → rewrite imports → blob URL` pipeline solves a problem browser standards have not natively addressed (bare specifiers are not usable in browsers). This module loading strategy can be extracted as an independent utility.
+
 ## Roadmap
 
 **Next — Hardened sandbox & isolation**
 
 - Web Worker execution boundary for untrusted runtime source
 - ShadowRealm integration when available in browsers
+
 **Next — Ecosystem expansion**
+
 - Additional LLM provider adapters (local models)
 - Reliability strategies (retry, backoff, circuit breaking)
 - Pre-built component themes and layout primitives
