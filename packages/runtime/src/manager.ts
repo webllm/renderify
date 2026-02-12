@@ -368,7 +368,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
     signal?: AbortSignal,
   ): Promise<RuntimeExecutionResult> {
     this.ensureInitialized();
-    this.throwIfAborted(signal);
+    throwIfRuntimeAborted(signal);
 
     const specVersion = resolveRuntimePlanSpecVersion(plan.specVersion);
     const diagnostics: RuntimeDiagnostic[] = [];
@@ -448,11 +448,11 @@ export class DefaultRuntimeManager implements RuntimeManager {
           runtimeDiagnostics,
           "import",
         ),
-      isAborted: () => this.isAborted(frame.signal),
-      hasExceededBudget: () => this.hasExceededBudget(frame),
+      isAborted: () => isRuntimeAborted(frame.signal),
+      hasExceededBudget: () => hasRuntimeExceededBudget(frame),
       withRemainingBudget: (operation, timeoutMessage) =>
-        this.withRemainingBudget(operation, frame, timeoutMessage),
-      isAbortError: (error) => this.isAbortError(error),
+        withRuntimeRemainingBudget(operation, frame, timeoutMessage),
+      isAbortError: (error) => isRuntimeAbortError(error),
       errorToMessage: (error) => this.errorToMessage(error),
     });
 
@@ -551,7 +551,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
       diagnostics,
       moduleLoader: this.moduleLoader,
       withRemainingBudget: (operation, timeoutMessage) =>
-        this.withRemainingBudget(operation, frame, timeoutMessage),
+        withRuntimeRemainingBudget(operation, frame, timeoutMessage),
       resolveRuntimeSourceSpecifier: (
         specifier,
         manifest,
@@ -588,10 +588,10 @@ export class DefaultRuntimeManager implements RuntimeManager {
           undefined,
           runtimeDiagnostics,
         ).fetchRemoteModuleCodeWithFallback(url),
-      isAbortError: (error) => this.isAbortError(error),
+      isAbortError: (error) => isRuntimeAbortError(error),
       errorToMessage: (error) => this.errorToMessage(error),
-      isAborted: () => this.isAborted(frame.signal),
-      hasExceededBudget: () => this.hasExceededBudget(frame),
+      isAborted: () => isRuntimeAborted(frame.signal),
+      hasExceededBudget: () => hasRuntimeExceededBudget(frame),
     });
   }
 
@@ -618,7 +618,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
       browserSourceSandboxTimeoutMs: this.browserSourceSandboxTimeoutMs,
       browserSourceSandboxFailClosed: this.browserSourceSandboxFailClosed,
       withRemainingBudget: (operation, timeoutMessage) =>
-        this.withRemainingBudget(operation, frame, timeoutMessage),
+        withRuntimeRemainingBudget(operation, frame, timeoutMessage),
       transpileRuntimeSource: (runtimeSource) =>
         transpileRuntimeSource(runtimeSource, this.sourceTranspiler),
       rewriteSourceImports: async (code, manifest, runtimeDiagnostics) =>
@@ -653,7 +653,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
           runtimeInput,
           diagnostics,
         }),
-      isAbortError: (error) => this.isAbortError(error),
+      isAbortError: (error) => isRuntimeAbortError(error),
       errorToMessage: (error) => this.errorToMessage(error),
       cloneJsonValue,
       asJsonValue,
@@ -789,9 +789,9 @@ export class DefaultRuntimeManager implements RuntimeManager {
     diagnostics: RuntimeDiagnostic[],
     frame: ExecutionFrame,
   ): Promise<RuntimeNode> {
-    this.throwIfAborted(frame.signal);
+    throwIfRuntimeAborted(frame.signal);
 
-    if (this.hasExceededBudget(frame)) {
+    if (hasRuntimeExceededBudget(frame)) {
       diagnostics.push({
         level: "error",
         code: "RUNTIME_TIMEOUT",
@@ -826,7 +826,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
             usage,
           ),
         withRemainingBudget: (operation, timeoutMessage) =>
-          this.withRemainingBudget(operation, frame, timeoutMessage),
+          withRuntimeRemainingBudget(operation, frame, timeoutMessage),
         resolveNode: (nextNode) =>
           this.resolveNode(
             nextNode,
@@ -846,30 +846,6 @@ export class DefaultRuntimeManager implements RuntimeManager {
     if (!this.initialized) {
       throw new Error("RuntimeManager is not initialized");
     }
-  }
-
-  private hasExceededBudget(frame: ExecutionFrame): boolean {
-    return hasRuntimeExceededBudget(frame);
-  }
-
-  private async withRemainingBudget<T>(
-    operation: () => Promise<T>,
-    frame: ExecutionFrame,
-    timeoutMessage: string,
-  ): Promise<T> {
-    return withRuntimeRemainingBudget(operation, frame, timeoutMessage);
-  }
-
-  private throwIfAborted(signal?: AbortSignal): void {
-    throwIfRuntimeAborted(signal);
-  }
-
-  private isAborted(signal?: AbortSignal): boolean {
-    return isRuntimeAborted(signal);
-  }
-
-  private isAbortError(error: unknown): boolean {
-    return isRuntimeAbortError(error);
   }
 
   private errorToMessage(error: unknown): string {
