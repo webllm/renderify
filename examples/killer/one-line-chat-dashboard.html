@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Renderify Killer Demo: One-Line Chat Dashboard</title>
+    <style>
+      :root {
+        --bg: #f4f7fb;
+        --panel: #ffffff;
+        --ink: #152339;
+        --muted: #5d6f86;
+        --line: #d8e1ec;
+        --accent: #0f766e;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: radial-gradient(circle at 5% 10%, #d8f4ef 0, var(--bg) 42%);
+        color: var(--ink);
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      }
+
+      .page {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+
+      .headline {
+        margin: 0 0 8px;
+        font-size: 26px;
+      }
+
+      .hint {
+        margin: 0 0 14px;
+        color: var(--muted);
+      }
+
+      .layout {
+        display: grid;
+        grid-template-columns: 320px 1fr;
+        gap: 14px;
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 14px;
+      }
+
+      .chat-bubble {
+        border-radius: 12px;
+        background: #edf3fb;
+        padding: 10px;
+        color: #21344f;
+        margin-bottom: 10px;
+      }
+
+      .mount {
+        min-height: 360px;
+        border: 1px dashed #bfd5cb;
+        border-radius: 12px;
+        padding: 10px;
+        background: #fbfffe;
+      }
+
+      .status {
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      pre {
+        margin: 0;
+        max-height: 220px;
+        overflow: auto;
+        border-radius: 8px;
+        padding: 10px;
+        background: #0e1e33;
+        color: #d8e8ff;
+        font-size: 12px;
+      }
+
+      @media (max-width: 960px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <h1 class="headline">One-Line Embed: AI Chat Dashboard</h1>
+      <p class="hint">
+        Goal: drop a single call into chat UI and render a fully interactive dashboard.
+      </p>
+
+      <div class="layout">
+        <section class="panel">
+          <div class="chat-bubble">
+            User: Build an analytics dashboard with KPI toggles and chart.
+          </div>
+          <div class="chat-bubble">
+            Assistant emitted RuntimePlan + TSX source. Render immediately.
+          </div>
+          <pre id="apiSnippet"></pre>
+          <div id="status" class="status">Rendering...</div>
+        </section>
+
+        <section class="panel">
+          <div id="mount" class="mount"></div>
+        </section>
+      </div>
+    </div>
+
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "@renderify/ir": "../../packages/ir/dist/ir.esm.js",
+          "@renderify/security": "../../packages/security/dist/security.esm.js"
+        }
+      }
+    </script>
+    <script type="module">
+      import { renderPlanInBrowser } from "../../packages/runtime/dist/runtime.esm.js";
+
+      const plan = {
+        specVersion: "runtime-plan/v1",
+        id: "killer_chat_dashboard",
+        version: 1,
+        root: { type: "text", value: "loading" },
+        capabilities: {
+          domWrite: true,
+          allowedModules: ["preact", "preact/hooks", "recharts"],
+          maxExecutionMs: 5000,
+        },
+        imports: ["preact", "preact/hooks", "recharts"],
+        moduleManifest: {
+          preact: {
+            resolvedUrl: "https://ga.jspm.io/npm:preact@10.28.3/dist/preact.module.js",
+            signer: "examples",
+          },
+          "preact/hooks": {
+            resolvedUrl: "https://ga.jspm.io/npm:preact@10.28.3/hooks/dist/hooks.module.js",
+            signer: "examples",
+          },
+          "preact/jsx-runtime": {
+            resolvedUrl: "https://ga.jspm.io/npm:preact@10.28.3/jsx-runtime/dist/jsxRuntime.module.js",
+            signer: "examples",
+          },
+          recharts: {
+            resolvedUrl: "https://ga.jspm.io/npm:recharts@3.3.0/es6/index.js",
+            signer: "examples",
+          },
+          react: {
+            resolvedUrl: "https://ga.jspm.io/npm:preact@10.28.3/compat/dist/compat.module.js",
+            signer: "examples",
+          },
+          "react-dom": {
+            resolvedUrl: "https://ga.jspm.io/npm:preact@10.28.3/compat/dist/compat.module.js",
+            signer: "examples",
+          },
+          "react-dom/client": {
+            resolvedUrl: "https://ga.jspm.io/npm:preact@10.28.3/compat/dist/compat.module.js",
+            signer: "examples",
+          },
+          "react/jsx-runtime": {
+            resolvedUrl: "https://ga.jspm.io/npm:preact@10.28.3/jsx-runtime/dist/jsxRuntime.module.js",
+            signer: "examples",
+          },
+          "react/jsx-dev-runtime": {
+            resolvedUrl: "https://ga.jspm.io/npm:preact@10.28.3/jsx-runtime/dist/jsxRuntime.module.js",
+            signer: "examples",
+          },
+        },
+        source: {
+          language: "tsx",
+          runtime: "preact",
+          exportName: "default",
+          code: [
+            "import { h } from 'preact';",
+            "import { useMemo, useState } from 'preact/hooks';",
+            "import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';",
+            "",
+            "export default function Dashboard() {",
+            "  const [metric, setMetric] = useState('revenue');",
+            "  const data = useMemo(() => [",
+            "    { day: 'Mon', revenue: 120, users: 44 },",
+            "    { day: 'Tue', revenue: 176, users: 58 },",
+            "    { day: 'Wed', revenue: 148, users: 52 },",
+            "    { day: 'Thu', revenue: 222, users: 74 },",
+            "    { day: 'Fri', revenue: 261, users: 91 },",
+            "  ], []);",
+            "  return (",
+            "    <section style={{ fontFamily: 'IBM Plex Sans, sans-serif' }}>",
+            "      <h2 style={{ margin: '0 0 6px' }}>Revenue Assistant Dashboard</h2>",
+            "      <p style={{ marginTop: 0, color: '#4b5f79' }}>Generated by LLM, rendered by Renderify runtime.</p>",
+            "      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>",
+            "        <button type='button' onClick={() => setMetric('revenue')}>Revenue</button>",
+            "        <button type='button' onClick={() => setMetric('users')}>Users</button>",
+            "      </div>",
+            "      <div style={{ width: '100%', height: 280 }}>",
+            "        <ResponsiveContainer>",
+            "          <LineChart data={data}>",
+            "            <CartesianGrid strokeDasharray='3 3' />",
+            "            <XAxis dataKey='day' />",
+            "            <YAxis />",
+            "            <Tooltip />",
+            "            <Line type='monotone' dataKey={metric} stroke={metric === 'revenue' ? '#0f766e' : '#1d4ed8'} strokeWidth={3} />",
+            "          </LineChart>",
+            "        </ResponsiveContainer>",
+            "      </div>",
+            "      <p style={{ marginBottom: 0 }}>Current metric: <strong>{metric}</strong></p>",
+            "    </section>",
+            "  );",
+            "}",
+          ].join("\n"),
+        },
+      };
+
+      const statusEl = document.getElementById("status");
+      const snippetEl = document.getElementById("apiSnippet");
+      snippetEl.textContent = "await renderPlanInBrowser(plan, { target: '#mount' });";
+
+      (async () => {
+        try {
+          await renderPlanInBrowser(plan, { target: "#mount" });
+          statusEl.textContent = "Rendered with one line API.";
+        } catch (error) {
+          statusEl.textContent = `Render failed: ${error?.message ?? String(error)}`;
+        }
+      })();
+    </script>
+  </body>
+</html>

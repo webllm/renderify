@@ -75,6 +75,8 @@ flowchart TD
 - Runtime sandbox profile:
   - `executionProfile: "isolated-vm"` for VM-isolated sync component execution
   - fail-closed by default when isolation runtime is unavailable
+  - browser source sandbox with `sandbox-worker` / `sandbox-iframe` execution profiles
+  - runtime-level controls: mode / timeout / fail-closed
 - LLM structured contract:
   - prompt flow prefers structured `runtime-plan` output
   - auto fallback to text generation when structured payload is invalid
@@ -99,6 +101,7 @@ flowchart TD
 - Preact DOM reconciliation path for runtime source modules (diff-based UI updates)
 - Security profiles: `strict | balanced | relaxed`
 - RuntimePlan structural guards for safer plan ingestion
+- One-line embed API: `renderPlanInBrowser(plan, { target })`
 - Browser runtime playground (`renderify playground`) for live prompt/plan/stream/probe flows
 - Unit tests for `ir/core/runtime`
 - CI matrix (`Node 22 + Node 24`) for typecheck/unit + quality gates
@@ -165,6 +168,8 @@ RENDERIFY_RUNTIME_SPEC_VERSIONS=runtime-plan/v1 pnpm playground
 RENDERIFY_RUNTIME_PREFLIGHT=true RENDERIFY_RUNTIME_PREFLIGHT_FAIL_FAST=true pnpm playground
 RENDERIFY_RUNTIME_REMOTE_FETCH_TIMEOUT_MS=12000 RENDERIFY_RUNTIME_REMOTE_FETCH_RETRIES=2 pnpm playground
 RENDERIFY_RUNTIME_REMOTE_FALLBACK_CDNS=https://esm.sh,https://cdn.jsdelivr.net pnpm playground
+RENDERIFY_RUNTIME_BROWSER_SANDBOX_MODE=worker RENDERIFY_RUNTIME_BROWSER_SANDBOX_TIMEOUT_MS=4000 pnpm playground
+RENDERIFY_RUNTIME_BROWSER_SANDBOX_FAIL_CLOSED=true pnpm playground
 
 # Force text/TSX generation path instead of structured RuntimePlan
 RENDERIFY_LLM_USE_STRUCTURED_OUTPUT=false pnpm playground
@@ -207,44 +212,15 @@ Release automation is gated by CI success on `main` and uses Changesets to eithe
 
 ## Programmatic Example
 
+Core 3-package embed path (`ir + runtime + security`):
+
 ```ts
-import {
-  createRenderifyApp,
-  DefaultCodeGenerator,
-  DefaultContextManager,
-  DefaultPerformanceOptimizer,
-  DefaultRenderifyConfig,
-  DefaultSecurityChecker,
-  DefaultUIRenderer,
-} from "@renderify/core";
-import { createLLMInterpreter } from "@renderify/llm";
-import { DefaultRuntimeManager } from "@renderify/runtime";
-import { JspmModuleLoader } from "@renderify/runtime";
+import { renderPlanInBrowser } from "@renderify/runtime";
+import type { RuntimePlan } from "@renderify/ir";
 
-const app = createRenderifyApp({
-  config: new DefaultRenderifyConfig(),
-  context: new DefaultContextManager(),
-  llm: createLLMInterpreter({
-    provider: "openai",
-    providerOptions: {
-      apiKey: process.env.RENDERIFY_LLM_API_KEY,
-    },
-  }),
-  codegen: new DefaultCodeGenerator(),
-  runtime: new DefaultRuntimeManager({
-    moduleLoader: new JspmModuleLoader(),
-  }),
-  security: new DefaultSecurityChecker(),
-  performance: new DefaultPerformanceOptimizer(),
-  ui: new DefaultUIRenderer(),
-});
+const plan: RuntimePlan = /* LLM generated RuntimePlan */;
 
-await app.start();
-
-const promptResult = await app.renderPrompt("Build a runtime dashboard");
-console.log(promptResult.html);
-console.log(promptResult.plan.id);
-await app.stop();
+await renderPlanInBrowser(plan, { target: "#mount" });
 ```
 
 ## Package Topology
@@ -252,9 +228,10 @@ await app.stop();
 | Package                      | Responsibility                                                   |
 | ---------------------------- | ---------------------------------------------------------------- |
 | `@renderify/ir`              | Runtime IR contracts (plan/node/state/action/event/capabilities) |
-| `@renderify/runtime`         | Runtime execution engine + JSPM module loader                    |
-| `@renderify/core`            | Orchestration + codegen + LLM interfaces + security + UI + config |
-| `@renderify/llm`              | LLM provider package (currently ships OpenAI + Anthropic + Google) |
+| `@renderify/runtime`         | Runtime execution engine + JSPM loader + one-line embed API      |
+| `@renderify/security`        | Policy profiles + plan/module/source static checks               |
+| `@renderify/core`            | Legacy orchestration facade (optional compatibility layer)       |
+| `@renderify/llm`             | LLM provider package (OpenAI + Anthropic + Google)               |
 | `@renderify/cli`             | CLI + browser playground                                         |
 
 ## Integration Docs
@@ -269,6 +246,9 @@ await app.stop();
 - Runtime plan flow: `examples/runtime/browser-runtime-example.html`
 - TSX runtime flow (Babel + JSPM): `examples/runtime/browser-tsx-jspm-example.html`
 - Recharts + Preact RuntimePlan: `examples/runtime/recharts-dashboard-plan.json`
+- Killer demo: one-line chat dashboard embed: `examples/killer/one-line-chat-dashboard.html`
+- Killer demo: one-line form/state/date-fns embed: `examples/killer/one-line-chat-form.html`
+- Killer demo: one-line worker-sandbox source embed: `examples/killer/one-line-sandbox-worker.html`
 
 ## Roadmap
 

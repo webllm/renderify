@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Renderify Killer Demo: Form + State</title>
+    <style>
+      :root {
+        --bg: #f6f8fc;
+        --panel: #ffffff;
+        --ink: #182b41;
+        --muted: #5e7088;
+        --line: #d6e0ec;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Space Grotesk", "Segoe UI", sans-serif;
+        color: var(--ink);
+        background: radial-gradient(circle at 100% 0, #dff2ff 0, var(--bg) 45%);
+      }
+      .page { max-width: 980px; margin: 0 auto; padding: 20px; }
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--panel);
+        padding: 14px;
+      }
+      .mount {
+        min-height: 340px;
+        border: 1px dashed #bccfe1;
+        border-radius: 10px;
+        background: #fbfdff;
+        padding: 12px;
+      }
+      .status { margin-top: 10px; color: var(--muted); font-size: 13px; }
+      pre {
+        margin: 0 0 10px;
+        max-height: 220px;
+        overflow: auto;
+        padding: 10px;
+        border-radius: 8px;
+        font-size: 12px;
+        background: #0e1e33;
+        color: #d8e9ff;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <h1>One-Line Embed: Form + State + Any Package</h1>
+      <p>
+        This demo uses <code>preact/hooks</code> + <code>date-fns</code> directly from JSPM at runtime.
+      </p>
+      <section class="panel">
+        <pre id="apiSnippet"></pre>
+        <div id="mount" class="mount"></div>
+        <div id="status" class="status">Rendering...</div>
+      </section>
+    </div>
+
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "@renderify/ir": "../../packages/ir/dist/ir.esm.js",
+          "@renderify/security": "../../packages/security/dist/security.esm.js"
+        }
+      }
+    </script>
+    <script type="module">
+      import { renderPlanInBrowser } from "../../packages/runtime/dist/runtime.esm.js";
+
+      const plan = {
+        specVersion: "runtime-plan/v1",
+        id: "killer_chat_form_state",
+        version: 1,
+        root: { type: "text", value: "loading" },
+        capabilities: {
+          domWrite: true,
+          maxExecutionMs: 5000,
+          allowedModules: ["preact", "preact/hooks", "date-fns"],
+        },
+        imports: ["preact", "preact/hooks", "date-fns"],
+        moduleManifest: {
+          preact: {
+            resolvedUrl: "https://ga.jspm.io/npm:preact@10.28.3/dist/preact.module.js",
+            signer: "examples",
+          },
+          "preact/hooks": {
+            resolvedUrl: "https://ga.jspm.io/npm:preact@10.28.3/hooks/dist/hooks.module.js",
+            signer: "examples",
+          },
+          "preact/jsx-runtime": {
+            resolvedUrl: "https://ga.jspm.io/npm:preact@10.28.3/jsx-runtime/dist/jsxRuntime.module.js",
+            signer: "examples",
+          },
+          "date-fns": {
+            resolvedUrl: "https://ga.jspm.io/npm:date-fns@4.1.0/index.js",
+            signer: "examples",
+          },
+        },
+        source: {
+          language: "tsx",
+          runtime: "preact",
+          exportName: "default",
+          code: [
+            "import { h } from 'preact';",
+            "import { useMemo, useState } from 'preact/hooks';",
+            "import { formatDistanceToNow } from 'date-fns';",
+            "",
+            "export default function TaskCard() {",
+            "  const [value, setValue] = useState('');",
+            "  const [items, setItems] = useState([",
+            "    { id: 1, text: 'Kickoff docs', ts: Date.now() - 1000 * 60 * 8 },",
+            "  ]);",
+            "",
+            "  const submit = (event) => {",
+            "    event.preventDefault();",
+            "    const text = value.trim();",
+            "    if (!text) return;",
+            "    setItems((prev) => [{ id: Date.now(), text, ts: Date.now() }, ...prev]);",
+            "    setValue('');",
+            "  };",
+            "",
+            "  const pending = useMemo(() => items.length, [items]);",
+            "",
+            "  return (",
+            "    <section>",
+            "      <h2 style={{ marginTop: 0 }}>Agent Follow-up Tracker</h2>",
+            "      <p style={{ color: '#586a83' }}>Pending items: <strong>{pending}</strong></p>",
+            "      <form onSubmit={submit} style={{ display: 'flex', gap: 8, marginBottom: 12 }}>",
+            "        <input",
+            "          value={value}",
+            "          onInput={(event) => setValue(event.currentTarget.value)}",
+            "          placeholder='Add a task...'",
+            "          style={{ flex: 1, padding: '8px 10px' }}",
+            "        />",
+            "        <button type='submit'>Add</button>",
+            "      </form>",
+            "      <ul style={{ margin: 0, paddingLeft: 18 }}>",
+            "        {items.map((item) => (",
+            "          <li key={item.id} style={{ marginBottom: 8 }}>",
+            "            <span>{item.text}</span>",
+            "            <small style={{ marginLeft: 8, color: '#6a7d96' }}>",
+            "              {formatDistanceToNow(item.ts, { addSuffix: true })}",
+            "            </small>",
+            "          </li>",
+            "        ))}",
+            "      </ul>",
+            "    </section>",
+            "  );",
+            "}",
+          ].join("\n"),
+        },
+      };
+
+      const snippetEl = document.getElementById("apiSnippet");
+      const statusEl = document.getElementById("status");
+      snippetEl.textContent = "await renderPlanInBrowser(plan, { target: '#mount' });";
+
+      (async () => {
+        try {
+          await renderPlanInBrowser(plan, { target: "#mount" });
+          statusEl.textContent = "Rendered with one line API.";
+        } catch (error) {
+          statusEl.textContent = `Render failed: ${error?.message ?? String(error)}`;
+        }
+      })();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Renderify Killer Demo: Worker Sandbox</title>
+    <style>
+      :root {
+        --bg: #f5f8f4;
+        --panel: #ffffff;
+        --ink: #1a2a1d;
+        --muted: #60715f;
+        --line: #d8e2d6;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: radial-gradient(circle at left top, #e5f5dd 0, var(--bg) 44%);
+        color: var(--ink);
+        font-family: "Manrope", "Segoe UI", sans-serif;
+      }
+      .page { max-width: 980px; margin: 0 auto; padding: 20px; }
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--panel);
+        padding: 14px;
+      }
+      .mount {
+        min-height: 220px;
+        border: 1px dashed #c5d4bf;
+        border-radius: 10px;
+        background: #fcfffa;
+        padding: 12px;
+      }
+      .status {
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      pre {
+        margin: 0 0 10px;
+        max-height: 220px;
+        overflow: auto;
+        padding: 10px;
+        border-radius: 8px;
+        font-size: 12px;
+        background: #0f1f12;
+        color: #d2f0cf;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <h1>One-Line Embed: Worker-Sandboxed Source</h1>
+      <p>
+        The plan requests <code>executionProfile: "sandbox-worker"</code>. Source module executes off the main thread.
+      </p>
+      <section class="panel">
+        <pre id="apiSnippet"></pre>
+        <div id="mount" class="mount"></div>
+        <div id="status" class="status">Rendering...</div>
+      </section>
+    </div>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "@renderify/ir": "../../packages/ir/dist/ir.esm.js",
+          "@renderify/security": "../../packages/security/dist/security.esm.js"
+        }
+      }
+    </script>
+    <script type="module">
+      import { renderPlanInBrowser } from "../../packages/runtime/dist/runtime.esm.js";
+
+      const plan = {
+        specVersion: "runtime-plan/v1",
+        id: "killer_sandbox_worker",
+        version: 1,
+        root: {
+          type: "element",
+          tag: "section",
+          children: [{ type: "text", value: "fallback root" }],
+        },
+        capabilities: {
+          domWrite: true,
+          executionProfile: "sandbox-worker",
+          maxExecutionMs: 3000,
+          allowedModules: ["lodash-es"],
+        },
+        imports: ["lodash-es"],
+        moduleManifest: {
+          "lodash-es": {
+            resolvedUrl: "https://ga.jspm.io/npm:lodash-es@4.17.21/lodash.js",
+            signer: "examples",
+          },
+        },
+        state: {
+          initial: {
+            values: ["a", "a", "b", "c", "c", "d"],
+          },
+        },
+        source: {
+          language: "js",
+          runtime: "renderify",
+          code: [
+            "import { uniq } from 'lodash-es';",
+            "",
+            "export default ({ state }) => {",
+            "  const unique = uniq(state.values || []);",
+            "  return {",
+            "    type: 'element',",
+            "    tag: 'section',",
+            "    children: [",
+            "      { type: 'element', tag: 'h3', children: [{ type: 'text', value: 'Worker Sandbox Active' }] },",
+            "      { type: 'element', tag: 'p', children: [{ type: 'text', value: `Unique values: ${unique.join(', ')}` }] },",
+            "      { type: 'element', tag: 'p', children: [{ type: 'text', value: `Count: ${unique.length}` }] },",
+            "    ],",
+            "  };",
+            "};",
+          ].join("\n"),
+        },
+      };
+
+      const snippetEl = document.getElementById("apiSnippet");
+      const statusEl = document.getElementById("status");
+      snippetEl.textContent = "await renderPlanInBrowser(plan, { target: '#mount' });";
+
+      (async () => {
+        try {
+          const rendered = await renderPlanInBrowser(plan, {
+            target: "#mount",
+            runtimeOptions: {
+              browserSourceSandboxMode: "worker",
+              browserSourceSandboxFailClosed: true,
+            },
+          });
+
+          const usedSandbox = rendered.execution.diagnostics.some(
+            (item) => item.code === "RUNTIME_SOURCE_SANDBOX_EXECUTED",
+          );
+          statusEl.textContent = usedSandbox
+            ? "Rendered in worker sandbox (diagnostics confirmed)."
+            : "Rendered, but sandbox diagnostic not found.";
+        } catch (error) {
+          statusEl.textContent = `Render failed: ${error?.message ?? String(error)}`;
+        }
+      })();
+    </script>
+  </body>
+</html>

@@ -22,7 +22,8 @@
   - import count limit
   - execution time budget limit
   - component invocation limit
-  - `executionProfile` support (`standard` / `isolated-vm`)
+  - `executionProfile` support (`standard` / `isolated-vm` / `sandbox-worker` / `sandbox-iframe`)
+  - browser runtime source sandbox (worker/iframe) with fail-closed option
   - default fail-closed behavior when isolated runtime is unavailable
 - Developer experience:
   - CLI commands: `run`, `plan`, `probe-plan`, `render-plan`, `playground`
@@ -48,6 +49,6 @@
 
 ## Remaining High-Value Items
 
-- Production-grade sandbox isolation hardening (worker/vm boundary progression)
+- Production-grade sandbox isolation hardening (worker/iframe + CSP + stricter capability gates)
 - Local-model providers and production resiliency (retry/backoff/circuit breaker)
 - Runtime/component performance profiling and optimization under large plans

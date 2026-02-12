@@ -147,11 +147,27 @@
     </div>
 
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-    <script src="../../packages/runtime/dist/runtime.umd.min.js"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "@renderify/ir": "../../packages/ir/dist/ir.esm.js",
+          "@renderify/security": "../../packages/security/dist/security.esm.js"
+        }
+      }
+    </script>
     <script src="../../packages/core/dist/core.umd.min.js"></script>
 
-    <script>
+    <script type="module">
+      import {
+        DefaultRuntimeManager,
+        JspmModuleLoader,
+      } from "../../packages/runtime/dist/runtime.esm.js";
+
+      const RenderifyCore = globalThis.RenderifyCore;
+      if (!RenderifyCore) {
+        throw new Error("RenderifyCore global is unavailable");
+      }
+
       (async function () {
         const promptInput = document.getElementById("promptInput");
         const runButton = document.getElementById("runButton");
@@ -207,8 +223,8 @@
           context: new RenderifyCore.DefaultContextManager(),
           llm: new TsxDemoLLM(),
           codegen: new RenderifyCore.DefaultCodeGenerator(),
-          runtime: new RenderifyRuntime.DefaultRuntimeManager({
-            moduleLoader: new RenderifyRuntime.JspmModuleLoader(),
+          runtime: new DefaultRuntimeManager({
+            moduleLoader: new JspmModuleLoader(),
           }),
           security: new RenderifyCore.DefaultSecurityChecker(),
           performance: new RenderifyCore.DefaultPerformanceOptimizer(),

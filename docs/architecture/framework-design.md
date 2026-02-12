@@ -27,7 +27,7 @@ Renderify 目标是做“受控的全动态 runtime UI”：
 
 ### Control Layer
 
-- `@renderify/core`
+- `@renderify/security`
 - 校验：
   - 节点深度/数量
   - 禁用标签
@@ -43,8 +43,9 @@ Renderify 目标是做“受控的全动态 runtime UI”：
   - 节点递归解析
   - 组件模块加载与执行
   - 资源预算控制（imports/time/component invocations）
-  - `executionProfile`（`standard` / `isolated-vm`）
+  - `executionProfile`（`standard` / `isolated-vm` / `sandbox-worker` / `sandbox-iframe`）
   - 模块清单约束（manifest-aware resolution）
+  - 浏览器 source 沙箱执行（Worker/iframe）
   - 隔离不可用默认 fail-closed（可配置）
 
 - `@renderify/runtime`
@@ -55,8 +56,8 @@ Renderify 目标是做“受控的全动态 runtime UI”：
 
 ### Experience Layer
 
-- `@renderify/core`
-- 输出 HTML 并可挂载 DOM
+- `@renderify/runtime`
+- 提供一行嵌入 API（`renderPlanInBrowser`）和浏览器挂载能力
 
 - `@renderify/cli` playground
 - 浏览器实时调试面板（prompt/plan/stream/probe）
@@ -83,11 +84,13 @@ Renderify 目标是做“受控的全动态 runtime UI”：
 已完成：
 
 - 核心 runtime 渲染链路
+- 核心 3 包主路径：`@renderify/ir` + `@renderify/runtime` + `@renderify/security`
 - prompt 流式预览（renderPromptStream）
 - CLI + playground 实时链路
 - TSX/JSX 文本输出到 runtime source 的直接执行链路（Babel + JSPM）
+- 浏览器 source 沙箱基线（Worker/iframe）
 
 未完成：
 
-- 生产级沙箱隔离边界（Worker/VM）
+- 沙箱进一步工业级加固（CSP、权限裁剪、跨域策略与观测）
 - 本地模型 provider 与生产级可靠性策略（重试/退避/熔断）

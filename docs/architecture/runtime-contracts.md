@@ -83,7 +83,11 @@ interface RuntimeCapabilities {
   allowedModules?: string[];
   timers?: boolean;
   storage?: Array<"localStorage" | "sessionStorage">;
-  executionProfile?: "standard" | "isolated-vm";
+  executionProfile?:
+    | "standard"
+    | "isolated-vm"
+    | "sandbox-worker"
+    | "sandbox-iframe";
   maxImports?: number;
   maxComponentInvocations?: number;
   maxExecutionMs?: number;
@@ -134,12 +138,13 @@ When structured mode is disabled, text output can contain fenced source blocks:
 - ```` ```ts ... ``` ````
 - ```` ```js ... ``` `````
 
-`@renderify/core` converts these into `RuntimePlan.source`, and runtime executes
-them via Babel transpilation + JSPM-style import resolution.
+Host application (or optional `@renderify/core` facade) converts these into
+`RuntimePlan.source`, and runtime executes them via Babel transpilation +
+JSPM-style import resolution.
 
 ## Security Policy Contract
 
-`@renderify/core` validates plan and capabilities before execution.
+`@renderify/security` validates plan and capabilities before execution.
 
 Policy dimensions:
 
