@@ -42,7 +42,6 @@
     "@renderify/customization": "workspace:^",
     "@renderify/ir": "workspace:^",
     "@renderify/llm-interpreter": "workspace:^",
-    "@renderify/performance": "workspace:^",
     "@renderify/runtime": "workspace:^",
     "@renderify/security": "workspace:^",
     "@renderify/ui": "workspace:^"

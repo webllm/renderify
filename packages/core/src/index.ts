@@ -24,7 +24,6 @@ import type {
   LLMStructuredRequest,
   LLMStructuredResponse,
 } from "@renderify/llm-interpreter";
-import type { PerformanceOptimizer } from "@renderify/performance";
 import type { RuntimeExecutionInput, RuntimeManager } from "@renderify/runtime";
 import type {
   RuntimeSecurityPolicy,
@@ -40,6 +39,7 @@ import {
   type ExecutionStatus,
   InMemoryExecutionAuditLog,
 } from "./audit-log";
+import type { PerformanceOptimizer } from "./performance";
 import {
   InMemoryPlanRegistry,
   type PlanRegistry,
@@ -1134,5 +1134,6 @@ export function createRenderifyApp(
 }
 
 export * from "./audit-log";
+export * from "./performance";
 export * from "./plan-registry";
 export * from "./tenant-governor";

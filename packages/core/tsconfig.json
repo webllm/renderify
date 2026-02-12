@@ -30,9 +30,6 @@
       "path": "../llm-interpreter"
     },
     {
-      "path": "../performance"
-    },
-    {
       "path": "../runtime"
     },
     {

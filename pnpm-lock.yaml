@@ -88,9 +88,6 @@ importers:
       '@renderify/llm-openai':
         specifier: workspace:^
         version: link:../llm-openai
-      '@renderify/performance':
-        specifier: workspace:^
-        version: link:../performance
       '@renderify/runtime':
         specifier: workspace:^
         version: link:../runtime
@@ -137,9 +134,6 @@ importers:
       '@renderify/llm-interpreter':
         specifier: workspace:^
         version: link:../llm-interpreter
-      '@renderify/performance':
-        specifier: workspace:^
-        version: link:../performance
       '@renderify/runtime':
         specifier: workspace:^
         version: link:../runtime
@@ -164,8 +158,6 @@ importers:
       '@renderify/llm-interpreter':
         specifier: workspace:^
         version: link:../llm-interpreter
-
-  packages/performance: {}
 
   packages/runtime:
     dependencies:

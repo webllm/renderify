@@ -21,7 +21,7 @@ export class DefaultPerformanceOptimizer implements PerformanceOptimizer {
   private readonly timers: Map<string, TimerState> = new Map();
   private readonly metrics: PerformanceMetric[] = [];
 
-  startMeasurement(label: string) {
+  startMeasurement(label: string): void {
     this.timers.set(label, {
       label,
       startedAt: nowMs(),
@@ -58,7 +58,10 @@ export class DefaultPerformanceOptimizer implements PerformanceOptimizer {
 }
 
 function nowMs(): number {
-  if (typeof performance !== "undefined" && typeof performance.now === "function") {
+  if (
+    typeof performance !== "undefined" &&
+    typeof performance.now === "function"
+  ) {
     return performance.now();
   }
 

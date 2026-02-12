@@ -8,6 +8,7 @@ import {
 import { DefaultContextManager } from "../packages/context/src/index";
 import {
   createRenderifyApp,
+  DefaultPerformanceOptimizer,
   InMemoryTenantGovernor,
   PolicyRejectionError,
   type RenderifyCoreDependencies,
@@ -28,7 +29,6 @@ import {
   type LLMStructuredRequest,
   type LLMStructuredResponse,
 } from "../packages/llm-interpreter/src/index";
-import { DefaultPerformanceOptimizer } from "../packages/performance/src/index";
 import { DefaultRuntimeManager } from "../packages/runtime/src/index";
 import { DefaultSecurityChecker } from "../packages/security/src/index";
 import { DefaultUIRenderer } from "../packages/ui/src/index";

@@ -38,9 +38,6 @@
       "path": "packages/llm-openai"
     },
     {
-      "path": "packages/performance"
-    },
-    {
       "path": "packages/runtime"
     },
     {

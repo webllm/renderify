@@ -43,7 +43,6 @@
     "@renderify/ir": "workspace:^",
     "@renderify/llm-interpreter": "workspace:^",
     "@renderify/llm-openai": "workspace:^",
-    "@renderify/performance": "workspace:^",
     "@renderify/runtime": "workspace:^",
     "@renderify/runtime-jspm": "workspace:^",
     "@renderify/security": "workspace:^",

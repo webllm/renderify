@@ -11,6 +11,7 @@ import {
 import { DefaultContextManager } from "@renderify/context";
 import {
   createRenderifyApp,
+  DefaultPerformanceOptimizer,
   type ExecutionAuditRecord,
   InMemoryExecutionAuditLog,
   InMemoryPlanRegistry,
@@ -33,7 +34,6 @@ import {
   type LLMInterpreter,
 } from "@renderify/llm-interpreter";
 import { OpenAILLMInterpreter } from "@renderify/llm-openai";
-import { DefaultPerformanceOptimizer } from "@renderify/performance";
 import { DefaultRuntimeManager } from "@renderify/runtime";
 import { JspmModuleLoader } from "@renderify/runtime-jspm";
 import { DefaultSecurityChecker } from "@renderify/security";
