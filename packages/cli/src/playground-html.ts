@@ -180,6 +180,7 @@ export const PLAYGROUND_HTML = `<!doctype html>
           <div class="actions">
             <button id="run-plan">Render Plan</button>
             <button id="probe-plan" class="secondary">Probe Plan</button>
+            <button id="copy-plan-link" class="secondary">Copy Plan Link</button>
           </div>
         </section>
 
@@ -203,12 +204,14 @@ export const PLAYGROUND_HTML = `<!doctype html>
       const planEditorEl = byId("plan-editor");
       const diagnosticsEl = byId("diagnostics");
       const streamOutputEl = byId("stream-output");
+      const copyPlanLinkEl = byId("copy-plan-link");
 
       const controls = [
         byId("run-prompt"),
         byId("stream-prompt"),
         byId("run-plan"),
         byId("probe-plan"),
+        copyPlanLinkEl,
         byId("clear"),
       ];
 
@@ -228,6 +231,135 @@ export const PLAYGROUND_HTML = `<!doctype html>
         } catch (error) {
           return String(error);
         }
+      };
+
+      const HASH_SOURCE_LANGUAGE_KEYS = {
+        js64: "js",
+        jsx64: "jsx",
+        ts64: "ts",
+        tsx64: "tsx",
+      };
+
+      const toBase64Bytes = (input) => {
+        const normalized = String(input ?? "")
+          .trim()
+          .replace(/[\\r\\n\\t ]+/g, "")
+          .replace(/-/g, "+")
+          .replace(/_/g, "/");
+        if (!normalized) {
+          throw new Error("Base64 payload is empty.");
+        }
+        const remainder = normalized.length % 4;
+        const padded =
+          remainder === 0 ? normalized : normalized + "=".repeat(4 - remainder);
+        return atob(padded);
+      };
+
+      const decodeBase64Text = (input) => {
+        const binary = toBase64Bytes(input);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) {
+          bytes[index] = binary.charCodeAt(index);
+        }
+        return new TextDecoder().decode(bytes);
+      };
+
+      const encodeBase64Url = (input) => {
+        const text = String(input ?? "");
+        const bytes = new TextEncoder().encode(text);
+        let binary = "";
+        for (const byte of bytes) {
+          binary += String.fromCharCode(byte);
+        }
+        return btoa(binary)
+          .replace(/\\+/g, "-")
+          .replace(/\\//g, "_")
+          .replace(/=+$/g, "");
+      };
+
+      const getHashSearchParams = () => {
+        const rawHash = window.location.hash.startsWith("#")
+          ? window.location.hash.slice(1)
+          : window.location.hash;
+        return new URLSearchParams(rawHash);
+      };
+
+      const parseJsonFromBase64 = (input, label) => {
+        try {
+          const decoded = decodeBase64Text(input);
+          return JSON.parse(decoded);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          throw new Error("Failed to decode " + label + ": " + message);
+        }
+      };
+
+      const resolveSourceHashPayload = (params) => {
+        const sourceEntry = Object.entries(HASH_SOURCE_LANGUAGE_KEYS).find(
+          ([key]) => params.has(key),
+        );
+        if (!sourceEntry && !params.has("source64")) {
+          return null;
+        }
+
+        const explicitLanguage = String(params.get("language") || "")
+          .trim()
+          .toLowerCase();
+        const language =
+          (sourceEntry ? sourceEntry[1] : undefined) ||
+          (explicitLanguage === "js" ||
+          explicitLanguage === "jsx" ||
+          explicitLanguage === "ts" ||
+          explicitLanguage === "tsx"
+            ? explicitLanguage
+            : "jsx");
+        const sourceRaw = sourceEntry ? params.get(sourceEntry[0]) : params.get("source64");
+        if (!sourceRaw) {
+          throw new Error("Source hash payload is empty.");
+        }
+
+        const code = decodeBase64Text(sourceRaw);
+        const runtimeRaw = String(params.get("runtime") || "").trim().toLowerCase();
+        const runtime =
+          runtimeRaw === "renderify" || runtimeRaw === "preact"
+            ? runtimeRaw
+            : language === "jsx" || language === "tsx"
+              ? "preact"
+              : "renderify";
+        const exportName = String(params.get("exportName") || "default").trim() || "default";
+        const manifestPayload = params.get("manifest64");
+        const moduleManifest = manifestPayload
+          ? parseJsonFromBase64(manifestPayload, "manifest64")
+          : undefined;
+        const planId =
+          String(params.get("id") || "").trim() ||
+          "hash_source_" + Date.now().toString(36);
+
+        return {
+          specVersion: "runtime-plan/v1",
+          id: planId,
+          version: 1,
+          root: {
+            type: "element",
+            tag: "div",
+            children: [{ type: "text", value: "Renderify source root" }],
+          },
+          capabilities: {},
+          ...(moduleManifest &&
+          typeof moduleManifest === "object" &&
+          !Array.isArray(moduleManifest)
+            ? { moduleManifest }
+            : {}),
+          source: {
+            code,
+            language,
+            exportName,
+            runtime,
+          },
+          metadata: {
+            tags: ["hash-deeplink", "source"],
+          },
+        };
       };
 
       async function request(path, method, body) {
@@ -253,6 +385,23 @@ export const PLAYGROUND_HTML = `<!doctype html>
           diagnostics: payload.diagnostics ?? [],
         });
       };
+
+      async function renderPlanObject(plan, statusText) {
+        setBusy(true);
+        setStatus(statusText || "Rendering plan...");
+        try {
+          const payload = await request("/api/plan", "POST", { plan });
+          applyRenderPayload(payload);
+          setStatus("Plan rendered.");
+          return payload;
+        } catch (error) {
+          setStatus("Plan render failed.");
+          diagnosticsEl.textContent = String(error);
+          throw error;
+        } finally {
+          setBusy(false);
+        }
+      }
 
       async function runPrompt() {
         const prompt = promptEl.value.trim();
@@ -349,18 +498,12 @@ export const PLAYGROUND_HTML = `<!doctype html>
           return;
         }
 
-        setBusy(true);
-        setStatus("Rendering plan...");
         try {
           const plan = JSON.parse(raw);
-          const payload = await request("/api/plan", "POST", { plan });
-          applyRenderPayload(payload);
-          setStatus("Plan rendered.");
+          await renderPlanObject(plan, "Rendering plan...");
         } catch (error) {
           setStatus("Plan render failed.");
           diagnosticsEl.textContent = String(error);
-        } finally {
-          setBusy(false);
         }
       }
 
@@ -393,11 +536,77 @@ export const PLAYGROUND_HTML = `<!doctype html>
         setStatus("Cleared.");
       }
 
+      async function copyPlanLink() {
+        const raw = planEditorEl.value.trim();
+        if (!raw) {
+          setStatus("Plan JSON is required.");
+          return;
+        }
+
+        try {
+          const parsed = JSON.parse(raw);
+          const encoded = encodeBase64Url(JSON.stringify(parsed));
+          const shareUrl =
+            window.location.origin +
+            window.location.pathname +
+            "#plan64=" +
+            encoded;
+
+          if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+            await navigator.clipboard.writeText(shareUrl);
+            setStatus("Plan share link copied.");
+            diagnosticsEl.textContent = safeJson({
+              shareUrl,
+            });
+            return;
+          }
+
+          diagnosticsEl.textContent = shareUrl;
+          setStatus("Clipboard unavailable; share URL written to diagnostics.");
+        } catch (error) {
+          setStatus("Failed to create share link.");
+          diagnosticsEl.textContent = String(error);
+        }
+      }
+
+      async function renderFromHashPayload() {
+        const params = getHashSearchParams();
+        if (Array.from(params.keys()).length === 0) {
+          return;
+        }
+
+        try {
+          const plan64 = params.get("plan64");
+          const plan = plan64
+            ? parseJsonFromBase64(plan64, "plan64")
+            : resolveSourceHashPayload(params);
+
+          if (!plan) {
+            return;
+          }
+
+          planEditorEl.value = safeJson(plan);
+          await renderPlanObject(plan, "Rendering hash payload...");
+          setStatus("Hash payload rendered.");
+        } catch (error) {
+          setStatus("Hash payload render failed.");
+          diagnosticsEl.textContent = String(error);
+        }
+      }
+
       byId("run-prompt").addEventListener("click", runPrompt);
       byId("stream-prompt").addEventListener("click", streamPrompt);
       byId("run-plan").addEventListener("click", runPlan);
       byId("probe-plan").addEventListener("click", probePlan);
+      copyPlanLinkEl.addEventListener("click", () => {
+        void copyPlanLink();
+      });
       byId("clear").addEventListener("click", clearAll);
+
+      void renderFromHashPayload();
+      window.addEventListener("hashchange", () => {
+        void renderFromHashPayload();
+      });
     </script>
   </body>
 </html>`;

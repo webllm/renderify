@@ -177,6 +177,26 @@ RENDERIFY_RUNTIME_BROWSER_SANDBOX_FAIL_CLOSED=true pnpm playground
 RENDERIFY_LLM_USE_STRUCTURED_OUTPUT=false pnpm playground
 ```
 
+### Playground Hash Deep-Link
+
+The playground can auto-render from URL hash payloads:
+
+- `#plan64=<base64url(RuntimePlan JSON)>`
+- `#jsx64=<base64url(JSX source)>`
+- Also supports `#tsx64`, `#js64`, `#ts64`, with optional `runtime`, `exportName`, and `manifest64`.
+
+For bare imports (for example `import { LineChart } from "recharts"`), include `manifest64` or use fully qualified module URLs.
+
+```bash
+PLAN64=$(node -e 'const plan={specVersion:"runtime-plan/v1",id:"hash_demo",version:1,root:{type:"element",tag:"div",children:[{type:"text",value:"Hello from hash plan"}]},capabilities:{}};process.stdout.write(Buffer.from(JSON.stringify(plan),"utf8").toString("base64url"));')
+open "http://127.0.0.1:4317/#plan64=${PLAN64}"
+```
+
+```bash
+JSX64=$(node -e 'const code="export default function App(){ return <div style={{ padding: 16 }}>Hello hash JSX</div>; }";process.stdout.write(Buffer.from(code,"utf8").toString("base64url"));')
+open "http://127.0.0.1:4317/#jsx64=${JSX64}&runtime=preact"
+```
+
 ## Killer Demo
 
 ```bash
