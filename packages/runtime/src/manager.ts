@@ -5,7 +5,6 @@ import {
   createTextNode,
   isRuntimeNode,
   type JsonValue,
-  parseRuntimeSourceImportRanges,
   type RuntimeAction,
   type RuntimeDiagnostic,
   type RuntimeEvent,
@@ -84,6 +83,14 @@ import {
   type RuntimeDependencyUsage,
   runDependencyPreflight,
 } from "./runtime-preflight";
+import {
+  canMaterializeBrowserModules,
+  createBrowserBlobModuleUrl,
+  normalizeRuntimeSourceOutput,
+  parseImportSpecifiersFromSource,
+  revokeBrowserBlobUrls,
+  rewriteImportsAsync,
+} from "./runtime-source-utils";
 import {
   isHttpUrl,
   resolveRuntimeSourceSpecifier,
@@ -683,7 +690,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
     }
 
     const imports = new Set<string>();
-    const parsedSpecifiers = await this.parseImportSpecifiersFromSource(code);
+    const parsedSpecifiers = await parseImportSpecifiersFromSource(code);
     for (const entry of parsedSpecifiers) {
       imports.add(entry.specifier);
     }
@@ -1113,12 +1120,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
   }
 
   private canMaterializeBrowserModules(): boolean {
-    return (
-      typeof URL !== "undefined" &&
-      typeof URL.createObjectURL === "function" &&
-      typeof Blob !== "undefined" &&
-      typeof fetch === "function"
-    );
+    return canMaterializeBrowserModules();
   }
 
   private async resolveBrowserImportSpecifier(
@@ -1432,75 +1434,19 @@ export class DefaultRuntimeManager implements RuntimeManager {
     code: string,
     resolver: (specifier: string) => Promise<string>,
   ): Promise<string> {
-    const imports = await this.parseImportSpecifiersFromSource(code);
-    if (imports.length === 0) {
-      return code;
-    }
-
-    let rewritten = "";
-    let cursor = 0;
-
-    for (const item of imports) {
-      rewritten += code.slice(cursor, item.start);
-      rewritten += await resolver(item.specifier);
-      cursor = item.end;
-    }
-
-    rewritten += code.slice(cursor);
-    return rewritten;
-  }
-
-  private async parseImportSpecifiersFromSource(
-    source: string,
-  ): Promise<Array<{ start: number; end: number; specifier: string }>> {
-    return parseRuntimeSourceImportRanges(source);
+    return rewriteImportsAsync(code, resolver);
   }
 
   private createBrowserBlobModuleUrl(code: string): string {
-    const blobUrl = URL.createObjectURL(
-      new Blob([code], { type: "text/javascript" }),
-    );
-    this.browserBlobUrls.add(blobUrl);
-    return blobUrl;
+    return createBrowserBlobModuleUrl(code, this.browserBlobUrls);
   }
 
   private revokeBrowserBlobUrls(): void {
-    if (
-      typeof URL === "undefined" ||
-      typeof URL.revokeObjectURL !== "function"
-    ) {
-      this.browserBlobUrls.clear();
-      return;
-    }
-
-    for (const blobUrl of this.browserBlobUrls) {
-      URL.revokeObjectURL(blobUrl);
-    }
-    this.browserBlobUrls.clear();
+    revokeBrowserBlobUrls(this.browserBlobUrls);
   }
 
   private normalizeSourceOutput(output: unknown): RuntimeNode | undefined {
-    if (isRuntimeNode(output)) {
-      return output;
-    }
-
-    if (typeof output === "string" || typeof output === "number") {
-      return createTextNode(String(output));
-    }
-
-    if (Array.isArray(output)) {
-      const normalizedChildren = output
-        .map((entry) => this.normalizeSourceOutput(entry))
-        .filter((entry): entry is RuntimeNode => entry !== undefined);
-
-      return createElementNode(
-        "div",
-        { "data-renderify-fragment": "true" },
-        normalizedChildren,
-      );
-    }
-
-    return undefined;
+    return normalizeRuntimeSourceOutput(output);
   }
 
   private async resolveNode(
