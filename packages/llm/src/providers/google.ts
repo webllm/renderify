@@ -435,6 +435,9 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
           ],
         },
       ],
+      generationConfig: {
+        responseMimeType: "text/plain",
+      },
     };
 
     if (system) {

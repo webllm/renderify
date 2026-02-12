@@ -498,6 +498,9 @@ test("google interpreter generates text response", async () => {
     "https://example.google.test/v1beta/models/gemini-2.0-flash:generateContent",
   );
   assert.equal(requests[0].headers.get("x-goog-api-key"), "google-key");
+  assert.deepEqual(requests[0].body.generationConfig, {
+    responseMimeType: "text/plain",
+  });
   assert.equal(requests[0].body.systemInstruction, undefined);
 });
 
@@ -557,6 +560,9 @@ test("google interpreter streams text response chunks", async () => {
     requests[0].url,
     "https://example.google.test/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse",
   );
+  assert.deepEqual(requests[0].body.generationConfig, {
+    responseMimeType: "text/plain",
+  });
   assert.equal(chunks.length, 3);
   assert.equal(chunks[0].delta, "hello ");
   assert.equal(chunks[0].text, "hello ");
