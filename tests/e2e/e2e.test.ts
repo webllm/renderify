@@ -11,6 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
+import { type Browser, chromium } from "playwright";
 
 interface CommandResult {
   code: number;
@@ -346,6 +347,159 @@ test("e2e: playground api supports prompt and stream flow", async () => {
     await rm(tempDir, { recursive: true, force: true });
   }
 });
+
+test("e2e: playground hash plan64 auto-renders on load", async (t) => {
+  const tempDir = await mkdtemp(
+    path.join(os.tmpdir(), "renderify-e2e-playground-hash-plan64-"),
+  );
+  const port = await allocatePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const processHandle = startPlayground(port, {
+    RENDERIFY_SESSION_FILE: path.join(tempDir, "session.json"),
+  });
+
+  let browser: Browser | undefined;
+
+  try {
+    await waitForHealth(`${baseUrl}/api/health`, 10000);
+
+    try {
+      browser = await chromium.launch({ headless: true });
+    } catch (error) {
+      t.skip(
+        `playwright chromium is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return;
+    }
+
+    const page = await browser.newPage();
+    const plan = {
+      specVersion: "runtime-plan/v1",
+      id: "playground_hash_plan64",
+      version: 1,
+      capabilities: {
+        domWrite: true,
+      },
+      root: {
+        type: "element",
+        tag: "section",
+        children: [
+          {
+            type: "text",
+            value: "Hello from plan64 hash",
+          },
+        ],
+      },
+    };
+    const plan64 = toBase64Url(JSON.stringify(plan));
+
+    await page.goto(`${baseUrl}/#plan64=${plan64}`, {
+      waitUntil: "networkidle",
+    });
+
+    await page.waitForFunction(() => {
+      const status = document.getElementById("status")?.textContent ?? "";
+      return (
+        status.includes("Hash payload rendered.") ||
+        status.includes("Hash payload render failed.")
+      );
+    });
+
+    const status = await page.textContent("#status");
+    assert.match(status ?? "", /Hash payload rendered./);
+
+    const htmlOutput = await page.textContent("#html-output");
+    assert.match(htmlOutput ?? "", /Hello from plan64 hash/);
+
+    const planEditorValue = await page.inputValue("#plan-editor");
+    const parsed = JSON.parse(planEditorValue) as { id?: string };
+    assert.equal(parsed.id, "playground_hash_plan64");
+  } finally {
+    await browser?.close();
+    processHandle.kill("SIGTERM");
+    await onceExit(processHandle, 3000);
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("e2e: playground hash js64 source auto-renders on load", async (t) => {
+  const tempDir = await mkdtemp(
+    path.join(os.tmpdir(), "renderify-e2e-playground-hash-js64-"),
+  );
+  const port = await allocatePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const processHandle = startPlayground(port, {
+    RENDERIFY_SESSION_FILE: path.join(tempDir, "session.json"),
+  });
+
+  let browser: Browser | undefined;
+
+  try {
+    await waitForHealth(`${baseUrl}/api/health`, 10000);
+
+    try {
+      browser = await chromium.launch({ headless: true });
+    } catch (error) {
+      t.skip(
+        `playwright chromium is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return;
+    }
+
+    const page = await browser.newPage();
+    const sourceCode = [
+      "export default () => ({",
+      "  type: 'element',",
+      "  tag: 'section',",
+      "  children: [{ type: 'text', value: 'Hello from js64 hash source' }],",
+      "});",
+    ].join("\n");
+    const source64 = toBase64Url(sourceCode);
+
+    await page.goto(
+      `${baseUrl}/#js64=${source64}&runtime=renderify&id=playground_hash_source_js64`,
+      {
+        waitUntil: "networkidle",
+      },
+    );
+
+    await page.waitForFunction(() => {
+      const status = document.getElementById("status")?.textContent ?? "";
+      return (
+        status.includes("Hash payload rendered.") ||
+        status.includes("Hash payload render failed.")
+      );
+    });
+
+    const status = await page.textContent("#status");
+    assert.match(status ?? "", /Hash payload rendered./);
+
+    const htmlOutput = await page.textContent("#html-output");
+    assert.match(htmlOutput ?? "", /Hello from js64 hash source/);
+
+    const planEditorValue = await page.inputValue("#plan-editor");
+    const parsed = JSON.parse(planEditorValue) as {
+      id?: string;
+      source?: {
+        language?: string;
+        runtime?: string;
+      };
+    };
+
+    assert.equal(parsed.id, "playground_hash_source_js64");
+    assert.equal(parsed.source?.language, "js");
+    assert.equal(parsed.source?.runtime, "renderify");
+  } finally {
+    await browser?.close();
+    processHandle.kill("SIGTERM");
+    await onceExit(processHandle, 3000);
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+function toBase64Url(value: string): string {
+  return Buffer.from(value, "utf8").toString("base64url");
+}
 
 async function runCli(
   args: string[],
