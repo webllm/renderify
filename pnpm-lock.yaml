@@ -110,12 +110,6 @@ importers:
         specifier: workspace:^
         version: link:../ir
 
-  packages/component-library:
-    dependencies:
-      '@renderify/ir':
-        specifier: workspace:^
-        version: link:../ir
-
   packages/config: {}
 
   packages/context: {}

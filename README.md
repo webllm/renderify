@@ -241,7 +241,6 @@ await app.stop();
 | `@renderify/context` | Context state and subscriptions |
 | `@renderify/performance` | Pipeline metrics collection |
 | `@renderify/api-integration` | Typed external API invocation helper |
-| `@renderify/component-library` | Reusable runtime-node constructors |
 | `@renderify/cli` | CLI + browser playground |
 
 ## Integration Docs

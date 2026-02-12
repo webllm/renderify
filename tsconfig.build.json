@@ -11,9 +11,6 @@
       "path": "packages/codegen"
     },
     {
-      "path": "packages/component-library"
-    },
-    {
       "path": "packages/config"
     },
     {
