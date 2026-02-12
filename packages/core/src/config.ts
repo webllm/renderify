@@ -1,5 +1,5 @@
 export type SecurityProfileConfig = "strict" | "balanced" | "relaxed";
-export type LLMProviderConfig = "mock" | "openai";
+export type LLMProviderConfig = "openai";
 
 export interface TenantQuotaPolicyConfig {
   maxExecutionsPerMinute: number;
@@ -43,7 +43,7 @@ export class DefaultRenderifyConfig implements RenderifyConfig {
   async load(overrides?: Partial<RenderifyConfigValues>) {
     const env = getEnvironmentValues();
     const defaultValues: RenderifyConfigValues = {
-      llmProvider: "mock",
+      llmProvider: "openai",
       llmModel: "gpt-4.1-mini",
       llmBaseUrl: "https://api.openai.com/v1",
       llmRequestTimeoutMs: 30000,
@@ -210,11 +210,11 @@ function parseSecurityProfile(
 }
 
 function parseLlmProvider(value: string | undefined): LLMProviderConfig {
-  if (value === "openai" || value === "mock") {
+  if (value === "openai") {
     return value;
   }
 
-  return "mock";
+  return "openai";
 }
 
 function parseSpecVersions(value: string | undefined): string[] {

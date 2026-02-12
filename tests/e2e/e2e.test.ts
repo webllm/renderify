@@ -295,10 +295,16 @@ test("e2e: playground api flow enforces tenant quota in process", async () => {
   );
   const sessionFile = path.join(tempDir, "session.json");
   const port = await allocatePort();
+  const openaiPort = await allocatePort();
+  const { close } = await startFakeOpenAIServer(openaiPort);
   const baseUrl = `http://127.0.0.1:${port}`;
 
   const processHandle = startPlayground(port, {
     RENDERIFY_SESSION_FILE: sessionFile,
+    RENDERIFY_LLM_PROVIDER: "openai",
+    RENDERIFY_LLM_API_KEY: "test-key",
+    RENDERIFY_LLM_BASE_URL: `http://127.0.0.1:${openaiPort}/v1`,
+    RENDERIFY_LLM_MODEL: "gpt-4.1-mini",
     RENDERIFY_MAX_EXECUTIONS_PER_MINUTE: "1",
     RENDERIFY_MAX_CONCURRENT_EXECUTIONS: "1",
   });
@@ -343,6 +349,7 @@ test("e2e: playground api flow enforces tenant quota in process", async () => {
   } finally {
     processHandle.kill("SIGTERM");
     await onceExit(processHandle, 3000);
+    await close();
     await rm(tempDir, { recursive: true, force: true });
   }
 });

@@ -7,7 +7,7 @@ test("config loads default security profile and tenant quotas", async () => {
   await config.load();
 
   assert.equal(config.get("securityProfile"), "balanced");
-  assert.equal(config.get("llmProvider"), "mock");
+  assert.equal(config.get("llmProvider"), "openai");
   assert.equal(config.get("llmModel"), "gpt-4.1-mini");
   assert.equal(config.get("llmBaseUrl"), "https://api.openai.com/v1");
   assert.equal(config.get("llmRequestTimeoutMs"), 30000);

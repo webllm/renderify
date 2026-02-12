@@ -235,19 +235,21 @@ import {
   createRenderifyApp,
   DefaultCodeGenerator,
   DefaultContextManager,
-  DefaultLLMInterpreter,
   DefaultPerformanceOptimizer,
   DefaultRenderifyConfig,
   DefaultSecurityChecker,
   DefaultUIRenderer,
 } from "@renderify/core";
+import { OpenAILLMInterpreter } from "@renderify/llm-openai";
 import { DefaultRuntimeManager } from "@renderify/runtime";
 import { JspmModuleLoader } from "@renderify/runtime";
 
 const app = createRenderifyApp({
   config: new DefaultRenderifyConfig(),
   context: new DefaultContextManager(),
-  llm: new DefaultLLMInterpreter(),
+  llm: new OpenAILLMInterpreter({
+    apiKey: process.env.RENDERIFY_LLM_API_KEY,
+  }),
   codegen: new DefaultCodeGenerator(),
   runtime: new DefaultRuntimeManager({
     moduleLoader: new JspmModuleLoader(),
@@ -275,7 +277,7 @@ await app.stop();
 | ---------------------------- | ---------------------------------------------------------------- |
 | `@renderify/ir`              | Runtime IR contracts (plan/node/state/action/event/capabilities) |
 | `@renderify/runtime`         | Runtime execution engine, state transitions, JSPM module loader  |
-| `@renderify/core`            | Orchestration + codegen + LLM mock + security + UI + config      |
+| `@renderify/core`            | Orchestration + codegen + LLM interfaces + security + UI + config |
 | `@renderify/llm-openai`      | OpenAI-backed `LLMInterpreter` adapter                           |
 | `@renderify/cli`             | CLI + browser playground                                         |
 

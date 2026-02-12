@@ -122,7 +122,6 @@ Fallback behavior:
 
 Current provider adapters:
 
-- `@renderify/core` (mock/default)
 - `@renderify/llm-openai` (real provider)
 
 ## LLM Text TSX Contract

@@ -145,8 +145,8 @@
     <div class="page">
       <h1>Renderify Runtime 浏览器示例</h1>
       <p class="hint">
-        这个页面不依赖打包器，直接使用本地 UMD bundle。默认使用 mock LLM，
-        输入带 “counter” 的 prompt 可触发状态化计数计划。
+        这个页面不依赖打包器，直接使用本地 UMD bundle。示例内置了一个最小
+        Demo LLM（仅用于本地演示）。
       </p>
 
       <div class="grid">
@@ -211,11 +211,58 @@
           return JSON.stringify(value ?? {}, null, 2);
         }
 
+        class DemoLLM {
+          configure() {}
+          setPromptTemplate() {}
+          getPromptTemplate() {
+            return undefined;
+          }
+          async generateResponse(req) {
+            return {
+              text: `Counter demo for: ${req.prompt}`,
+              model: "demo-llm",
+            };
+          }
+          async generateStructuredResponse(req) {
+            return {
+              text: JSON.stringify({
+                id: "browser_demo_plan",
+                version: 1,
+                capabilities: { domWrite: true },
+                state: {
+                  initial: { count: 0 },
+                  transitions: {
+                    increment: [{ type: "increment", path: "count", by: 1 }],
+                  },
+                },
+                root: {
+                  type: "element",
+                  tag: "section",
+                  children: [
+                    {
+                      type: "element",
+                      tag: "h2",
+                      children: [{ type: "text", value: req.prompt }],
+                    },
+                    {
+                      type: "element",
+                      tag: "p",
+                      children: [{ type: "text", value: "Count={{state.count}}" }],
+                    },
+                  ],
+                },
+              }),
+              valid: true,
+              model: "demo-llm",
+            };
+          }
+        }
+
         try {
           app = RenderifyCore.createRenderifyApp({
             config: new RenderifyCore.DefaultRenderifyConfig(),
             context: new RenderifyCore.DefaultContextManager(),
-            llm: new RenderifyCore.DefaultLLMInterpreter(),
+            llm: new DemoLLM(),
             codegen: new RenderifyCore.DefaultCodeGenerator(),
             runtime: new RenderifyRuntime.DefaultRuntimeManager({
               moduleLoader: new RenderifyRuntime.JspmModuleLoader(),

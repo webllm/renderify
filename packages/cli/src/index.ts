@@ -8,7 +8,6 @@ import {
   DefaultCodeGenerator,
   DefaultContextManager,
   DefaultCustomizationEngine,
-  DefaultLLMInterpreter,
   DefaultPerformanceOptimizer,
   DefaultRenderifyConfig,
   DefaultSecurityChecker,
@@ -76,22 +75,17 @@ const JSON_BODY_LIMIT_BYTES = 1_000_000;
 const { readFile, mkdir, writeFile } = fs.promises;
 
 function createLLM(config: DefaultRenderifyConfig): LLMInterpreter {
-  const provider = config.get<LLMProviderConfig>("llmProvider") ?? "mock";
-
-  if (provider === "openai") {
-    return new OpenAILLMInterpreter({
-      apiKey: config.get<string>("llmApiKey"),
-      model: config.get<string>("llmModel"),
-      baseUrl: config.get<string>("llmBaseUrl"),
-      timeoutMs: config.get<number>("llmRequestTimeoutMs"),
-    });
+  const provider = config.get<LLMProviderConfig>("llmProvider") ?? "openai";
+  if (provider !== "openai") {
+    throw new Error(`Unsupported llm provider: ${provider}`);
   }
 
-  const llm = new DefaultLLMInterpreter();
-  llm.configure({
+  return new OpenAILLMInterpreter({
+    apiKey: config.get<string>("llmApiKey"),
     model: config.get<string>("llmModel"),
+    baseUrl: config.get<string>("llmBaseUrl"),
+    timeoutMs: config.get<number>("llmRequestTimeoutMs"),
   });
-  return llm;
 }
 
 async function main() {
