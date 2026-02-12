@@ -5,8 +5,12 @@ import {
   collectComponentModules,
   createComponentNode,
   createElementNode,
+  createFnv1a64Hasher,
   createTextNode,
   getValueByPath,
+  hashStringFNV1a32,
+  hashStringFNV1a32Base36,
+  hashStringFNV1a64Hex,
   isRuntimeCapabilities,
   isRuntimeModuleDescriptor,
   isRuntimeModuleManifest,
@@ -170,4 +174,23 @@ test("runtime plan/type guards validate structures", () => {
     true,
   );
   assert.equal(resolveRuntimePlanSpecVersion(undefined), "runtime-plan/v1");
+});
+
+test("hash helpers provide stable 32-bit and 64-bit fnv outputs", () => {
+  const text = "renderify";
+  const hash32 = hashStringFNV1a32(text);
+  const hash32Base36 = hashStringFNV1a32Base36(text);
+  const hash64 = hashStringFNV1a64Hex(text);
+
+  assert.equal(hash32, 495974725);
+  assert.equal(hash32Base36, "87agjp");
+  assert.equal(hash64, "5c5024d714d50065");
+});
+
+test("64-bit fnv hasher supports incremental updates", () => {
+  const hasher = createFnv1a64Hasher();
+  hasher.update("render");
+  hasher.update("ify");
+
+  assert.equal(hasher.digestHex(), hashStringFNV1a64Hex("renderify"));
 });

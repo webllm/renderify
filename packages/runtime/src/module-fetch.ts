@@ -1,3 +1,5 @@
+import { hashStringFNV1a32Base36 } from "@renderify/ir";
+
 export interface RemoteModuleFetchResult {
   url: string;
   code: string;
@@ -153,7 +155,7 @@ export function createCssProxyModuleSource(
   cssText: string,
   sourceUrl: string,
 ): string {
-  const styleId = `renderify-css-${hashString(sourceUrl)}`;
+  const styleId = `renderify-css-${hashStringFNV1a32Base36(sourceUrl)}`;
   const cssLiteral = JSON.stringify(cssText);
   const styleIdLiteral = JSON.stringify(styleId);
   return [
@@ -241,14 +243,4 @@ function toUrlPathname(url: string): string {
   } catch {
     return url;
   }
-}
-
-function hashString(value: string): string {
-  let hash = 2166136261;
-  for (let i = 0; i < value.length; i += 1) {
-    hash ^= value.charCodeAt(i);
-    hash +=
-      (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
-  }
-  return (hash >>> 0).toString(36);
 }

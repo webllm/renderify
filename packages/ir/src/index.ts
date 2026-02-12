@@ -1,6 +1,13 @@
 export type JsonPrimitive = string | number | boolean | null;
 
 export {
+  createFnv1a64Hasher,
+  type Fnv1a64Hasher,
+  hashStringFNV1a32,
+  hashStringFNV1a32Base36,
+  hashStringFNV1a64Hex,
+} from "./hash";
+export {
   collectRuntimeSourceImports,
   parseRuntimeSourceImportRanges,
   type RuntimeSourceImportRange,

@@ -2,6 +2,7 @@ import {
   collectComponentModules,
   collectRuntimeSourceImports,
   createElementNode,
+  createFnv1a64Hasher,
   createTextNode,
   DEFAULT_JSPM_SPECIFIER_OVERRIDES,
   DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
@@ -236,16 +237,10 @@ export class DefaultCodeGenerator implements CodeGenerator {
     // 64-bit FNV-1a is a deliberate performance trade-off for streaming updates:
     // collisions are possible (though rare), so this prioritizes low allocation
     // and speed over cryptographic uniqueness.
-    const FNV_OFFSET_BASIS = 0xcbf29ce484222325n;
-    const FNV_PRIME = 0x100000001b3n;
-    const UINT64_MASK = 0xffffffffffffffffn;
-    let hash = FNV_OFFSET_BASIS;
+    const hasher = createFnv1a64Hasher();
 
     const update = (chunk: string): void => {
-      for (let index = 0; index < chunk.length; index += 1) {
-        hash ^= BigInt(chunk.charCodeAt(index));
-        hash = (hash * FNV_PRIME) & UINT64_MASK;
-      }
+      hasher.update(chunk);
     };
 
     const visit = (input: unknown): void => {
@@ -293,7 +288,7 @@ export class DefaultCodeGenerator implements CodeGenerator {
     };
 
     visit(value);
-    return hash.toString(16);
+    return hasher.digestHex();
   }
 
   private createPlanFromRoot(
