@@ -31,19 +31,48 @@ export function resolveJsonValue(
   state: RuntimeStateSnapshot,
   event: RuntimeEvent | undefined,
 ): JsonValue {
+  return resolveJsonValueInternal(value, context, state, event, new WeakSet());
+}
+
+function resolveJsonValueInternal(
+  value: JsonValue,
+  context: RuntimeExecutionContext,
+  state: RuntimeStateSnapshot,
+  event: RuntimeEvent | undefined,
+  seen: WeakSet<object>,
+): JsonValue {
   if (typeof value === "string") {
     return interpolateTemplate(value, context, state, event);
   }
 
   if (Array.isArray(value)) {
-    return value.map((item) => resolveJsonValue(item, context, state, event));
+    if (seen.has(value)) {
+      return null;
+    }
+    seen.add(value);
+    const resolved = value.map((item) =>
+      resolveJsonValueInternal(item, context, state, event, seen),
+    );
+    seen.delete(value);
+    return resolved;
   }
 
   if (value !== null && typeof value === "object") {
+    if (seen.has(value)) {
+      return null;
+    }
+    seen.add(value);
     const resolved: Record<string, JsonValue> = {};
     for (const [key, item] of Object.entries(value)) {
-      resolved[key] = resolveJsonValue(item, context, state, event);
+      resolved[key] = resolveJsonValueInternal(
+        item,
+        context,
+        state,
+        event,
+        seen,
+      );
     }
+    seen.delete(value);
     return resolved;
   }
 
@@ -63,7 +92,11 @@ export function interpolateTemplate(
     }
 
     if (typeof resolved === "object") {
-      return JSON.stringify(resolved);
+      try {
+        return JSON.stringify(resolved);
+      } catch {
+        return "";
+      }
     }
 
     return String(resolved);
