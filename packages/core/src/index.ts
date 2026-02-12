@@ -73,7 +73,7 @@ export interface RenderPromptStreamOptions extends RenderPromptOptions {
 }
 
 export interface RenderPromptStreamChunk {
-  type: "llm-delta" | "preview" | "final";
+  type: "llm-delta" | "preview" | "final" | "error";
   traceId: string;
   prompt: string;
   llmText: string;
@@ -82,6 +82,10 @@ export interface RenderPromptStreamChunk {
   diagnostics?: RuntimeExecutionResult["diagnostics"];
   planId?: string;
   final?: RenderPromptResult;
+  error?: {
+    message: string;
+    name?: string;
+  };
 }
 
 interface ExecutePlanFlowParams {
@@ -586,6 +590,21 @@ export class RenderifyApp {
 
       return final;
     } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      const errorName = error instanceof Error ? error.name : undefined;
+
+      yield {
+        type: "error",
+        traceId,
+        prompt: promptAfterHook,
+        llmText: llmResponse?.text ?? "",
+        error: {
+          message: errorMessage,
+          ...(errorName ? { name: errorName } : {}),
+        },
+      };
+
       if (!handoffToPlanFlow) {
         const metric = this.deps.performance.endMeasurement(metricLabel);
         this.emit("renderFailed", { traceId, metric, error });

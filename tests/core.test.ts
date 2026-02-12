@@ -198,6 +198,37 @@ class DemoLLMInterpreter implements LLMInterpreter {
   }
 }
 
+class StreamingFailureLLM implements LLMInterpreter {
+  configure(_options: Record<string, unknown>): void {}
+
+  async generateResponse(req: LLMRequest): Promise<LLMResponse> {
+    return {
+      text: req.prompt,
+      model: "stream-failure-llm",
+    };
+  }
+
+  async *generateResponseStream(
+    req: LLMRequest,
+  ): AsyncIterable<LLMResponseStreamChunk> {
+    yield {
+      delta: req.prompt.slice(0, 4),
+      text: req.prompt.slice(0, 4),
+      done: false,
+      index: 1,
+      model: "stream-failure-llm",
+    };
+
+    throw new Error("stream exploded");
+  }
+
+  setPromptTemplate(): void {}
+
+  getPromptTemplate(): string | undefined {
+    return undefined;
+  }
+}
+
 class CountingIncrementalCodeGenerator extends DefaultCodeGenerator {
   public generatePlanCalls = 0;
   public pushDeltaCalls = 0;
@@ -417,6 +448,38 @@ test("core renderPromptStream uses incremental codegen session", async () => {
   assert.ok(countingCodegen.pushDeltaCalls > 0);
   assert.equal(countingCodegen.finalizeCalls, 1);
   assert.ok(countingCodegen.generatePlanCalls <= 1);
+
+  await app.stop();
+});
+
+test("core renderPromptStream emits error chunk before throwing", async () => {
+  const app = createRenderifyApp(
+    createDependencies({
+      llm: new StreamingFailureLLM(),
+    }),
+  );
+
+  await app.start();
+
+  const seenChunkTypes: string[] = [];
+  let errorChunkMessage = "";
+
+  await assert.rejects(
+    async () => {
+      for await (const chunk of app.renderPromptStream("stream failure demo")) {
+        seenChunkTypes.push(chunk.type);
+        if (chunk.type === "error") {
+          errorChunkMessage = chunk.error?.message ?? "";
+        }
+      }
+    },
+    (error: unknown) =>
+      error instanceof Error && error.message.includes("stream exploded"),
+  );
+
+  assert.ok(seenChunkTypes.includes("llm-delta"));
+  assert.ok(seenChunkTypes.includes("error"));
+  assert.equal(errorChunkMessage, "stream exploded");
 
   await app.stop();
 });
