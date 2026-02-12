@@ -23,8 +23,10 @@
   - import count limit
   - execution time budget limit
   - component invocation limit
+  - end-to-end `AbortSignal` cancellation propagation across core/llm/runtime
   - `executionProfile` support (`standard` / `isolated-vm` / `sandbox-worker` / `sandbox-iframe`)
   - browser runtime source sandbox (worker/iframe) with fail-closed option
+  - worker/iframe sandbox execution now abortable (terminate-on-cancel)
   - default fail-closed behavior when isolated runtime is unavailable
 - Developer experience:
   - CLI commands: `run`, `plan`, `probe-plan`, `render-plan`, `playground`

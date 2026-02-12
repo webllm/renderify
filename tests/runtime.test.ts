@@ -170,6 +170,72 @@ class SandboxFailWorker {
   terminate(): void {}
 }
 
+class SandboxDelayedWorker {
+  static instances: SandboxDelayedWorker[] = [];
+
+  private readonly messageHandlers = new Set<WorkerMessageHandler>();
+  private readonly errorHandlers = new Set<WorkerErrorHandler>();
+  private responseTimer: ReturnType<typeof setTimeout> | undefined;
+  terminated = false;
+
+  constructor(_url: string, _options?: { type?: string; name?: string }) {
+    SandboxDelayedWorker.instances.push(this);
+  }
+
+  static reset(): void {
+    SandboxDelayedWorker.instances = [];
+  }
+
+  addEventListener(type: string, handler: EventListener): void {
+    if (type === "message") {
+      this.messageHandlers.add(handler as WorkerMessageHandler);
+      return;
+    }
+    if (type === "error") {
+      this.errorHandlers.add(handler as WorkerErrorHandler);
+    }
+  }
+
+  removeEventListener(type: string, handler: EventListener): void {
+    if (type === "message") {
+      this.messageHandlers.delete(handler as WorkerMessageHandler);
+      return;
+    }
+    if (type === "error") {
+      this.errorHandlers.delete(handler as WorkerErrorHandler);
+    }
+  }
+
+  postMessage(payload: unknown): void {
+    const request = payload as {
+      id?: string;
+    };
+
+    this.responseTimer = setTimeout(() => {
+      if (this.terminated) {
+        return;
+      }
+      for (const handler of this.messageHandlers) {
+        handler({
+          data: {
+            renderifySandbox: "runtime-source",
+            id: request.id,
+            ok: true,
+            output: { type: "text", value: "late-response" },
+          },
+        } as MessageEvent<unknown>);
+      }
+    }, 300);
+  }
+
+  terminate(): void {
+    this.terminated = true;
+    if (this.responseTimer !== undefined) {
+      clearTimeout(this.responseTimer);
+    }
+  }
+}
+
 function installBrowserSandboxGlobals(workerCtor: unknown): () => void {
   const root = globalThis as Record<string, unknown>;
   const urlStatics = URL as unknown as {
@@ -257,6 +323,19 @@ function restoreDescriptor(
   }
 
   delete target[key];
+}
+
+async function waitForCondition(
+  check: () => boolean,
+  timeoutMs: number,
+): Promise<void> {
+  const startedAt = Date.now();
+  while (!check()) {
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error("Timed out waiting for condition");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
 }
 
 function createPlan(root: RuntimeNode, imports: string[] = []): RuntimePlan {
@@ -839,6 +918,63 @@ test("runtime sandbox fail-closed keeps fallback root and reports diagnostics", 
   } finally {
     await runtime.terminate();
     restoreGlobals();
+  }
+});
+
+test("runtime worker sandbox execution is abortable", async () => {
+  SandboxDelayedWorker.reset();
+  const restoreGlobals = installBrowserSandboxGlobals(SandboxDelayedWorker);
+  const runtime = new DefaultRuntimeManager({
+    sourceTranspiler: new PassthroughSourceTranspiler(),
+    browserSourceSandboxMode: "worker",
+    browserSourceSandboxFailClosed: true,
+  });
+
+  try {
+    await runtime.initialize();
+
+    const plan: RuntimePlan = {
+      specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+      id: "runtime_source_worker_sandbox_abort_plan",
+      version: 1,
+      root: createElementNode("div", undefined, [createTextNode("fallback")]),
+      capabilities: {
+        domWrite: true,
+      },
+      source: {
+        language: "js",
+        code: "export default () => ({ type: 'text', value: 'should-not-run' });",
+      },
+    };
+
+    const controller = new AbortController();
+    const pending = runtime.execute({
+      plan,
+      signal: controller.signal,
+    });
+
+    await waitForCondition(
+      () => SandboxDelayedWorker.instances.length > 0,
+      400,
+    );
+    controller.abort();
+
+    await assert.rejects(
+      () => pending,
+      (error: unknown) => error instanceof Error && error.name === "AbortError",
+    );
+    assert.ok(
+      SandboxDelayedWorker.instances.length > 0,
+      "expected worker sandbox instance",
+    );
+    assert.ok(
+      SandboxDelayedWorker.instances.every((worker) => worker.terminated),
+      "expected worker sandbox instances to terminate after abort",
+    );
+  } finally {
+    await runtime.terminate();
+    restoreGlobals();
+    SandboxDelayedWorker.reset();
   }
 });
 

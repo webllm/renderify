@@ -1211,6 +1211,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
                 rewritten,
                 exportName,
                 runtimeInput,
+                frame.signal,
               ),
             frame,
             `Runtime source sandbox (${sandboxMode}) timed out`,
@@ -1237,6 +1238,9 @@ export class DefaultRuntimeManager implements RuntimeManager {
             root: normalized,
           };
         } catch (error) {
+          if (this.isAbortError(error)) {
+            throw error;
+          }
           const message = this.errorToMessage(error);
           diagnostics.push({
             level: this.browserSourceSandboxFailClosed ? "error" : "warning",
@@ -1313,6 +1317,9 @@ export class DefaultRuntimeManager implements RuntimeManager {
         root: normalized,
       };
     } catch (error) {
+      if (this.isAbortError(error)) {
+        throw error;
+      }
       diagnostics.push({
         level: "error",
         code: "RUNTIME_SOURCE_EXEC_FAILED",
@@ -1368,7 +1375,9 @@ export class DefaultRuntimeManager implements RuntimeManager {
     code: string,
     exportName: string,
     runtimeInput: Record<string, JsonValue>,
+    signal?: AbortSignal,
   ): Promise<RuntimeSandboxResult> {
+    this.throwIfAborted(signal);
     const request: RuntimeSandboxRequest = {
       renderifySandbox: "runtime-source",
       id: `sandbox_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`,
@@ -1378,11 +1387,11 @@ export class DefaultRuntimeManager implements RuntimeManager {
     };
 
     if (mode === "worker") {
-      return this.executeSourceInWorkerSandbox(request);
+      return this.executeSourceInWorkerSandbox(request, signal);
     }
 
     if (mode === "iframe") {
-      return this.executeSourceInIframeSandbox(request);
+      return this.executeSourceInIframeSandbox(request, signal);
     }
 
     throw new Error(`Unsupported runtime source sandbox mode: ${mode}`);
@@ -1390,6 +1399,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
 
   private async executeSourceInWorkerSandbox(
     request: RuntimeSandboxRequest,
+    signal?: AbortSignal,
   ): Promise<RuntimeSandboxResult> {
     if (
       typeof Worker === "undefined" ||
@@ -1451,13 +1461,23 @@ export class DefaultRuntimeManager implements RuntimeManager {
     URL.revokeObjectURL(workerUrl);
 
     return new Promise<RuntimeSandboxResult>((resolve, reject) => {
+      let settled = false;
+      let onAbort: (() => void) | undefined;
       const timer = setTimeout(() => {
+        settled = true;
         worker.terminate();
         reject(new Error("Worker sandbox timed out"));
       }, this.browserSourceSandboxTimeoutMs);
 
       const cleanup = () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
         clearTimeout(timer);
+        if (signal && onAbort) {
+          signal.removeEventListener("abort", onAbort);
+        }
         worker.removeEventListener("message", onMessage);
         worker.removeEventListener("error", onError);
       };
@@ -1493,12 +1513,29 @@ export class DefaultRuntimeManager implements RuntimeManager {
 
       worker.addEventListener("message", onMessage);
       worker.addEventListener("error", onError);
+
+      if (signal) {
+        if (signal.aborted) {
+          cleanup();
+          worker.terminate();
+          reject(this.createAbortError("Worker sandbox execution aborted"));
+          return;
+        }
+        onAbort = () => {
+          cleanup();
+          worker.terminate();
+          reject(this.createAbortError("Worker sandbox execution aborted"));
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
+      }
+
       worker.postMessage(request);
     });
   }
 
   private async executeSourceInIframeSandbox(
     request: RuntimeSandboxRequest,
+    signal?: AbortSignal,
   ): Promise<RuntimeSandboxResult> {
     if (
       typeof document === "undefined" ||
@@ -1562,6 +1599,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
 
     return new Promise<RuntimeSandboxResult>((resolve, reject) => {
       let settled = false;
+      let onAbort: (() => void) | undefined;
 
       const timer = setTimeout(() => {
         cleanup();
@@ -1574,11 +1612,19 @@ export class DefaultRuntimeManager implements RuntimeManager {
         }
         settled = true;
         clearTimeout(timer);
+        if (signal && onAbort) {
+          signal.removeEventListener("abort", onAbort);
+        }
         window.removeEventListener("message", onMessage);
+        iframe.removeEventListener("load", onLoad);
         iframe.remove();
       };
 
       const onMessage = (event: MessageEvent<unknown>) => {
+        if (event.source !== iframe.contentWindow) {
+          return;
+        }
+
         const data = event.data as
           | { channel?: string; ok?: boolean; output?: unknown; error?: string }
           | undefined;
@@ -1599,13 +1645,24 @@ export class DefaultRuntimeManager implements RuntimeManager {
       };
 
       window.addEventListener("message", onMessage);
-      iframe.addEventListener(
-        "load",
-        () => {
-          iframe.contentWindow?.postMessage({ channel, request }, "*");
-        },
-        { once: true },
-      );
+
+      const onLoad = () => {
+        iframe.contentWindow?.postMessage({ channel, request }, "*");
+      };
+      iframe.addEventListener("load", onLoad, { once: true });
+
+      if (signal) {
+        if (signal.aborted) {
+          cleanup();
+          reject(this.createAbortError("Iframe sandbox execution aborted"));
+          return;
+        }
+        onAbort = () => {
+          cleanup();
+          reject(this.createAbortError("Iframe sandbox execution aborted"));
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
+      }
     });
   }
 
@@ -2517,6 +2574,8 @@ export class DefaultRuntimeManager implements RuntimeManager {
     diagnostics: RuntimeDiagnostic[],
     frame: ExecutionFrame,
   ): Promise<RuntimeNode> {
+    this.throwIfAborted(frame.signal);
+
     if (this.hasExceededBudget(frame)) {
       diagnostics.push({
         level: "error",
