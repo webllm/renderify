@@ -20,7 +20,7 @@ import {
   type RenderPromptStreamChunk,
 } from "@renderify/core";
 import { isRuntimePlan, type RuntimePlan } from "@renderify/ir";
-import { OpenAILLMInterpreter } from "@renderify/llm";
+import { createLLMInterpreter } from "@renderify/llm";
 import { DefaultRuntimeManager, JspmModuleLoader } from "@renderify/runtime";
 
 interface CliArgs {
@@ -48,15 +48,14 @@ const { readFile } = fs.promises;
 
 function createLLM(config: DefaultRenderifyConfig): LLMInterpreter {
   const provider = config.get<LLMProviderConfig>("llmProvider") ?? "openai";
-  if (provider !== "openai") {
-    throw new Error(`Unsupported llm provider: ${provider}`);
-  }
-
-  return new OpenAILLMInterpreter({
-    apiKey: config.get<string>("llmApiKey"),
-    model: config.get<string>("llmModel"),
-    baseUrl: config.get<string>("llmBaseUrl"),
-    timeoutMs: config.get<number>("llmRequestTimeoutMs"),
+  return createLLMInterpreter({
+    provider,
+    providerOptions: {
+      apiKey: config.get<string>("llmApiKey"),
+      model: config.get<string>("llmModel"),
+      baseUrl: config.get<string>("llmBaseUrl"),
+      timeoutMs: config.get<number>("llmRequestTimeoutMs"),
+    },
   });
 }
 

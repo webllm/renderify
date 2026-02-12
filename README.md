@@ -213,15 +213,18 @@ import {
   DefaultSecurityChecker,
   DefaultUIRenderer,
 } from "@renderify/core";
-import { OpenAILLMInterpreter } from "@renderify/llm";
+import { createLLMInterpreter } from "@renderify/llm";
 import { DefaultRuntimeManager } from "@renderify/runtime";
 import { JspmModuleLoader } from "@renderify/runtime";
 
 const app = createRenderifyApp({
   config: new DefaultRenderifyConfig(),
   context: new DefaultContextManager(),
-  llm: new OpenAILLMInterpreter({
-    apiKey: process.env.RENDERIFY_LLM_API_KEY,
+  llm: createLLMInterpreter({
+    provider: "openai",
+    providerOptions: {
+      apiKey: process.env.RENDERIFY_LLM_API_KEY,
+    },
   }),
   codegen: new DefaultCodeGenerator(),
   runtime: new DefaultRuntimeManager({

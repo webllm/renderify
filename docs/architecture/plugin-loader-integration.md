@@ -185,12 +185,16 @@ execute them through Babel + JSPM resolution.
 OpenAI provider quick setup:
 
 ```ts
-import { OpenAILLMInterpreter } from "@renderify/llm";
+import { createLLMInterpreter } from "@renderify/llm";
 
-const llm = new OpenAILLMInterpreter({
-  apiKey: process.env.RENDERIFY_LLM_API_KEY,
-  model: process.env.RENDERIFY_LLM_MODEL ?? "gpt-4.1-mini",
-  baseUrl: process.env.RENDERIFY_LLM_BASE_URL ?? "https://api.openai.com/v1",
+const llm = createLLMInterpreter({
+  provider: "openai",
+  providerOptions: {
+    apiKey: process.env.RENDERIFY_LLM_API_KEY,
+    model: process.env.RENDERIFY_LLM_MODEL ?? "gpt-4.1-mini",
+    baseUrl:
+      process.env.RENDERIFY_LLM_BASE_URL ?? "https://api.openai.com/v1",
+  },
 });
 ```
 

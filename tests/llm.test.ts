@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { OpenAILLMInterpreter } from "../packages/llm/src/index";
+import type { LLMInterpreter } from "../packages/core/src/llm-interpreter";
+import {
+  createDefaultLLMProviderRegistry,
+  createLLMInterpreter,
+  OpenAILLMInterpreter,
+} from "../packages/llm/src/index";
 
 test("openai interpreter generates text response", async () => {
   const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
@@ -182,6 +187,66 @@ test("openai interpreter accepts fenced json in structured mode", async () => {
 
   assert.equal(response.valid, true);
   assert.equal((response.value as { id?: string }).id, "fenced_plan");
+});
+
+test("llm provider registry can create builtin openai interpreter", async () => {
+  const llm = createLLMInterpreter({
+    provider: "openai",
+    providerOptions: {
+      apiKey: "test-key",
+      fetchImpl: async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        jsonResponse({
+          id: "chatcmpl_provider_openai",
+          model: "gpt-4.1-mini",
+          choices: [{ message: { content: "ok" } }],
+        }),
+    },
+  });
+
+  assert.ok(llm instanceof OpenAILLMInterpreter);
+  const response = await llm.generateResponse({
+    prompt: "test provider",
+  });
+  assert.equal(response.text, "ok");
+});
+
+test("llm provider registry supports custom provider registration", async () => {
+  class DemoLLMInterpreter implements LLMInterpreter {
+    configure(): void {}
+    async generateResponse(): Promise<{ text: string }> {
+      return { text: "demo-provider" };
+    }
+    setPromptTemplate(): void {}
+    getPromptTemplate(): string | undefined {
+      return undefined;
+    }
+  }
+
+  const registry = createDefaultLLMProviderRegistry();
+  registry.register({
+    name: "demo",
+    create: () => new DemoLLMInterpreter(),
+  });
+
+  const llm = createLLMInterpreter({
+    provider: "demo",
+    registry,
+  });
+
+  const response = await llm.generateResponse({
+    prompt: "ignored",
+  });
+  assert.equal(response.text, "demo-provider");
+});
+
+test("llm provider registry throws clear error for unknown provider", async () => {
+  assert.throws(
+    () =>
+      createLLMInterpreter({
+        provider: "unknown-provider",
+      }),
+    /Unknown LLM provider: unknown-provider\./,
+  );
 });
 
 function parseBody(body: BodyInit | null | undefined): Record<string, unknown> {

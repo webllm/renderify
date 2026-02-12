@@ -1,5 +1,5 @@
 export type SecurityProfileConfig = "strict" | "balanced" | "relaxed";
-export type LLMProviderConfig = "openai";
+export type LLMProviderConfig = string;
 
 export interface RenderifyConfigValues {
   llmApiKey?: string;
@@ -188,8 +188,8 @@ function parseSecurityProfile(
 }
 
 function parseLlmProvider(value: string | undefined): LLMProviderConfig {
-  if (value === "openai") {
-    return value;
+  if (typeof value === "string" && value.trim().length > 0) {
+    return value.trim().toLowerCase();
   }
 
   return "openai";
