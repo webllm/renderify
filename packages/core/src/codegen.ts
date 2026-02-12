@@ -222,13 +222,75 @@ export class DefaultCodeGenerator implements CodeGenerator {
   }
 
   private createIncrementalPlanSignature(plan: RuntimePlan): string {
-    return JSON.stringify({
+    // Use a stable streaming hash to avoid allocating large JSON signatures.
+    return this.hashIncrementalSignatureValue({
       root: plan.root,
       imports: plan.imports ?? [],
       source: plan.source,
       capabilities: plan.capabilities,
       state: plan.state,
     });
+  }
+
+  private hashIncrementalSignatureValue(value: unknown): string {
+    const FNV_OFFSET_BASIS = 0xcbf29ce484222325n;
+    const FNV_PRIME = 0x100000001b3n;
+    const UINT64_MASK = 0xffffffffffffffffn;
+    let hash = FNV_OFFSET_BASIS;
+
+    const update = (chunk: string): void => {
+      for (let index = 0; index < chunk.length; index += 1) {
+        hash ^= BigInt(chunk.charCodeAt(index));
+        hash = (hash * FNV_PRIME) & UINT64_MASK;
+      }
+    };
+
+    const visit = (input: unknown): void => {
+      if (input === null) {
+        update("null;");
+        return;
+      }
+      if (input === undefined) {
+        update("undefined;");
+        return;
+      }
+      if (typeof input === "string") {
+        update(`s:${input};`);
+        return;
+      }
+      if (typeof input === "number") {
+        update(Number.isFinite(input) ? `n:${String(input)};` : "n:null;");
+        return;
+      }
+      if (typeof input === "boolean") {
+        update(input ? "b:1;" : "b:0;");
+        return;
+      }
+      if (Array.isArray(input)) {
+        update("a:[");
+        for (const entry of input) {
+          visit(entry);
+        }
+        update("];");
+        return;
+      }
+      if (typeof input === "object") {
+        const entries = Object.entries(input as Record<string, unknown>)
+          .filter(([, entryValue]) => entryValue !== undefined)
+          .sort(([left], [right]) => left.localeCompare(right));
+        update("o:{");
+        for (const [key, entryValue] of entries) {
+          update(`k:${key}=`);
+          visit(entryValue);
+        }
+        update("};");
+        return;
+      }
+      update(`x:${String(input)};`);
+    };
+
+    visit(value);
+    return hash.toString(16);
   }
 
   private createPlanFromRoot(

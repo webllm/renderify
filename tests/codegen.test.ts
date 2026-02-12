@@ -156,3 +156,30 @@ test("codegen incremental session emits fallback plans for plain text", async ()
   assert.equal(update?.plan.root.type, "element");
   assert.equal(update?.complete, false);
 });
+
+test("codegen incremental session suppresses duplicate plan updates", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const session = codegen.createIncrementalSession({
+    prompt: "duplicate runtime plan",
+  });
+
+  const runtimePlanJson = JSON.stringify({
+    id: "dup-plan",
+    version: 1,
+    capabilities: {
+      domWrite: true,
+    },
+    root: {
+      type: "element",
+      tag: "section",
+      children: [{ type: "text", value: "same plan" }],
+    },
+  });
+
+  const firstUpdate = await session.pushDelta(runtimePlanJson);
+  const secondUpdate = await session.pushDelta("\n\n");
+
+  assert.ok(firstUpdate);
+  assert.equal(firstUpdate?.mode, "runtime-plan-json");
+  assert.equal(secondUpdate, undefined);
+});
