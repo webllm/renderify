@@ -65,6 +65,13 @@ flowchart TD
   - runtime transpiles source via Babel (browser `@babel/standalone`)
   - import specifiers are resolved through JSPM loader strategy
   - browser runtime rewrites source module graphs so transitive bare imports resolve at runtime
+- Dependency preflight before execution:
+  - probes `imports`, `component modules`, and `source imports`
+  - optional fail-fast mode for CI/production gates
+  - retry + timeout + multi-CDN fallback for remote module fetches
+- Browser asset module proxying:
+  - CSS imports are converted to runtime style-injection proxy modules
+  - JSON imports are converted to ESM default exports
 - React ecosystem compatibility bridge:
   - `react`, `react-dom`, `react-dom/client`, `react/jsx-runtime` are mapped to `preact/compat` equivalents
   - enables direct runtime rendering for React-first packages (e.g. `recharts`, `@mui/material`)
@@ -118,6 +125,9 @@ pnpm cli -- run "Build a welcome card"
 # Print RuntimePlan JSON
 pnpm cli -- plan "Build a welcome card"
 
+# Probe RuntimePlan compatibility (policy + runtime preflight diagnostics)
+pnpm cli -- probe-plan examples/runtime/recharts-dashboard-plan.json
+
 # Execute RuntimePlan file
 pnpm cli -- render-plan examples/runtime/counter-plan.json
 
@@ -148,6 +158,9 @@ RENDERIFY_LLM_PROVIDER=openai RENDERIFY_LLM_MODEL=gpt-4.1-mini RENDERIFY_LLM_BAS
 RENDERIFY_RUNTIME_ENFORCE_MANIFEST=true pnpm playground
 RENDERIFY_RUNTIME_ALLOW_ISOLATION_FALLBACK=false pnpm playground
 RENDERIFY_RUNTIME_SPEC_VERSIONS=runtime-plan/v1 pnpm playground
+RENDERIFY_RUNTIME_PREFLIGHT=true RENDERIFY_RUNTIME_PREFLIGHT_FAIL_FAST=true pnpm playground
+RENDERIFY_RUNTIME_REMOTE_FETCH_TIMEOUT_MS=12000 RENDERIFY_RUNTIME_REMOTE_FETCH_RETRIES=2 pnpm playground
+RENDERIFY_RUNTIME_REMOTE_FALLBACK_CDNS=https://esm.sh,https://cdn.jsdelivr.net pnpm playground
 
 # Force text/TSX generation path instead of structured RuntimePlan
 RENDERIFY_LLM_USE_STRUCTURED_OUTPUT=false pnpm playground
