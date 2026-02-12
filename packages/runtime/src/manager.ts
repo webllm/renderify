@@ -1,7 +1,6 @@
 import {
   asJsonValue,
   cloneJsonValue,
-  collectComponentModules,
   createElementNode,
   createTextNode,
   isRuntimeNode,
@@ -78,6 +77,20 @@ import {
   type PreactLikeModule,
 } from "./runtime-environment";
 import {
+  collectDependencyProbes,
+  type DependencyProbe,
+  executeDependencyProbe,
+  type RuntimeDependencyProbeStatus,
+  type RuntimeDependencyUsage,
+  runDependencyPreflight,
+} from "./runtime-preflight";
+import {
+  isHttpUrl,
+  resolveRuntimeSourceSpecifier,
+  resolveRuntimeSpecifier,
+  resolveSourceImportLoaderCandidate,
+} from "./runtime-specifier";
+import {
   executeSourceInBrowserSandbox,
   type RuntimeSandboxRequest,
 } from "./sandbox";
@@ -102,15 +115,10 @@ export interface RuntimeExecutionInput {
   signal?: AbortSignal;
 }
 
-export type RuntimeDependencyUsage = "import" | "component" | "source-import";
-
-export interface RuntimeDependencyProbeStatus {
-  usage: RuntimeDependencyUsage;
-  specifier: string;
-  resolvedSpecifier?: string;
-  ok: boolean;
-  message?: string;
-}
+export type {
+  RuntimeDependencyProbeStatus,
+  RuntimeDependencyUsage,
+} from "./runtime-preflight";
 
 export interface RuntimePlanProbeResult {
   planId: string;
@@ -211,11 +219,6 @@ interface ExecutionFrame {
 interface ResolvedSourceOutput {
   root?: RuntimeNode;
   renderArtifact?: RuntimeRenderArtifact;
-}
-
-interface DependencyProbe {
-  usage: RuntimeDependencyUsage;
-  specifier: string;
 }
 
 export type RuntimeSourceSandboxMode = "none" | "worker" | "iframe";
@@ -652,94 +655,26 @@ export class DefaultRuntimeManager implements RuntimeManager {
     diagnostics: RuntimeDiagnostic[],
     frame: ExecutionFrame,
   ): Promise<RuntimeDependencyProbeStatus[]> {
-    const probes = await this.collectDependencyProbes(plan);
-    const statuses: RuntimeDependencyProbeStatus[] = [];
+    const probes = await collectDependencyProbes(
+      plan,
+      this.parseSourceImportSpecifiers.bind(this),
+    );
 
-    for (const probe of probes) {
-      if (this.isAborted(frame.signal)) {
-        diagnostics.push({
-          level: "error",
-          code: "RUNTIME_ABORTED",
-          message: `Execution aborted during dependency preflight (${probe.usage}:${probe.specifier})`,
-        });
-        statuses.push({
-          usage: probe.usage,
-          specifier: probe.specifier,
-          ok: false,
-          message: "Dependency preflight aborted",
-        });
-        return statuses;
-      }
-
-      if (this.hasExceededBudget(frame)) {
-        diagnostics.push({
-          level: "error",
-          code: "RUNTIME_TIMEOUT",
-          message: `Execution time budget exceeded during dependency preflight (${probe.usage}:${probe.specifier})`,
-        });
-        statuses.push({
-          usage: probe.usage,
-          specifier: probe.specifier,
-          ok: false,
-          message: "Dependency preflight timed out",
-        });
-        return statuses;
-      }
-
-      const status = await this.preflightDependencyProbe(
-        probe,
-        plan.moduleManifest,
-        diagnostics,
-        frame,
-      );
-      statuses.push(status);
-    }
-
-    return statuses;
-  }
-
-  private async collectDependencyProbes(
-    plan: RuntimePlan,
-  ): Promise<DependencyProbe[]> {
-    const probes: DependencyProbe[] = [];
-    const seen = new Set<string>();
-
-    const pushProbe = (usage: RuntimeDependencyUsage, specifier: string) => {
-      const trimmed = specifier.trim();
-      if (trimmed.length === 0) {
-        return;
-      }
-
-      const key = `${usage}:${trimmed}`;
-      if (seen.has(key)) {
-        return;
-      }
-
-      seen.add(key);
-      probes.push({
-        usage,
-        specifier: trimmed,
-      });
-    };
-
-    for (const specifier of plan.imports ?? []) {
-      pushProbe("import", specifier);
-    }
-
-    for (const specifier of collectComponentModules(plan.root)) {
-      pushProbe("component", specifier);
-    }
-
-    if (plan.source) {
-      const sourceImports = await this.parseSourceImportSpecifiers(
-        plan.source.code,
-      );
-      for (const specifier of sourceImports) {
-        pushProbe("source-import", specifier);
-      }
-    }
-
-    return probes;
+    return runDependencyPreflight(
+      probes,
+      diagnostics,
+      (probe) =>
+        this.preflightDependencyProbe(
+          probe,
+          plan.moduleManifest,
+          diagnostics,
+          frame,
+        ),
+      {
+        isAborted: () => this.isAborted(frame.signal),
+        hasExceededBudget: () => this.hasExceededBudget(frame),
+      },
+    );
   }
 
   private async parseSourceImportSpecifiers(code: string): Promise<string[]> {
@@ -762,212 +697,45 @@ export class DefaultRuntimeManager implements RuntimeManager {
     diagnostics: RuntimeDiagnostic[],
     frame: ExecutionFrame,
   ): Promise<RuntimeDependencyProbeStatus> {
-    if (probe.usage === "source-import") {
-      const resolved = this.resolveRuntimeSourceSpecifier(
-        probe.specifier,
-        moduleManifest,
-        diagnostics,
-        false,
-      );
-
-      if (
-        resolved.startsWith("./") ||
-        resolved.startsWith("../") ||
-        resolved.startsWith("/")
-      ) {
-        diagnostics.push({
-          level: "error",
-          code: "RUNTIME_PREFLIGHT_SOURCE_IMPORT_RELATIVE_UNRESOLVED",
-          message: `Runtime source entry import must resolve to URL or bare package alias: ${probe.specifier}`,
-        });
-        return {
-          usage: probe.usage,
-          specifier: probe.specifier,
-          resolvedSpecifier: resolved,
-          ok: false,
-          message: "Relative source import could not be resolved",
-        };
-      }
-
-      const timeoutMessage = `Dependency preflight timed out: ${probe.specifier}`;
-      const loaderCandidate = this.resolveSourceImportLoaderCandidate(
-        probe.specifier,
-        moduleManifest,
-      );
-
-      try {
-        if (this.moduleLoader && loaderCandidate) {
-          await this.withRemainingBudget(
-            () => this.moduleLoader!.load(loaderCandidate),
-            frame,
-            timeoutMessage,
-          );
-          return {
-            usage: probe.usage,
-            specifier: probe.specifier,
-            resolvedSpecifier: loaderCandidate,
-            ok: true,
-          };
-        }
-
-        if (this.isHttpUrl(resolved)) {
-          await this.withRemainingBudget(
-            async () => {
-              if (this.canMaterializeBrowserModules()) {
-                await this.materializeBrowserRemoteModule(
-                  resolved,
-                  moduleManifest,
-                  diagnostics,
-                );
-              } else {
-                await this.fetchRemoteModuleCodeWithFallback(
-                  resolved,
-                  diagnostics,
-                );
-              }
-            },
-            frame,
-            timeoutMessage,
-          );
-          return {
-            usage: probe.usage,
-            specifier: probe.specifier,
-            resolvedSpecifier: resolved,
-            ok: true,
-          };
-        }
-
-        if (!this.moduleLoader) {
-          diagnostics.push({
-            level: "warning",
-            code: "RUNTIME_PREFLIGHT_SKIPPED",
-            message: `Dependency preflight skipped (no module loader): ${probe.usage}:${resolved}`,
-          });
-          return {
-            usage: probe.usage,
-            specifier: probe.specifier,
-            resolvedSpecifier: resolved,
-            ok: false,
-            message:
-              "Dependency preflight skipped because source import is not loadable without module loader",
-          };
-        }
-
-        await this.withRemainingBudget(
-          () => this.moduleLoader!.load(resolved),
-          frame,
-          timeoutMessage,
-        );
-        return {
-          usage: probe.usage,
-          specifier: probe.specifier,
-          resolvedSpecifier: resolved,
-          ok: true,
-        };
-      } catch (error) {
-        if (this.isAbortError(error)) {
-          diagnostics.push({
-            level: "error",
-            code: "RUNTIME_ABORTED",
-            message: `${probe.specifier}: dependency preflight aborted`,
-          });
-          return {
-            usage: probe.usage,
-            specifier: probe.specifier,
-            resolvedSpecifier: resolved,
-            ok: false,
-            message: "Dependency preflight aborted",
-          };
-        }
-        diagnostics.push({
-          level: "error",
-          code: "RUNTIME_PREFLIGHT_SOURCE_IMPORT_FAILED",
-          message: `${probe.specifier}: ${this.errorToMessage(error)}`,
-        });
-        return {
-          usage: probe.usage,
-          specifier: probe.specifier,
-          resolvedSpecifier: resolved,
-          ok: false,
-          message: this.errorToMessage(error),
-        };
-      }
-    }
-
-    const resolved = this.resolveRuntimeSpecifier(
-      probe.specifier,
-      moduleManifest,
-      diagnostics,
-      probe.usage,
-    );
-    if (!resolved) {
-      return {
-        usage: probe.usage,
-        specifier: probe.specifier,
-        ok: false,
-        message: "Module manifest resolution failed",
-      };
-    }
-
-    if (!this.moduleLoader) {
-      diagnostics.push({
-        level: "warning",
-        code: "RUNTIME_PREFLIGHT_SKIPPED",
-        message: `Dependency preflight skipped (no module loader): ${probe.usage}:${resolved}`,
-      });
-      return {
-        usage: probe.usage,
-        specifier: probe.specifier,
-        resolvedSpecifier: resolved,
-        ok: false,
-        message:
-          "Dependency preflight skipped because module loader is missing",
-      };
-    }
-
-    try {
-      await this.withRemainingBudget(
-        () => this.moduleLoader!.load(resolved),
-        frame,
-        `Dependency preflight timed out: ${resolved}`,
-      );
-      return {
-        usage: probe.usage,
-        specifier: probe.specifier,
-        resolvedSpecifier: resolved,
-        ok: true,
-      };
-    } catch (error) {
-      if (this.isAbortError(error)) {
-        diagnostics.push({
-          level: "error",
-          code: "RUNTIME_ABORTED",
-          message: `${resolved}: dependency preflight aborted`,
-        });
-        return {
-          usage: probe.usage,
-          specifier: probe.specifier,
-          resolvedSpecifier: resolved,
-          ok: false,
-          message: "Dependency preflight aborted",
-        };
-      }
-      diagnostics.push({
-        level: "error",
-        code:
-          probe.usage === "component"
-            ? "RUNTIME_PREFLIGHT_COMPONENT_FAILED"
-            : "RUNTIME_PREFLIGHT_IMPORT_FAILED",
-        message: `${resolved}: ${this.errorToMessage(error)}`,
-      });
-      return {
-        usage: probe.usage,
-        specifier: probe.specifier,
-        resolvedSpecifier: resolved,
-        ok: false,
-        message: this.errorToMessage(error),
-      };
-    }
+    return executeDependencyProbe(probe, moduleManifest, diagnostics, {
+      moduleLoader: this.moduleLoader,
+      withRemainingBudget: (operation, timeoutMessage) =>
+        this.withRemainingBudget(operation, frame, timeoutMessage),
+      resolveRuntimeSourceSpecifier: (
+        specifier,
+        manifest,
+        runtimeDiagnostics,
+        requireManifest,
+      ) =>
+        this.resolveRuntimeSourceSpecifier(
+          specifier,
+          manifest,
+          runtimeDiagnostics,
+          requireManifest,
+        ),
+      resolveSourceImportLoaderCandidate: (specifier, manifest) =>
+        this.resolveSourceImportLoaderCandidate(specifier, manifest),
+      resolveRuntimeSpecifier: (
+        specifier,
+        manifest,
+        runtimeDiagnostics,
+        usage,
+      ) =>
+        this.resolveRuntimeSpecifier(
+          specifier,
+          manifest,
+          runtimeDiagnostics,
+          usage,
+        ),
+      isHttpUrl,
+      canMaterializeBrowserModules: () => this.canMaterializeBrowserModules(),
+      materializeBrowserRemoteModule: (url, manifest, runtimeDiagnostics) =>
+        this.materializeBrowserRemoteModule(url, manifest, runtimeDiagnostics),
+      fetchRemoteModuleCodeWithFallback: (url, runtimeDiagnostics) =>
+        this.fetchRemoteModuleCodeWithFallback(url, runtimeDiagnostics),
+      isAbortError: (error) => this.isAbortError(error),
+      errorToMessage: (error) => this.errorToMessage(error),
+    });
   }
 
   private async resolveSourceRoot(
@@ -1265,133 +1033,26 @@ export class DefaultRuntimeManager implements RuntimeManager {
     diagnostics: RuntimeDiagnostic[],
     requireManifest = true,
   ): string {
-    const trimmed = specifier.trim();
-    const manifestResolved = this.resolveOptionalManifestSpecifier(
-      trimmed,
+    return resolveRuntimeSourceSpecifier({
+      specifier,
       moduleManifest,
-    );
-
-    if (manifestResolved && manifestResolved !== trimmed) {
-      return this.resolveSourceSpecifierWithLoader(manifestResolved);
-    }
-
-    if (!this.shouldRewriteSpecifier(trimmed)) {
-      return manifestResolved ?? trimmed;
-    }
-
-    const resolvedFromPolicy = requireManifest
-      ? this.resolveRuntimeSpecifier(
-          trimmed,
-          moduleManifest,
-          diagnostics,
-          "source-import",
-        )
-      : manifestResolved;
-
-    if (!resolvedFromPolicy) {
-      return trimmed;
-    }
-
-    const loaderResolved =
-      this.resolveSourceSpecifierWithLoader(resolvedFromPolicy);
-    if (loaderResolved !== resolvedFromPolicy) {
-      return loaderResolved;
-    }
-
-    if (resolvedFromPolicy.startsWith("npm:")) {
-      return `${FALLBACK_JSPM_CDN_BASE}/${resolvedFromPolicy.slice(4)}`;
-    }
-
-    if (this.isDirectSpecifier(resolvedFromPolicy)) {
-      return resolvedFromPolicy;
-    }
-
-    if (this.isBareSpecifier(resolvedFromPolicy)) {
-      return `${FALLBACK_JSPM_CDN_BASE}/npm:${resolvedFromPolicy}`;
-    }
-
-    return `${FALLBACK_JSPM_CDN_BASE}/${resolvedFromPolicy}`;
-  }
-
-  private resolveSourceSpecifierWithLoader(specifier: string): string {
-    if (this.moduleLoader && this.hasResolveSpecifier(this.moduleLoader)) {
-      try {
-        return this.moduleLoader.resolveSpecifier(specifier);
-      } catch {
-        // fall through to default resolver
-      }
-    }
-
-    return specifier;
+      diagnostics,
+      requireManifest,
+      enforceModuleManifest: this.enforceModuleManifest,
+      moduleLoader: this.moduleLoader,
+      jspmCdnBase: FALLBACK_JSPM_CDN_BASE,
+    });
   }
 
   private resolveSourceImportLoaderCandidate(
     specifier: string,
     moduleManifest: RuntimeModuleManifest | undefined,
   ): string | undefined {
-    const manifestResolved = this.resolveOptionalManifestSpecifier(
+    return resolveSourceImportLoaderCandidate(
       specifier,
       moduleManifest,
+      this.moduleLoader,
     );
-    const candidate = (manifestResolved ?? specifier).trim();
-    if (candidate.length === 0) {
-      return undefined;
-    }
-
-    if (
-      candidate.startsWith("./") ||
-      candidate.startsWith("../") ||
-      candidate.startsWith("/")
-    ) {
-      return undefined;
-    }
-
-    return this.resolveSourceSpecifierWithLoader(candidate);
-  }
-
-  private resolveOptionalManifestSpecifier(
-    specifier: string,
-    moduleManifest: RuntimeModuleManifest | undefined,
-  ): string | undefined {
-    const descriptor = moduleManifest?.[specifier];
-    if (!descriptor) {
-      return specifier;
-    }
-
-    const resolved = descriptor.resolvedUrl.trim();
-    if (resolved.length === 0) {
-      return undefined;
-    }
-
-    return resolved;
-  }
-
-  private shouldRewriteSpecifier(specifier: string): boolean {
-    if (this.isDirectSpecifier(specifier)) {
-      return false;
-    }
-
-    return true;
-  }
-
-  private isDirectSpecifier(specifier: string): boolean {
-    return (
-      specifier.startsWith("./") ||
-      specifier.startsWith("../") ||
-      specifier.startsWith("/") ||
-      specifier.startsWith("http://") ||
-      specifier.startsWith("https://") ||
-      specifier.startsWith("blob:") ||
-      specifier.startsWith("data:")
-    );
-  }
-
-  private isHttpUrl(specifier: string): boolean {
-    return specifier.startsWith("http://") || specifier.startsWith("https://");
-  }
-
-  private isBareSpecifier(specifier: string): boolean {
-    return !this.isDirectSpecifier(specifier) && !specifier.startsWith("npm:");
   }
 
   private resolveRuntimeSpecifier(
@@ -1400,55 +1061,13 @@ export class DefaultRuntimeManager implements RuntimeManager {
     diagnostics: RuntimeDiagnostic[],
     usage: "import" | "component" | "source-import",
   ): string | undefined {
-    const trimmed = specifier.trim();
-    if (trimmed.length === 0) {
-      diagnostics.push({
-        level: "error",
-        code: "RUNTIME_MANIFEST_INVALID",
-        message: `Empty ${usage} specifier`,
-      });
-      return undefined;
-    }
-
-    const descriptor = moduleManifest?.[trimmed];
-    if (descriptor) {
-      const resolved = descriptor.resolvedUrl.trim();
-      if (resolved.length === 0) {
-        diagnostics.push({
-          level: "error",
-          code: "RUNTIME_MANIFEST_INVALID",
-          message: `Manifest entry has empty resolvedUrl for ${trimmed}`,
-        });
-        return undefined;
-      }
-
-      return resolved;
-    }
-
-    if (!this.enforceModuleManifest || this.isDirectSpecifier(trimmed)) {
-      return trimmed;
-    }
-
-    diagnostics.push({
-      level: "error",
-      code: "RUNTIME_MANIFEST_MISSING",
-      message: `Missing moduleManifest entry for ${usage}: ${trimmed}`,
+    return resolveRuntimeSpecifier({
+      specifier,
+      moduleManifest,
+      diagnostics,
+      usage,
+      enforceModuleManifest: this.enforceModuleManifest,
     });
-    return undefined;
-  }
-
-  private hasResolveSpecifier(
-    loader: RuntimeModuleLoader,
-  ): loader is RuntimeModuleLoader & {
-    resolveSpecifier(specifier: string): string;
-  } {
-    return (
-      typeof loader === "object" &&
-      loader !== null &&
-      "resolveSpecifier" in loader &&
-      typeof (loader as { resolveSpecifier?: unknown }).resolveSpecifier ===
-        "function"
-    );
   }
 
   private async importSourceModuleFromCode(
@@ -1517,7 +1136,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
       return trimmed;
     }
 
-    if (this.isHttpUrl(trimmed)) {
+    if (isHttpUrl(trimmed)) {
       return this.materializeBrowserRemoteModule(
         trimmed,
         moduleManifest,
@@ -1530,7 +1149,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
       trimmed.startsWith("../") ||
       trimmed.startsWith("/")
     ) {
-      if (!parentUrl || !this.isHttpUrl(parentUrl)) {
+      if (!parentUrl || !isHttpUrl(parentUrl)) {
         diagnostics.push({
           level: "warning",
           code: "RUNTIME_SOURCE_IMPORT_UNRESOLVED",
@@ -1540,7 +1159,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
       }
 
       const absolute = new URL(trimmed, parentUrl).toString();
-      if (!this.isHttpUrl(absolute)) {
+      if (!isHttpUrl(absolute)) {
         return absolute;
       }
 
@@ -1558,7 +1177,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
       false,
     );
 
-    if (this.isHttpUrl(resolved)) {
+    if (isHttpUrl(resolved)) {
       return this.materializeBrowserRemoteModule(
         resolved,
         moduleManifest,
@@ -1571,10 +1190,10 @@ export class DefaultRuntimeManager implements RuntimeManager {
         resolved.startsWith("../") ||
         resolved.startsWith("/")) &&
       parentUrl &&
-      this.isHttpUrl(parentUrl)
+      isHttpUrl(parentUrl)
     ) {
       const absolute = new URL(resolved, parentUrl).toString();
-      if (!this.isHttpUrl(absolute)) {
+      if (!isHttpUrl(absolute)) {
         return absolute;
       }
 
