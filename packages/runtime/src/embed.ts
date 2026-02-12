@@ -1,12 +1,12 @@
 import type { RuntimePlan } from "@renderify/ir";
 import { DefaultSecurityChecker } from "@renderify/security";
 import { JspmModuleLoader } from "./jspm-module-loader";
+import { DefaultRuntimeManager } from "./manager";
 import {
-  DefaultRuntimeManager,
   type RuntimeEmbedRenderOptions,
   type RuntimeEmbedRenderResult,
   RuntimeSecurityViolationError,
-} from "./manager";
+} from "./runtime-manager.types";
 import { DefaultUIRenderer, type RenderTarget } from "./ui-renderer";
 
 const EMBED_TARGET_RENDER_LOCKS = new WeakMap<HTMLElement, Promise<void>>();

@@ -1,5 +1,5 @@
 import type { JsonValue } from "@renderify/ir";
-import type { RuntimeSourceSandboxMode } from "./manager";
+import type { RuntimeSourceSandboxMode } from "./runtime-manager.types";
 
 export interface RuntimeSandboxResult {
   output: unknown;

@@ -94,23 +94,6 @@ import {
 } from "./runtime-specifier";
 import { BabelRuntimeSourceTranspiler } from "./transpiler";
 
-export {
-  type CompileOptions,
-  type RuntimeDependencyProbeStatus,
-  type RuntimeDependencyUsage,
-  type RuntimeEmbedRenderOptions,
-  type RuntimeEmbedRenderResult,
-  type RuntimeExecutionInput,
-  type RuntimeManager,
-  type RuntimeManagerOptions,
-  type RuntimeModuleLoader,
-  type RuntimePlanProbeResult,
-  RuntimeSecurityViolationError,
-  type RuntimeSourceSandboxMode,
-  type RuntimeSourceTranspileInput,
-  type RuntimeSourceTranspiler,
-} from "./runtime-manager.types";
-
 interface ExecutionFrame {
   startedAt: number;
   maxExecutionMs: number;

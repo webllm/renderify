@@ -1,7 +1,7 @@
 import type {
   RuntimeSourceTranspileInput,
   RuntimeSourceTranspiler,
-} from "./manager";
+} from "./runtime-manager.types";
 
 interface BabelStandaloneLike {
   transform(
