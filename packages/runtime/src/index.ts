@@ -46,9 +46,26 @@ export interface RuntimeExecutionInput {
   stateOverride?: RuntimeStateSnapshot;
 }
 
+export type RuntimeDependencyUsage = "import" | "component" | "source-import";
+
+export interface RuntimeDependencyProbeStatus {
+  usage: RuntimeDependencyUsage;
+  specifier: string;
+  resolvedSpecifier?: string;
+  ok: boolean;
+  message?: string;
+}
+
+export interface RuntimePlanProbeResult {
+  planId: string;
+  diagnostics: RuntimeDiagnostic[];
+  dependencies: RuntimeDependencyProbeStatus[];
+}
+
 export interface RuntimeManager {
   initialize(): Promise<void>;
   terminate(): Promise<void>;
+  probePlan(plan: RuntimePlan): Promise<RuntimePlanProbeResult>;
   executePlan(
     plan: RuntimePlan,
     context?: RuntimeExecutionContext,
@@ -104,10 +121,8 @@ interface ResolvedSourceOutput {
   renderArtifact?: RuntimeRenderArtifact;
 }
 
-type DependencyProbeUsage = "import" | "component" | "source-import";
-
 interface DependencyProbe {
-  usage: DependencyProbeUsage;
+  usage: RuntimeDependencyUsage;
   specifier: string;
 }
 
@@ -362,6 +377,51 @@ export class DefaultRuntimeManager implements RuntimeManager {
       input.event,
       input.stateOverride,
     );
+  }
+
+  async probePlan(plan: RuntimePlan): Promise<RuntimePlanProbeResult> {
+    this.ensureInitialized();
+
+    const diagnostics: RuntimeDiagnostic[] = [];
+    const specVersion = resolveRuntimePlanSpecVersion(plan.specVersion);
+    if (!this.supportedPlanSpecVersions.has(specVersion)) {
+      diagnostics.push({
+        level: "error",
+        code: "RUNTIME_SPEC_VERSION_UNSUPPORTED",
+        message: `Unsupported plan specVersion "${specVersion}". Supported: ${[
+          ...this.supportedPlanSpecVersions,
+        ].join(", ")}`,
+      });
+      return {
+        planId: plan.id,
+        diagnostics,
+        dependencies: [],
+      };
+    }
+
+    const frame: ExecutionFrame = {
+      startedAt: nowMs(),
+      maxExecutionMs:
+        plan.capabilities.maxExecutionMs ?? this.defaultMaxExecutionMs,
+      maxComponentInvocations:
+        plan.capabilities.maxComponentInvocations ??
+        this.defaultMaxComponentInvocations,
+      componentInvocations: 0,
+      executionProfile:
+        plan.capabilities.executionProfile ?? this.defaultExecutionProfile,
+    };
+
+    const dependencies = await this.preflightPlanDependencies(
+      plan,
+      diagnostics,
+      frame,
+    );
+
+    return {
+      planId: plan.id,
+      diagnostics,
+      dependencies,
+    };
   }
 
   async executePlan(
@@ -640,8 +700,9 @@ export class DefaultRuntimeManager implements RuntimeManager {
     plan: RuntimePlan,
     diagnostics: RuntimeDiagnostic[],
     frame: ExecutionFrame,
-  ): Promise<void> {
+  ): Promise<RuntimeDependencyProbeStatus[]> {
     const probes = await this.collectDependencyProbes(plan);
+    const statuses: RuntimeDependencyProbeStatus[] = [];
 
     for (const probe of probes) {
       if (this.hasExceededBudget(frame)) {
@@ -650,16 +711,25 @@ export class DefaultRuntimeManager implements RuntimeManager {
           code: "RUNTIME_TIMEOUT",
           message: `Execution time budget exceeded during dependency preflight (${probe.usage}:${probe.specifier})`,
         });
-        return;
+        statuses.push({
+          usage: probe.usage,
+          specifier: probe.specifier,
+          ok: false,
+          message: "Dependency preflight timed out",
+        });
+        return statuses;
       }
 
-      await this.preflightDependencyProbe(
+      const status = await this.preflightDependencyProbe(
         probe,
         plan.moduleManifest,
         diagnostics,
         frame,
       );
+      statuses.push(status);
     }
+
+    return statuses;
   }
 
   private async collectDependencyProbes(
@@ -668,7 +738,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
     const probes: DependencyProbe[] = [];
     const seen = new Set<string>();
 
-    const pushProbe = (usage: DependencyProbeUsage, specifier: string) => {
+    const pushProbe = (usage: RuntimeDependencyUsage, specifier: string) => {
       const trimmed = specifier.trim();
       if (trimmed.length === 0) {
         return;
@@ -725,7 +795,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
     moduleManifest: RuntimeModuleManifest | undefined,
     diagnostics: RuntimeDiagnostic[],
     frame: ExecutionFrame,
-  ): Promise<void> {
+  ): Promise<RuntimeDependencyProbeStatus> {
     if (probe.usage === "source-import") {
       const resolved = this.resolveRuntimeSourceSpecifier(
         probe.specifier,
@@ -744,12 +814,36 @@ export class DefaultRuntimeManager implements RuntimeManager {
           code: "RUNTIME_PREFLIGHT_SOURCE_IMPORT_RELATIVE_UNRESOLVED",
           message: `Runtime source entry import must resolve to URL or bare package alias: ${probe.specifier}`,
         });
-        return;
+        return {
+          usage: probe.usage,
+          specifier: probe.specifier,
+          resolvedSpecifier: resolved,
+          ok: false,
+          message: "Relative source import could not be resolved",
+        };
       }
 
       const timeoutMessage = `Dependency preflight timed out: ${probe.specifier}`;
+      const loaderCandidate = this.resolveSourceImportLoaderCandidate(
+        probe.specifier,
+        moduleManifest,
+      );
 
       try {
+        if (this.moduleLoader && loaderCandidate) {
+          await this.withRemainingBudget(
+            () => this.moduleLoader!.load(loaderCandidate),
+            frame,
+            timeoutMessage,
+          );
+          return {
+            usage: probe.usage,
+            specifier: probe.specifier,
+            resolvedSpecifier: loaderCandidate,
+            ok: true,
+          };
+        }
+
         if (this.isHttpUrl(resolved)) {
           await this.withRemainingBudget(
             async () => {
@@ -769,7 +863,12 @@ export class DefaultRuntimeManager implements RuntimeManager {
             frame,
             timeoutMessage,
           );
-          return;
+          return {
+            usage: probe.usage,
+            specifier: probe.specifier,
+            resolvedSpecifier: resolved,
+            ok: true,
+          };
         }
 
         if (!this.moduleLoader) {
@@ -778,7 +877,14 @@ export class DefaultRuntimeManager implements RuntimeManager {
             code: "RUNTIME_PREFLIGHT_SKIPPED",
             message: `Dependency preflight skipped (no module loader): ${probe.usage}:${resolved}`,
           });
-          return;
+          return {
+            usage: probe.usage,
+            specifier: probe.specifier,
+            resolvedSpecifier: resolved,
+            ok: false,
+            message:
+              "Dependency preflight skipped because source import is not loadable without module loader",
+          };
         }
 
         await this.withRemainingBudget(
@@ -786,14 +892,26 @@ export class DefaultRuntimeManager implements RuntimeManager {
           frame,
           timeoutMessage,
         );
+        return {
+          usage: probe.usage,
+          specifier: probe.specifier,
+          resolvedSpecifier: resolved,
+          ok: true,
+        };
       } catch (error) {
         diagnostics.push({
           level: "error",
           code: "RUNTIME_PREFLIGHT_SOURCE_IMPORT_FAILED",
           message: `${probe.specifier}: ${this.errorToMessage(error)}`,
         });
+        return {
+          usage: probe.usage,
+          specifier: probe.specifier,
+          resolvedSpecifier: resolved,
+          ok: false,
+          message: this.errorToMessage(error),
+        };
       }
-      return;
     }
 
     const resolved = this.resolveRuntimeSpecifier(
@@ -803,7 +921,12 @@ export class DefaultRuntimeManager implements RuntimeManager {
       probe.usage,
     );
     if (!resolved) {
-      return;
+      return {
+        usage: probe.usage,
+        specifier: probe.specifier,
+        ok: false,
+        message: "Module manifest resolution failed",
+      };
     }
 
     if (!this.moduleLoader) {
@@ -812,7 +935,14 @@ export class DefaultRuntimeManager implements RuntimeManager {
         code: "RUNTIME_PREFLIGHT_SKIPPED",
         message: `Dependency preflight skipped (no module loader): ${probe.usage}:${resolved}`,
       });
-      return;
+      return {
+        usage: probe.usage,
+        specifier: probe.specifier,
+        resolvedSpecifier: resolved,
+        ok: false,
+        message:
+          "Dependency preflight skipped because module loader is missing",
+      };
     }
 
     try {
@@ -821,6 +951,12 @@ export class DefaultRuntimeManager implements RuntimeManager {
         frame,
         `Dependency preflight timed out: ${resolved}`,
       );
+      return {
+        usage: probe.usage,
+        specifier: probe.specifier,
+        resolvedSpecifier: resolved,
+        ok: true,
+      };
     } catch (error) {
       diagnostics.push({
         level: "error",
@@ -830,6 +966,13 @@ export class DefaultRuntimeManager implements RuntimeManager {
             : "RUNTIME_PREFLIGHT_IMPORT_FAILED",
         message: `${resolved}: ${this.errorToMessage(error)}`,
       });
+      return {
+        usage: probe.usage,
+        specifier: probe.specifier,
+        resolvedSpecifier: resolved,
+        ok: false,
+        message: this.errorToMessage(error),
+      };
     }
   }
 
@@ -1154,6 +1297,30 @@ export class DefaultRuntimeManager implements RuntimeManager {
     }
 
     return specifier;
+  }
+
+  private resolveSourceImportLoaderCandidate(
+    specifier: string,
+    moduleManifest: RuntimeModuleManifest | undefined,
+  ): string | undefined {
+    const manifestResolved = this.resolveOptionalManifestSpecifier(
+      specifier,
+      moduleManifest,
+    );
+    const candidate = (manifestResolved ?? specifier).trim();
+    if (candidate.length === 0) {
+      return undefined;
+    }
+
+    if (
+      candidate.startsWith("./") ||
+      candidate.startsWith("../") ||
+      candidate.startsWith("/")
+    ) {
+      return undefined;
+    }
+
+    return this.resolveSourceSpecifierWithLoader(candidate);
   }
 
   private resolveOptionalManifestSpecifier(
@@ -1538,7 +1705,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
     candidates.add(url);
 
     for (const fallbackBase of this.remoteFallbackCdnBases) {
-      const fallback = this.toEsmFallbackUrl(url, fallbackBase);
+      const fallback = this.toConfiguredFallbackUrl(url, fallbackBase);
       if (fallback) {
         candidates.add(fallback);
       }
@@ -1547,10 +1714,62 @@ export class DefaultRuntimeManager implements RuntimeManager {
     return [...candidates];
   }
 
+  private toConfiguredFallbackUrl(
+    url: string,
+    cdnBase: string,
+  ): string | undefined {
+    const normalizedBase = cdnBase.trim().replace(/\/$/, "");
+    const specifier = this.extractJspmNpmSpecifier(url);
+    if (!specifier || normalizedBase.length === 0) {
+      return undefined;
+    }
+
+    if (normalizedBase.includes("esm.sh")) {
+      return this.toEsmFallbackUrl(url, normalizedBase);
+    }
+
+    if (normalizedBase.includes("jsdelivr.net")) {
+      return `${normalizedBase}/npm/${specifier}`;
+    }
+
+    if (normalizedBase.includes("unpkg.com")) {
+      const separator = specifier.includes("?") ? "&" : "?";
+      return `${normalizedBase}/${specifier}${separator}module`;
+    }
+
+    if (normalizedBase.includes("jspm.io")) {
+      const root = normalizedBase.endsWith("/npm")
+        ? normalizedBase.slice(0, normalizedBase.length - 4)
+        : normalizedBase;
+      return `${root}/npm:${specifier}`;
+    }
+
+    return undefined;
+  }
+
   private toEsmFallbackUrl(
     url: string,
     cdnBase = FALLBACK_ESM_CDN_BASE,
   ): string | undefined {
+    const specifier = this.extractJspmNpmSpecifier(url);
+    if (!specifier) {
+      return undefined;
+    }
+    const normalizedBase = cdnBase.trim().replace(/\/$/, "");
+    if (normalizedBase.length === 0) {
+      return undefined;
+    }
+
+    const aliasQuery = [
+      "alias=react:preact/compat,react-dom:preact/compat,react-dom/client:preact/compat,react/jsx-runtime:preact/jsx-runtime,react/jsx-dev-runtime:preact/jsx-runtime",
+      "target=es2022",
+    ].join("&");
+
+    const separator = specifier.includes("?") ? "&" : "?";
+    return `${normalizedBase}/${specifier}${separator}${aliasQuery}`;
+  }
+
+  private extractJspmNpmSpecifier(url: string): string | undefined {
     const prefix = "https://ga.jspm.io/npm:";
     if (!url.startsWith(prefix)) {
       return undefined;
@@ -1561,13 +1780,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
       return undefined;
     }
 
-    const aliasQuery = [
-      "alias=react:preact/compat,react-dom:preact/compat,react-dom/client:preact/compat,react/jsx-runtime:preact/jsx-runtime,react/jsx-dev-runtime:preact/jsx-runtime",
-      "target=es2022",
-    ].join("&");
-
-    const separator = specifier.includes("?") ? "&" : "?";
-    return `${cdnBase}/${specifier}${separator}${aliasQuery}`;
+    return specifier;
   }
 
   private isCssModuleResponse(fetched: RemoteModuleFetchResult): boolean {

@@ -472,6 +472,43 @@ test("runtime computes esm fallback url for jspm modules", () => {
   assert.match(String(fallback), /alias=react:preact\/compat/);
 });
 
+test("runtime computes jsdelivr and unpkg fallback urls for jspm modules", () => {
+  const runtime = new DefaultRuntimeManager({
+    remoteFallbackCdnBases: ["https://cdn.jsdelivr.net", "https://unpkg.com"],
+  });
+  const jsdelivrFallback = (
+    runtime as unknown as {
+      toConfiguredFallbackUrl: (
+        url: string,
+        cdnBase: string,
+      ) => string | undefined;
+    }
+  ).toConfiguredFallbackUrl(
+    "https://ga.jspm.io/npm:@mui/material@7.3.5/index.js",
+    "https://cdn.jsdelivr.net",
+  );
+  const unpkgFallback = (
+    runtime as unknown as {
+      toConfiguredFallbackUrl: (
+        url: string,
+        cdnBase: string,
+      ) => string | undefined;
+    }
+  ).toConfiguredFallbackUrl(
+    "https://ga.jspm.io/npm:@mui/material@7.3.5/index.js",
+    "https://unpkg.com",
+  );
+
+  assert.equal(
+    jsdelivrFallback,
+    "https://cdn.jsdelivr.net/npm/@mui/material@7.3.5/index.js",
+  );
+  assert.equal(
+    unpkgFallback,
+    "https://unpkg.com/@mui/material@7.3.5/index.js?module",
+  );
+});
+
 test("runtime enforces moduleManifest for bare component specifiers by default", async () => {
   const runtime = new DefaultRuntimeManager({
     moduleLoader: new MockLoader({
@@ -678,4 +715,80 @@ test("runtime materializes css and json remote modules into executable proxies",
 
   assert.match(jsonProxy, /const __json/);
   assert.equal(diagnostics.length, 0);
+});
+
+test("runtime probePlan returns dependency statuses without executing source", async () => {
+  const runtime = new DefaultRuntimeManager({
+    moduleLoader: new MockLoader({
+      "npm:acme/chart": { default: () => createTextNode("ok") },
+      "npm:acme/data": { value: 1 },
+      "npm:acme/source-lib": { default: "lib" },
+    }),
+  });
+  await runtime.initialize();
+
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "runtime_probe_plan_test",
+    version: 1,
+    root: createComponentNode("npm:acme/chart"),
+    imports: ["npm:acme/data"],
+    moduleManifest: {
+      "npm:acme/chart": {
+        resolvedUrl: "npm:acme/chart",
+        signer: "tests",
+      },
+      "npm:acme/data": {
+        resolvedUrl: "npm:acme/data",
+        signer: "tests",
+      },
+      "npm:acme/source-lib": {
+        resolvedUrl: "npm:acme/source-lib",
+        signer: "tests",
+      },
+    },
+    capabilities: {
+      domWrite: true,
+    },
+    source: {
+      language: "tsx",
+      code: [
+        'import lib from "npm:acme/source-lib";',
+        "export default function SourceView() {",
+        "  return <section>{String(lib)}</section>;",
+        "}",
+      ].join("\n"),
+    },
+  };
+
+  const probe = await runtime.probePlan(plan);
+  assert.equal(probe.planId, "runtime_probe_plan_test");
+  assert.equal(
+    probe.dependencies.filter((item) => item.ok).length,
+    probe.dependencies.length,
+  );
+  assert.ok(
+    probe.dependencies.some(
+      (item) =>
+        item.usage === "component" &&
+        item.specifier === "npm:acme/chart" &&
+        item.resolvedSpecifier === "npm:acme/chart",
+    ),
+  );
+  assert.ok(
+    probe.dependencies.some(
+      (item) =>
+        item.usage === "source-import" &&
+        item.specifier === "npm:acme/source-lib",
+    ),
+  );
+  assert.ok(
+    !probe.diagnostics.some(
+      (item) =>
+        item.code === "RUNTIME_SOURCE_EXEC_FAILED" ||
+        item.code === "RUNTIME_SOURCE_EXPORT_MISSING",
+    ),
+  );
+
+  await runtime.terminate();
 });
