@@ -84,7 +84,8 @@ export class DefaultUIRenderer implements UIRenderer {
     }
 
     const { mountPoint, onRuntimeEvent } = resolvedTarget;
-    this.patchMountPoint(mountPoint, serialized.html);
+    const sanitizedHtml = this.sanitizeHtmlForMount(serialized.html);
+    this.patchMountPoint(mountPoint, sanitizedHtml);
     this.syncMountSession(
       mountPoint,
       result.planId,
@@ -214,6 +215,13 @@ export class DefaultUIRenderer implements UIRenderer {
     this.reconcileChildren(mountPoint, template.content);
     mountPoint.scrollTop = scrollTop;
     mountPoint.scrollLeft = scrollLeft;
+  }
+
+  private sanitizeHtmlForMount(html: string): string {
+    const template = document.createElement("template");
+    template.innerHTML = html;
+    sanitizeRenderedFragment(template.content);
+    return template.innerHTML;
   }
 
   private reconcileChildren(
@@ -694,6 +702,8 @@ const BLOCKED_TAG_NAMES = new Set([
   "embed",
   "link",
   "meta",
+  "base",
+  "form",
 ]);
 
 const BLOCKED_ATTRIBUTE_NAMES = new Set([
@@ -712,6 +722,15 @@ const URL_ATTRIBUTE_NAMES = new Set([
 ]);
 
 const SAFE_URL_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
+const UNSAFE_STYLE_PATTERNS = [
+  /\bexpression\s*\(/i,
+  /\burl\s*\(/i,
+  /\bjavascript\s*:/i,
+  /\bdata\s*:/i,
+  /@import/i,
+  /\bbehavior\s*:/i,
+  /-moz-binding/i,
+] as const;
 
 function sanitizeTagName(tag: string): string | undefined {
   const normalized = tag.trim().toLowerCase();
@@ -817,6 +836,20 @@ function serializeProps(
       }
     }
 
+    if (normalizedKey === "style") {
+      if (typeof rawValue !== "string") {
+        continue;
+      }
+
+      const sanitizedStyle = sanitizeInlineStyle(rawValue);
+      if (!sanitizedStyle) {
+        continue;
+      }
+
+      attributes.push(` style="${escapeHtml(sanitizedStyle)}"`);
+      continue;
+    }
+
     if (key.startsWith("on")) {
       continue;
     }
@@ -849,6 +882,102 @@ function serializeProps(
   }
 
   return attributes.join("");
+}
+
+function sanitizeInlineStyle(style: string): string | undefined {
+  const normalized = style.trim();
+  if (normalized.length === 0) {
+    return undefined;
+  }
+
+  for (const pattern of UNSAFE_STYLE_PATTERNS) {
+    if (pattern.test(normalized)) {
+      return undefined;
+    }
+  }
+
+  return normalized;
+}
+
+function sanitizeRenderedFragment(fragment: DocumentFragment): void {
+  const elements = Array.from(fragment.querySelectorAll("*"));
+
+  for (const element of elements) {
+    if (!element.isConnected) {
+      continue;
+    }
+
+    const tagName = element.tagName.toLowerCase();
+    if (!sanitizeTagName(tagName)) {
+      replaceBlockedElement(element, tagName);
+      continue;
+    }
+
+    sanitizeElementAttributes(element);
+  }
+}
+
+function replaceBlockedElement(element: Element, tagName: string): void {
+  const replacement = element.ownerDocument.createElement("div");
+  replacement.setAttribute("data-renderify-sanitized-tag", tagName);
+
+  while (element.firstChild) {
+    replacement.appendChild(element.firstChild);
+  }
+
+  element.replaceWith(replacement);
+}
+
+function sanitizeElementAttributes(element: Element): void {
+  let targetIsBlank = false;
+  let relProvided = false;
+
+  for (const attribute of Array.from(element.attributes)) {
+    const key = attribute.name;
+    const value = attribute.value;
+    const normalizedKey = key.toLowerCase();
+
+    if (
+      !isSafeAttributeName(key) ||
+      BLOCKED_ATTRIBUTE_NAMES.has(normalizedKey)
+    ) {
+      element.removeAttribute(key);
+      continue;
+    }
+
+    if (normalizedKey.startsWith("on")) {
+      element.removeAttribute(key);
+      continue;
+    }
+
+    if (URL_ATTRIBUTE_NAMES.has(normalizedKey) && !isSafeAttributeUrl(value)) {
+      element.removeAttribute(key);
+      continue;
+    }
+
+    if (normalizedKey === "style") {
+      const sanitizedStyle = sanitizeInlineStyle(value);
+      if (!sanitizedStyle) {
+        element.removeAttribute(key);
+        continue;
+      }
+      if (sanitizedStyle !== value) {
+        element.setAttribute(key, sanitizedStyle);
+      }
+    }
+
+    if (normalizedKey === "target" && value.trim() === "_blank") {
+      targetIsBlank = true;
+    }
+
+    if (normalizedKey === "rel") {
+      relProvided = true;
+    }
+  }
+
+  if (targetIsBlank && !relProvided) {
+    element.setAttribute("rel", "noopener noreferrer");
+  }
 }
 
 function parseRuntimeEventProp(
