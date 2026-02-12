@@ -718,11 +718,17 @@ export class DefaultRuntimeManager implements RuntimeManager {
           usage,
         ),
       isHttpUrl,
-      canMaterializeBrowserModules: () => this.canMaterializeBrowserModules(),
+      canMaterializeBrowserModules: () => canMaterializeBrowserModules(),
       materializeBrowserRemoteModule: (url, manifest, runtimeDiagnostics) =>
-        this.materializeBrowserRemoteModule(url, manifest, runtimeDiagnostics),
+        this.createSourceModuleLoader(
+          manifest,
+          runtimeDiagnostics,
+        ).materializeBrowserRemoteModule(url),
       fetchRemoteModuleCodeWithFallback: (url, runtimeDiagnostics) =>
-        this.fetchRemoteModuleCodeWithFallback(url, runtimeDiagnostics),
+        this.createSourceModuleLoader(
+          undefined,
+          runtimeDiagnostics,
+        ).fetchRemoteModuleCodeWithFallback(url),
       isAbortError: (error) => this.isAbortError(error),
       errorToMessage: (error) => this.errorToMessage(error),
     });
@@ -759,7 +765,10 @@ export class DefaultRuntimeManager implements RuntimeManager {
       resolveSourceSandboxMode: (runtimeSource, executionProfile) =>
         this.resolveSourceSandboxMode(runtimeSource, executionProfile),
       importSourceModuleFromCode: (code, manifest, runtimeDiagnostics) =>
-        this.importSourceModuleFromCode(code, manifest, runtimeDiagnostics),
+        this.createSourceModuleLoader(
+          manifest,
+          runtimeDiagnostics,
+        ).importSourceModuleFromCode(code),
       normalizeSourceOutput: (output) => this.normalizeSourceOutput(output),
       shouldUsePreactSourceRuntime: (runtimeSource) =>
         this.shouldUsePreactSourceRuntime(runtimeSource),
@@ -872,7 +881,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
       remoteFetchTimeoutMs: this.remoteFetchTimeoutMs,
       remoteFetchRetries: this.remoteFetchRetries,
       remoteFetchBackoffMs: this.remoteFetchBackoffMs,
-      canMaterializeBrowserModules: () => this.canMaterializeBrowserModules(),
+      canMaterializeBrowserModules: () => canMaterializeBrowserModules(),
       rewriteImportsAsync: (code, resolver) =>
         this.rewriteImportsAsync(code, resolver),
       createBrowserBlobModuleUrl: (code) =>
@@ -892,44 +901,6 @@ export class DefaultRuntimeManager implements RuntimeManager {
     });
   }
 
-  private async importSourceModuleFromCode(
-    code: string,
-    moduleManifest: RuntimeModuleManifest | undefined,
-    diagnostics: RuntimeDiagnostic[],
-  ): Promise<unknown> {
-    return this.createSourceModuleLoader(
-      moduleManifest,
-      diagnostics,
-    ).importSourceModuleFromCode(code);
-  }
-
-  private canMaterializeBrowserModules(): boolean {
-    return canMaterializeBrowserModules();
-  }
-
-  private async resolveBrowserImportSpecifier(
-    specifier: string,
-    parentUrl: string | undefined,
-    moduleManifest: RuntimeModuleManifest | undefined,
-    diagnostics: RuntimeDiagnostic[],
-  ): Promise<string> {
-    return this.createSourceModuleLoader(
-      moduleManifest,
-      diagnostics,
-    ).resolveBrowserImportSpecifier(specifier, parentUrl);
-  }
-
-  private async materializeBrowserRemoteModule(
-    url: string,
-    moduleManifest: RuntimeModuleManifest | undefined,
-    diagnostics: RuntimeDiagnostic[],
-  ): Promise<string> {
-    return this.createSourceModuleLoader(
-      moduleManifest,
-      diagnostics,
-    ).materializeBrowserRemoteModule(url);
-  }
-
   private async materializeFetchedModuleSource(
     fetched: RemoteModuleFetchResult,
     moduleManifest: RuntimeModuleManifest | undefined,
@@ -939,16 +910,6 @@ export class DefaultRuntimeManager implements RuntimeManager {
       moduleManifest,
       diagnostics,
     ).materializeFetchedModuleSource(fetched);
-  }
-
-  private async fetchRemoteModuleCodeWithFallback(
-    url: string,
-    diagnostics: RuntimeDiagnostic[],
-  ): Promise<RemoteModuleFetchResult> {
-    return this.createSourceModuleLoader(
-      undefined,
-      diagnostics,
-    ).fetchRemoteModuleCodeWithFallback(url);
   }
 
   private toConfiguredFallbackUrl(
