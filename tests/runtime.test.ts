@@ -1175,6 +1175,35 @@ test("runtime materializes css and json remote modules into executable proxies",
   assert.equal(diagnostics.length, 0);
 });
 
+test("runtime execute rejects when aborted before execution starts", async () => {
+  const runtime = new DefaultRuntimeManager();
+  await runtime.initialize();
+
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "runtime_abort_before_start_plan",
+    version: 1,
+    root: createElementNode("div", undefined, [createTextNode("abort")]),
+    capabilities: {
+      domWrite: true,
+    },
+  };
+
+  const controller = new AbortController();
+  controller.abort();
+
+  await assert.rejects(
+    () =>
+      runtime.execute({
+        plan,
+        signal: controller.signal,
+      }),
+    (error: unknown) => error instanceof Error && error.name === "AbortError",
+  );
+
+  await runtime.terminate();
+});
+
 test("runtime probePlan returns dependency statuses without executing source", async () => {
   const runtime = new DefaultRuntimeManager({
     moduleLoader: new MockLoader({

@@ -9,6 +9,7 @@ import type {
 import { isRuntimePlan } from "@renderify/ir";
 import {
   consumeSseEvents,
+  createTimeoutAbortScope,
   formatContext,
   pickFetch,
   pickPositiveInt,
@@ -221,10 +222,13 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
   }
 
   async generateResponse(req: LLMRequest): Promise<LLMResponse> {
-    const payload = await this.requestChatCompletions({
-      model: this.options.model,
-      messages: this.buildMessages(req),
-    });
+    const payload = await this.requestChatCompletions(
+      {
+        model: this.options.model,
+        messages: this.buildMessages(req),
+      },
+      req.signal,
+    );
 
     const output = this.extractOutput(payload);
     if (output.refusal) {
@@ -257,10 +261,10 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
       );
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => {
-      controller.abort();
-    }, this.options.timeoutMs);
+    const abortScope = createTimeoutAbortScope(
+      this.options.timeoutMs,
+      req.signal,
+    );
 
     let aggregatedText = "";
     let chunkIndex = 0;
@@ -366,7 +370,7 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
               include_usage: true,
             },
           }),
-          signal: controller.signal,
+          signal: abortScope.signal,
         },
       );
 
@@ -428,13 +432,16 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
       }
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
+        if (req.signal?.aborted) {
+          throw new Error("OpenAI request aborted by caller");
+        }
         throw new Error(
           `OpenAI request timed out after ${this.options.timeoutMs}ms`,
         );
       }
       throw error;
     } finally {
-      clearTimeout(timeout);
+      abortScope.release();
     }
   }
 
@@ -450,21 +457,24 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
       };
     }
 
-    const payload = await this.requestChatCompletions({
-      model: this.options.model,
-      messages: this.buildMessages({
-        ...req,
-        systemPrompt: this.resolveStructuredSystemPrompt(req),
-      }),
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "runtime_plan",
-          strict: req.strict !== false,
-          schema: RUNTIME_PLAN_JSON_SCHEMA,
+    const payload = await this.requestChatCompletions(
+      {
+        model: this.options.model,
+        messages: this.buildMessages({
+          ...req,
+          systemPrompt: this.resolveStructuredSystemPrompt(req),
+        }),
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "runtime_plan",
+            strict: req.strict !== false,
+            schema: RUNTIME_PLAN_JSON_SCHEMA,
+          },
         },
       },
-    });
+      req.signal,
+    );
 
     const output = this.extractOutput(payload);
 
@@ -550,6 +560,7 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
 
   private async requestChatCompletions(
     body: Record<string, unknown>,
+    signal?: AbortSignal,
   ): Promise<OpenAIChatCompletionsPayload> {
     const fetchImpl = resolveFetch(
       this.fetchImpl,
@@ -563,10 +574,7 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
       );
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => {
-      controller.abort();
-    }, this.options.timeoutMs);
+    const abortScope = createTimeoutAbortScope(this.options.timeoutMs, signal);
 
     try {
       const response = await fetchImpl(
@@ -575,7 +583,7 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
           method: "POST",
           headers: this.createHeaders(apiKey),
           body: JSON.stringify(body),
-          signal: controller.signal,
+          signal: abortScope.signal,
         },
       );
 
@@ -594,13 +602,16 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
       return parsed;
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
+        if (signal?.aborted) {
+          throw new Error("OpenAI request aborted by caller");
+        }
         throw new Error(
           `OpenAI request timed out after ${this.options.timeoutMs}ms`,
         );
       }
       throw error;
     } finally {
-      clearTimeout(timeout);
+      abortScope.release();
     }
   }
 

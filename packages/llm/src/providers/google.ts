@@ -9,6 +9,7 @@ import type {
 import { isRuntimePlan } from "@renderify/ir";
 import {
   consumeSseEvents,
+  createTimeoutAbortScope,
   formatContext,
   pickFetch,
   pickPositiveInt,
@@ -110,7 +111,10 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
   }
 
   async generateResponse(req: LLMRequest): Promise<LLMResponse> {
-    const payload = await this.requestGenerateContent(this.buildRequest(req));
+    const payload = await this.requestGenerateContent(
+      this.buildRequest(req),
+      req.signal,
+    );
     const refusal = this.extractRefusal(payload);
     if (refusal) {
       throw new Error(`Google refused request: ${refusal}`);
@@ -141,10 +145,10 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
       );
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => {
-      controller.abort();
-    }, this.options.timeoutMs);
+    const abortScope = createTimeoutAbortScope(
+      this.options.timeoutMs,
+      req.signal,
+    );
 
     let aggregatedText = "";
     let chunkIndex = 0;
@@ -244,7 +248,7 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
             "x-goog-api-key": apiKey,
           },
           body: JSON.stringify(this.buildRequest(req)),
-          signal: controller.signal,
+          signal: abortScope.signal,
         },
       );
 
@@ -306,13 +310,16 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
       }
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
+        if (req.signal?.aborted) {
+          throw new Error("Google request aborted by caller");
+        }
         throw new Error(
           `Google request timed out after ${this.options.timeoutMs}ms`,
         );
       }
       throw error;
     } finally {
-      clearTimeout(timeout);
+      abortScope.release();
     }
   }
 
@@ -330,6 +337,7 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
 
     const payload = await this.requestGenerateContent(
       this.buildStructuredRequest(req),
+      req.signal,
     );
 
     const refusal = this.extractRefusal(payload);
@@ -501,6 +509,7 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
 
   private async requestGenerateContent(
     body: Record<string, unknown>,
+    signal?: AbortSignal,
   ): Promise<GoogleGenerateContentPayload> {
     const fetchImpl = resolveFetch(
       this.fetchImpl,
@@ -513,10 +522,7 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
       );
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => {
-      controller.abort();
-    }, this.options.timeoutMs);
+    const abortScope = createTimeoutAbortScope(this.options.timeoutMs, signal);
 
     try {
       const response = await fetchImpl(
@@ -528,7 +534,7 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
             "x-goog-api-key": apiKey,
           },
           body: JSON.stringify(body),
-          signal: controller.signal,
+          signal: abortScope.signal,
         },
       );
 
@@ -547,13 +553,16 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
       return parsed;
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
+        if (signal?.aborted) {
+          throw new Error("Google request aborted by caller");
+        }
         throw new Error(
           `Google request timed out after ${this.options.timeoutMs}ms`,
         );
       }
       throw error;
     } finally {
-      clearTimeout(timeout);
+      abortScope.release();
     }
   }
 

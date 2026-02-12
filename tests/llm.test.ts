@@ -255,6 +255,31 @@ test("openai interpreter accepts fenced json in structured mode", async () => {
   assert.equal((response.value as { id?: string }).id, "fenced_plan");
 });
 
+test("openai interpreter distinguishes caller abort from timeout", async () => {
+  const llm = new OpenAILLMInterpreter({
+    apiKey: "test-key",
+    fetchImpl: async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const signal = init?.signal as AbortSignal | undefined;
+      if (signal?.aborted) {
+        throw createAbortError();
+      }
+      throw new Error("expected aborted signal");
+    },
+  });
+
+  const controller = new AbortController();
+  controller.abort();
+
+  await assert.rejects(
+    () =>
+      llm.generateResponse({
+        prompt: "abort request",
+        signal: controller.signal,
+      }),
+    /OpenAI request aborted by caller/,
+  );
+});
+
 test("anthropic interpreter generates text response", async () => {
   const requests: Array<{
     url: string;
@@ -743,4 +768,10 @@ function sseResponse(lines: string[]): Response {
       },
     },
   );
+}
+
+function createAbortError(): Error {
+  const error = new Error("request aborted");
+  error.name = "AbortError";
+  return error;
 }

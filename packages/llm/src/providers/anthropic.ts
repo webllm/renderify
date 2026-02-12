@@ -9,6 +9,7 @@ import type {
 import { isRuntimePlan } from "@renderify/ir";
 import {
   consumeSseEvents,
+  createTimeoutAbortScope,
   formatContext,
   pickFetch,
   pickPositiveInt,
@@ -136,17 +137,20 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
   }
 
   async generateResponse(req: LLMRequest): Promise<LLMResponse> {
-    const payload = await this.requestMessages({
-      model: this.options.model,
-      max_tokens: this.options.maxTokens,
-      system: this.resolveSystemPrompt(req),
-      messages: [
-        {
-          role: "user",
-          content: this.buildUserPrompt(req),
-        },
-      ],
-    });
+    const payload = await this.requestMessages(
+      {
+        model: this.options.model,
+        max_tokens: this.options.maxTokens,
+        system: this.resolveSystemPrompt(req),
+        messages: [
+          {
+            role: "user",
+            content: this.buildUserPrompt(req),
+          },
+        ],
+      },
+      req.signal,
+    );
 
     const text = this.extractText(payload);
 
@@ -175,10 +179,10 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
       );
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => {
-      controller.abort();
-    }, this.options.timeoutMs);
+    const abortScope = createTimeoutAbortScope(
+      this.options.timeoutMs,
+      req.signal,
+    );
 
     let aggregatedText = "";
     let chunkIndex = 0;
@@ -312,7 +316,7 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
               },
             ],
           }),
-          signal: controller.signal,
+          signal: abortScope.signal,
         },
       );
 
@@ -375,13 +379,16 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
       }
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
+        if (req.signal?.aborted) {
+          throw new Error("Anthropic request aborted by caller");
+        }
         throw new Error(
           `Anthropic request timed out after ${this.options.timeoutMs}ms`,
         );
       }
       throw error;
     } finally {
-      clearTimeout(timeout);
+      abortScope.release();
     }
   }
 
@@ -397,17 +404,20 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
       };
     }
 
-    const payload = await this.requestMessages({
-      model: this.options.model,
-      max_tokens: this.options.maxTokens,
-      system: this.resolveStructuredSystemPrompt(req),
-      messages: [
-        {
-          role: "user",
-          content: this.buildUserPrompt(req),
-        },
-      ],
-    });
+    const payload = await this.requestMessages(
+      {
+        model: this.options.model,
+        max_tokens: this.options.maxTokens,
+        system: this.resolveStructuredSystemPrompt(req),
+        messages: [
+          {
+            role: "user",
+            content: this.buildUserPrompt(req),
+          },
+        ],
+      },
+      req.signal,
+    );
 
     const text = this.extractText(payload);
 
@@ -523,6 +533,7 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
 
   private async requestMessages(
     body: Record<string, unknown>,
+    signal?: AbortSignal,
   ): Promise<AnthropicMessagesPayload> {
     const fetchImpl = resolveFetch(
       this.fetchImpl,
@@ -535,10 +546,7 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
       );
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => {
-      controller.abort();
-    }, this.options.timeoutMs);
+    const abortScope = createTimeoutAbortScope(this.options.timeoutMs, signal);
 
     try {
       const response = await fetchImpl(
@@ -551,7 +559,7 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
             "anthropic-version": this.options.version,
           },
           body: JSON.stringify(body),
-          signal: controller.signal,
+          signal: abortScope.signal,
         },
       );
 
@@ -570,13 +578,16 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
       return parsed;
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
+        if (signal?.aborted) {
+          throw new Error("Anthropic request aborted by caller");
+        }
         throw new Error(
           `Anthropic request timed out after ${this.options.timeoutMs}ms`,
         );
       }
       throw error;
     } finally {
-      clearTimeout(timeout);
+      abortScope.release();
     }
   }
 

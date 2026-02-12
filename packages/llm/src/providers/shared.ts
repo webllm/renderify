@@ -13,6 +13,11 @@ export interface SseEvent {
   data: string;
 }
 
+export interface TimeoutAbortScope {
+  signal: AbortSignal;
+  release(): void;
+}
+
 export function pickString(
   source: Record<string, unknown>,
   ...keys: string[]
@@ -73,6 +78,38 @@ export function resolveFetch(
   }
 
   throw new Error(missingMessage);
+}
+
+export function createTimeoutAbortScope(
+  timeoutMs: number,
+  upstreamSignal?: AbortSignal,
+): TimeoutAbortScope {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort();
+  }, timeoutMs);
+
+  let onAbort: (() => void) | undefined;
+  if (upstreamSignal) {
+    if (upstreamSignal.aborted) {
+      controller.abort();
+    } else {
+      onAbort = () => {
+        controller.abort();
+      };
+      upstreamSignal.addEventListener("abort", onAbort, { once: true });
+    }
+  }
+
+  return {
+    signal: controller.signal,
+    release() {
+      clearTimeout(timeout);
+      if (upstreamSignal && onAbort) {
+        upstreamSignal.removeEventListener("abort", onAbort);
+      }
+    },
+  };
 }
 
 export function formatContext(

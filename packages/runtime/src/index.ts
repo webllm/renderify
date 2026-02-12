@@ -53,6 +53,7 @@ export interface RuntimeExecutionInput {
   context?: RuntimeExecutionContext;
   event?: RuntimeEvent;
   stateOverride?: RuntimeStateSnapshot;
+  signal?: AbortSignal;
 }
 
 export type RuntimeDependencyUsage = "import" | "component" | "source-import";
@@ -80,6 +81,7 @@ export interface RuntimeManager {
     context?: RuntimeExecutionContext,
     event?: RuntimeEvent,
     stateOverride?: RuntimeStateSnapshot,
+    signal?: AbortSignal,
   ): Promise<RuntimeExecutionResult>;
   execute(input: RuntimeExecutionInput): Promise<RuntimeExecutionResult>;
   compile(plan: RuntimePlan, options?: CompileOptions): Promise<string>;
@@ -123,6 +125,7 @@ export interface RuntimeSourceTranspiler {
 export interface RuntimeEmbedRenderOptions {
   target?: RenderTarget;
   context?: RuntimeExecutionContext;
+  signal?: AbortSignal;
   runtime?: RuntimeManager;
   runtimeOptions?: RuntimeManagerOptions;
   security?: SecurityChecker;
@@ -156,6 +159,7 @@ interface ExecutionFrame {
   maxComponentInvocations: number;
   componentInvocations: number;
   executionProfile: RuntimeExecutionProfile;
+  signal?: AbortSignal;
 }
 
 interface ResolvedSourceOutput {
@@ -450,6 +454,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
       input.context,
       input.event,
       input.stateOverride,
+      input.signal,
     );
   }
 
@@ -503,8 +508,10 @@ export class DefaultRuntimeManager implements RuntimeManager {
     context: RuntimeExecutionContext = {},
     event?: RuntimeEvent,
     stateOverride?: RuntimeStateSnapshot,
+    signal?: AbortSignal,
   ): Promise<RuntimeExecutionResult> {
     this.ensureInitialized();
+    this.throwIfAborted(signal);
 
     const specVersion = resolveRuntimePlanSpecVersion(plan.specVersion);
     const diagnostics: RuntimeDiagnostic[] = [];
@@ -540,6 +547,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
       componentInvocations: 0,
       executionProfile:
         plan.capabilities.executionProfile ?? this.defaultExecutionProfile,
+      signal,
     };
 
     const maxImports = plan.capabilities.maxImports ?? this.defaultMaxImports;
@@ -567,6 +575,14 @@ export class DefaultRuntimeManager implements RuntimeManager {
     }
 
     for (let i = 0; i < imports.length; i += 1) {
+      if (this.isAborted(frame.signal)) {
+        diagnostics.push({
+          level: "error",
+          code: "RUNTIME_ABORTED",
+          message: "Execution aborted before import resolution",
+        });
+        break;
+      }
       const specifier = imports[i];
       const resolvedSpecifier = this.resolveRuntimeSpecifier(
         specifier,
@@ -612,6 +628,14 @@ export class DefaultRuntimeManager implements RuntimeManager {
           `Import timed out: ${resolvedSpecifier}`,
         );
       } catch (error) {
+        if (this.isAbortError(error)) {
+          diagnostics.push({
+            level: "error",
+            code: "RUNTIME_ABORTED",
+            message: `Execution aborted during import: ${resolvedSpecifier}`,
+          });
+          break;
+        }
         diagnostics.push({
           level: "error",
           code: "RUNTIME_IMPORT_FAILED",
@@ -763,6 +787,21 @@ export class DefaultRuntimeManager implements RuntimeManager {
     const statuses: RuntimeDependencyProbeStatus[] = [];
 
     for (const probe of probes) {
+      if (this.isAborted(frame.signal)) {
+        diagnostics.push({
+          level: "error",
+          code: "RUNTIME_ABORTED",
+          message: `Execution aborted during dependency preflight (${probe.usage}:${probe.specifier})`,
+        });
+        statuses.push({
+          usage: probe.usage,
+          specifier: probe.specifier,
+          ok: false,
+          message: "Dependency preflight aborted",
+        });
+        return statuses;
+      }
+
       if (this.hasExceededBudget(frame)) {
         diagnostics.push({
           level: "error",
@@ -957,6 +996,20 @@ export class DefaultRuntimeManager implements RuntimeManager {
           ok: true,
         };
       } catch (error) {
+        if (this.isAbortError(error)) {
+          diagnostics.push({
+            level: "error",
+            code: "RUNTIME_ABORTED",
+            message: `${probe.specifier}: dependency preflight aborted`,
+          });
+          return {
+            usage: probe.usage,
+            specifier: probe.specifier,
+            resolvedSpecifier: resolved,
+            ok: false,
+            message: "Dependency preflight aborted",
+          };
+        }
         diagnostics.push({
           level: "error",
           code: "RUNTIME_PREFLIGHT_SOURCE_IMPORT_FAILED",
@@ -1016,6 +1069,20 @@ export class DefaultRuntimeManager implements RuntimeManager {
         ok: true,
       };
     } catch (error) {
+      if (this.isAbortError(error)) {
+        diagnostics.push({
+          level: "error",
+          code: "RUNTIME_ABORTED",
+          message: `${resolved}: dependency preflight aborted`,
+        });
+        return {
+          usage: probe.usage,
+          specifier: probe.specifier,
+          resolvedSpecifier: resolved,
+          ok: false,
+          message: "Dependency preflight aborted",
+        };
+      }
       diagnostics.push({
         level: "error",
         code:
@@ -3000,12 +3067,14 @@ export class DefaultRuntimeManager implements RuntimeManager {
     frame: ExecutionFrame,
     timeoutMessage: string,
   ): Promise<T> {
+    this.throwIfAborted(frame.signal);
     const remainingMs = frame.maxExecutionMs - (nowMs() - frame.startedAt);
     if (remainingMs <= 0) {
       throw new Error(timeoutMessage);
     }
 
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let onAbort: (() => void) | undefined;
 
     const timeoutPromise = new Promise<T>((_resolve, reject) => {
       timer = setTimeout(() => {
@@ -3013,13 +3082,49 @@ export class DefaultRuntimeManager implements RuntimeManager {
       }, remainingMs);
     });
 
+    const signal = frame.signal;
+    const abortPromise =
+      signal &&
+      new Promise<T>((_resolve, reject) => {
+        onAbort = () => {
+          reject(this.createAbortError("Runtime execution aborted"));
+        };
+        signal.addEventListener("abort", onAbort!, { once: true });
+      });
+
     try {
-      return await Promise.race([operation(), timeoutPromise]);
+      const pending = abortPromise
+        ? [operation(), timeoutPromise, abortPromise]
+        : [operation(), timeoutPromise];
+      return await Promise.race(pending);
     } finally {
       if (timer !== undefined) {
         clearTimeout(timer);
       }
+      if (signal && onAbort) {
+        signal.removeEventListener("abort", onAbort);
+      }
     }
+  }
+
+  private throwIfAborted(signal?: AbortSignal): void {
+    if (this.isAborted(signal)) {
+      throw this.createAbortError("Runtime execution aborted");
+    }
+  }
+
+  private isAborted(signal?: AbortSignal): boolean {
+    return Boolean(signal?.aborted);
+  }
+
+  private isAbortError(error: unknown): boolean {
+    return error instanceof Error && error.name === "AbortError";
+  }
+
+  private createAbortError(message: string): Error {
+    const error = new Error(message);
+    error.name = "AbortError";
+    return error;
   }
 
   private errorToMessage(error: unknown): string {
@@ -3065,6 +3170,7 @@ export async function renderPlanInBrowser(
       const execution = await runtime.execute({
         plan,
         context: options.context,
+        signal: options.signal,
       });
       const html = await ui.render(execution, options.target);
 

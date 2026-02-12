@@ -420,3 +420,41 @@ test("core renderPromptStream uses incremental codegen session", async () => {
 
   await app.stop();
 });
+
+test("core renderPrompt short-circuits when aborted", async () => {
+  let llmCalled = 0;
+
+  const app = createRenderifyApp(
+    createDependencies({
+      llm: {
+        configure() {},
+        async generateResponse(_req: LLMRequest): Promise<LLMResponse> {
+          llmCalled += 1;
+          return {
+            text: "should not run",
+          };
+        },
+        setPromptTemplate() {},
+        getPromptTemplate() {
+          return undefined;
+        },
+      },
+    }),
+  );
+
+  await app.start();
+
+  const controller = new AbortController();
+  controller.abort();
+
+  await assert.rejects(
+    () =>
+      app.renderPrompt("cancel immediately", {
+        signal: controller.signal,
+      }),
+    (error: unknown) => error instanceof Error && error.name === "AbortError",
+  );
+  assert.equal(llmCalled, 0);
+
+  await app.stop();
+});

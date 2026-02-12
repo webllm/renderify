@@ -45,12 +45,14 @@ export interface RenderifyCoreDependencies {
 export interface RenderPromptOptions {
   target?: RenderTarget;
   traceId?: string;
+  signal?: AbortSignal;
 }
 
 export interface RenderPlanOptions {
   target?: RenderTarget;
   traceId?: string;
   prompt?: string;
+  signal?: AbortSignal;
 }
 
 export interface RenderPlanResult {
@@ -88,6 +90,7 @@ interface ExecutePlanFlowParams {
   plan: RuntimePlan;
   target?: RenderTarget;
   prompt?: string;
+  signal?: AbortSignal;
 }
 
 type EventCallback = (...args: unknown[]) => void;
@@ -150,6 +153,7 @@ export class RenderifyApp {
     options: RenderPromptOptions = {},
   ): Promise<RenderPromptResult> {
     this.ensureRunning();
+    this.throwIfAborted(options.signal);
 
     const traceId = options.traceId ?? this.createTraceId();
     const metricLabel = this.createMetricLabel(traceId);
@@ -175,6 +179,7 @@ export class RenderifyApp {
       const llmRequestBase = {
         prompt: promptAfterHook,
         context: llmContext,
+        signal: options.signal,
       };
       const llmUseStructuredOutput =
         this.deps.config.get<boolean>("llmUseStructuredOutput") !== false;
@@ -260,6 +265,7 @@ export class RenderifyApp {
         prompt: promptAfterHook,
         plan: planAfterCodegen,
         target: options.target,
+        signal: options.signal,
       });
 
       return {
@@ -282,6 +288,7 @@ export class RenderifyApp {
     options: RenderPromptStreamOptions = {},
   ): AsyncGenerator<RenderPromptStreamChunk, RenderPromptResult> {
     this.ensureRunning();
+    this.throwIfAborted(options.signal);
 
     const traceId = options.traceId ?? this.createTraceId();
     const metricLabel = this.createMetricLabel(traceId);
@@ -307,6 +314,7 @@ export class RenderifyApp {
       const llmRequestBase = {
         prompt: promptAfterHook,
         context: llmContext,
+        signal: options.signal,
       };
       const incrementalCodegenSession:
         | IncrementalCodeGenerationSession
@@ -335,6 +343,7 @@ export class RenderifyApp {
           options.target,
           incrementalCodegenSession,
           delta,
+          options.signal,
         );
         if (!preview) {
           return undefined;
@@ -415,6 +424,7 @@ export class RenderifyApp {
             for await (const chunk of this.deps.llm.generateResponseStream(
               llmRequestBase,
             )) {
+              this.throwIfAborted(options.signal);
               chunkCount += 1;
               latestChunk = chunk;
               latestText = chunk.text;
@@ -475,6 +485,7 @@ export class RenderifyApp {
         for await (const chunk of this.deps.llm.generateResponseStream(
           llmRequestBase,
         )) {
+          this.throwIfAborted(options.signal);
           chunkCount += 1;
           latestChunk = chunk;
           latestText = chunk.text;
@@ -553,6 +564,7 @@ export class RenderifyApp {
         prompt: promptAfterHook,
         plan: planAfterCodegen,
         target: options.target,
+        signal: options.signal,
       });
 
       const final: RenderPromptResult = {
@@ -599,6 +611,7 @@ export class RenderifyApp {
       prompt: options.prompt,
       plan,
       target: options.target,
+      signal: options.signal,
     });
   }
 
@@ -652,7 +665,8 @@ export class RenderifyApp {
   private async executePlanFlow(
     params: ExecutePlanFlowParams,
   ): Promise<RenderPlanResult> {
-    const { traceId, metricLabel, prompt, plan, target } = params;
+    const { traceId, metricLabel, prompt, plan, target, signal } = params;
+    this.throwIfAborted(signal);
 
     try {
       const pluginContextFactory = (hookName: PluginHook): PluginContext => ({
@@ -684,6 +698,7 @@ export class RenderifyApp {
           userId: this.resolveUserId(),
           variables: {},
         },
+        signal,
       };
 
       const runtimeInput = await this.runHook(
@@ -707,6 +722,7 @@ export class RenderifyApp {
       );
 
       const htmlRaw = await this.deps.ui.render(renderInput, target);
+      this.throwIfAborted(signal);
 
       const html = await this.runHook(
         "afterRender",
@@ -786,6 +802,7 @@ export class RenderifyApp {
     target?: RenderTarget,
     incrementalCodegenSession?: IncrementalCodeGenerationSession,
     delta?: string,
+    signal?: AbortSignal,
   ): Promise<
     | {
         plan: RuntimePlan;
@@ -795,6 +812,7 @@ export class RenderifyApp {
     | undefined
   > {
     try {
+      this.throwIfAborted(signal);
       let plan: RuntimePlan | undefined;
 
       if (incrementalCodegenSession) {
@@ -826,6 +844,7 @@ export class RenderifyApp {
           userId: this.resolveUserId(),
           variables: {},
         },
+        signal,
       });
       const html = await this.deps.ui.render(execution, target);
 
@@ -834,9 +853,22 @@ export class RenderifyApp {
         execution,
         html,
       };
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw error;
+      }
       return undefined;
     }
+  }
+
+  private throwIfAborted(signal?: AbortSignal): void {
+    if (!signal?.aborted) {
+      return;
+    }
+
+    const error = new Error("Renderify request aborted");
+    error.name = "AbortError";
+    throw error;
   }
 }
 

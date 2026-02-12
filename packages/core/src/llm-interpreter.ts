@@ -2,6 +2,7 @@ export interface LLMRequest {
   prompt: string;
   context?: Record<string, unknown>;
   systemPrompt?: string;
+  signal?: AbortSignal;
 }
 
 export interface LLMResponse {
