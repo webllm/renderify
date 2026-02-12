@@ -55,6 +55,7 @@ function createLLM(config: DefaultRenderifyConfig): LLMInterpreter {
 
   if (
     provider === "openai" ||
+    provider === "google" ||
     typeof process.env.RENDERIFY_LLM_MODEL === "string"
   ) {
     providerOptions.model = config.get<string>("llmModel");
@@ -62,6 +63,7 @@ function createLLM(config: DefaultRenderifyConfig): LLMInterpreter {
 
   if (
     provider === "openai" ||
+    provider === "google" ||
     typeof process.env.RENDERIFY_LLM_BASE_URL === "string"
   ) {
     providerOptions.baseUrl = config.get<string>("llmBaseUrl");

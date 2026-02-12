@@ -214,6 +214,23 @@ const llm = createLLMInterpreter({
 });
 ```
 
+Google provider quick setup:
+
+```ts
+import { createLLMInterpreter } from "@renderify/llm";
+
+const llm = createLLMInterpreter({
+  provider: "google",
+  providerOptions: {
+    apiKey: process.env.RENDERIFY_LLM_API_KEY,
+    model: process.env.RENDERIFY_LLM_MODEL ?? "gemini-2.0-flash",
+    baseUrl:
+      process.env.RENDERIFY_LLM_BASE_URL ??
+      "https://generativelanguage.googleapis.com/v1beta",
+  },
+});
+```
+
 CLI/provider env:
 
 ```bash
@@ -222,6 +239,10 @@ RENDERIFY_LLM_API_KEY=<your_key>
 RENDERIFY_LLM_MODEL=gpt-4.1-mini
 RENDERIFY_LLM_BASE_URL=https://api.openai.com/v1
 RENDERIFY_LLM_TIMEOUT_MS=30000
+
+RENDERIFY_LLM_PROVIDER=google
+RENDERIFY_LLM_MODEL=gemini-2.0-flash
+RENDERIFY_LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta
 ```
 
 Runtime protocol/runtime safety env:

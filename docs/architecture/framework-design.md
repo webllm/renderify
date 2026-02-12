@@ -90,4 +90,4 @@ Renderify 目标是做“受控的全动态 runtime UI”：
 未完成：
 
 - 生产级沙箱隔离边界（Worker/VM）
-- 更多 LLM provider 与生产级可靠性策略（重试/退避/熔断）
+- 本地模型 provider 与生产级可靠性策略（重试/退避/熔断）

@@ -4,6 +4,10 @@ import {
   type AnthropicLLMInterpreterOptions,
 } from "./providers/anthropic";
 import {
+  GoogleLLMInterpreter,
+  type GoogleLLMInterpreterOptions,
+} from "./providers/google";
+import {
   OpenAILLMInterpreter,
   type OpenAILLMInterpreterOptions,
 } from "./providers/openai";
@@ -27,6 +31,12 @@ export const anthropicLLMProvider: LLMProviderDefinition<AnthropicLLMInterpreter
   {
     name: "anthropic",
     create: (options) => new AnthropicLLMInterpreter(options),
+  };
+
+export const googleLLMProvider: LLMProviderDefinition<GoogleLLMInterpreterOptions> =
+  {
+    name: "google",
+    create: (options) => new GoogleLLMInterpreter(options),
   };
 
 export class LLMProviderRegistry {
@@ -75,6 +85,7 @@ export class LLMProviderRegistry {
 export function createDefaultLLMProviderRegistry(): LLMProviderRegistry {
   const registry = new LLMProviderRegistry();
   registry.register(anthropicLLMProvider);
+  registry.register(googleLLMProvider);
   registry.register(openaiLLMProvider);
   return registry;
 }

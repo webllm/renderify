@@ -31,7 +31,7 @@
 - Quality:
   - unit tests for `ir/codegen/security/runtime/core`
   - E2E tests for CLI + playground API
-  - OpenAI adapter tests (structured/text paths)
+  - OpenAI/Anthropic/Google adapter tests (structured/text paths)
   - source module runtime tests (execution and import rewrite)
 
 ## Verified Commands
@@ -49,5 +49,5 @@
 ## Remaining High-Value Items
 
 - Production-grade sandbox isolation hardening (worker/vm boundary progression)
-- Additional LLM providers and production resiliency (retry/backoff/circuit breaker)
+- Local-model providers and production resiliency (retry/backoff/circuit breaker)
 - Runtime/component performance profiling and optimization under large plans

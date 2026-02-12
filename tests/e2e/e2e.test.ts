@@ -232,6 +232,47 @@ test("e2e: cli uses openai provider when configured", async () => {
   }
 });
 
+test("e2e: cli uses google provider when configured", async () => {
+  const tempDir = await mkdtemp(
+    path.join(os.tmpdir(), "renderify-e2e-google-"),
+  );
+  const port = await allocatePort();
+  const { requests, close } = await startFakeGoogleServer(port);
+
+  try {
+    const result = await runCli(["plan", "runtime from google provider"], {
+      RENDERIFY_SESSION_FILE: path.join(tempDir, "session.json"),
+      RENDERIFY_LLM_PROVIDER: "google",
+      RENDERIFY_LLM_API_KEY: "test-google-key",
+      RENDERIFY_LLM_BASE_URL: `http://127.0.0.1:${port}/v1beta`,
+      RENDERIFY_LLM_MODEL: "gemini-2.0-flash",
+    });
+
+    assert.equal(result.code, 0, result.stderr);
+    const plan = JSON.parse(result.stdout.trim()) as {
+      id: string;
+      version: number;
+      root: {
+        type: string;
+      };
+    };
+
+    assert.equal(plan.id, "fake_google_plan");
+    assert.equal(plan.version, 1);
+    assert.equal(plan.root.type, "element");
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].headers.get("x-goog-api-key"), "test-google-key");
+
+    const generationConfig = requests[0].body.generationConfig as {
+      responseMimeType?: string;
+    };
+    assert.equal(generationConfig.responseMimeType, "application/json");
+  } finally {
+    await close();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("e2e: playground api supports prompt and stream flow", async () => {
   const tempDir = await mkdtemp(
     path.join(os.tmpdir(), "renderify-e2e-playground-"),
@@ -477,6 +518,92 @@ async function startFakeOpenAIServer(port: number): Promise<{
             {
               message: {
                 content: JSON.stringify(plan),
+              },
+            },
+          ],
+        });
+      })().catch((error: unknown) => {
+        sendJson(res, 500, {
+          error: {
+            message: error instanceof Error ? error.message : String(error),
+          },
+        });
+      });
+    },
+  );
+
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+
+  return {
+    requests,
+    close: () => closeServer(server),
+  };
+}
+
+async function startFakeGoogleServer(port: number): Promise<{
+  requests: Array<{ headers: Headers; body: Record<string, unknown> }>;
+  close: () => Promise<void>;
+}> {
+  const requests: Array<{ headers: Headers; body: Record<string, unknown> }> =
+    [];
+  const plan = {
+    id: "fake_google_plan",
+    version: 1,
+    capabilities: {
+      domWrite: true,
+    },
+    root: {
+      type: "element",
+      tag: "section",
+      children: [
+        {
+          type: "text",
+          value: "Google provider plan",
+        },
+      ],
+    },
+  };
+
+  const server = createServer(
+    (req: IncomingMessage, res: ServerResponse): void => {
+      void (async () => {
+        const method = (req.method ?? "GET").toUpperCase();
+        const pathName = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+
+        if (
+          method !== "POST" ||
+          pathName !== "/v1beta/models/gemini-2.0-flash:generateContent"
+        ) {
+          sendJson(res, 404, { error: { message: "not found" } });
+          return;
+        }
+
+        const body = await readJsonRequest(req);
+        requests.push({
+          headers: new Headers(req.headers as HeadersInit),
+          body,
+        });
+
+        sendJson(res, 200, {
+          modelVersion: "gemini-2.0-flash",
+          usageMetadata: {
+            totalTokenCount: 48,
+          },
+          candidates: [
+            {
+              finishReason: "STOP",
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify(plan),
+                  },
+                ],
               },
             },
           ],

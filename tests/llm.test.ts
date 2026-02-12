@@ -5,6 +5,7 @@ import {
   AnthropicLLMInterpreter,
   createDefaultLLMProviderRegistry,
   createLLMInterpreter,
+  GoogleLLMInterpreter,
   OpenAILLMInterpreter,
 } from "../packages/llm/src/index";
 
@@ -289,6 +290,116 @@ test("anthropic interpreter validates structured runtime plan response", async (
   assert.deepEqual(response.value, plan);
 });
 
+test("google interpreter generates text response", async () => {
+  const requests: Array<{
+    url: string;
+    headers: Headers;
+    body: Record<string, unknown>;
+  }> = [];
+
+  const llm = new GoogleLLMInterpreter({
+    apiKey: "google-key",
+    model: "gemini-2.0-flash",
+    baseUrl: "https://example.google.test/v1beta",
+    fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        headers: new Headers(init?.headers),
+        body: parseBody(init?.body),
+      });
+
+      return jsonResponse({
+        modelVersion: "gemini-2.0-flash",
+        usageMetadata: {
+          promptTokenCount: 8,
+          candidatesTokenCount: 11,
+        },
+        candidates: [
+          {
+            finishReason: "STOP",
+            content: {
+              parts: [
+                {
+                  text: "google text response",
+                },
+              ],
+            },
+          },
+        ],
+      });
+    },
+  });
+
+  const response = await llm.generateResponse({
+    prompt: "build runtime card",
+  });
+
+  assert.equal(response.text, "google text response");
+  assert.equal(response.model, "gemini-2.0-flash");
+  assert.equal(response.tokensUsed, 19);
+  assert.equal(requests.length, 1);
+  assert.equal(
+    requests[0].url,
+    "https://example.google.test/v1beta/models/gemini-2.0-flash:generateContent",
+  );
+  assert.equal(requests[0].headers.get("x-goog-api-key"), "google-key");
+  assert.equal(requests[0].body.systemInstruction, undefined);
+});
+
+test("google interpreter validates structured runtime plan response", async () => {
+  const plan = {
+    id: "google_runtime_plan_1",
+    version: 1,
+    capabilities: {
+      domWrite: true,
+    },
+    root: {
+      type: "element",
+      tag: "section",
+      children: [
+        {
+          type: "text",
+          value: "structured google plan",
+        },
+      ],
+    },
+  };
+
+  const llm = new GoogleLLMInterpreter({
+    apiKey: "google-key",
+    fetchImpl: async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      jsonResponse({
+        modelVersion: "gemini-2.0-flash",
+        usageMetadata: {
+          totalTokenCount: 27,
+        },
+        candidates: [
+          {
+            finishReason: "STOP",
+            content: {
+              parts: [
+                {
+                  text: JSON.stringify(plan),
+                },
+              ],
+            },
+          },
+        ],
+      }),
+  });
+
+  const response = await llm.generateStructuredResponse({
+    prompt: "build structured runtime plan",
+    format: "runtime-plan",
+    strict: true,
+  });
+
+  assert.equal(response.valid, true);
+  assert.equal(response.model, "gemini-2.0-flash");
+  assert.equal(response.tokensUsed, 27);
+  assert.deepEqual(response.value, plan);
+});
+
 test("llm provider registry can create builtin openai interpreter", async () => {
   const llm = createLLMInterpreter({
     provider: "openai",
@@ -329,6 +440,36 @@ test("llm provider registry can create builtin anthropic interpreter", async () 
     prompt: "test provider",
   });
   assert.equal(response.text, "ok-anthropic");
+});
+
+test("llm provider registry can create builtin google interpreter", async () => {
+  const llm = createLLMInterpreter({
+    provider: "google",
+    providerOptions: {
+      apiKey: "google-key",
+      fetchImpl: async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        jsonResponse({
+          candidates: [
+            {
+              finishReason: "STOP",
+              content: {
+                parts: [
+                  {
+                    text: "ok-google",
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+    },
+  });
+
+  assert.ok(llm instanceof GoogleLLMInterpreter);
+  const response = await llm.generateResponse({
+    prompt: "test provider",
+  });
+  assert.equal(response.text, "ok-google");
 });
 
 test("llm provider registry supports custom provider registration", async () => {
