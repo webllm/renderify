@@ -14,7 +14,7 @@ This guide shows how to extend Renderify without forking core runtime:
 Plugins run through hook stages in `@renderify/core`.
 
 ```ts
-import { DefaultCustomizationEngine } from "@renderify/customization";
+import { DefaultCustomizationEngine } from "@renderify/core";
 
 const customization = new DefaultCustomizationEngine();
 

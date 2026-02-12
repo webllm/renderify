@@ -186,7 +186,6 @@
     <script src="../../packages/runtime/dist/runtime.umd.min.js"></script>
     <script src="../../packages/security/dist/security.umd.min.js"></script>
     <script src="../../packages/ui/dist/ui.umd.min.js"></script>
-    <script src="../../packages/customization/dist/customization.umd.min.js"></script>
     <script src="../../packages/core/dist/core.umd.min.js"></script>
 
     <script>
@@ -227,7 +226,7 @@
             security: new RenderifySecurity.DefaultSecurityChecker(),
             performance: new RenderifyCore.DefaultPerformanceOptimizer(),
             ui: new RenderifyUI.DefaultUIRenderer(),
-            customization: new RenderifyCustomization.DefaultCustomizationEngine(),
+            customization: new RenderifyCore.DefaultCustomizationEngine(),
           });
 
           await app.start();

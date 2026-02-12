@@ -23,9 +23,6 @@
       "path": "packages/core"
     },
     {
-      "path": "packages/customization"
-    },
-    {
       "path": "packages/ir"
     },
     {

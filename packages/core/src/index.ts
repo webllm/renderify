@@ -6,11 +6,6 @@ import type {
 } from "@renderify/codegen";
 import type { RenderifyConfig } from "@renderify/config";
 import type {
-  CustomizationEngine,
-  PluginContext,
-  PluginHook,
-} from "@renderify/customization";
-import type {
   RuntimeEvent,
   RuntimeExecutionResult,
   RuntimePlan,
@@ -39,6 +34,11 @@ import {
   InMemoryExecutionAuditLog,
 } from "./audit-log";
 import type { ContextManager } from "./context";
+import type {
+  CustomizationEngine,
+  PluginContext,
+  PluginHook,
+} from "./customization";
 import type { PerformanceOptimizer } from "./performance";
 import {
   InMemoryPlanRegistry,
@@ -1135,6 +1135,7 @@ export function createRenderifyApp(
 
 export * from "./audit-log";
 export * from "./context";
+export * from "./customization";
 export * from "./performance";
 export * from "./plan-registry";
 export * from "./tenant-governor";

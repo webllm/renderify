@@ -233,7 +233,6 @@ await app.stop();
 | `@renderify/runtime-jspm` | JSPM/SystemJS module loader adapter |
 | `@renderify/ui` | Runtime HTML/DOM renderer |
 | `@renderify/core` | End-to-end pipeline orchestration and lifecycle APIs |
-| `@renderify/customization` | Hook-based plugin extension system |
 | `@renderify/codegen` | LLM output -> RuntimePlan conversion |
 | `@renderify/llm-interpreter` | LLM abstraction layer |
 | `@renderify/llm-openai` | OpenAI-backed `LLMInterpreter` adapter |

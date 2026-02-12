@@ -38,7 +38,6 @@
     "@renderify/codegen": "workspace:^",
     "@renderify/config": "workspace:^",
     "@renderify/core": "workspace:^",
-    "@renderify/customization": "workspace:^",
     "@renderify/ir": "workspace:^",
     "@renderify/llm-interpreter": "workspace:^",
     "@renderify/llm-openai": "workspace:^",

@@ -38,7 +38,6 @@
     "@renderify/api-integration": "workspace:^",
     "@renderify/codegen": "workspace:^",
     "@renderify/config": "workspace:^",
-    "@renderify/customization": "workspace:^",
     "@renderify/ir": "workspace:^",
     "@renderify/llm-interpreter": "workspace:^",
     "@renderify/runtime": "workspace:^",

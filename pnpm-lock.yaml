@@ -73,9 +73,6 @@ importers:
       '@renderify/core':
         specifier: workspace:^
         version: link:../core
-      '@renderify/customization':
-        specifier: workspace:^
-        version: link:../customization
       '@renderify/ir':
         specifier: workspace:^
         version: link:../ir
@@ -117,9 +114,6 @@ importers:
       '@renderify/config':
         specifier: workspace:^
         version: link:../config
-      '@renderify/customization':
-        specifier: workspace:^
-        version: link:../customization
       '@renderify/ir':
         specifier: workspace:^
         version: link:../ir
@@ -135,8 +129,6 @@ importers:
       '@renderify/ui':
         specifier: workspace:^
         version: link:../ui
-
-  packages/customization: {}
 
   packages/ir: {}
 

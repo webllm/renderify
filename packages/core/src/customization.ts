@@ -17,7 +17,7 @@ export interface PluginContext {
 
 export type PluginHandler<Payload = unknown> = (
   payload: Payload,
-  context: PluginContext
+  context: PluginContext,
 ) => Payload | Promise<Payload>;
 
 export interface RenderifyPlugin {
@@ -31,14 +31,14 @@ export interface CustomizationEngine {
   runHook<Payload>(
     hookName: PluginHook,
     payload: Payload,
-    context: PluginContext
+    context: PluginContext,
   ): Promise<Payload>;
 }
 
 export class DefaultCustomizationEngine implements CustomizationEngine {
   private plugins: RenderifyPlugin[] = [];
 
-  registerPlugin(plugin: RenderifyPlugin) {
+  registerPlugin(plugin: RenderifyPlugin): void {
     this.plugins.push(plugin);
   }
 
@@ -49,7 +49,7 @@ export class DefaultCustomizationEngine implements CustomizationEngine {
   async runHook<Payload>(
     hookName: PluginHook,
     payload: Payload,
-    context: PluginContext
+    context: PluginContext,
   ): Promise<Payload> {
     let currentPayload = payload;
 

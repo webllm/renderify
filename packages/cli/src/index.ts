@@ -11,6 +11,7 @@ import {
 import {
   createRenderifyApp,
   DefaultContextManager,
+  DefaultCustomizationEngine,
   DefaultPerformanceOptimizer,
   type ExecutionAuditRecord,
   InMemoryExecutionAuditLog,
@@ -20,7 +21,6 @@ import {
   type RenderPromptResult,
   type RenderPromptStreamChunk,
 } from "@renderify/core";
-import { DefaultCustomizationEngine } from "@renderify/customization";
 import {
   asJsonValue,
   isRuntimePlan,

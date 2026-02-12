@@ -3,9 +3,9 @@ import { DefaultRenderifyConfig } from "@renderify/config";
 import {
   createRenderifyApp,
   DefaultContextManager,
+  DefaultCustomizationEngine,
   DefaultPerformanceOptimizer,
 } from "@renderify/core";
-import { DefaultCustomizationEngine } from "@renderify/customization";
 import { DefaultLLMInterpreter } from "@renderify/llm-interpreter";
 import { DefaultRuntimeManager } from "@renderify/runtime";
 import { JspmModuleLoader } from "@renderify/runtime-jspm";

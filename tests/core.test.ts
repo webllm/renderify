@@ -8,13 +8,13 @@ import {
 import {
   createRenderifyApp,
   DefaultContextManager,
+  DefaultCustomizationEngine,
   DefaultPerformanceOptimizer,
   InMemoryTenantGovernor,
   PolicyRejectionError,
   type RenderifyCoreDependencies,
   TenantQuotaExceededError,
 } from "../packages/core/src/index";
-import { DefaultCustomizationEngine } from "../packages/customization/src/index";
 import {
   createElementNode,
   createTextNode,
