@@ -31,6 +31,7 @@ export function hashStringFNV1a32(value: string): number {
   let hash = 2166136261;
   for (let index = 0; index < value.length; index += 1) {
     hash ^= value.charCodeAt(index);
+    // Equivalent to `hash *= 0x01000193` (FNV-1a 32-bit prime) via bit shifts.
     hash +=
       (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
   }
