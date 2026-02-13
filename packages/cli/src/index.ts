@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -18,7 +19,13 @@ import {
   type RenderPromptResult,
   type RenderPromptStreamChunk,
 } from "@renderify/core";
-import { isRuntimePlan, type RuntimePlan } from "@renderify/ir";
+import {
+  collectComponentModules,
+  collectRuntimeSourceImports,
+  isRuntimePlan,
+  type RuntimeModuleDescriptor,
+  type RuntimePlan,
+} from "@renderify/ir";
 import { createLLMInterpreter } from "@renderify/llm";
 import { DefaultRuntimeManager, JspmModuleLoader } from "@renderify/runtime";
 import { DefaultSecurityChecker } from "@renderify/security";
@@ -40,11 +47,15 @@ interface CliArgs {
 interface PlaygroundServerOptions {
   app: RenderifyApp;
   port: number;
+  moduleLoader: JspmModuleLoader;
+  autoManifestIntegrityTimeoutMs: number;
 }
 
 const DEFAULT_PROMPT = "Hello Renderify runtime";
 const DEFAULT_PORT = 4317;
 const JSON_BODY_LIMIT_BYTES = 1_000_000;
+const AUTO_MANIFEST_INTEGRITY_TIMEOUT_MS = 8000;
+const REMOTE_MODULE_INTEGRITY_CACHE = new Map<string, string>();
 const { readFile } = fs.promises;
 
 function createLLM(config: DefaultRenderifyConfig): LLMInterpreter {
@@ -88,10 +99,12 @@ async function main() {
   await config.load();
   const llm = createLLM(config);
 
+  const runtimeModuleLoader = new JspmModuleLoader({
+    cdnBaseUrl: config.get<string>("jspmCdnUrl"),
+  });
+
   const runtime = new DefaultRuntimeManager({
-    moduleLoader: new JspmModuleLoader({
-      cdnBaseUrl: config.get<string>("jspmCdnUrl"),
-    }),
+    moduleLoader: runtimeModuleLoader,
     enforceModuleManifest:
       config.get<boolean>("runtimeEnforceModuleManifest") !== false,
     allowIsolationFallback:
@@ -204,6 +217,8 @@ async function main() {
         await runPlaygroundServer({
           app: renderifyApp,
           port,
+          moduleLoader: runtimeModuleLoader,
+          autoManifestIntegrityTimeoutMs: AUTO_MANIFEST_INTEGRITY_TIMEOUT_MS,
         });
         break;
       }
@@ -310,10 +325,16 @@ async function loadPlanFile(filePath: string): Promise<RuntimePlan> {
 async function runPlaygroundServer(
   options: PlaygroundServerOptions,
 ): Promise<void> {
-  const { app, port } = options;
+  const { app, port, moduleLoader, autoManifestIntegrityTimeoutMs } = options;
 
   const server = http.createServer((req, res) => {
-    void handlePlaygroundRequest(req, res, app);
+    void handlePlaygroundRequest(
+      req,
+      res,
+      app,
+      moduleLoader,
+      autoManifestIntegrityTimeoutMs,
+    );
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -371,6 +392,8 @@ async function handlePlaygroundRequest(
   req: IncomingMessage,
   res: ServerResponse,
   app: RenderifyApp,
+  moduleLoader: JspmModuleLoader,
+  autoManifestIntegrityTimeoutMs: number,
 ): Promise<void> {
   const method = (req.method ?? "GET").toUpperCase();
   const parsedUrl = new URL(req.url ?? "/", "http://127.0.0.1");
@@ -417,7 +440,14 @@ async function handlePlaygroundRequest(
         return;
       }
 
-      const result = await app.renderPlan(plan, {
+      const hydratedPlan = await hydratePlaygroundPlanManifest(plan, {
+        moduleLoader,
+        requireIntegrity: app.getSecurityChecker().getPolicy()
+          .requireModuleIntegrity,
+        integrityTimeoutMs: autoManifestIntegrityTimeoutMs,
+      });
+
+      const result = await app.renderPlan(hydratedPlan, {
         prompt: "playground:plan",
       });
       sendJson(res, 200, serializeRenderResult(result));
@@ -432,8 +462,17 @@ async function handlePlaygroundRequest(
         return;
       }
 
-      const security = await app.getSecurityChecker().checkPlan(plan);
-      const runtimeProbe = await app.getRuntimeManager().probePlan(plan);
+      const hydratedPlan = await hydratePlaygroundPlanManifest(plan, {
+        moduleLoader,
+        requireIntegrity: app.getSecurityChecker().getPolicy()
+          .requireModuleIntegrity,
+        integrityTimeoutMs: autoManifestIntegrityTimeoutMs,
+      });
+
+      const security = await app.getSecurityChecker().checkPlan(hydratedPlan);
+      const runtimeProbe = await app
+        .getRuntimeManager()
+        .probePlan(hydratedPlan);
       sendJson(res, 200, {
         safe: security.safe,
         securityIssues: security.issues,
@@ -578,6 +617,160 @@ function serializePromptStreamChunk(
     diagnostics: chunk.diagnostics ?? [],
     planId: chunk.planId,
   };
+}
+
+interface PlaygroundAutoManifestOptions {
+  moduleLoader: JspmModuleLoader;
+  requireIntegrity: boolean;
+  integrityTimeoutMs: number;
+}
+
+async function hydratePlaygroundPlanManifest(
+  plan: RuntimePlan,
+  options: PlaygroundAutoManifestOptions,
+): Promise<RuntimePlan> {
+  const bareSpecifiers = await collectRuntimePlanBareSpecifiers(plan);
+  if (bareSpecifiers.length === 0) {
+    return plan;
+  }
+
+  const nextManifest = { ...(plan.moduleManifest ?? {}) };
+  let changed = false;
+
+  for (const specifier of bareSpecifiers) {
+    if (nextManifest[specifier]) {
+      continue;
+    }
+
+    let resolvedUrl: string;
+    try {
+      resolvedUrl = options.moduleLoader.resolveSpecifier(specifier);
+    } catch {
+      continue;
+    }
+
+    const descriptor: RuntimeModuleDescriptor = {
+      resolvedUrl,
+    };
+
+    if (options.requireIntegrity && isHttpUrl(resolvedUrl)) {
+      const integrity = await fetchRemoteModuleIntegrity(
+        resolvedUrl,
+        options.integrityTimeoutMs,
+      );
+      if (integrity) {
+        descriptor.integrity = integrity;
+      }
+    }
+
+    nextManifest[specifier] = descriptor;
+    changed = true;
+  }
+
+  if (!changed) {
+    return plan;
+  }
+
+  return {
+    ...plan,
+    moduleManifest: nextManifest,
+  };
+}
+
+async function collectRuntimePlanBareSpecifiers(
+  plan: RuntimePlan,
+): Promise<string[]> {
+  const specifiers = new Set<string>();
+
+  for (const specifier of plan.imports ?? []) {
+    if (isBareModuleSpecifier(specifier)) {
+      specifiers.add(specifier);
+    }
+  }
+
+  for (const specifier of plan.capabilities.allowedModules ?? []) {
+    if (isBareModuleSpecifier(specifier)) {
+      specifiers.add(specifier);
+    }
+  }
+
+  for (const moduleSpecifier of collectComponentModules(plan.root)) {
+    if (isBareModuleSpecifier(moduleSpecifier)) {
+      specifiers.add(moduleSpecifier);
+    }
+  }
+
+  if (plan.source?.code) {
+    for (const sourceImport of await collectRuntimeSourceImports(
+      plan.source.code,
+    )) {
+      if (isBareModuleSpecifier(sourceImport)) {
+        specifiers.add(sourceImport);
+      }
+    }
+  }
+
+  return [...specifiers];
+}
+
+function isBareModuleSpecifier(specifier: string): boolean {
+  const trimmed = specifier.trim();
+  if (trimmed.length === 0) {
+    return false;
+  }
+
+  return (
+    !trimmed.startsWith("./") &&
+    !trimmed.startsWith("../") &&
+    !trimmed.startsWith("/") &&
+    !trimmed.startsWith("http://") &&
+    !trimmed.startsWith("https://") &&
+    !trimmed.startsWith("data:") &&
+    !trimmed.startsWith("blob:")
+  );
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+async function fetchRemoteModuleIntegrity(
+  url: string,
+  timeoutMs: number,
+): Promise<string | undefined> {
+  const cached = REMOTE_MODULE_INTEGRITY_CACHE.get(url);
+  if (cached) {
+    return cached;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), Math.max(1, timeoutMs));
+
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      return undefined;
+    }
+
+    const body = await response.arrayBuffer();
+    const digest = createHash("sha384")
+      .update(Buffer.from(body))
+      .digest("base64");
+    const integrity = `sha384-${digest}`;
+    REMOTE_MODULE_INTEGRITY_CACHE.set(url, integrity);
+    return integrity;
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

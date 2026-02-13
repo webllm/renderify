@@ -348,6 +348,67 @@ test("e2e: playground api supports prompt and stream flow", async () => {
   }
 });
 
+test("e2e: playground api auto-hydrates moduleManifest for bare specifiers", async () => {
+  const tempDir = await mkdtemp(
+    path.join(os.tmpdir(), "renderify-e2e-playground-manifest-auto-"),
+  );
+  const port = await allocatePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const processHandle = startPlayground(port, {
+    RENDERIFY_SESSION_FILE: path.join(tempDir, "session.json"),
+  });
+
+  try {
+    await waitForHealth(`${baseUrl}/api/health`, 10000);
+
+    const response = await fetchJson(`${baseUrl}/api/plan`, {
+      method: "POST",
+      body: {
+        plan: {
+          specVersion: "runtime-plan/v1",
+          id: "playground_auto_manifest_plan",
+          version: 1,
+          capabilities: {
+            domWrite: true,
+            allowedModules: ["recharts"],
+          },
+          root: {
+            type: "element",
+            tag: "section",
+            children: [{ type: "text", value: "auto manifest" }],
+          },
+        },
+      },
+    });
+
+    assert.equal(response.status, 200);
+    const payload = response.body as {
+      html?: unknown;
+      planDetail?: {
+        moduleManifest?: {
+          recharts?: {
+            resolvedUrl?: unknown;
+          };
+        };
+      };
+    };
+
+    assert.match(String(payload.html ?? ""), /auto manifest/);
+    assert.equal(
+      typeof payload.planDetail?.moduleManifest?.recharts?.resolvedUrl,
+      "string",
+    );
+    assert.match(
+      String(payload.planDetail?.moduleManifest?.recharts?.resolvedUrl ?? ""),
+      /recharts/i,
+    );
+  } finally {
+    processHandle.kill("SIGTERM");
+    await onceExit(processHandle, 3000);
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("e2e: playground hash plan64 auto-renders on load", async (t) => {
   const tempDir = await mkdtemp(
     path.join(os.tmpdir(), "renderify-e2e-playground-hash-plan64-"),

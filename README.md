@@ -185,7 +185,7 @@ The playground can auto-render from URL hash payloads:
 - `#jsx64=<base64url(JSX source)>`
 - Also supports `#tsx64`, `#js64`, `#ts64`, with optional `runtime`, `exportName`, and `manifest64`.
 
-For bare imports (for example `import { LineChart } from "recharts"`), include `manifest64` or use fully qualified module URLs.
+For bare imports (for example `import { LineChart } from "recharts"`), playground now auto-hydrates `moduleManifest` from JSPM resolution. You can still pass `manifest64` to pin exact mappings.
 
 ```bash
 PLAN64=$(node -e 'const plan={specVersion:"runtime-plan/v1",id:"hash_demo",version:1,root:{type:"element",tag:"div",children:[{type:"text",value:"Hello from hash plan"}]},capabilities:{}};process.stdout.write(Buffer.from(JSON.stringify(plan),"utf8").toString("base64url"));')
