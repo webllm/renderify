@@ -258,11 +258,12 @@ await renderPlanInBrowser(plan, { target: "#mount" });
 
 ## Integration Docs
 
-- Runtime contracts: `docs/architecture/runtime-contracts.md`
-- Package support contract: `docs/architecture/package-support-contract.md`
-- Framework design: `docs/architecture/framework-design.md`
-- Implementation status: `docs/architecture/implementation-status.md`
-- Plugin/loader integration guide: `docs/architecture/plugin-loader-integration.md`
+- Architecture overview: `docs/architecture.md`
+- RuntimePlan IR reference: `docs/runtime-plan-ir.md`
+- Runtime execution engine: `docs/runtime-execution.md`
+- Browser embedding: `docs/browser-integration.md`
+- Security guide: `docs/security.md`
+- Plugin system: `docs/plugin-system.md`
 
 ## Browser Examples
 
