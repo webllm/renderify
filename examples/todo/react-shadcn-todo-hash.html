@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>React + shadcn Todo (Hash Share)</title>
+    <style>
+      :root {
+        --background: #f8fafc;
+        --foreground: #0f172a;
+        --card: #ffffff;
+        --card-foreground: #020817;
+        --primary: #0f172a;
+        --primary-foreground: #f8fafc;
+        --secondary: #f1f5f9;
+        --secondary-foreground: #0f172a;
+        --muted: #f1f5f9;
+        --muted-foreground: #64748b;
+        --border: #e2e8f0;
+        --ring: #94a3b8;
+        --destructive: #ef4444;
+        --radius: 12px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: radial-gradient(circle at top, #f8fafc, #eef2ff);
+        color: var(--foreground);
+        font-family: "Inter", "SF Pro Display", "Segoe UI", sans-serif;
+      }
+
+      .app-shell {
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 28px 16px;
+      }
+
+      .card {
+        width: min(760px, 100%);
+        background: color-mix(in srgb, var(--card) 92%, #ffffff 8%);
+        color: var(--card-foreground);
+        border: 1px solid var(--border);
+        border-radius: calc(var(--radius) + 2px);
+        box-shadow:
+          0 20px 50px rgba(15, 23, 42, 0.08),
+          0 8px 16px rgba(15, 23, 42, 0.06);
+        overflow: hidden;
+      }
+
+      .card-header {
+        padding: 20px 20px 8px;
+      }
+
+      .card-title {
+        margin: 0;
+        font-size: 1.45rem;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+      }
+
+      .card-description {
+        margin: 6px 0 0;
+        color: var(--muted-foreground);
+        font-size: 0.94rem;
+      }
+
+      .card-content {
+        padding: 14px 20px 20px;
+      }
+
+      .row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .input {
+        flex: 1;
+        height: 40px;
+        padding: 0 12px;
+        border-radius: 10px;
+        border: 1px solid var(--border);
+        background: #fff;
+        color: var(--foreground);
+        font-size: 14px;
+        outline: none;
+        transition: border-color 0.2s, box-shadow 0.2s;
+      }
+
+      .input:focus {
+        border-color: var(--ring);
+        box-shadow: 0 0 0 4px rgba(148, 163, 184, 0.2);
+      }
+
+      .btn {
+        height: 40px;
+        border: 1px solid transparent;
+        border-radius: 10px;
+        padding: 0 14px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 0.08s, box-shadow 0.15s, opacity 0.2s;
+      }
+
+      .btn:active {
+        transform: translateY(1px);
+      }
+
+      .btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .btn-primary {
+        background: var(--primary);
+        color: var(--primary-foreground);
+      }
+
+      .btn-primary:hover:not(:disabled) {
+        box-shadow: 0 8px 18px rgba(15, 23, 42, 0.22);
+      }
+
+      .btn-outline {
+        background: #fff;
+        color: var(--secondary-foreground);
+        border-color: var(--border);
+      }
+
+      .btn-outline.active {
+        background: var(--secondary);
+      }
+
+      .btn-ghost {
+        background: transparent;
+        color: var(--muted-foreground);
+      }
+
+      .btn-ghost:hover:not(:disabled) {
+        color: var(--foreground);
+        background: var(--muted);
+      }
+
+      .btn-danger {
+        background: transparent;
+        color: var(--destructive);
+      }
+
+      .btn-danger:hover:not(:disabled) {
+        background: rgba(239, 68, 68, 0.1);
+      }
+
+      .todo-list {
+        list-style: none;
+        margin: 14px 0;
+        padding: 0;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+        background: #fff;
+      }
+
+      .todo-empty {
+        margin: 14px 0;
+        border: 1px dashed var(--border);
+        border-radius: 12px;
+        padding: 22px;
+        color: var(--muted-foreground);
+        text-align: center;
+        background: #fff;
+      }
+
+      .todo-item {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 14px;
+        border-top: 1px solid var(--border);
+      }
+
+      .todo-item:first-child {
+        border-top: 0;
+      }
+
+      .todo-item:hover {
+        background: color-mix(in srgb, var(--secondary) 40%, #ffffff 60%);
+      }
+
+      .todo-check {
+        width: 18px;
+        height: 18px;
+        cursor: pointer;
+      }
+
+      .todo-text {
+        flex: 1;
+        font-size: 14px;
+      }
+
+      .todo-text.done {
+        color: var(--muted-foreground);
+        text-decoration: line-through;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 12px;
+        font-weight: 600;
+        background: var(--secondary);
+        color: var(--secondary-foreground);
+      }
+
+      .hash-hint {
+        margin-top: 10px;
+        padding: 10px 12px;
+        border: 1px dashed var(--border);
+        border-radius: 10px;
+        color: var(--muted-foreground);
+        font-size: 12px;
+        background: #fff;
+      }
+
+      .footer {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .muted {
+        color: var(--muted-foreground);
+      }
+
+      @media (max-width: 640px) {
+        .card-content,
+        .card-header {
+          padding-left: 14px;
+          padding-right: 14px;
+        }
+
+        .row {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .btn {
+          width: 100%;
+        }
+
+        .footer {
+          flex-direction: column;
+          align-items: stretch;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <script type="module">
+      import React, { useEffect, useMemo, useState } from "https://esm.sh/react@18.3.1";
+      import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
+      import htm from "https://esm.sh/htm@3.1.1";
+
+      const html = htm.bind(React.createElement);
+      const STORAGE_KEY = "renderify-react-shadcn-todo-hash-demo";
+      const HASH_KEY = "state64";
+
+      function uid() {
+        return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      }
+
+      function encodeBase64Url(input) {
+        const bytes = new TextEncoder().encode(String(input));
+        let binary = "";
+        for (const byte of bytes) {
+          binary += String.fromCharCode(byte);
+        }
+        return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+      }
+
+      function decodeBase64Url(input) {
+        const normalized = String(input).replace(/-/g, "+").replace(/_/g, "/");
+        const padded = normalized + "=".repeat((4 - (normalized.length % 4 || 4)) % 4);
+        const binary = atob(padded);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) {
+          bytes[index] = binary.charCodeAt(index);
+        }
+        return new TextDecoder().decode(bytes);
+      }
+
+      function normalizeTodos(value) {
+        if (!Array.isArray(value)) return [];
+        return value
+          .filter((item) => item && typeof item.id === "string" && typeof item.text === "string")
+          .map((item) => ({ id: item.id, text: item.text, done: Boolean(item.done) }));
+      }
+
+      function normalizeFilter(value) {
+        if (value === "active" || value === "done") return value;
+        return "all";
+      }
+
+      function readHashState() {
+        try {
+          const rawHash = window.location.hash.startsWith("#")
+            ? window.location.hash.slice(1)
+            : window.location.hash;
+          if (!rawHash) return null;
+          const params = new URLSearchParams(rawHash);
+          const payload = params.get(HASH_KEY) || params.get("t");
+          if (!payload) return null;
+
+          const parsed = JSON.parse(decodeBase64Url(payload));
+          if (!parsed || typeof parsed !== "object") return null;
+
+          return {
+            todos: normalizeTodos(parsed.todos),
+            filter: normalizeFilter(parsed.filter),
+          };
+        } catch {
+          return null;
+        }
+      }
+
+      function writeHashState(state) {
+        const encoded = encodeBase64Url(JSON.stringify(state));
+        const params = new URLSearchParams();
+        params.set(HASH_KEY, encoded);
+        const nextHash = `#${params.toString()}`;
+        if (nextHash !== window.location.hash) {
+          history.replaceState(null, "", `${window.location.pathname}${window.location.search}${nextHash}`);
+        }
+      }
+
+      function loadTodos() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) return [];
+          return normalizeTodos(JSON.parse(raw));
+        } catch {
+          return [];
+        }
+      }
+
+      const initialHashState = readHashState();
+
+      function App() {
+        const [todos, setTodos] = useState(initialHashState?.todos ?? loadTodos());
+        const [value, setValue] = useState("");
+        const [filter, setFilter] = useState(initialHashState?.filter ?? "all");
+        const [flash, setFlash] = useState(initialHashState ? "已从 hash 恢复状态" : "");
+
+        useEffect(() => {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(todos));
+        }, [todos]);
+
+        useEffect(() => {
+          writeHashState({ todos, filter });
+        }, [todos, filter]);
+
+        useEffect(() => {
+          const timer = setTimeout(() => setFlash(""), flash ? 1800 : 0);
+          return () => clearTimeout(timer);
+        }, [flash]);
+
+        useEffect(() => {
+          const onHashChange = () => {
+            const next = readHashState();
+            if (!next) return;
+            setTodos(next.todos);
+            setFilter(next.filter);
+            setFlash("已按 hash 更新");
+          };
+          window.addEventListener("hashchange", onHashChange);
+          return () => window.removeEventListener("hashchange", onHashChange);
+        }, []);
+
+        const leftCount = useMemo(
+          () => todos.reduce((count, todo) => count + (todo.done ? 0 : 1), 0),
+          [todos],
+        );
+
+        const filtered = useMemo(() => {
+          if (filter === "active") return todos.filter((todo) => !todo.done);
+          if (filter === "done") return todos.filter((todo) => todo.done);
+          return todos;
+        }, [todos, filter]);
+
+        const addTodo = () => {
+          const text = value.trim();
+          if (!text) return;
+          setTodos((prev) => [{ id: uid(), text, done: false }, ...prev]);
+          setValue("");
+        };
+
+        const onInputKeyDown = (event) => {
+          if (event.key === "Enter") addTodo();
+        };
+
+        const toggleTodo = (id) => {
+          setTodos((prev) =>
+            prev.map((todo) => (todo.id === id ? { ...todo, done: !todo.done } : todo)),
+          );
+        };
+
+        const removeTodo = (id) => {
+          setTodos((prev) => prev.filter((todo) => todo.id !== id));
+        };
+
+        const clearDone = () => {
+          setTodos((prev) => prev.filter((todo) => !todo.done));
+        };
+
+        const resetDemo = () => {
+          setTodos([
+            { id: uid(), text: "整理今天最重要的 3 件事", done: false },
+            { id: uid(), text: "Review PR #142", done: true },
+            { id: uid(), text: "给团队同步 demo 进展", done: false },
+          ]);
+          setFilter("all");
+          setFlash("已重置示例");
+        };
+
+        const copyShareLink = async () => {
+          try {
+            await navigator.clipboard.writeText(window.location.href);
+            setFlash("分享链接已复制");
+          } catch {
+            setFlash("复制失败，请手动复制地址栏");
+          }
+        };
+
+        return html`
+          <main className="app-shell">
+            <section className="card">
+              <header className="card-header">
+                <h1 className="card-title">React + shadcn Todo (Hash Share)</h1>
+                <p className="card-description">
+                  状态自动同步到 URL hash，发链接即可复现当前页面。
+                </p>
+              </header>
+
+              <div className="card-content">
+                <div className="row">
+                  <input
+                    className="input"
+                    placeholder="输入待办，例如：设计 runtime streaming API"
+                    value=${value}
+                    onChange=${(event) => setValue(event.target.value)}
+                    onKeyDown=${onInputKeyDown}
+                  />
+                  <button className="btn btn-primary" onClick=${addTodo} disabled=${!value.trim()}>
+                    添加
+                  </button>
+                </div>
+
+                ${filtered.length === 0
+                  ? html`<div className="todo-empty">当前筛选下没有任务。</div>`
+                  : html`
+                      <ul className="todo-list">
+                        ${filtered.map(
+                          (todo) => html`
+                            <li className="todo-item" key=${todo.id}>
+                              <input
+                                className="todo-check"
+                                type="checkbox"
+                                checked=${todo.done}
+                                onChange=${() => toggleTodo(todo.id)}
+                              />
+                              <span className=${`todo-text ${todo.done ? "done" : ""}`}>
+                                ${todo.text}
+                              </span>
+                              <button
+                                className="btn btn-ghost"
+                                onClick=${() => removeTodo(todo.id)}
+                                aria-label="删除"
+                                title="删除"
+                              >
+                                删除
+                              </button>
+                            </li>
+                          `,
+                        )}
+                      </ul>
+                    `}
+
+                <div className="footer">
+                  <div className="row">
+                    <button
+                      className=${`btn btn-outline ${filter === "all" ? "active" : ""}`}
+                      onClick=${() => setFilter("all")}
+                    >
+                      全部
+                    </button>
+                    <button
+                      className=${`btn btn-outline ${filter === "active" ? "active" : ""}`}
+                      onClick=${() => setFilter("active")}
+                    >
+                      进行中
+                    </button>
+                    <button
+                      className=${`btn btn-outline ${filter === "done" ? "active" : ""}`}
+                      onClick=${() => setFilter("done")}
+                    >
+                      已完成
+                    </button>
+                  </div>
+
+                  <div className="row">
+                    <span className="badge">剩余 ${leftCount} 项</span>
+                    <button className="btn btn-danger" onClick=${clearDone}>清理已完成</button>
+                    <button className="btn btn-ghost" onClick=${resetDemo}>重置示例</button>
+                    <button className="btn btn-outline" onClick=${copyShareLink}>复制分享链接</button>
+                  </div>
+                </div>
+
+                <div className="hash-hint">
+                  Hash 字段：<code>#state64=&lt;base64url(json)&gt;</code>
+                  ${flash ? html`<div style=${{ marginTop: 6, color: "#0f766e", fontWeight: 600 }}>${flash}</div>` : null}
+                </div>
+
+                <p className="muted" style=${{ marginTop: 12, fontSize: 12 }}>
+                  提示：本地也会保存到 LocalStorage。手动改 hash 后会自动重载状态。
+                </p>
+              </div>
+            </section>
+          </main>
+        `;
+      }
+
+      createRoot(document.getElementById("app")).render(html`<${App} />`);
+    </script>
+  </body>
+</html>

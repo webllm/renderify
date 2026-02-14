@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hash Code Runner (React + TSX)</title>
+    <style>
+      :root {
+        --bg: #f8fafc;
+        --fg: #0f172a;
+        --muted: #64748b;
+        --card: #ffffff;
+        --border: #e2e8f0;
+        --primary: #0f172a;
+        --primary-fg: #ffffff;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--fg);
+        font-family: "Inter", "Avenir Next", "Segoe UI", sans-serif;
+        background: radial-gradient(circle at top, #eef2ff, var(--bg));
+      }
+
+      .shell {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 18px;
+      }
+
+      .title {
+        margin: 0 0 6px;
+        font-size: 1.55rem;
+      }
+
+      .sub {
+        margin: 0 0 14px;
+        color: var(--muted);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+
+      .card {
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        background: color-mix(in srgb, var(--card) 92%, #fff 8%);
+        box-shadow: 0 16px 32px rgba(2, 6, 23, 0.08);
+      }
+
+      .panel {
+        padding: 14px;
+      }
+
+      .label {
+        margin: 0 0 8px;
+        font-size: 0.92rem;
+        color: var(--muted);
+      }
+
+      textarea {
+        width: 100%;
+        min-height: 360px;
+        resize: vertical;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px;
+        font-family: "JetBrains Mono", "SF Mono", Menlo, monospace;
+        font-size: 12px;
+        line-height: 1.4;
+        background: #fff;
+      }
+
+      .actions {
+        margin-top: 10px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      button {
+        border: 1px solid transparent;
+        border-radius: 10px;
+        padding: 8px 12px;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      .btn-primary {
+        background: var(--primary);
+        color: var(--primary-fg);
+      }
+
+      .btn-outline {
+        background: #fff;
+        color: var(--fg);
+        border-color: var(--border);
+      }
+
+      .status {
+        margin-top: 10px;
+        min-height: 18px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .mount {
+        min-height: 450px;
+        border: 1px dashed var(--border);
+        border-radius: 10px;
+        background: #fff;
+        padding: 10px;
+      }
+
+      .hint {
+        margin-top: 10px;
+        padding: 8px 10px;
+        border: 1px dashed var(--border);
+        border-radius: 10px;
+        font-size: 12px;
+        color: var(--muted);
+        background: #fff;
+      }
+
+      @media (max-width: 900px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+
+        textarea {
+          min-height: 260px;
+        }
+      }
+    </style>
+    <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"></script>
+  </head>
+  <body>
+    <main class="shell">
+      <h1 class="title">Generic Hash Code Runner</h1>
+      <p class="sub">
+        Static HTML shell. Dynamic TSX code is compressed into URL hash.
+      </p>
+
+      <div class="grid">
+        <section class="card panel">
+          <p class="label">TSX Code</p>
+          <textarea id="code"></textarea>
+          <div class="actions">
+            <button id="run" class="btn-primary">Run</button>
+            <button id="share" class="btn-outline">Copy Share URL</button>
+            <button id="reset" class="btn-outline">Reset Sample</button>
+          </div>
+          <div id="status" class="status">Ready.</div>
+          <div class="hint">
+            Hash format: <code>#v=1&lang=tsx&enc=gz&code=&lt;base64url&gt;</code>
+          </div>
+        </section>
+
+        <section class="card panel">
+          <p class="label">Rendered Output</p>
+          <div id="mount" class="mount"></div>
+        </section>
+      </div>
+    </main>
+
+    <script type="module">
+      import React from "https://esm.sh/react@18.3.1";
+      import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
+
+      const codeEl = document.getElementById("code");
+      const statusEl = document.getElementById("status");
+      const mountEl = document.getElementById("mount");
+      const root = createRoot(mountEl);
+
+      const DEFAULT_SOURCE = `export default function App() {
+  const [todos, setTodos] = React.useState([
+    { id: 1, text: "Ship hash code runner", done: true },
+    { id: 2, text: "Paste TSX and share link", done: false },
+  ]);
+  const [input, setInput] = React.useState("");
+
+  const add = () => {
+    const text = input.trim();
+    if (!text) return;
+    setTodos((prev) => [...prev, { id: Date.now(), text, done: false }]);
+    setInput("");
+  };
+
+  const toggle = (id) => {
+    setTodos((prev) =>
+      prev.map((todo) => (todo.id === id ? { ...todo, done: !todo.done } : todo)),
+    );
+  };
+
+  return (
+    <div style={{ fontFamily: "Inter, sans-serif", padding: 12 }}>
+      <h2 style={{ marginTop: 0, marginBottom: 8 }}>Todo Demo From Hash</h2>
+      <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+        <input
+          style={{ flex: 1, border: "1px solid #e2e8f0", borderRadius: 8, padding: "8px 10px" }}
+          value={input}
+          placeholder="Add task"
+          onChange={(event) => setInput(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") add();
+          }}
+        />
+        <button
+          style={{ border: 0, borderRadius: 8, padding: "8px 12px", background: "#0f172a", color: "#fff" }}
+          onClick={add}
+        >
+          Add
+        </button>
+      </div>
+      <ul style={{ margin: 0, paddingLeft: 18 }}>
+        {todos.map((todo) => (
+          <li key={todo.id} style={{ marginBottom: 6 }}>
+            <label style={{ cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={todo.done}
+                onChange={() => toggle(todo.id)}
+                style={{ marginRight: 6 }}
+              />
+              <span style={{ textDecoration: todo.done ? "line-through" : "none" }}>
+                {todo.text}
+              </span>
+            </label>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}`;
+
+      function setStatus(text) {
+        statusEl.textContent = text;
+      }
+
+      function bytesToBase64Url(bytes) {
+        let binary = "";
+        for (const byte of bytes) {
+          binary += String.fromCharCode(byte);
+        }
+        return btoa(binary)
+          .replace(/\+/g, "-")
+          .replace(/\//g, "_")
+          .replace(/=+$/g, "");
+      }
+
+      function base64UrlToBytes(input) {
+        const normalized = String(input)
+          .trim()
+          .replace(/-/g, "+")
+          .replace(/_/g, "/");
+        if (!normalized) {
+          return new Uint8Array();
+        }
+        const padded = normalized + "=".repeat((4 - (normalized.length % 4 || 4)) % 4);
+        const binary = atob(padded);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) {
+          bytes[index] = binary.charCodeAt(index);
+        }
+        return bytes;
+      }
+
+      async function gzipBytes(inputBytes) {
+        if (typeof CompressionStream === "undefined") {
+          return null;
+        }
+        const stream = new CompressionStream("gzip");
+        const writer = stream.writable.getWriter();
+        writer.write(inputBytes);
+        writer.close();
+        const compressed = await new Response(stream.readable).arrayBuffer();
+        return new Uint8Array(compressed);
+      }
+
+      async function gunzipBytes(inputBytes) {
+        if (typeof DecompressionStream === "undefined") {
+          throw new Error("DecompressionStream is not supported in this browser.");
+        }
+        const stream = new DecompressionStream("gzip");
+        const writer = stream.writable.getWriter();
+        writer.write(inputBytes);
+        writer.close();
+        const decompressed = await new Response(stream.readable).arrayBuffer();
+        return new Uint8Array(decompressed);
+      }
+
+      async function encodePayload(source, language = "tsx") {
+        const sourceBytes = new TextEncoder().encode(source);
+        const compressed = await gzipBytes(sourceBytes);
+        const payloadBytes = compressed ?? sourceBytes;
+        const enc = compressed ? "gz" : "plain";
+
+        const params = new URLSearchParams();
+        params.set("v", "1");
+        params.set("lang", language);
+        params.set("enc", enc);
+        params.set("code", bytesToBase64Url(payloadBytes));
+        return params.toString();
+      }
+
+      async function decodePayloadFromHash() {
+        const rawHash = window.location.hash.startsWith("#")
+          ? window.location.hash.slice(1)
+          : window.location.hash;
+        if (!rawHash) {
+          return null;
+        }
+
+        const params = new URLSearchParams(rawHash);
+        const code = params.get("code");
+        if (!code) {
+          return null;
+        }
+
+        const enc = params.get("enc") || "plain";
+        const lang = params.get("lang") || "tsx";
+        const encodedBytes = base64UrlToBytes(code);
+        const bytes = enc === "gz" ? await gunzipBytes(encodedBytes) : encodedBytes;
+        const source = new TextDecoder().decode(bytes);
+
+        return {
+          lang,
+          source,
+        };
+      }
+
+      function normalizeSource(source) {
+        return String(source).replace(/export\s+default\s+/g, "const __HASH_DEFAULT__ = ");
+      }
+
+      function transpileSource(source, language) {
+        const presets = [];
+        if (language === "ts" || language === "tsx") {
+          presets.push(["typescript", { allExtensions: true, isTSX: language === "tsx" }]);
+        }
+        if (language === "jsx" || language === "tsx") {
+          presets.push([
+            "react",
+            {
+              runtime: "classic",
+              pragma: "React.createElement",
+              pragmaFrag: "React.Fragment",
+            },
+          ]);
+        }
+
+        const transformed = Babel.transform(normalizeSource(source), {
+          presets,
+          filename: `hash-source.${language}`,
+          sourceType: "script",
+          babelrc: false,
+          configFile: false,
+          comments: false,
+        });
+
+        if (!transformed.code) {
+          throw new Error("Babel returned empty output");
+        }
+
+        return transformed.code;
+      }
+
+      function evaluateComponent(compiledJs) {
+        const factory = new Function(
+          "React",
+          `${compiledJs}\n\nif (typeof __HASH_DEFAULT__ === "function") return __HASH_DEFAULT__;\nif (typeof App === "function") return App;\nif (typeof TodoApp === "function") return TodoApp;\nthrow new Error("Expected default export or function App/TodoApp");`,
+        );
+
+        return factory(React);
+      }
+
+      function renderSource(source, language) {
+        const compiled = transpileSource(source, language);
+        const Component = evaluateComponent(compiled);
+        root.render(React.createElement(Component));
+      }
+
+      async function runAndSyncHash(options = { syncHash: true }) {
+        const language = "tsx";
+        const source = codeEl.value;
+        setStatus("Running...");
+
+        try {
+          renderSource(source, language);
+          if (options.syncHash) {
+            const payload = await encodePayload(source, language);
+            const nextHash = `#${payload}`;
+            if (window.location.hash !== nextHash) {
+              history.replaceState(null, "", `${window.location.pathname}${window.location.search}${nextHash}`);
+            }
+          }
+          setStatus("Rendered. Hash updated.");
+        } catch (error) {
+          setStatus(`Render failed: ${error instanceof Error ? error.message : String(error)}`);
+          throw error;
+        }
+      }
+
+      async function copyShareUrl() {
+        try {
+          await navigator.clipboard.writeText(window.location.href);
+          setStatus("Share URL copied.");
+        } catch {
+          setStatus("Clipboard unavailable. Copy from address bar.");
+        }
+      }
+
+      async function bootstrap() {
+        document.getElementById("run").addEventListener("click", () => {
+          void runAndSyncHash({ syncHash: true });
+        });
+        document.getElementById("share").addEventListener("click", () => {
+          void copyShareUrl();
+        });
+        document.getElementById("reset").addEventListener("click", () => {
+          codeEl.value = DEFAULT_SOURCE;
+          void runAndSyncHash({ syncHash: true });
+        });
+
+        window.addEventListener("hashchange", () => {
+          void (async () => {
+            const payload = await decodePayloadFromHash();
+            if (!payload) {
+              return;
+            }
+            codeEl.value = payload.source;
+            try {
+              renderSource(payload.source, payload.lang);
+              setStatus("Rendered from hash.");
+            } catch (error) {
+              setStatus(`Hash render failed: ${error instanceof Error ? error.message : String(error)}`);
+            }
+          })();
+        });
+
+        const payload = await decodePayloadFromHash();
+        if (payload) {
+          codeEl.value = payload.source;
+          try {
+            renderSource(payload.source, payload.lang);
+            setStatus("Rendered from hash.");
+            return;
+          } catch (error) {
+            setStatus(`Hash render failed: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+
+        codeEl.value = DEFAULT_SOURCE;
+        await runAndSyncHash({ syncHash: true });
+      }
+
+      void bootstrap();
+    </script>
+  </body>
+</html>
