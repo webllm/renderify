@@ -29,6 +29,7 @@ LLM output (JSX/TSX or structured plan)
 - **Zero-build rendering**: LLM-generated JSX/TSX runs directly in the browser via `@babel/standalone` + JSPM CDN. No backend build server, no deploy step, no server round-trip.
 - **JSPM package support (tiered contract)**: Compatibility aliases (`preact`/`react` bridge, `recharts`) are guaranteed; pure browser ESM packages (for example `lodash-es`, `date-fns`, `@mui/material`) are best-effort. Node.js builtins and unsupported schemes are rejected deterministically.
 - **Security-first execution**: Every plan passes through a policy checker (blocked tags, module allowlists, tree depth limits, execution budgets) _before_ any code runs. Three built-in profiles: `strict`, `balanced`, `relaxed`.
+- **JSPM-only strict preset**: Set `RENDERIFY_RUNTIME_JSPM_ONLY_STRICT_MODE=true` to force strict profile + manifest/integrity enforcement + preflight fail-fast + no fallback CDNs.
 - **Dual input paths**: Accepts both structured JSON RuntimePlans (for precise LLM structured output) and raw TSX/JSX code blocks (for natural LLM text generation).
 - **Streaming-first rendering**: `renderPromptStream` emits `llm-delta` / `preview` / `final` chunks so chat UIs can progressively render.
 - **Pluggable at every stage**: 10 hook points (`beforeLLM`, `afterCodeGen`, `beforeRender`, etc.) let you inject custom logic without forking the core.

@@ -251,6 +251,14 @@ RENDERIFY_RUNTIME_REMOTE_FALLBACK_CDNS=https://esm.sh,https://cdn.jsdelivr.net
 
 The runtime issues hedged fetch attempts across the primary URL and configured fallback CDNs. The first successful response wins.
 
+To force JSPM-only behavior (no fallback CDNs) in strict deployments:
+
+```bash
+RENDERIFY_RUNTIME_JSPM_ONLY_STRICT_MODE=true
+```
+
+This preset also forces strict security profile, module manifest/integrity checks, and preflight fail-fast.
+
 ## State Management
 
 The runtime maintains per-plan state snapshots:

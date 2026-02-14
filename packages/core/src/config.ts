@@ -1,5 +1,11 @@
+import type { RuntimeSecurityPolicy } from "./security";
+
 export type SecurityProfileConfig = "strict" | "balanced" | "relaxed";
 export type LLMProviderConfig = string;
+
+const DEFAULT_RUNTIME_SPEC_VERSIONS = ["runtime-plan/v1"];
+const DEFAULT_RUNTIME_REMOTE_FALLBACK_CDNS = ["https://esm.sh"];
+const DEFAULT_JSPM_ALLOWED_NETWORK_HOSTS = ["ga.jspm.io", "cdn.jspm.io"];
 
 export interface RenderifyConfigValues {
   llmApiKey?: string;
@@ -11,6 +17,8 @@ export interface RenderifyConfigValues {
   jspmCdnUrl: string;
   strictSecurity: boolean;
   securityProfile: SecurityProfileConfig;
+  securityPolicy?: Partial<RuntimeSecurityPolicy>;
+  runtimeJspmOnlyStrictMode: boolean;
   runtimeEnforceModuleManifest: boolean;
   runtimeAllowIsolationFallback: boolean;
   runtimeSupportedSpecVersions: string[];
@@ -24,6 +32,36 @@ export interface RenderifyConfigValues {
   runtimeBrowserSourceSandboxTimeoutMs: number;
   runtimeBrowserSourceSandboxFailClosed: boolean;
   [key: string]: unknown;
+}
+
+export interface JspmOnlyStrictModeOptions {
+  allowedNetworkHosts?: string[];
+}
+
+export function createJspmOnlyStrictModeConfig(
+  options: JspmOnlyStrictModeOptions = {},
+): Partial<RenderifyConfigValues> {
+  const allowedNetworkHosts = normalizeJspmAllowedNetworkHosts(
+    options.allowedNetworkHosts,
+  );
+
+  return {
+    runtimeJspmOnlyStrictMode: true,
+    strictSecurity: true,
+    securityProfile: "strict",
+    runtimeEnforceModuleManifest: true,
+    runtimeAllowIsolationFallback: false,
+    runtimeEnableDependencyPreflight: true,
+    runtimeFailOnDependencyPreflightError: true,
+    runtimeRemoteFallbackCdnBases: [],
+    securityPolicy: {
+      allowArbitraryNetwork: false,
+      allowedNetworkHosts,
+      requireModuleManifestForBareSpecifiers: true,
+      requireModuleIntegrity: true,
+      allowDynamicSourceImports: false,
+    },
+  };
 }
 
 export interface RenderifyConfig {
@@ -48,25 +86,28 @@ export class DefaultRenderifyConfig implements RenderifyConfig {
       strictSecurity: true,
       llmUseStructuredOutput: true,
       securityProfile: "balanced",
+      runtimeJspmOnlyStrictMode: false,
       runtimeEnforceModuleManifest: true,
       runtimeAllowIsolationFallback: false,
-      runtimeSupportedSpecVersions: ["runtime-plan/v1"],
+      runtimeSupportedSpecVersions: [...DEFAULT_RUNTIME_SPEC_VERSIONS],
       runtimeEnableDependencyPreflight: true,
       runtimeFailOnDependencyPreflightError: false,
       runtimeRemoteFetchTimeoutMs: 12000,
       runtimeRemoteFetchRetries: 2,
       runtimeRemoteFetchBackoffMs: 150,
-      runtimeRemoteFallbackCdnBases: ["https://esm.sh"],
+      runtimeRemoteFallbackCdnBases: [...DEFAULT_RUNTIME_REMOTE_FALLBACK_CDNS],
       runtimeBrowserSourceSandboxMode: "worker",
       runtimeBrowserSourceSandboxTimeoutMs: 4000,
       runtimeBrowserSourceSandboxFailClosed: true,
     };
 
-    this.config = {
+    const merged = {
       ...defaultValues,
       ...env,
       ...(overrides ?? {}),
-    };
+    } as RenderifyConfigValues;
+
+    this.config = applyDerivedConfig(merged);
   }
 
   get<T = unknown>(key: string): T | undefined {
@@ -86,6 +127,30 @@ export class DefaultRenderifyConfig implements RenderifyConfig {
   }
 }
 
+function applyDerivedConfig(
+  input: RenderifyConfigValues,
+): RenderifyConfigValues {
+  if (input.runtimeJspmOnlyStrictMode !== true) {
+    return input;
+  }
+
+  const existingPolicy = toSecurityPolicyOverrides(input.securityPolicy);
+  const strictPreset = createJspmOnlyStrictModeConfig({
+    allowedNetworkHosts: normalizeJspmAllowedNetworkHosts(
+      existingPolicy.allowedNetworkHosts,
+    ),
+  });
+
+  return {
+    ...input,
+    ...strictPreset,
+    securityPolicy: {
+      ...existingPolicy,
+      ...toSecurityPolicyOverrides(strictPreset.securityPolicy),
+    },
+  };
+}
+
 function getEnvironmentValues(): Partial<RenderifyConfigValues> {
   if (
     typeof process === "undefined" ||
@@ -102,6 +167,8 @@ function getEnvironmentValues(): Partial<RenderifyConfigValues> {
     securityProfile: parseSecurityProfile(
       process.env.RENDERIFY_SECURITY_PROFILE,
     ),
+    runtimeJspmOnlyStrictMode:
+      process.env.RENDERIFY_RUNTIME_JSPM_ONLY_STRICT_MODE === "true",
     runtimeEnforceModuleManifest:
       process.env.RENDERIFY_RUNTIME_ENFORCE_MANIFEST !== "false",
     runtimeAllowIsolationFallback:
@@ -125,7 +192,7 @@ function getEnvironmentValues(): Partial<RenderifyConfigValues> {
       ) ?? 150,
     runtimeRemoteFallbackCdnBases: parseCsvValues(
       process.env.RENDERIFY_RUNTIME_REMOTE_FALLBACK_CDNS,
-      ["https://esm.sh"],
+      DEFAULT_RUNTIME_REMOTE_FALLBACK_CDNS,
     ),
     runtimeBrowserSourceSandboxMode: parseSourceSandboxMode(
       process.env.RENDERIFY_RUNTIME_BROWSER_SANDBOX_MODE,
@@ -215,7 +282,7 @@ function parseLlmProvider(value: string | undefined): LLMProviderConfig {
 
 function parseSpecVersions(value: string | undefined): string[] {
   if (!value || value.trim().length === 0) {
-    return ["runtime-plan/v1"];
+    return [...DEFAULT_RUNTIME_SPEC_VERSIONS];
   }
 
   const parsed = value
@@ -223,7 +290,7 @@ function parseSpecVersions(value: string | undefined): string[] {
     .map((entry) => entry.trim())
     .filter((entry) => entry.length > 0);
 
-  return parsed.length > 0 ? parsed : ["runtime-plan/v1"];
+  return parsed.length > 0 ? parsed : [...DEFAULT_RUNTIME_SPEC_VERSIONS];
 }
 
 function parseCsvValues(
@@ -250,4 +317,67 @@ function parseSourceSandboxMode(
   }
 
   return "worker";
+}
+
+function toSecurityPolicyOverrides(
+  value: unknown,
+): Partial<RuntimeSecurityPolicy> {
+  if (!isRecord(value)) {
+    return {};
+  }
+
+  return value as Partial<RuntimeSecurityPolicy>;
+}
+
+function normalizeJspmAllowedNetworkHosts(input: unknown): string[] {
+  const values = Array.isArray(input)
+    ? input
+    : DEFAULT_JSPM_ALLOWED_NETWORK_HOSTS;
+  const normalized: string[] = [];
+
+  for (const entry of values) {
+    if (typeof entry !== "string") {
+      continue;
+    }
+
+    const host = normalizeNetworkHostEntry(entry);
+    if (!host || !host.endsWith("jspm.io")) {
+      continue;
+    }
+
+    if (!normalized.includes(host)) {
+      normalized.push(host);
+    }
+  }
+
+  return normalized.length > 0
+    ? normalized
+    : [...DEFAULT_JSPM_ALLOWED_NETWORK_HOSTS];
+}
+
+function normalizeNetworkHostEntry(value: string): string | undefined {
+  const trimmed = value.trim().toLowerCase();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+
+  try {
+    if (trimmed.includes("://")) {
+      const parsed = new URL(trimmed);
+      return parsed.host;
+    }
+  } catch {
+    // Fall through and treat as host text.
+  }
+
+  const hostLike = trimmed
+    .replace(/^https?:\/\//, "")
+    .replace(/^\/+/, "")
+    .replace(/\/.*$/, "");
+
+  return hostLike.length > 0 ? hostLike : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }

@@ -169,6 +169,9 @@ RENDERIFY_SECURITY_PROFILE=balanced pnpm playground
 
 # Relaxed: permissive limits for trusted environments
 RENDERIFY_SECURITY_PROFILE=relaxed pnpm playground
+
+# JSPM-only strict mode: strict profile + manifest/integrity + no fallback CDNs
+RENDERIFY_RUNTIME_JSPM_ONLY_STRICT_MODE=true pnpm playground
 ```
 
 See [Security Guide](./security.md) for detailed policy configuration.

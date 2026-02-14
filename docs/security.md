@@ -263,6 +263,21 @@ RENDERIFY_RUNTIME_BROWSER_SANDBOX_TIMEOUT_MS=4000
 RENDERIFY_RUNTIME_BROWSER_SANDBOX_FAIL_CLOSED=true|false
 ```
 
+## JSPM-Only Strict Mode Preset
+
+For production deployments that require deterministic supplier boundaries, enable:
+
+```bash
+RENDERIFY_RUNTIME_JSPM_ONLY_STRICT_MODE=true
+```
+
+This preset enforces:
+- security profile = `strict`
+- module manifest required for bare specifiers
+- integrity required for remote modules
+- dependency preflight fail-fast
+- fallback CDNs disabled (JSPM-only resolution path)
+
 ## Programmatic Usage
 
 ```ts

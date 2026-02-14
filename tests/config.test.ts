@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DefaultRenderifyConfig } from "../packages/core/src/config";
+import {
+  createJspmOnlyStrictModeConfig,
+  DefaultRenderifyConfig,
+} from "../packages/core/src/config";
 
 test("config loads default security profile and runtime defaults", async () => {
   const config = new DefaultRenderifyConfig();
@@ -11,6 +14,7 @@ test("config loads default security profile and runtime defaults", async () => {
   assert.equal(config.get("llmModel"), "gpt-4.1-mini");
   assert.equal(config.get("llmBaseUrl"), "https://api.openai.com/v1");
   assert.equal(config.get("llmRequestTimeoutMs"), 30000);
+  assert.equal(config.get("runtimeJspmOnlyStrictMode"), false);
   assert.equal(config.get("runtimeEnforceModuleManifest"), true);
   assert.equal(config.get("runtimeAllowIsolationFallback"), false);
   assert.equal(config.get("runtimeEnableDependencyPreflight"), true);
@@ -176,4 +180,87 @@ test("config reads runtime policy values from env", async () => {
       previousBrowserSandboxFailClosed,
     );
   }
+});
+
+test("config applies jspm-only strict mode from env", async () => {
+  const previousMode = process.env.RENDERIFY_RUNTIME_JSPM_ONLY_STRICT_MODE;
+  const previousProfile = process.env.RENDERIFY_SECURITY_PROFILE;
+  const previousEnforceManifest =
+    process.env.RENDERIFY_RUNTIME_ENFORCE_MANIFEST;
+  const previousIsolationFallback =
+    process.env.RENDERIFY_RUNTIME_ALLOW_ISOLATION_FALLBACK;
+  const previousPreflight = process.env.RENDERIFY_RUNTIME_PREFLIGHT;
+  const previousPreflightFailFast =
+    process.env.RENDERIFY_RUNTIME_PREFLIGHT_FAIL_FAST;
+  const previousFallbackCdns =
+    process.env.RENDERIFY_RUNTIME_REMOTE_FALLBACK_CDNS;
+
+  process.env.RENDERIFY_RUNTIME_JSPM_ONLY_STRICT_MODE = "true";
+  process.env.RENDERIFY_SECURITY_PROFILE = "relaxed";
+  process.env.RENDERIFY_RUNTIME_ENFORCE_MANIFEST = "false";
+  process.env.RENDERIFY_RUNTIME_ALLOW_ISOLATION_FALLBACK = "true";
+  process.env.RENDERIFY_RUNTIME_PREFLIGHT = "false";
+  process.env.RENDERIFY_RUNTIME_PREFLIGHT_FAIL_FAST = "false";
+  process.env.RENDERIFY_RUNTIME_REMOTE_FALLBACK_CDNS =
+    "https://esm.sh,https://cdn.jsdelivr.net";
+
+  try {
+    const config = new DefaultRenderifyConfig();
+    await config.load();
+
+    assert.equal(config.get("runtimeJspmOnlyStrictMode"), true);
+    assert.equal(config.get("securityProfile"), "strict");
+    assert.equal(config.get("runtimeEnforceModuleManifest"), true);
+    assert.equal(config.get("runtimeAllowIsolationFallback"), false);
+    assert.equal(config.get("runtimeEnableDependencyPreflight"), true);
+    assert.equal(config.get("runtimeFailOnDependencyPreflightError"), true);
+    assert.deepEqual(config.get("runtimeRemoteFallbackCdnBases"), []);
+
+    assert.deepEqual(config.get("securityPolicy"), {
+      allowArbitraryNetwork: false,
+      allowedNetworkHosts: ["ga.jspm.io", "cdn.jspm.io"],
+      requireModuleManifestForBareSpecifiers: true,
+      requireModuleIntegrity: true,
+      allowDynamicSourceImports: false,
+    });
+  } finally {
+    restoreEnv("RENDERIFY_RUNTIME_JSPM_ONLY_STRICT_MODE", previousMode);
+    restoreEnv("RENDERIFY_SECURITY_PROFILE", previousProfile);
+    restoreEnv("RENDERIFY_RUNTIME_ENFORCE_MANIFEST", previousEnforceManifest);
+    restoreEnv(
+      "RENDERIFY_RUNTIME_ALLOW_ISOLATION_FALLBACK",
+      previousIsolationFallback,
+    );
+    restoreEnv("RENDERIFY_RUNTIME_PREFLIGHT", previousPreflight);
+    restoreEnv(
+      "RENDERIFY_RUNTIME_PREFLIGHT_FAIL_FAST",
+      previousPreflightFailFast,
+    );
+    restoreEnv("RENDERIFY_RUNTIME_REMOTE_FALLBACK_CDNS", previousFallbackCdns);
+  }
+});
+
+test("config applies jspm-only strict mode preset programmatically", async () => {
+  const config = new DefaultRenderifyConfig();
+  await config.load(
+    createJspmOnlyStrictModeConfig({
+      allowedNetworkHosts: [
+        "https://ga.jspm.io",
+        "cdn.jspm.io",
+        "evil.example.com",
+      ],
+    }),
+  );
+
+  assert.equal(config.get("runtimeJspmOnlyStrictMode"), true);
+  assert.equal(config.get("securityProfile"), "strict");
+  assert.equal(config.get("runtimeFailOnDependencyPreflightError"), true);
+  assert.deepEqual(config.get("runtimeRemoteFallbackCdnBases"), []);
+  assert.deepEqual(config.get("securityPolicy"), {
+    allowArbitraryNetwork: false,
+    allowedNetworkHosts: ["ga.jspm.io", "cdn.jspm.io"],
+    requireModuleManifestForBareSpecifiers: true,
+    requireModuleIntegrity: true,
+    allowDynamicSourceImports: false,
+  });
 });

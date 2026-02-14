@@ -1168,6 +1168,67 @@ test("runtime source loader hedges fallback CDN requests", async () => {
   }
 });
 
+test("runtime source loader supports disabling fallback cdn attempts", async () => {
+  const runtime = new DefaultRuntimeManager({
+    remoteFallbackCdnBases: [],
+    remoteFetchRetries: 0,
+    remoteFetchBackoffMs: 10,
+    remoteFetchTimeoutMs: 500,
+  });
+
+  const diagnostics: Array<{ code?: string }> = [];
+  const loader = (
+    runtime as unknown as {
+      createSourceModuleLoader: (
+        moduleManifest: RuntimeModuleManifest | undefined,
+        diagnostics: Array<{ code?: string }>,
+      ) => {
+        fetchRemoteModuleCodeWithFallback(
+          url: string,
+        ): Promise<{ requestUrl: string }>;
+      };
+    }
+  ).createSourceModuleLoader(undefined, diagnostics);
+
+  const requestedUrls: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const requestUrl = String(input);
+    requestedUrls.push(requestUrl);
+    return new Response("not-found", { status: 404 });
+  }) as typeof fetch;
+
+  try {
+    await assert.rejects(
+      loader.fetchRemoteModuleCodeWithFallback(
+        "https://ga.jspm.io/npm:lit@3.3.0/index.js",
+      ),
+    );
+
+    assert.ok(
+      requestedUrls.some((url) => url.startsWith("https://ga.jspm.io/")),
+      "expected primary JSPM URL to be requested",
+    );
+    assert.equal(
+      requestedUrls.some((url) => url.startsWith("https://esm.sh/")),
+      false,
+      "did not expect esm.sh fallback when fallback list is empty",
+    );
+    assert.equal(
+      requestedUrls.some((url) => url.startsWith("https://cdn.jsdelivr.net/")),
+      false,
+      "did not expect jsdelivr fallback when fallback list is empty",
+    );
+    assert.equal(
+      requestedUrls.some((url) => url.startsWith("https://unpkg.com/")),
+      false,
+      "did not expect unpkg fallback when fallback list is empty",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("runtime enforces moduleManifest for bare component specifiers by default", async () => {
   const runtime = new DefaultRuntimeManager({
     moduleLoader: new MockLoader({

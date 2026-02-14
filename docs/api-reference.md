@@ -525,6 +525,10 @@ class DefaultRenderifyConfig implements RenderifyConfig {
   set(key: string, value: unknown): void;
   save(): Promise<void>;
 }
+
+function createJspmOnlyStrictModeConfig(options?: {
+  allowedNetworkHosts?: string[];
+}): Partial<RenderifyConfigValues>;
 ```
 
 ### DefaultContextManager

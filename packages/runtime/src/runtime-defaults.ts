@@ -62,7 +62,8 @@ export function normalizeSourceSandboxMode(
 }
 
 export function normalizeFallbackCdnBases(input?: string[]): string[] {
-  const candidates = input ?? FALLBACK_REMOTE_FALLBACK_CDN_BASES;
+  const explicitInput = input !== undefined;
+  const candidates = explicitInput ? input : FALLBACK_REMOTE_FALLBACK_CDN_BASES;
   const normalized = new Set<string>();
 
   for (const entry of candidates) {
@@ -76,7 +77,7 @@ export function normalizeFallbackCdnBases(input?: string[]): string[] {
   }
 
   if (normalized.size === 0) {
-    normalized.add(FALLBACK_ESM_CDN_BASE);
+    return explicitInput ? [] : [FALLBACK_ESM_CDN_BASE];
   }
 
   return [...normalized];
