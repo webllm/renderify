@@ -262,6 +262,7 @@ await renderPlanInBrowser(plan, { target: "#mount" });
 - Architecture overview: `docs/architecture.md`
 - RuntimePlan IR reference: `docs/runtime-plan-ir.md`
 - Runtime execution engine: `docs/runtime-execution.md`
+- Dependency verification model: `docs/runtime-execution.md#verification-model`
 - Browser embedding: `docs/browser-integration.md`
 - Security guide: `docs/security.md`
 - Plugin system: `docs/plugin-system.md`
