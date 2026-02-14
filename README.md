@@ -63,7 +63,7 @@ flowchart TD
 
 ## Implemented Capabilities
 
-- Runtime plan model with optional `state.initial`
+- Runtime plan model with optional `state` (when provided, `state.initial` is required)
 - Runtime quotas and limits:
   - `maxImports`
   - `maxExecutionMs`
@@ -234,7 +234,7 @@ Release automation is gated by CI success on `main` and uses Changesets to eithe
 
 ## Programmatic Example
 
-Core 3-package embed path (`ir + runtime + security`):
+Core quick embed path (`ir + runtime`, default security checker included):
 
 ```ts
 import { renderPlanInBrowser } from "@renderify/runtime";
@@ -283,9 +283,9 @@ Beyond the end-to-end pipeline, several components have standalone value:
 
 ## Roadmap
 
-**Next — Hardened sandbox & isolation**
+**In Progress — Hardened sandbox & isolation**
 
-- Web Worker execution boundary for untrusted runtime source
+- Web Worker / iframe execution boundary for untrusted runtime source (implemented; continue hardening)
 - ShadowRealm integration when available in browsers
 
 **Next — Ecosystem expansion**
