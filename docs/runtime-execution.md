@@ -52,7 +52,7 @@ const runtime = new DefaultRuntimeManager({
   remoteFallbackCdnBases: ["https://esm.sh", "https://cdn.jsdelivr.net"],
 
   // Browser sandbox
-  browserSourceSandboxMode: "worker",  // "none" | "worker" | "iframe"
+  browserSourceSandboxMode: "worker", // "none" | "worker" | "iframe"
   browserSourceSandboxTimeoutMs: 4000,
   browserSourceSandboxFailClosed: true,
 });
@@ -70,7 +70,7 @@ The `JspmModuleLoader` resolves bare npm specifiers to browser-loadable ESM URLs
 import { JspmModuleLoader } from "@renderify/runtime";
 
 const loader = new JspmModuleLoader({
-  cdnBaseUrl: "https://ga.jspm.io",  // Default JSPM CDN
+  cdnBaseUrl: "https://ga.jspm.io", // Default JSPM CDN
 });
 
 // Resolve a specifier
@@ -89,6 +89,7 @@ const url = loader.resolveSpecifier("lodash-es");
 ### Rejected Specifiers
 
 The loader rejects:
+
 - Node.js builtins (`fs`, `path`, `crypto`, `os`, etc.)
 - `file://` URLs
 - `jsr:` specifiers
@@ -190,11 +191,11 @@ Source code executes in a sandboxed iframe with restricted permissions. Similar 
 
 The runtime tracks three budget dimensions during execution:
 
-| Budget | What It Tracks | What Happens When Exceeded |
-|--------|---------------|---------------------------|
-| Import budget | Number of module imports resolved | Execution stops, diagnostic emitted |
-| Component budget | Number of component node renders | Execution stops, diagnostic emitted |
-| Time budget | Wall-clock execution time | Execution stops, diagnostic emitted |
+| Budget           | What It Tracks                    | What Happens When Exceeded          |
+| ---------------- | --------------------------------- | ----------------------------------- |
+| Import budget    | Number of module imports resolved | Execution stops, diagnostic emitted |
+| Component budget | Number of component node renders  | Execution stops, diagnostic emitted |
+| Time budget      | Wall-clock execution time         | Execution stops, diagnostic emitted |
 
 Budgets are configured via `plan.capabilities`:
 
@@ -220,6 +221,7 @@ const probeResult = await runtime.probePlan(plan);
 ```
 
 Preflight checks:
+
 - `plan.imports` specifiers
 - Component node modules
 - Source code imports
@@ -324,7 +326,7 @@ When a source module produces a Preact component, the runtime emits a `renderArt
 ```ts
 interface RuntimeRenderArtifact {
   mode: "preact-vnode";
-  payload: unknown;  // Preact VNode
+  payload: unknown; // Preact VNode
 }
 ```
 
@@ -345,6 +347,7 @@ const result = await runtime.execute({
 ```
 
 When aborted:
+
 - In-progress module fetches are cancelled
 - Worker sandbox execution is terminated
 - An `AbortError` is thrown

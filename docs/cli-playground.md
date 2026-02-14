@@ -136,17 +136,21 @@ Health check endpoint.
 Execute a prompt through the full pipeline.
 
 **Request:**
+
 ```json
 { "prompt": "Build a welcome card" }
 ```
 
 **Response:**
+
 ```json
 {
   "traceId": "trace_abc123",
   "html": "<div>...</div>",
   "plan": { "id": "welcome-card", "version": 1 },
-  "planDetail": { /* full RuntimePlan */ },
+  "planDetail": {
+    /* full RuntimePlan */
+  },
   "diagnostics": [],
   "state": {}
 }
@@ -157,11 +161,13 @@ Execute a prompt through the full pipeline.
 Streaming prompt execution via NDJSON (newline-delimited JSON).
 
 **Request:**
+
 ```json
 { "prompt": "Build a dashboard" }
 ```
 
 **Response** (NDJSON stream):
+
 ```
 {"type":"llm-delta","traceId":"...","llmText":"...","delta":"..."}
 {"type":"preview","traceId":"...","html":"...","diagnostics":[],"planId":"..."}
@@ -175,6 +181,7 @@ Content-Type: `application/x-ndjson; charset=utf-8`
 Execute a RuntimePlan directly (no LLM involved).
 
 **Request:**
+
 ```json
 {
   "plan": {
@@ -192,21 +199,23 @@ Execute a RuntimePlan directly (no LLM involved).
 Probe a RuntimePlan for compatibility without execution.
 
 **Request:**
+
 ```json
 {
-  "plan": { /* RuntimePlan JSON */ }
+  "plan": {
+    /* RuntimePlan JSON */
+  }
 }
 ```
 
 **Response:**
+
 ```json
 {
   "safe": true,
   "securityIssues": [],
   "securityDiagnostics": [],
-  "dependencies": [
-    { "usage": "import", "specifier": "recharts", "ok": true }
-  ],
+  "dependencies": [{ "usage": "import", "specifier": "recharts", "ok": true }],
   "runtimeDiagnostics": []
 }
 ```
@@ -247,16 +256,16 @@ open "http://127.0.0.1:4317/#jsx64=${JSX64}&runtime=preact"
 
 ### Supported Hash Parameters
 
-| Parameter | Description |
-|-----------|-------------|
-| `plan64` | Base64url-encoded RuntimePlan JSON |
-| `jsx64` | Base64url-encoded JSX source |
-| `tsx64` | Base64url-encoded TSX source |
-| `js64` | Base64url-encoded JavaScript source |
-| `ts64` | Base64url-encoded TypeScript source |
-| `runtime` | JSX runtime: `"preact"` or `"renderify"` |
+| Parameter    | Description                                   |
+| ------------ | --------------------------------------------- |
+| `plan64`     | Base64url-encoded RuntimePlan JSON            |
+| `jsx64`      | Base64url-encoded JSX source                  |
+| `tsx64`      | Base64url-encoded TSX source                  |
+| `js64`       | Base64url-encoded JavaScript source           |
+| `ts64`       | Base64url-encoded TypeScript source           |
+| `runtime`    | JSX runtime: `"preact"` or `"renderify"`      |
 | `exportName` | Named export to render (default: `"default"`) |
-| `manifest64` | Base64url-encoded module manifest JSON |
+| `manifest64` | Base64url-encoded module manifest JSON        |
 
 ### Auto-Manifest Hydration
 

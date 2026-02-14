@@ -14,18 +14,18 @@ beforeLLM ──▶ [LLM Generation] ──▶ afterLLM
            ──▶ beforeRender ──▶ [UI Rendering] ──▶ afterRender
 ```
 
-| Hook | Input Type | Output Type | Description |
-|------|-----------|-------------|-------------|
-| `beforeLLM` | `string` | `string` | Transform the prompt before LLM |
-| `afterLLM` | `LLMResponse` | `LLMResponse` | Transform LLM response |
-| `beforeCodeGen` | `CodeGenerationInput` | `CodeGenerationInput` | Transform codegen input |
-| `afterCodeGen` | `RuntimePlan` | `RuntimePlan` | Transform generated plan |
-| `beforePolicyCheck` | `RuntimePlan` | `RuntimePlan` | Transform plan before security |
-| `afterPolicyCheck` | `SecurityCheckResult` | `SecurityCheckResult` | Transform security result |
-| `beforeRuntime` | `RuntimeExecutionInput` | `RuntimeExecutionInput` | Transform runtime input |
-| `afterRuntime` | `RuntimeExecutionResult` | `RuntimeExecutionResult` | Transform execution result |
-| `beforeRender` | `RuntimeExecutionResult` | `RuntimeExecutionResult` | Transform before rendering |
-| `afterRender` | `string` | `string` | Transform rendered HTML |
+| Hook                | Input Type               | Output Type              | Description                     |
+| ------------------- | ------------------------ | ------------------------ | ------------------------------- |
+| `beforeLLM`         | `string`                 | `string`                 | Transform the prompt before LLM |
+| `afterLLM`          | `LLMResponse`            | `LLMResponse`            | Transform LLM response          |
+| `beforeCodeGen`     | `CodeGenerationInput`    | `CodeGenerationInput`    | Transform codegen input         |
+| `afterCodeGen`      | `RuntimePlan`            | `RuntimePlan`            | Transform generated plan        |
+| `beforePolicyCheck` | `RuntimePlan`            | `RuntimePlan`            | Transform plan before security  |
+| `afterPolicyCheck`  | `SecurityCheckResult`    | `SecurityCheckResult`    | Transform security result       |
+| `beforeRuntime`     | `RuntimeExecutionInput`  | `RuntimeExecutionInput`  | Transform runtime input         |
+| `afterRuntime`      | `RuntimeExecutionResult` | `RuntimeExecutionResult` | Transform execution result      |
+| `beforeRender`      | `RuntimeExecutionResult` | `RuntimeExecutionResult` | Transform before rendering      |
+| `afterRender`       | `string`                 | `string`                 | Transform rendered HTML         |
 
 ## Creating a Plugin
 
@@ -85,15 +85,18 @@ Every hook handler receives a `PluginContext` with:
 
 ```ts
 interface PluginContext {
-  traceId: string;    // Unique identifier for the current render
-  hookName: PluginHook;  // Which hook is being called
+  traceId: string; // Unique identifier for the current render
+  hookName: PluginHook; // Which hook is being called
 }
 ```
 
 ## Plugin Handler Signature
 
 ```ts
-type PluginHandler = (payload: unknown, context: PluginContext) => Promise<unknown>;
+type PluginHandler = (
+  payload: unknown,
+  context: PluginContext,
+) => Promise<unknown>;
 ```
 
 Each handler receives the current payload and must return the (possibly transformed) payload. The return value is passed to the next plugin's handler for the same hook, then to the pipeline stage.
@@ -230,7 +233,11 @@ const htmlPostProcessor: RenderifyPlugin = {
 interface CustomizationEngine {
   registerPlugin(plugin: RenderifyPlugin): void;
   getPlugins(): RenderifyPlugin[];
-  runHook<Payload>(hookName: PluginHook, payload: Payload, context: PluginContext): Promise<Payload>;
+  runHook<Payload>(
+    hookName: PluginHook,
+    payload: Payload,
+    context: PluginContext,
+  ): Promise<Payload>;
 }
 ```
 
@@ -243,11 +250,16 @@ interface RenderifyPlugin {
 }
 
 type PluginHook =
-  | "beforeLLM" | "afterLLM"
-  | "beforeCodeGen" | "afterCodeGen"
-  | "beforePolicyCheck" | "afterPolicyCheck"
-  | "beforeRuntime" | "afterRuntime"
-  | "beforeRender" | "afterRender";
+  | "beforeLLM"
+  | "afterLLM"
+  | "beforeCodeGen"
+  | "afterCodeGen"
+  | "beforePolicyCheck"
+  | "afterPolicyCheck"
+  | "beforeRuntime"
+  | "afterRuntime"
+  | "beforeRender"
+  | "afterRender";
 ```
 
 ## Notes

@@ -10,10 +10,12 @@ The simplest way to render a plan in the browser:
 import { renderPlanInBrowser } from "@renderify/runtime";
 import type { RuntimePlan } from "@renderify/ir";
 
-const plan: RuntimePlan = { /* ... */ };
+const plan: RuntimePlan = {
+  /* ... */
+};
 
 const result = await renderPlanInBrowser(plan, {
-  target: "#app",  // CSS selector, HTMLElement, or InteractiveRenderTarget
+  target: "#app", // CSS selector, HTMLElement, or InteractiveRenderTarget
 });
 
 console.log(result.html);
@@ -73,6 +75,7 @@ const result = await renderPlanInBrowser(plan, {
 ```
 
 When using an `InteractiveRenderTarget`:
+
 - The UI renderer mounts to the DOM element instead of just generating HTML strings
 - Event bindings are delegated at the mount point
 - Subsequent renders use DOM reconciliation (diffing) for efficient updates
@@ -110,26 +113,26 @@ For environments without a build system, load Renderify runtime through native E
 ```html
 <!DOCTYPE html>
 <html>
-<body>
-  <div id="app"></div>
-  <script type="module">
-    import { renderPlanInBrowser } from "https://esm.sh/@renderify/runtime";
+  <body>
+    <div id="app"></div>
+    <script type="module">
+      import { renderPlanInBrowser } from "https://esm.sh/@renderify/runtime";
 
-    const plan = {
-      specVersion: "runtime-plan/v1",
-      id: "hello",
-      version: 1,
-      root: {
-        type: "element",
-        tag: "div",
-        children: [{ type: "text", value: "Hello from Renderify" }],
-      },
-      capabilities: {},
-    };
+      const plan = {
+        specVersion: "runtime-plan/v1",
+        id: "hello",
+        version: 1,
+        root: {
+          type: "element",
+          tag: "div",
+          children: [{ type: "text", value: "Hello from Renderify" }],
+        },
+        capabilities: {},
+      };
 
-    await renderPlanInBrowser(plan, { target: "#app" });
-  </script>
-</body>
+      await renderPlanInBrowser(plan, { target: "#app" });
+    </script>
+  </body>
 </html>
 ```
 
@@ -167,8 +170,9 @@ For plans with source modules, Babel standalone is needed for transpilation:
     },
     moduleManifest: {
       "preact/hooks": {
-        resolvedUrl: "https://ga.jspm.io/npm:preact@10.28.3/hooks/dist/hooks.module.js"
-      }
+        resolvedUrl:
+          "https://ga.jspm.io/npm:preact@10.28.3/hooks/dist/hooks.module.js",
+      },
     },
   };
 
@@ -277,12 +281,12 @@ This provides full React-compatible component rendering with hooks, state, effec
 
 The repository includes several browser examples:
 
-| Example | Path | Description |
-|---------|------|-------------|
-| Runtime plan | `examples/runtime/browser-runtime-example.html` | Browser plan rendering with local dist bundles |
-| TSX + JSPM | `examples/runtime/browser-tsx-jspm-example.html` | Babel transpilation with JSPM modules |
-| Chat dashboard | `examples/killer/one-line-chat-dashboard.html` | Chat interface generating dashboards |
-| Chat form | `examples/killer/one-line-chat-form.html` | Form generation with date-fns |
-| Sandbox worker | `examples/killer/one-line-sandbox-worker.html` | Worker-sandboxed source execution |
-| Hash runner | `examples/killer/hash-code-runner.html` | Execute plans from URL hashes |
-| Todo app | `examples/todo/react-shadcn-todo.html` | React + shadcn UI todo application |
+| Example        | Path                                             | Description                                    |
+| -------------- | ------------------------------------------------ | ---------------------------------------------- |
+| Runtime plan   | `examples/runtime/browser-runtime-example.html`  | Browser plan rendering with local dist bundles |
+| TSX + JSPM     | `examples/runtime/browser-tsx-jspm-example.html` | Babel transpilation with JSPM modules          |
+| Chat dashboard | `examples/killer/one-line-chat-dashboard.html`   | Chat interface generating dashboards           |
+| Chat form      | `examples/killer/one-line-chat-form.html`        | Form generation with date-fns                  |
+| Sandbox worker | `examples/killer/one-line-sandbox-worker.html`   | Worker-sandboxed source execution              |
+| Hash runner    | `examples/killer/hash-code-runner.html`          | Execute plans from URL hashes                  |
+| Todo app       | `examples/todo/react-shadcn-todo.html`           | React + shadcn UI todo application             |

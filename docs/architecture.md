@@ -8,35 +8,35 @@ This document describes the end-to-end architecture of Renderify, covering the p
 User Prompt
   │
   ▼
-┌─────────────────┐     ┌──────────────────┐     ┌──────────────────┐
+┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐
 │  LLM Interpreter │────▶│  Code Generator  │────▶│   RuntimePlan    │
 │  (OpenAI/Claude/ │     │  (JSON or TSX    │     │   (IR)           │
 │   Gemini)        │     │   extraction)    │     │                  │
-└─────────────────┘     └──────────────────┘     └────────┬─────────┘
-                                                          │
-                                                          ▼
-                                                ┌──────────────────┐
-                                                │  Security Policy  │
-                                                │  Checker          │
-                                                └────────┬─────────┘
-                                                          │
-                                                          ▼
-                                                ┌──────────────────┐
-                                                │  Runtime Manager  │
-                                                │  (Execute plan,   │
-                                                │   resolve modules,│
-                                                │   transpile)      │
-                                                └────────┬─────────┘
-                                                          │
-                                                          ▼
-                                                ┌──────────────────┐
-                                                │  UI Renderer      │
-                                                │  (HTML generation,│
-                                                │   DOM reconcile)  │
-                                                └──────────────────┘
-                                                          │
-                                                          ▼
-                                                   Rendered UI
+└──────────────────┘     └──────────────────┘     └────────┬─────────┘
+                                                           │
+                                                           ▼
+                                                  ┌──────────────────┐
+                                                  │  Security Policy │
+                                                  │  Checker         │
+                                                  └────────┬─────────┘
+                                                           │
+                                                           ▼
+                                                 ┌───────────────────┐
+                                                 │  Runtime Manager  │
+                                                 │  (Execute plan,   │
+                                                 │   resolve modules,│
+                                                 │   transpile)      │
+                                                 └─────────┬─────────┘
+                                                           │
+                                                           ▼
+                                                 ┌───────────────────┐
+                                                 │  UI Renderer      │
+                                                 │  (HTML generation,│
+                                                 │   DOM reconcile)  │
+                                                 └───────────────────┘
+                                                           │
+                                                           ▼
+                                                     Rendered UI
 ```
 
 ## Package Dependency Graph

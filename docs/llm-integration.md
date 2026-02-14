@@ -4,11 +4,11 @@ Renderify supports multiple LLM providers for generating UI from natural languag
 
 ## Supported Providers
 
-| Provider | Default Model | Package |
-|----------|--------------|---------|
-| OpenAI | `gpt-4.1-mini` | `@renderify/llm` |
-| Anthropic | `claude-3-5-sonnet-latest` | `@renderify/llm` |
-| Google (Gemini) | `gemini-2.0-flash` | `@renderify/llm` |
+| Provider        | Default Model              | Package          |
+| --------------- | -------------------------- | ---------------- |
+| OpenAI          | `gpt-4.1-mini`             | `@renderify/llm` |
+| Anthropic       | `claude-3-5-sonnet-latest` | `@renderify/llm` |
+| Google (Gemini) | `gemini-2.0-flash`         | `@renderify/llm` |
 
 ## Configuration
 
@@ -90,6 +90,7 @@ const response = await llm.generateStructuredResponse(structuredRequest);
 ```
 
 The JSON schema enforces:
+
 - Required fields: `id`, `version`, `root`, `capabilities`
 - Node type constraints: `text` (with `value`), `element` (with `tag`), `component` (with `module`)
 - Capability field types and ranges
@@ -100,7 +101,7 @@ The JSON schema enforces:
 If structured output fails or is disabled, the LLM generates free-form text. The code generator then attempts to extract a RuntimePlan:
 
 1. Look for a complete RuntimePlan JSON in the text
-2. Extract fenced code blocks (```tsx, ```jsx, etc.)
+2. Extract fenced code blocks (`tsx, `jsx, etc.)
 3. Fall back to wrapping the text as a text node
 
 ```bash
@@ -114,9 +115,9 @@ All providers support streaming via server-sent events (SSE). The pipeline emits
 
 ```ts
 for await (const chunk of llm.generateResponseStream(request)) {
-  console.log(chunk.delta);  // New token
-  console.log(chunk.text);   // Accumulated text so far
-  console.log(chunk.done);   // Is this the final chunk?
+  console.log(chunk.delta); // New token
+  console.log(chunk.text); // Accumulated text so far
+  console.log(chunk.done); // Is this the final chunk?
 }
 ```
 
@@ -170,20 +171,20 @@ interface LLMResponse {
 }
 
 interface LLMResponseStreamChunk {
-  delta: string;      // New content since last chunk
-  text: string;       // Full accumulated text
-  done: boolean;      // Is this the final chunk?
-  index: number;      // Chunk sequence number
+  delta: string; // New content since last chunk
+  text: string; // Full accumulated text
+  done: boolean; // Is this the final chunk?
+  index: number; // Chunk sequence number
   tokensUsed?: number;
   model?: string;
   raw?: unknown;
 }
 
 interface LLMStructuredResponse<T> {
-  value?: T;              // Parsed structured value
-  text: string;           // Raw text representation
-  valid: boolean;         // Whether the value conforms to the schema
-  errors?: string[];      // Validation errors
+  value?: T; // Parsed structured value
+  text: string; // Raw text representation
+  valid: boolean; // Whether the value conforms to the schema
+  errors?: string[]; // Validation errors
   tokensUsed?: number;
   model?: string;
   raw?: unknown;
@@ -195,7 +196,10 @@ interface LLMStructuredResponse<T> {
 The provider registry supports dynamic registration of custom providers:
 
 ```ts
-import { LLMProviderRegistry, createDefaultLLMProviderRegistry } from "@renderify/llm";
+import {
+  LLMProviderRegistry,
+  createDefaultLLMProviderRegistry,
+} from "@renderify/llm";
 
 // Use the default registry with all built-in providers
 const registry = createDefaultLLMProviderRegistry();
@@ -232,17 +236,20 @@ const result = await app.renderPrompt("Build a dashboard", {
 Providers support configurable prompt templates:
 
 ```ts
-llm.setPromptTemplate?.("system", `
+llm.setPromptTemplate?.(
+  "system",
+  `
   You are a UI generator. Generate a RuntimePlan JSON for the user's request.
   Always include specVersion: "runtime-plan/v1".
-`);
+`,
+);
 
 const template = llm.getPromptTemplate?.("system");
 ```
 
 ## Structured Output Fallback Flow
 
-```
+````
 1. Request structured RuntimePlan JSON from LLM
    │
    ├── Valid JSON returned → Use directly
@@ -252,7 +259,7 @@ const template = llm.getPromptTemplate?.("system");
                           ├── Text contains RuntimePlan JSON → Parse it
                           ├── Text contains ```tsx block → Extract source module
                           └── Plain text → Wrap as text node
-```
+````
 
 This dual-path approach maximizes compatibility across different LLM models while preferring the most precise output format.
 

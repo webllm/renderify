@@ -100,7 +100,10 @@ await config.load();
 const app = createRenderifyApp({
   config,
   context: new DefaultContextManager(),
-  llm: createLLMInterpreter({ provider: "openai", providerOptions: { apiKey: "your-key" } }),
+  llm: createLLMInterpreter({
+    provider: "openai",
+    providerOptions: { apiKey: "your-key" },
+  }),
   codegen: new DefaultCodeGenerator(),
   runtime: new DefaultRuntimeManager({
     moduleLoader: new JspmModuleLoader(),
@@ -192,14 +195,14 @@ pnpm format           # Auto-format code
 
 ## Package Overview
 
-| Package | npm Name | Purpose |
-|---------|----------|---------|
-| `packages/ir` | `@renderify/ir` | Intermediate representation: plan/node/state/action types |
-| `packages/runtime` | `@renderify/runtime` | Execution engine, JSPM loader, browser embed API |
-| `packages/security` | `@renderify/security` | Security policy profiles and static checks |
-| `packages/core` | `@renderify/core` | Orchestration facade: config, codegen, plugins, LLM interface |
-| `packages/llm` | `@renderify/llm` | LLM provider implementations (OpenAI, Anthropic, Google) |
-| `packages/cli` | `@renderify/cli` | CLI commands and browser playground server |
+| Package             | npm Name              | Purpose                                                       |
+| ------------------- | --------------------- | ------------------------------------------------------------- |
+| `packages/ir`       | `@renderify/ir`       | Intermediate representation: plan/node/state/action types     |
+| `packages/runtime`  | `@renderify/runtime`  | Execution engine, JSPM loader, browser embed API              |
+| `packages/security` | `@renderify/security` | Security policy profiles and static checks                    |
+| `packages/core`     | `@renderify/core`     | Orchestration facade: config, codegen, plugins, LLM interface |
+| `packages/llm`      | `@renderify/llm`      | LLM provider implementations (OpenAI, Anthropic, Google)      |
+| `packages/cli`      | `@renderify/cli`      | CLI commands and browser playground server                    |
 
 ## Next Steps
 

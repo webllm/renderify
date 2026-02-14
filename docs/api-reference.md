@@ -66,7 +66,11 @@ interface RuntimeCapabilities {
   maxExecutionMs?: number;
 }
 
-type RuntimeExecutionProfile = "standard" | "isolated-vm" | "sandbox-worker" | "sandbox-iframe";
+type RuntimeExecutionProfile =
+  | "standard"
+  | "isolated-vm"
+  | "sandbox-worker"
+  | "sandbox-iframe";
 ```
 
 #### RuntimeStateModel
@@ -186,8 +190,17 @@ interface RuntimePlanMetadata {
 
 ```ts
 function createTextNode(value: string): RuntimeTextNode;
-function createElementNode(tag: string, props?: Record<string, JsonValue>, children?: RuntimeNode[]): RuntimeElementNode;
-function createComponentNode(module: string, exportName?: string, props?: Record<string, JsonValue>, children?: RuntimeNode[]): RuntimeComponentNode;
+function createElementNode(
+  tag: string,
+  props?: Record<string, JsonValue>,
+  children?: RuntimeNode[],
+): RuntimeElementNode;
+function createComponentNode(
+  module: string,
+  exportName?: string,
+  props?: Record<string, JsonValue>,
+  children?: RuntimeNode[],
+): RuntimeComponentNode;
 ```
 
 #### Validation Guards
@@ -199,11 +212,17 @@ function isRuntimeAction(value: unknown): value is RuntimeAction;
 function isRuntimeStateModel(value: unknown): value is RuntimeStateModel;
 function isRuntimeCapabilities(value: unknown): value is RuntimeCapabilities;
 function isRuntimeSourceModule(value: unknown): value is RuntimeSourceModule;
-function isRuntimeModuleManifest(value: unknown): value is RuntimeModuleManifest;
-function isRuntimeModuleDescriptor(value: unknown): value is RuntimeModuleDescriptor;
+function isRuntimeModuleManifest(
+  value: unknown,
+): value is RuntimeModuleManifest;
+function isRuntimeModuleDescriptor(
+  value: unknown,
+): value is RuntimeModuleDescriptor;
 function isRuntimeEvent(value: unknown): value is RuntimeEvent;
 function isRuntimePlanMetadata(value: unknown): value is RuntimePlanMetadata;
-function isRuntimeSourceLanguage(value: unknown): value is RuntimeSourceLanguage;
+function isRuntimeSourceLanguage(
+  value: unknown,
+): value is RuntimeSourceLanguage;
 function isRuntimeSourceRuntime(value: unknown): value is RuntimeSourceRuntime;
 function isRuntimeValueFromPath(value: unknown): value is RuntimeValueFromPath;
 function isRuntimeStateSnapshot(value: unknown): value is RuntimeStateSnapshot;
@@ -213,7 +232,11 @@ function isJsonValue(value: unknown): value is JsonValue;
 #### Tree Utilities
 
 ```ts
-function walkRuntimeNode(node: RuntimeNode, visitor: (node: RuntimeNode, depth: number) => void, depth?: number): void;
+function walkRuntimeNode(
+  node: RuntimeNode,
+  visitor: (node: RuntimeNode, depth: number) => void,
+  depth?: number,
+): void;
 function collectComponentModules(root: RuntimeNode): string[];
 ```
 
@@ -223,7 +246,11 @@ function collectComponentModules(root: RuntimeNode): string[];
 function splitPath(path: string): string[];
 function isSafePath(path: string): boolean;
 function getValueByPath(source: unknown, path: string): unknown;
-function setValueByPath(target: RuntimeStateSnapshot, path: string, value: JsonValue): void;
+function setValueByPath(
+  target: RuntimeStateSnapshot,
+  path: string,
+  value: JsonValue,
+): void;
 ```
 
 #### JSON Utilities
@@ -246,7 +273,9 @@ function hashStringFNV1a64Hex(input: string): string;
 
 ```ts
 function collectRuntimeSourceImports(code: string): Promise<string[]>;
-function parseRuntimeSourceImportRanges(code: string): Promise<RuntimeSourceImportRange[]>;
+function parseRuntimeSourceImportRanges(
+  code: string,
+): Promise<RuntimeSourceImportRange[]>;
 
 interface RuntimeSourceImportRange {
   start: number;
@@ -364,7 +393,10 @@ interface JspmModuleLoaderOptions {
 
 ```ts
 class DefaultUIRenderer implements UIRenderer {
-  render(result: RuntimeExecutionResult, target?: RenderTarget): Promise<string>;
+  render(
+    result: RuntimeExecutionResult,
+    target?: RenderTarget,
+  ): Promise<string>;
   renderNode(node: RuntimeNode): string;
 }
 ```
@@ -401,7 +433,10 @@ class DefaultSecurityChecker implements SecurityChecker {
   getProfile(): RuntimeSecurityProfile;
   checkPlan(plan: RuntimePlan): Promise<SecurityCheckResult>;
   checkModuleSpecifier(specifier: string): SecurityCheckResult;
-  checkCapabilities(capabilities: RuntimeCapabilities, moduleManifest?: RuntimeModuleManifest): SecurityCheckResult;
+  checkCapabilities(
+    capabilities: RuntimeCapabilities,
+    moduleManifest?: RuntimeModuleManifest,
+  ): SecurityCheckResult;
 }
 
 type SecurityInitializationInput =
@@ -427,7 +462,9 @@ type RuntimeSecurityProfile = "strict" | "balanced" | "relaxed";
 
 ```ts
 function listSecurityProfiles(): RuntimeSecurityProfile[];
-function getSecurityProfilePolicy(profile: RuntimeSecurityProfile): RuntimeSecurityPolicy;
+function getSecurityProfilePolicy(
+  profile: RuntimeSecurityProfile,
+): RuntimeSecurityPolicy;
 ```
 
 ---
@@ -441,9 +478,18 @@ class RenderifyApp {
   constructor(deps: RenderifyCoreDependencies);
   start(): Promise<void>;
   stop(): Promise<void>;
-  renderPrompt(prompt: string, options?: RenderPromptOptions): Promise<RenderPromptResult>;
-  renderPromptStream(prompt: string, options?: RenderPromptStreamOptions): AsyncGenerator<RenderPromptStreamChunk, RenderPromptResult>;
-  renderPlan(plan: RuntimePlan, options?: RenderPlanOptions): Promise<RenderPlanResult>;
+  renderPrompt(
+    prompt: string,
+    options?: RenderPromptOptions,
+  ): Promise<RenderPromptResult>;
+  renderPromptStream(
+    prompt: string,
+    options?: RenderPromptStreamOptions,
+  ): AsyncGenerator<RenderPromptStreamChunk, RenderPromptResult>;
+  renderPlan(
+    plan: RuntimePlan,
+    options?: RenderPlanOptions,
+  ): Promise<RenderPlanResult>;
   getConfig(): RenderifyConfig;
   getContext(): ContextManager;
   getLLM(): LLMInterpreter;
@@ -509,9 +555,15 @@ interface RenderPromptStreamChunk {
 ```ts
 class DefaultCodeGenerator implements CodeGenerator {
   generatePlan(input: CodeGenerationInput): Promise<RuntimePlan>;
-  createIncrementalSession(init: { prompt: string; context: Record<string, unknown> }): IncrementalCodeGenerationSession;
+  createIncrementalSession(init: {
+    prompt: string;
+    context: Record<string, unknown>;
+  }): IncrementalCodeGenerationSession;
   validatePlan(plan: RuntimePlan): Promise<boolean>;
-  transformPlan(plan: RuntimePlan, transforms: Array<(plan: RuntimePlan) => RuntimePlan>): Promise<RuntimePlan>;
+  transformPlan(
+    plan: RuntimePlan,
+    transforms: Array<(plan: RuntimePlan) => RuntimePlan>,
+  ): Promise<RuntimePlan>;
 }
 ```
 
@@ -548,7 +600,11 @@ class DefaultContextManager implements ContextManager {
 class DefaultCustomizationEngine implements CustomizationEngine {
   registerPlugin(plugin: RenderifyPlugin): void;
   getPlugins(): RenderifyPlugin[];
-  runHook<Payload>(hookName: PluginHook, payload: Payload, context: PluginContext): Promise<Payload>;
+  runHook<Payload>(
+    hookName: PluginHook,
+    payload: Payload,
+    context: PluginContext,
+  ): Promise<Payload>;
 }
 ```
 
@@ -578,9 +634,15 @@ function createLLMInterpreter(options: {
 ### Provider Classes
 
 ```ts
-class OpenAILLMInterpreter implements LLMInterpreter { /* ... */ }
-class AnthropicLLMInterpreter implements LLMInterpreter { /* ... */ }
-class GoogleLLMInterpreter implements LLMInterpreter { /* ... */ }
+class OpenAILLMInterpreter implements LLMInterpreter {
+  /* ... */
+}
+class AnthropicLLMInterpreter implements LLMInterpreter {
+  /* ... */
+}
+class GoogleLLMInterpreter implements LLMInterpreter {
+  /* ... */
+}
 ```
 
 ### LLMProviderRegistry
@@ -604,8 +666,12 @@ function createDefaultLLMProviderRegistry(): LLMProviderRegistry;
 interface LLMInterpreter {
   configure(options: Record<string, unknown>): void;
   generateResponse(request: LLMRequest): Promise<LLMResponse>;
-  generateResponseStream?(request: LLMRequest): AsyncIterable<LLMResponseStreamChunk>;
-  generateStructuredResponse?(request: LLMStructuredRequest): Promise<LLMStructuredResponse<unknown>>;
+  generateResponseStream?(
+    request: LLMRequest,
+  ): AsyncIterable<LLMResponseStreamChunk>;
+  generateStructuredResponse?(
+    request: LLMStructuredRequest,
+  ): Promise<LLMStructuredResponse<unknown>>;
   setPromptTemplate(name: string, template: string): void;
   getPromptTemplate(name: string): string | undefined;
 }

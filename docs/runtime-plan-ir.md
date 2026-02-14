@@ -6,14 +6,14 @@ The RuntimePlan is the intermediate representation (IR) at the heart of Renderif
 
 ```ts
 interface RuntimePlan {
-  specVersion?: string;        // Protocol version, e.g. "runtime-plan/v1"
-  id: string;                  // Unique plan identifier
-  version: number;             // Positive integer, incremented on updates
-  root: RuntimeNode;           // The UI tree
-  capabilities: RuntimeCapabilities;  // Execution permissions and limits
-  state?: RuntimeStateModel;   // Optional reactive state
-  imports?: string[];          // Module specifiers to pre-load
-  moduleManifest?: RuntimeModuleManifest;  // Resolved module URLs
+  specVersion?: string; // Protocol version, e.g. "runtime-plan/v1"
+  id: string; // Unique plan identifier
+  version: number; // Positive integer, incremented on updates
+  root: RuntimeNode; // The UI tree
+  capabilities: RuntimeCapabilities; // Execution permissions and limits
+  state?: RuntimeStateModel; // Optional reactive state
+  imports?: string[]; // Module specifiers to pre-load
+  moduleManifest?: RuntimeModuleManifest; // Resolved module URLs
   source?: RuntimeSourceModule; // Optional executable source code
   metadata?: RuntimePlanMetadata; // Provenance and tags
 }
@@ -43,7 +43,7 @@ The UI tree is composed of three node types:
 ```ts
 interface RuntimeTextNode {
   type: "text";
-  value: string;  // Text content, supports template interpolation
+  value: string; // Text content, supports template interpolation
 }
 ```
 
@@ -54,9 +54,9 @@ Template interpolation resolves `{{state.count}}`, `{{context.userId}}`, `{{vars
 ```ts
 interface RuntimeElementNode {
   type: "element";
-  tag: string;             // HTML tag name
-  props?: Record<string, JsonValue>;  // Attributes and properties
-  children?: RuntimeNode[];  // Child nodes
+  tag: string; // HTML tag name
+  props?: Record<string, JsonValue>; // Attributes and properties
+  children?: RuntimeNode[]; // Child nodes
 }
 ```
 
@@ -67,8 +67,8 @@ Props support standard HTML attributes. Event handlers use the `onClick`, `onInp
 ```ts
 interface RuntimeComponentNode {
   type: "component";
-  module: string;          // Module specifier (bare, URL, or relative)
-  exportName?: string;     // Named export (default: "default")
+  module: string; // Module specifier (bare, URL, or relative)
+  exportName?: string; // Named export (default: "default")
   props?: Record<string, JsonValue>;
   children?: RuntimeNode[];
 }
@@ -80,15 +80,15 @@ Component nodes reference external modules loaded via the JSPM module loader. Th
 
 ```ts
 interface RuntimeCapabilities {
-  domWrite?: boolean;           // Allow DOM manipulation
-  networkHosts?: string[];      // Allowed network hosts
-  allowedModules?: string[];    // Permitted module specifiers
-  timers?: boolean;             // Allow setTimeout/setInterval
+  domWrite?: boolean; // Allow DOM manipulation
+  networkHosts?: string[]; // Allowed network hosts
+  allowedModules?: string[]; // Permitted module specifiers
+  timers?: boolean; // Allow setTimeout/setInterval
   storage?: Array<"localStorage" | "sessionStorage">;
   executionProfile?: RuntimeExecutionProfile;
-  maxImports?: number;          // Maximum import count
-  maxComponentInvocations?: number;  // Maximum component renders
-  maxExecutionMs?: number;      // Maximum execution time (ms)
+  maxImports?: number; // Maximum import count
+  maxComponentInvocations?: number; // Maximum component renders
+  maxExecutionMs?: number; // Maximum execution time (ms)
 }
 ```
 
@@ -96,21 +96,21 @@ interface RuntimeCapabilities {
 
 ```ts
 type RuntimeExecutionProfile =
-  | "standard"          // Default, in-page execution
-  | "isolated-vm"       // VM-isolated sync execution
-  | "sandbox-worker"    // Web Worker sandbox
-  | "sandbox-iframe";   // iframe sandbox
+  | "standard" // Default, in-page execution
+  | "isolated-vm" // VM-isolated sync execution
+  | "sandbox-worker" // Web Worker sandbox
+  | "sandbox-iframe"; // iframe sandbox
 ```
 
 ### Execution Budgets
 
 Three budget dimensions are enforced at runtime:
 
-| Budget | Field | Description |
-|--------|-------|-------------|
-| Import count | `maxImports` | Number of module imports allowed |
-| Component invocations | `maxComponentInvocations` | Number of component renders |
-| Wall-clock time | `maxExecutionMs` | Total execution time in milliseconds |
+| Budget                | Field                     | Description                          |
+| --------------------- | ------------------------- | ------------------------------------ |
+| Import count          | `maxImports`              | Number of module imports allowed     |
+| Component invocations | `maxComponentInvocations` | Number of component renders          |
+| Wall-clock time       | `maxExecutionMs`          | Total execution time in milliseconds |
 
 When a budget is exceeded, execution stops and a diagnostic error is emitted.
 
@@ -118,8 +118,8 @@ When a budget is exceeded, execution stops and a diagnostic error is emitted.
 
 ```ts
 interface RuntimeStateModel {
-  initial: RuntimeStateSnapshot;  // Required: initial state values
-  transitions?: Record<string, RuntimeAction[]>;  // Event-driven mutations
+  initial: RuntimeStateSnapshot; // Required: initial state values
+  transitions?: Record<string, RuntimeAction[]>; // Event-driven mutations
 }
 
 type RuntimeStateSnapshot = Record<string, JsonValue>;
@@ -135,7 +135,7 @@ Four action types are available for state transitions:
 // Set a value at a path
 interface RuntimeSetAction {
   type: "set";
-  path: string;                    // Dot-separated path, e.g. "user.name"
+  path: string; // Dot-separated path, e.g. "user.name"
   value: JsonValue | { $from: string }; // Literal or reference
 }
 
@@ -143,7 +143,7 @@ interface RuntimeSetAction {
 interface RuntimeIncrementAction {
   type: "increment";
   path: string;
-  by?: number;  // Default: 1
+  by?: number; // Default: 1
 }
 
 // Toggle a boolean value
@@ -185,10 +185,10 @@ All state paths are validated against prototype pollution. The following segment
 type RuntimeModuleManifest = Record<string, RuntimeModuleDescriptor>;
 
 interface RuntimeModuleDescriptor {
-  resolvedUrl: string;     // Full URL to the module
-  integrity?: string;      // SRI hash (e.g. "sha384-...")
-  version?: string;        // Package version
-  signer?: string;         // Signing authority
+  resolvedUrl: string; // Full URL to the module
+  integrity?: string; // SRI hash (e.g. "sha384-...")
+  version?: string; // Package version
+  signer?: string; // Signing authority
 }
 ```
 
@@ -213,10 +213,10 @@ The manifest provides deterministic module resolution. In `strict` security prof
 
 ```ts
 interface RuntimeSourceModule {
-  code: string;                      // Source code
-  language: "js" | "jsx" | "ts" | "tsx";  // Source language
-  exportName?: string;               // Export to render (default: "default")
-  runtime?: "renderify" | "preact";  // JSX runtime target
+  code: string; // Source code
+  language: "js" | "jsx" | "ts" | "tsx"; // Source language
+  exportName?: string; // Export to render (default: "default")
+  runtime?: "renderify" | "preact"; // JSX runtime target
 }
 ```
 
@@ -238,10 +238,10 @@ Source modules enable richer interactivity than the declarative node tree. The s
 
 ```ts
 interface RuntimePlanMetadata {
-  sourcePrompt?: string;    // The prompt that generated this plan
-  sourceModel?: string;     // LLM model used
-  tags?: string[];          // Classification tags
-  [key: string]: JsonValue | undefined;  // Arbitrary extensions
+  sourcePrompt?: string; // The prompt that generated this plan
+  sourceModel?: string; // LLM model used
+  tags?: string[]; // Classification tags
+  [key: string]: JsonValue | undefined; // Arbitrary extensions
 }
 ```
 
@@ -249,16 +249,16 @@ interface RuntimePlanMetadata {
 
 The IR package includes pre-resolved module mappings for the React/Preact ecosystem:
 
-| Specifier | Resolved To |
-|-----------|-------------|
-| `preact` | `preact@10.28.3/dist/preact.module.js` |
-| `preact/hooks` | `preact@10.28.3/hooks/dist/hooks.module.js` |
-| `preact/compat` | `preact@10.28.3/compat/dist/compat.module.js` |
-| `react` | `preact@10.28.3/compat/dist/compat.module.js` |
-| `react-dom` | `preact@10.28.3/compat/dist/compat.module.js` |
-| `react-dom/client` | `preact@10.28.3/compat/dist/compat.module.js` |
+| Specifier           | Resolved To                                            |
+| ------------------- | ------------------------------------------------------ |
+| `preact`            | `preact@10.28.3/dist/preact.module.js`                 |
+| `preact/hooks`      | `preact@10.28.3/hooks/dist/hooks.module.js`            |
+| `preact/compat`     | `preact@10.28.3/compat/dist/compat.module.js`          |
+| `react`             | `preact@10.28.3/compat/dist/compat.module.js`          |
+| `react-dom`         | `preact@10.28.3/compat/dist/compat.module.js`          |
+| `react-dom/client`  | `preact@10.28.3/compat/dist/compat.module.js`          |
 | `react/jsx-runtime` | `preact@10.28.3/jsx-runtime/dist/jsxRuntime.module.js` |
-| `recharts` | `recharts@3.3.0/es6/index.js` |
+| `recharts`          | `recharts@3.3.0/es6/index.js`                          |
 
 These aliases mean LLMs can generate standard React code that runs directly via Preact.
 
@@ -275,14 +275,14 @@ createComponentNode("recharts", "LineChart", { data: [...] });
 ### Validation Guards
 
 ```ts
-isRuntimePlan(value)           // Full plan validation
-isRuntimeNode(value)           // Node type check
-isRuntimeAction(value)         // Action validation
-isRuntimeStateModel(value)     // State model validation
-isRuntimeCapabilities(value)   // Capabilities validation
-isRuntimeSourceModule(value)   // Source module validation
-isRuntimeModuleManifest(value) // Manifest validation
-isJsonValue(value)             // JSON-safe value check
+isRuntimePlan(value); // Full plan validation
+isRuntimeNode(value); // Node type check
+isRuntimeAction(value); // Action validation
+isRuntimeStateModel(value); // State model validation
+isRuntimeCapabilities(value); // Capabilities validation
+isRuntimeSourceModule(value); // Source module validation
+isRuntimeModuleManifest(value); // Manifest validation
+isJsonValue(value); // JSON-safe value check
 ```
 
 ### Tree Utilities
@@ -301,10 +301,10 @@ const modules = collectComponentModules(plan.root);
 ### Path Utilities
 
 ```ts
-getValueByPath(state, "user.name");     // => "Alice"
+getValueByPath(state, "user.name"); // => "Alice"
 setValueByPath(state, "user.name", "Bob");
-isSafePath("user.name");                // => true
-isSafePath("__proto__.hack");           // => false
+isSafePath("user.name"); // => true
+isSafePath("__proto__.hack"); // => false
 ```
 
 ## Complete Example

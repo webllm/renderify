@@ -14,23 +14,23 @@ Tight limits, full integrity enforcement. Best for production, multi-tenant, and
 RENDERIFY_SECURITY_PROFILE=strict
 ```
 
-| Policy | Value |
-|--------|-------|
-| Blocked tags | script, iframe, object, embed, link, meta |
-| Max tree depth | 8 |
-| Max node count | 250 |
-| Inline event handlers | Disabled |
-| Max imports | 80 |
-| Max execution time | 5,000 ms |
-| Max component invocations | 120 |
-| Max source size | 20,000 bytes |
-| Max source imports | 30 |
-| Module manifest required | Yes (for bare specifiers) |
-| Module integrity required | Yes |
-| Spec version required | Yes |
-| Dynamic imports in source | Disabled |
-| Allowed network hosts | ga.jspm.io, cdn.jspm.io |
-| Arbitrary network | Disabled |
+| Policy                    | Value                                     |
+| ------------------------- | ----------------------------------------- |
+| Blocked tags              | script, iframe, object, embed, link, meta |
+| Max tree depth            | 8                                         |
+| Max node count            | 250                                       |
+| Inline event handlers     | Disabled                                  |
+| Max imports               | 80                                        |
+| Max execution time        | 5,000 ms                                  |
+| Max component invocations | 120                                       |
+| Max source size           | 20,000 bytes                              |
+| Max source imports        | 30                                        |
+| Module manifest required  | Yes (for bare specifiers)                 |
+| Module integrity required | Yes                                       |
+| Spec version required     | Yes                                       |
+| Dynamic imports in source | Disabled                                  |
+| Allowed network hosts     | ga.jspm.io, cdn.jspm.io                   |
+| Arbitrary network         | Disabled                                  |
 
 **Banned source patterns (strict):** `eval()`, `new Function()`, `fetch()`, `XMLHttpRequest`, `WebSocket`, `importScripts`, `document.cookie`, `localStorage`, `sessionStorage`, `indexedDB`, `navigator.sendBeacon`, `child_process`, `process.env`
 
@@ -42,23 +42,23 @@ Moderate limits suitable for most applications. Relaxes integrity requirements w
 RENDERIFY_SECURITY_PROFILE=balanced
 ```
 
-| Policy | Value |
-|--------|-------|
-| Blocked tags | script, iframe, object, embed, link, meta |
-| Max tree depth | 12 |
-| Max node count | 500 |
-| Inline event handlers | Disabled |
-| Max imports | 200 |
-| Max execution time | 15,000 ms |
-| Max component invocations | 500 |
-| Max source size | 80,000 bytes |
-| Max source imports | 120 |
-| Module manifest required | Yes (for bare specifiers) |
-| Module integrity required | No |
-| Spec version required | Yes |
-| Dynamic imports in source | Disabled |
-| Allowed network hosts | ga.jspm.io, cdn.jspm.io |
-| Arbitrary network | Disabled |
+| Policy                    | Value                                     |
+| ------------------------- | ----------------------------------------- |
+| Blocked tags              | script, iframe, object, embed, link, meta |
+| Max tree depth            | 12                                        |
+| Max node count            | 500                                       |
+| Inline event handlers     | Disabled                                  |
+| Max imports               | 200                                       |
+| Max execution time        | 15,000 ms                                 |
+| Max component invocations | 500                                       |
+| Max source size           | 80,000 bytes                              |
+| Max source imports        | 120                                       |
+| Module manifest required  | Yes (for bare specifiers)                 |
+| Module integrity required | No                                        |
+| Spec version required     | Yes                                       |
+| Dynamic imports in source | Disabled                                  |
+| Allowed network hosts     | ga.jspm.io, cdn.jspm.io                   |
+| Arbitrary network         | Disabled                                  |
 
 **Banned source patterns (balanced):** `eval()`, `new Function()`, `fetch()`, `XMLHttpRequest`, `WebSocket`, `importScripts`, `document.cookie`, `localStorage`, `sessionStorage`, `child_process`
 
@@ -70,23 +70,23 @@ Permissive limits for trusted environments, internal tools, and development.
 RENDERIFY_SECURITY_PROFILE=relaxed
 ```
 
-| Policy | Value |
-|--------|-------|
-| Blocked tags | script, iframe, object, embed |
-| Max tree depth | 24 |
-| Max node count | 2,000 |
-| Inline event handlers | Allowed |
-| Max imports | 1,000 |
-| Max execution time | 60,000 ms |
-| Max component invocations | 4,000 |
-| Max source size | 200,000 bytes |
-| Max source imports | 500 |
-| Module manifest required | No |
-| Module integrity required | No |
-| Spec version required | No |
-| Dynamic imports in source | Allowed |
-| Allowed network hosts | ga.jspm.io, cdn.jspm.io, esm.sh, unpkg.com |
-| Arbitrary network | Allowed |
+| Policy                    | Value                                      |
+| ------------------------- | ------------------------------------------ |
+| Blocked tags              | script, iframe, object, embed              |
+| Max tree depth            | 24                                         |
+| Max node count            | 2,000                                      |
+| Inline event handlers     | Allowed                                    |
+| Max imports               | 1,000                                      |
+| Max execution time        | 60,000 ms                                  |
+| Max component invocations | 4,000                                      |
+| Max source size           | 200,000 bytes                              |
+| Max source imports        | 500                                        |
+| Module manifest required  | No                                         |
+| Module integrity required | No                                         |
+| Spec version required     | No                                         |
+| Dynamic imports in source | Allowed                                    |
+| Allowed network hosts     | ga.jspm.io, cdn.jspm.io, esm.sh, unpkg.com |
+| Arbitrary network         | Allowed                                    |
 
 **Banned source patterns (relaxed):** `child_process` only
 
@@ -103,7 +103,9 @@ interface RuntimeSecurityPolicy {
   allowedModules: string[];
   allowedNetworkHosts: string[];
   allowArbitraryNetwork: boolean;
-  allowedExecutionProfiles: Array<"standard" | "isolated-vm" | "sandbox-worker" | "sandbox-iframe">;
+  allowedExecutionProfiles: Array<
+    "standard" | "isolated-vm" | "sandbox-worker" | "sandbox-iframe"
+  >;
   maxTransitionsPerPlan: number;
   maxActionsPerTransition: number;
   maxAllowedImports: number;
@@ -176,8 +178,8 @@ Plan capabilities are validated against policy limits:
 ```json
 {
   "capabilities": {
-    "maxImports": 500,        // Checked against policy maxAllowedImports
-    "maxExecutionMs": 30000,  // Checked against policy maxAllowedExecutionMs
+    "maxImports": 500, // Checked against policy maxAllowedImports
+    "maxExecutionMs": 30000, // Checked against policy maxAllowedExecutionMs
     "maxComponentInvocations": 1000
   }
 }
@@ -213,7 +215,7 @@ In strict profile:
   "moduleManifest": {
     "recharts": {
       "resolvedUrl": "https://ga.jspm.io/npm:recharts@3.3.0/es6/index.js",
-      "integrity": "sha384-abc123..."  // Required in strict mode
+      "integrity": "sha384-abc123..." // Required in strict mode
     }
   }
 }
@@ -272,6 +274,7 @@ RENDERIFY_RUNTIME_JSPM_ONLY_STRICT_MODE=true
 ```
 
 This preset enforces:
+
 - security profile = `strict`
 - module manifest required for bare specifiers
 - integrity required for remote modules
@@ -287,7 +290,9 @@ import type { RuntimePlan } from "@renderify/ir";
 const checker = new DefaultSecurityChecker();
 checker.initialize({ profile: "balanced" });
 
-const plan: RuntimePlan = { /* ... */ };
+const plan: RuntimePlan = {
+  /* ... */
+};
 const result = await checker.checkPlan(plan);
 
 if (!result.safe) {
@@ -302,11 +307,11 @@ console.log(moduleCheck.safe); // false
 
 ## Defense-in-Depth Layers
 
-| Layer | Component | Protection |
-|-------|-----------|------------|
-| 1 | Policy checker | Validates plan structure, capabilities, modules, source |
-| 2 | Runtime budgets | Enforces import count, execution time, component limits |
-| 3 | Module resolver | Rejects Node.js builtins, file:// URLs, unknown schemes |
-| 4 | Source analysis | Static pattern matching for dangerous APIs |
-| 5 | UI renderer | XSS sanitization, attribute filtering, URL validation |
-| 6 | Sandbox | Optional Worker/iframe isolation for untrusted source |
+| Layer | Component       | Protection                                              |
+| ----- | --------------- | ------------------------------------------------------- |
+| 1     | Policy checker  | Validates plan structure, capabilities, modules, source |
+| 2     | Runtime budgets | Enforces import count, execution time, component limits |
+| 3     | Module resolver | Rejects Node.js builtins, file:// URLs, unknown schemes |
+| 4     | Source analysis | Static pattern matching for dangerous APIs              |
+| 5     | UI renderer     | XSS sanitization, attribute filtering, URL validation   |
+| 6     | Sandbox         | Optional Worker/iframe isolation for untrusted source   |

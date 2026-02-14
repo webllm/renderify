@@ -182,18 +182,18 @@ pnpm unit
 
 Test files are in `tests/*.test.ts`. Key test areas:
 
-| File | Coverage |
-|------|----------|
-| `core.test.ts` | RenderifyApp orchestration, streaming, abort |
-| `ir.test.ts` | Node types, validation, path utilities, hashing |
-| `runtime.test.ts` | Execution, modules, sandboxing, preflight |
-| `security.test.ts` | Policy profiles, tag blocking, source analysis |
-| `codegen.test.ts` | Plan generation, TSX extraction, streaming |
-| `config.test.ts` | Environment variables, defaults |
-| `llm.test.ts` | OpenAI, Anthropic, Google providers |
-| `ui.test.ts` | HTML rendering, XSS protection |
-| `runtime-utils.test.ts` | Budget enforcement, template interpolation |
-| `runtime-jspm.test.ts` | Module resolution, compatibility |
+| File                    | Coverage                                        |
+| ----------------------- | ----------------------------------------------- |
+| `core.test.ts`          | RenderifyApp orchestration, streaming, abort    |
+| `ir.test.ts`            | Node types, validation, path utilities, hashing |
+| `runtime.test.ts`       | Execution, modules, sandboxing, preflight       |
+| `security.test.ts`      | Policy profiles, tag blocking, source analysis  |
+| `codegen.test.ts`       | Plan generation, TSX extraction, streaming      |
+| `config.test.ts`        | Environment variables, defaults                 |
+| `llm.test.ts`           | OpenAI, Anthropic, Google providers             |
+| `ui.test.ts`            | HTML rendering, XSS protection                  |
+| `runtime-utils.test.ts` | Budget enforcement, template interpolation      |
+| `runtime-jspm.test.ts`  | Module resolution, compatibility                |
 
 ### E2E Tests
 
@@ -204,6 +204,7 @@ pnpm e2e
 ```
 
 E2E tests cover:
+
 - CLI commands (render-plan, probe-plan, plan)
 - Playground API endpoints
 - LLM provider integration (with fake servers)
@@ -216,6 +217,7 @@ pnpm bench
 ```
 
 Benchmarks use [tinybench](https://github.com/tinylibs/tinybench) and measure:
+
 - Code generation throughput
 - Plan execution performance
 - Compilation speed
