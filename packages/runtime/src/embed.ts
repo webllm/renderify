@@ -2,6 +2,7 @@ import type { RuntimePlan } from "@renderify/ir";
 import { DefaultSecurityChecker } from "@renderify/security";
 import { JspmModuleLoader } from "./jspm-module-loader";
 import { DefaultRuntimeManager } from "./manager";
+import { autoPinRuntimePlanModuleManifest } from "./module-manifest-autopin";
 import {
   type RuntimeEmbedRenderOptions,
   type RuntimeEmbedRenderResult,
@@ -17,10 +18,14 @@ export async function renderPlanInBrowser(
 ): Promise<RuntimeEmbedRenderResult> {
   const renderOperation = async (): Promise<RuntimeEmbedRenderResult> => {
     const ui = options.ui ?? new DefaultUIRenderer();
+    const moduleLoader =
+      options.autoPinModuleLoader ??
+      options.runtimeOptions?.moduleLoader ??
+      new JspmModuleLoader();
     const runtime =
       options.runtime ??
       new DefaultRuntimeManager({
-        moduleLoader: new JspmModuleLoader(),
+        moduleLoader,
         ...(options.runtimeOptions ?? {}),
       });
     const security = options.security ?? new DefaultSecurityChecker();
@@ -37,13 +42,20 @@ export async function renderPlanInBrowser(
     }
 
     try {
-      const securityResult = await security.checkPlan(plan);
+      const planForExecution = await autoPinRuntimePlanModuleManifest(plan, {
+        enabled: options.autoPinLatestModuleManifest !== false,
+        moduleLoader,
+        fetchTimeoutMs: options.autoPinFetchTimeoutMs,
+        signal: options.signal,
+      });
+
+      const securityResult = await security.checkPlan(planForExecution);
       if (!securityResult.safe) {
         throw new RuntimeSecurityViolationError(securityResult);
       }
 
       const execution = await runtime.execute({
-        plan,
+        plan: planForExecution,
         context: options.context,
         signal: options.signal,
       });

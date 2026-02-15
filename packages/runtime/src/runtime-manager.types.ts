@@ -108,6 +108,9 @@ export interface RuntimeEmbedRenderOptions {
   autoInitializeRuntime?: boolean;
   autoTerminateRuntime?: boolean;
   serializeTargetRenders?: boolean;
+  autoPinLatestModuleManifest?: boolean;
+  autoPinModuleLoader?: RuntimeModuleLoader;
+  autoPinFetchTimeoutMs?: number;
 }
 
 export interface RuntimeEmbedRenderResult {

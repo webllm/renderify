@@ -68,6 +68,8 @@ console.log(result.html);
 
 ### Renderer-only TSX + Dependency Package (JSPM)
 
+`renderPlanInBrowser` defaults to `auto-pin-latest`, so bare imports work out of the box:
+
 ```ts
 import { renderPlanInBrowser } from "renderify";
 
@@ -85,7 +87,7 @@ const tsxPlan = {
     language: "tsx",
     runtime: "renderify",
     code: `
-      import { format } from "https://ga.jspm.io/npm:date-fns@4.1.0/format.js";
+      import { format } from "date-fns/format";
 
       export default function App() {
         return <section>Today: {format(new Date(), "yyyy-MM-dd")}</section>;
@@ -95,6 +97,25 @@ const tsxPlan = {
 };
 
 await renderPlanInBrowser(tsxPlan, { target: "#app" });
+```
+
+For production determinism, prefer `manifest-only` (explicit pinned versions) and disable auto-pin:
+
+```ts
+const pinnedPlan = {
+  ...tsxPlan,
+  moduleManifest: {
+    "date-fns/format": {
+      resolvedUrl: "https://ga.jspm.io/npm:date-fns@4.1.0/format.js",
+      version: "4.1.0",
+    },
+  },
+};
+
+await renderPlanInBrowser(pinnedPlan, {
+  target: "#app",
+  autoPinLatestModuleManifest: false,
+});
 ```
 
 ## One-shot Prompt Rendering
@@ -125,5 +146,6 @@ console.log(result.html);
 
 ## Notes
 
+- Default browser embedding behavior is `auto-pin-latest` for bare source imports; use `manifest-only` for production-grade deterministic deployments.
 - Node.js `>=22` is required.
 - For advanced split-package usage, you can still import `@renderify/core`, `@renderify/runtime`, `@renderify/security`, `@renderify/llm`, and `@renderify/ir` directly.

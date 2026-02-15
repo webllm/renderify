@@ -32,6 +32,7 @@ LLM output (JSX/TSX or structured plan)
 
 - **Zero-build rendering**: LLM-generated JSX/TSX runs directly in the browser via `@babel/standalone` + JSPM CDN. No backend build server, no deploy step, no server round-trip.
 - **JSPM package support (tiered contract)**: Compatibility aliases (`preact`/`react` bridge, `recharts`) are guaranteed; pure browser ESM packages (for example `lodash-es`, `date-fns`, `@mui/material`) are best-effort. Node.js builtins and unsupported schemes are rejected deterministically.
+- **Default auto-pin-latest for bare imports**: `renderPlanInBrowser` automatically resolves bare source imports (for example `import { format } from "date-fns"`) through JSPM latest and injects pinned `moduleManifest` entries before policy check and execution.
 - **Security-first execution**: Every plan passes through a policy checker (blocked tags, module allowlists, tree depth limits, execution budgets) _before_ any code runs. Three built-in profiles: `strict`, `balanced`, `relaxed`.
 - **JSPM-only strict preset**: Set `RENDERIFY_RUNTIME_JSPM_ONLY_STRICT_MODE=true` to force strict profile + manifest/integrity enforcement + preflight fail-fast + no fallback CDNs.
 - **Dual input paths**: Accepts both structured JSON RuntimePlans (for precise LLM structured output) and raw TSX/JSX code blocks (for natural LLM text generation).
@@ -257,6 +258,8 @@ await renderPlanInBrowser(plan, { target: "#mount" });
 
 ### Renderer-only TSX + Dependency Package (JSPM)
 
+`renderPlanInBrowser` defaults to `auto-pin-latest`, so bare imports work out of the box:
+
 ```ts
 import { renderPlanInBrowser } from "renderify";
 
@@ -274,7 +277,7 @@ const tsxPlan = {
     language: "tsx",
     runtime: "renderify",
     code: `
-      import { format } from "https://ga.jspm.io/npm:date-fns@4.1.0/format.js";
+      import { format } from "date-fns/format";
 
       export default function App() {
         return <section>Today: {format(new Date(), "yyyy-MM-dd")}</section>;
@@ -284,6 +287,25 @@ const tsxPlan = {
 };
 
 await renderPlanInBrowser(tsxPlan, { target: "#mount" });
+```
+
+For production determinism, prefer `manifest-only` (explicit pinned versions) and disable auto-pin:
+
+```ts
+const pinnedPlan = {
+  ...tsxPlan,
+  moduleManifest: {
+    "date-fns/format": {
+      resolvedUrl: "https://ga.jspm.io/npm:date-fns@4.1.0/format.js",
+      version: "4.1.0",
+    },
+  },
+};
+
+await renderPlanInBrowser(pinnedPlan, {
+  target: "#mount",
+  autoPinLatestModuleManifest: false,
+});
 ```
 
 ## Package Topology
