@@ -35,6 +35,7 @@ LLM output (JSX/TSX or structured plan)
 - **Security-first execution**: Every plan passes through a policy checker (blocked tags, module allowlists, tree depth limits, execution budgets) _before_ any code runs. Three built-in profiles: `strict`, `balanced`, `relaxed`.
 - **JSPM-only strict preset**: Set `RENDERIFY_RUNTIME_JSPM_ONLY_STRICT_MODE=true` to force strict profile + manifest/integrity enforcement + preflight fail-fast + no fallback CDNs.
 - **Dual input paths**: Accepts both structured JSON RuntimePlans (for precise LLM structured output) and raw TSX/JSX code blocks (for natural LLM text generation).
+- **LLM is optional**: You can use Renderify as a renderer-only runtime by supplying RuntimePlan/source from your own backend or model pipeline.
 - **Streaming-first rendering**: `renderPromptStream` emits `llm-delta` / `preview` / `final` chunks so chat UIs can progressively render.
 - **Pluggable at every stage**: 10 hook points (`beforeLLM`, `afterCodeGen`, `beforeRender`, etc.) let you inject custom logic without forking the core.
 
@@ -228,6 +229,28 @@ import { renderPlanInBrowser } from "@renderify/runtime";
 import type { RuntimePlan } from "@renderify/ir";
 
 const plan: RuntimePlan = /* LLM generated RuntimePlan */;
+
+await renderPlanInBrowser(plan, { target: "#mount" });
+```
+
+## Renderer-only Usage (No Built-in LLM)
+
+You can skip `@renderify/llm` entirely and pass plans from any external source (your backend, another SDK, or a different model provider):
+
+```ts
+import { renderPlanInBrowser } from "renderify";
+
+const plan = {
+  specVersion: "runtime-plan/v1",
+  id: "renderer_only_demo",
+  version: 1,
+  root: {
+    type: "element",
+    tag: "div",
+    children: [{ type: "text", value: "Hello from BYO plan" }],
+  },
+  capabilities: { domWrite: true },
+};
 
 await renderPlanInBrowser(plan, { target: "#mount" });
 ```

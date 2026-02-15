@@ -39,6 +39,33 @@ console.log(result.html);
 await app.stop();
 ```
 
+## Renderer-only (BYO LLM/Backend)
+
+You do not need to use the built-in LLM providers. A common integration is to generate RuntimePlan externally and only use `renderify` for execution/rendering:
+
+```ts
+import { renderPlanInBrowser, renderPlanOnce } from "renderify";
+
+const plan = {
+  specVersion: "runtime-plan/v1",
+  id: "renderer_only",
+  version: 1,
+  root: {
+    type: "element",
+    tag: "section",
+    children: [{ type: "text", value: "Hello from external plan" }],
+  },
+  capabilities: { domWrite: true },
+};
+
+// Browser mount
+await renderPlanInBrowser(plan, { target: "#app" });
+
+// Optional one-shot execution in app orchestration flow
+const result = await renderPlanOnce(plan);
+console.log(result.html);
+```
+
 ## One-shot Prompt Rendering
 
 ```ts
