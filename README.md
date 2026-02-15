@@ -308,6 +308,14 @@ await renderPlanInBrowser(pinnedPlan, {
 });
 ```
 
+Auto-pin-latest workflow (`renderPlanInBrowser` default):
+
+1. Write bare imports for DX, for example `import { format } from "date-fns/format"`.
+2. On first run, Renderify resolves the bare specifier via JSPM latest metadata.
+3. Renderify immediately pins and injects the exact resolved URL/version into `moduleManifest`, then executes with pinned resolution.
+
+Use `manifest-only` in production (`autoPinLatestModuleManifest: false`) when you want fully pre-pinned, reviewable dependency mappings.
+
 ## Package Topology
 
 | Package               | Responsibility                                                   |
