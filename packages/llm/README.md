@@ -6,7 +6,7 @@
 
 LLM provider implementations and registry for Renderify.
 
-`@renderify/llm` provides built-in interpreters for OpenAI, Anthropic, and Google, plus a provider registry API for custom providers.
+`@renderify/llm` provides built-in interpreters for OpenAI, Anthropic, Google, Ollama, and LM Studio, plus a provider registry API for custom providers.
 
 ## Install
 
@@ -18,9 +18,11 @@ npm i @renderify/llm
 
 ## Built-in Providers
 
-- `OpenAILLMInterpreter`
-- `AnthropicLLMInterpreter`
-- `GoogleLLMInterpreter`
+- `OpenAILLMInterpreter` (`provider: "openai"`)
+- `AnthropicLLMInterpreter` (`provider: "anthropic"`)
+- `GoogleLLMInterpreter` (`provider: "google"`)
+- `OllamaLLMInterpreter` (`provider: "ollama"`)
+- `LMStudioLLMInterpreter` (`provider: "lmstudio"`)
 
 ## Factory API
 
@@ -47,6 +49,28 @@ const response = await llm.generateResponse({
 });
 
 console.log(response.text);
+```
+
+## Local Models Example
+
+```ts
+import { createLLMInterpreter } from "@renderify/llm";
+
+const ollama = createLLMInterpreter({
+  provider: "ollama",
+  providerOptions: {
+    baseUrl: "http://127.0.0.1:11434",
+    model: "qwen2.5-coder:7b",
+  },
+});
+
+const lmstudio = createLLMInterpreter({
+  provider: "lmstudio",
+  providerOptions: {
+    baseUrl: "http://127.0.0.1:1234/v1",
+    model: "qwen2.5-coder-7b-instruct",
+  },
+});
 ```
 
 ## Custom Provider

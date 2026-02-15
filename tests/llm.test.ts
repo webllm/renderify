@@ -6,6 +6,8 @@ import {
   createDefaultLLMProviderRegistry,
   createLLMInterpreter,
   GoogleLLMInterpreter,
+  LMStudioLLMInterpreter,
+  OllamaLLMInterpreter,
   OpenAILLMInterpreter,
 } from "../packages/llm/src/index";
 
@@ -627,6 +629,96 @@ test("google interpreter validates structured runtime plan response", async () =
   assert.deepEqual(response.value, plan);
 });
 
+test("ollama interpreter generates text response", async () => {
+  const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+
+  const llm = new OllamaLLMInterpreter({
+    baseUrl: "https://example.ollama.test",
+    model: "qwen2.5-coder:7b",
+    fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: parseBody(init?.body),
+      });
+
+      return jsonResponse({
+        model: "qwen2.5-coder:7b",
+        response: "ollama text response",
+        prompt_eval_count: 5,
+        eval_count: 8,
+        done: true,
+        done_reason: "stop",
+      });
+    },
+  });
+
+  const response = await llm.generateResponse({
+    prompt: "build runtime card",
+  });
+
+  assert.equal(response.text, "ollama text response");
+  assert.equal(response.model, "qwen2.5-coder:7b");
+  assert.equal(response.tokensUsed, 13);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, "https://example.ollama.test/api/generate");
+  assert.equal(requests[0].body.model, "qwen2.5-coder:7b");
+  assert.equal(requests[0].body.stream, false);
+});
+
+test("ollama interpreter streams text response chunks", async () => {
+  const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+
+  const llm = new OllamaLLMInterpreter({
+    baseUrl: "https://example.ollama.test",
+    model: "qwen2.5-coder:7b",
+    fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: parseBody(init?.body),
+      });
+
+      return ndjsonResponse([
+        {
+          model: "qwen2.5-coder:7b",
+          response: "hello ",
+          done: false,
+        },
+        {
+          model: "qwen2.5-coder:7b",
+          response: "ollama",
+          done: false,
+        },
+        {
+          model: "qwen2.5-coder:7b",
+          done: true,
+          done_reason: "stop",
+          prompt_eval_count: 10,
+          eval_count: 7,
+        },
+      ]);
+    },
+  });
+
+  const chunks = [];
+  for await (const chunk of llm.generateResponseStream({
+    prompt: "stream this",
+  })) {
+    chunks.push(chunk);
+  }
+
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, "https://example.ollama.test/api/generate");
+  assert.equal(requests[0].body.stream, true);
+  assert.equal(chunks.length, 3);
+  assert.equal(chunks[0].delta, "hello ");
+  assert.equal(chunks[0].text, "hello ");
+  assert.equal(chunks[1].delta, "ollama");
+  assert.equal(chunks[1].text, "hello ollama");
+  assert.equal(chunks[2].done, true);
+  assert.equal(chunks[2].text, "hello ollama");
+  assert.equal(chunks[2].tokensUsed, 17);
+});
+
 test("llm provider registry can create builtin openai interpreter", async () => {
   const llm = createLLMInterpreter({
     provider: "openai",
@@ -699,6 +791,62 @@ test("llm provider registry can create builtin google interpreter", async () => 
   assert.equal(response.text, "ok-google");
 });
 
+test("llm provider registry can create builtin ollama interpreter", async () => {
+  const llm = createLLMInterpreter({
+    provider: "ollama",
+    providerOptions: {
+      baseUrl: "https://example.ollama.test",
+      fetchImpl: async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        jsonResponse({
+          model: "qwen2.5-coder:7b",
+          response: "ok-ollama",
+          done: true,
+        }),
+    },
+  });
+
+  assert.ok(llm instanceof OllamaLLMInterpreter);
+  const response = await llm.generateResponse({
+    prompt: "test provider",
+  });
+  assert.equal(response.text, "ok-ollama");
+});
+
+test("llm provider registry can create builtin lmstudio interpreter", async () => {
+  const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+
+  const llm = createLLMInterpreter({
+    provider: "lmstudio",
+    providerOptions: {
+      baseUrl: "https://example.lmstudio.test/v1",
+      fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
+        requests.push({
+          url: String(input),
+          body: parseBody(init?.body),
+        });
+
+        return jsonResponse({
+          id: "chatcmpl_provider_lmstudio",
+          model: "qwen2.5-coder-7b-instruct",
+          choices: [{ message: { content: "ok-lmstudio" } }],
+        });
+      },
+    },
+  });
+
+  assert.ok(llm instanceof LMStudioLLMInterpreter);
+  const response = await llm.generateResponse({
+    prompt: "test provider",
+  });
+
+  assert.equal(response.text, "ok-lmstudio");
+  assert.equal(requests.length, 1);
+  assert.equal(
+    requests[0].url,
+    "https://example.lmstudio.test/v1/chat/completions",
+  );
+});
+
 test("llm provider registry supports custom provider registration", async () => {
   class DemoLLMInterpreter implements LLMInterpreter {
     configure(): void {}
@@ -753,6 +901,27 @@ function jsonResponse(payload: unknown): Response {
       "content-type": "application/json",
     },
   });
+}
+
+function ndjsonResponse(payloads: unknown[]): Response {
+  const encoder = new TextEncoder();
+
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const payload of payloads) {
+          controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
+        }
+        controller.close();
+      },
+    }),
+    {
+      status: 200,
+      headers: {
+        "content-type": "application/x-ndjson",
+      },
+    },
+  );
 }
 
 function sseResponse(lines: string[]): Response {

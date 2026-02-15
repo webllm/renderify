@@ -8,6 +8,14 @@ import {
   type GoogleLLMInterpreterOptions,
 } from "./providers/google";
 import {
+  LMStudioLLMInterpreter,
+  type LMStudioLLMInterpreterOptions,
+} from "./providers/lmstudio";
+import {
+  OllamaLLMInterpreter,
+  type OllamaLLMInterpreterOptions,
+} from "./providers/ollama";
+import {
   OpenAILLMInterpreter,
   type OpenAILLMInterpreterOptions,
 } from "./providers/openai";
@@ -37,6 +45,18 @@ export const googleLLMProvider: LLMProviderDefinition<GoogleLLMInterpreterOption
   {
     name: "google",
     create: (options) => new GoogleLLMInterpreter(options),
+  };
+
+export const ollamaLLMProvider: LLMProviderDefinition<OllamaLLMInterpreterOptions> =
+  {
+    name: "ollama",
+    create: (options) => new OllamaLLMInterpreter(options),
+  };
+
+export const lmstudioLLMProvider: LLMProviderDefinition<LMStudioLLMInterpreterOptions> =
+  {
+    name: "lmstudio",
+    create: (options) => new LMStudioLLMInterpreter(options),
   };
 
 export class LLMProviderRegistry {
@@ -86,6 +106,8 @@ export function createDefaultLLMProviderRegistry(): LLMProviderRegistry {
   const registry = new LLMProviderRegistry();
   registry.register(anthropicLLMProvider);
   registry.register(googleLLMProvider);
+  registry.register(lmstudioLLMProvider);
+  registry.register(ollamaLLMProvider);
   registry.register(openaiLLMProvider);
   return registry;
 }
