@@ -1,5 +1,8 @@
 import type { JsonValue } from "@renderify/ir";
 import type { RuntimeSourceSandboxMode } from "./runtime-manager.types";
+import { buildIframeSandboxSrcdoc } from "./sandbox-iframe-source";
+import { buildShadowRealmBridgeSource } from "./sandbox-shadowrealm-bridge-source";
+import { WORKER_SANDBOX_SOURCE } from "./sandbox-worker-source";
 
 export interface RuntimeSandboxResult {
   mode: RuntimeSourceSandboxMode;
@@ -96,63 +99,8 @@ async function executeSourceInWorkerSandbox(
     throw new Error("Worker sandbox is unavailable in this runtime");
   }
 
-  const workerSource = [
-    "const CHANNEL = 'runtime-source';",
-    "self.onmessage = async (event) => {",
-    "  const request = event.data;",
-    "  if (!request || request.renderifySandbox !== CHANNEL) {",
-    "    return;",
-    "  }",
-    "  const safeSend = (payload) => {",
-    "    try {",
-    "      self.postMessage({ renderifySandbox: CHANNEL, id: request.id, ...payload });",
-    "      return true;",
-    "    } catch (postError) {",
-    "      try {",
-    "        const postMessageError = postError && typeof postError === 'object' && 'message' in postError",
-    "          ? String(postError.message)",
-    "          : String(postError);",
-    "        self.postMessage({",
-    "          renderifySandbox: CHANNEL,",
-    "          id: request.id,",
-    "          ok: false,",
-    "          error: `Sandbox response is not serializable: ${postMessageError}`,",
-    "        });",
-    "      } catch {",
-    "        // Ignore terminal postMessage failures.",
-    "      }",
-    "      return false;",
-    "    }",
-    "  };",
-    "  try {",
-    "    const moduleUrl = URL.createObjectURL(new Blob([String(request.code ?? '')], { type: 'text/javascript' }));",
-    "    try {",
-    "      const namespace = await import(moduleUrl);",
-    "      const exportName = typeof request.exportName === 'string' && request.exportName.trim().length > 0",
-    "        ? request.exportName.trim()",
-    "        : 'default';",
-    "      const selected = namespace[exportName];",
-    "      if (selected === undefined) {",
-    '        throw new Error(`Runtime source export "${exportName}" is missing`);',
-    "      }",
-    "      const output = typeof selected === 'function'",
-    "        ? await selected(request.runtimeInput ?? {})",
-    "        : selected;",
-    "      safeSend({ ok: true, output });",
-    "    } finally {",
-    "      URL.revokeObjectURL(moduleUrl);",
-    "    }",
-    "  } catch (error) {",
-    "    const message = error && typeof error === 'object' && 'message' in error",
-    "      ? String(error.message)",
-    "      : String(error);",
-    "    safeSend({ ok: false, error: message });",
-    "  }",
-    "};",
-  ].join("\n");
-
   const workerUrl = URL.createObjectURL(
-    new Blob([workerSource], {
+    new Blob([WORKER_SANDBOX_SOURCE], {
       type: "text/javascript",
     }),
   );
@@ -262,63 +210,7 @@ async function executeSourceInIframeSandbox(
 
   const channel = `renderify-runtime-source-${options.request.id}`;
   const channelLiteral = JSON.stringify(channel);
-
-  iframe.srcdoc = [
-    "<!doctype html><html><body><script>",
-    `const CHANNEL = ${channelLiteral};`,
-    "window.addEventListener('message', async (event) => {",
-    "  const data = event.data;",
-    "  if (!data || data.channel !== CHANNEL) {",
-    "    return;",
-    "  }",
-    "  const request = data.request || {};",
-    "  const safeSend = (payload) => {",
-    "    try {",
-    "      parent.postMessage({ channel: CHANNEL, ...payload }, '*');",
-    "      return true;",
-    "    } catch (postError) {",
-    "      try {",
-    "        const postMessageError = postError && typeof postError === 'object' && 'message' in postError",
-    "          ? String(postError.message)",
-    "          : String(postError);",
-    "        parent.postMessage({",
-    "          channel: CHANNEL,",
-    "          ok: false,",
-    "          error: `Sandbox response is not serializable: ${postMessageError}`,",
-    "        }, '*');",
-    "      } catch {",
-    "        // Ignore terminal postMessage failures.",
-    "      }",
-    "      return false;",
-    "    }",
-    "  };",
-    "  try {",
-    "    const moduleUrl = URL.createObjectURL(new Blob([String(request.code ?? '')], { type: 'text/javascript' }));",
-    "    try {",
-    "      const namespace = await import(moduleUrl);",
-    "      const exportName = typeof request.exportName === 'string' && request.exportName.trim().length > 0",
-    "        ? request.exportName.trim()",
-    "        : 'default';",
-    "      const selected = namespace[exportName];",
-    "      if (selected === undefined) {",
-    '        throw new Error(`Runtime source export "${exportName}" is missing`);',
-    "      }",
-    "      const output = typeof selected === 'function'",
-    "        ? await selected(request.runtimeInput ?? {})",
-    "        : selected;",
-    "      safeSend({ ok: true, output });",
-    "    } finally {",
-    "      URL.revokeObjectURL(moduleUrl);",
-    "    }",
-    "  } catch (error) {",
-    "    const message = error && typeof error === 'object' && 'message' in error",
-    "      ? String(error.message)",
-    "      : String(error);",
-    "    safeSend({ ok: false, error: message });",
-    "  }",
-    "});",
-    "</script></body></html>",
-  ].join("");
+  iframe.srcdoc = buildIframeSandboxSrcdoc(channelLiteral);
 
   document.body.appendChild(iframe);
 
@@ -421,36 +313,7 @@ async function executeSourceInShadowRealmSandbox(
     }),
   );
 
-  const bridgeCode = [
-    `import * as __renderify_ns from ${JSON.stringify(moduleUrl)};`,
-    "function __renderify_message(error) {",
-    "  return error && typeof error === 'object' && 'message' in error",
-    "    ? String(error.message)",
-    "    : String(error);",
-    "}",
-    "export async function __renderify_run(serializedRuntimeInput, exportName) {",
-    "  try {",
-    "    const selectedExportName =",
-    "      typeof exportName === 'string' && exportName.trim().length > 0",
-    "        ? exportName.trim()",
-    "        : 'default';",
-    "    const selected = __renderify_ns[selectedExportName];",
-    "    if (selected === undefined) {",
-    '      throw new Error(`Runtime source export \\"${selectedExportName}\\" is missing`);',
-    "    }",
-    "    const runtimeInput =",
-    "      typeof serializedRuntimeInput === 'string' && serializedRuntimeInput.length > 0",
-    "        ? JSON.parse(serializedRuntimeInput)",
-    "        : {};",
-    "    const output = typeof selected === 'function'",
-    "      ? await selected(runtimeInput)",
-    "      : selected;",
-    "    return JSON.stringify({ ok: true, output });",
-    "  } catch (error) {",
-    "    return JSON.stringify({ ok: false, error: __renderify_message(error) });",
-    "  }",
-    "}",
-  ].join("\n");
+  const bridgeCode = buildShadowRealmBridgeSource(moduleUrl);
 
   const bridgeUrl = URL.createObjectURL(
     new Blob([bridgeCode], {
