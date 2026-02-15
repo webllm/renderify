@@ -124,9 +124,9 @@ async function main() {
     remoteFallbackCdnBases: config.get<string[]>(
       "runtimeRemoteFallbackCdnBases",
     ) ?? ["https://esm.sh"],
-    browserSourceSandboxMode: config.get<"none" | "worker" | "iframe">(
-      "runtimeBrowserSourceSandboxMode",
-    ),
+    browserSourceSandboxMode: config.get<
+      "none" | "worker" | "iframe" | "shadowrealm"
+    >("runtimeBrowserSourceSandboxMode"),
     browserSourceSandboxTimeoutMs:
       config.get<number>("runtimeBrowserSourceSandboxTimeoutMs") ?? 4000,
     browserSourceSandboxFailClosed:

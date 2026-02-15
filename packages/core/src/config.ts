@@ -28,7 +28,7 @@ export interface RenderifyConfigValues {
   runtimeRemoteFetchRetries: number;
   runtimeRemoteFetchBackoffMs: number;
   runtimeRemoteFallbackCdnBases: string[];
-  runtimeBrowserSourceSandboxMode: "none" | "worker" | "iframe";
+  runtimeBrowserSourceSandboxMode: "none" | "worker" | "iframe" | "shadowrealm";
   runtimeBrowserSourceSandboxTimeoutMs: number;
   runtimeBrowserSourceSandboxFailClosed: boolean;
   [key: string]: unknown;
@@ -311,8 +311,13 @@ function parseCsvValues(
 
 function parseSourceSandboxMode(
   value: string | undefined,
-): "none" | "worker" | "iframe" {
-  if (value === "none" || value === "worker" || value === "iframe") {
+): "none" | "worker" | "iframe" | "shadowrealm" {
+  if (
+    value === "none" ||
+    value === "worker" ||
+    value === "iframe" ||
+    value === "shadowrealm"
+  ) {
     return value;
   }
 

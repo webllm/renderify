@@ -22,6 +22,18 @@ interface RuntimeSandboxResponse {
   error?: string;
 }
 
+interface ShadowRealmLike {
+  importValue(specifier: string, bindingName: string): Promise<unknown>;
+}
+
+type ShadowRealmConstructor = new () => ShadowRealmLike;
+
+interface ShadowRealmExecutionPayload {
+  ok: boolean;
+  output?: unknown;
+  error?: string;
+}
+
 export interface RuntimeSandboxExecutionOptions {
   mode: RuntimeSourceSandboxMode;
   request: RuntimeSandboxRequest;
@@ -56,6 +68,21 @@ export async function executeSourceInBrowserSandbox(
     }
     throw new Error(
       "Iframe sandbox is unavailable and worker fallback is unavailable in this runtime",
+    );
+  }
+
+  if (options.mode === "shadowrealm") {
+    if (isShadowRealmSandboxAvailable()) {
+      return executeSourceInShadowRealmSandbox(options);
+    }
+    if (isWorkerSandboxAvailable()) {
+      return executeSourceInWorkerSandbox(options);
+    }
+    if (isIframeSandboxAvailable()) {
+      return executeSourceInIframeSandbox(options);
+    }
+    throw new Error(
+      "ShadowRealm sandbox is unavailable and no browser sandbox fallback is available",
     );
   }
 
@@ -380,6 +407,182 @@ async function executeSourceInIframeSandbox(
   });
 }
 
+async function executeSourceInShadowRealmSandbox(
+  options: RuntimeSandboxExecutionOptions,
+): Promise<RuntimeSandboxResult> {
+  const ShadowRealmCtor = getShadowRealmConstructor();
+  if (!ShadowRealmCtor || !hasRuntimeModuleBlobSupport()) {
+    throw new Error("ShadowRealm sandbox is unavailable in this runtime");
+  }
+
+  const moduleUrl = URL.createObjectURL(
+    new Blob([String(options.request.code ?? "")], {
+      type: "text/javascript",
+    }),
+  );
+
+  const bridgeCode = [
+    `import * as __renderify_ns from ${JSON.stringify(moduleUrl)};`,
+    "function __renderify_message(error) {",
+    "  return error && typeof error === 'object' && 'message' in error",
+    "    ? String(error.message)",
+    "    : String(error);",
+    "}",
+    "export async function __renderify_run(serializedRuntimeInput, exportName) {",
+    "  try {",
+    "    const selectedExportName =",
+    "      typeof exportName === 'string' && exportName.trim().length > 0",
+    "        ? exportName.trim()",
+    "        : 'default';",
+    "    const selected = __renderify_ns[selectedExportName];",
+    "    if (selected === undefined) {",
+    '      throw new Error(`Runtime source export \\"${selectedExportName}\\" is missing`);',
+    "    }",
+    "    const runtimeInput =",
+    "      typeof serializedRuntimeInput === 'string' && serializedRuntimeInput.length > 0",
+    "        ? JSON.parse(serializedRuntimeInput)",
+    "        : {};",
+    "    const output = typeof selected === 'function'",
+    "      ? await selected(runtimeInput)",
+    "      : selected;",
+    "    return JSON.stringify({ ok: true, output });",
+    "  } catch (error) {",
+    "    return JSON.stringify({ ok: false, error: __renderify_message(error) });",
+    "  }",
+    "}",
+  ].join("\n");
+
+  const bridgeUrl = URL.createObjectURL(
+    new Blob([bridgeCode], {
+      type: "text/javascript",
+    }),
+  );
+
+  try {
+    return withSandboxTimeoutAndAbort({
+      timeoutMs: options.timeoutMs,
+      signal: options.signal,
+      timeoutMessage: "ShadowRealm sandbox timed out",
+      abortMessage: "ShadowRealm sandbox execution aborted",
+      operation: async () => {
+        const realm = new ShadowRealmCtor();
+        const imported = await realm.importValue(bridgeUrl, "__renderify_run");
+        if (typeof imported !== "function") {
+          throw new Error(
+            'ShadowRealm bridge export "__renderify_run" is not callable',
+          );
+        }
+
+        const run = imported as (
+          serializedRuntimeInput: string,
+          exportName: string,
+        ) => Promise<unknown>;
+        const serializedRuntimeInput = JSON.stringify(
+          options.request.runtimeInput ?? {},
+        );
+        const payload = parseShadowRealmExecutionPayload(
+          await run(serializedRuntimeInput, options.request.exportName),
+        );
+
+        if (!payload.ok) {
+          throw new Error(
+            payload.error ?? "ShadowRealm sandbox execution failed",
+          );
+        }
+
+        return {
+          mode: "shadowrealm",
+          output: payload.output,
+        } satisfies RuntimeSandboxResult;
+      },
+    });
+  } finally {
+    URL.revokeObjectURL(bridgeUrl);
+    URL.revokeObjectURL(moduleUrl);
+  }
+}
+
+function parseShadowRealmExecutionPayload(
+  value: unknown,
+): ShadowRealmExecutionPayload {
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value) as ShadowRealmExecutionPayload;
+      if (typeof parsed.ok === "boolean") {
+        return parsed;
+      }
+    } catch {
+      throw new Error("ShadowRealm bridge returned invalid JSON payload");
+    }
+  }
+
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "ok" in value &&
+    typeof (value as { ok?: unknown }).ok === "boolean"
+  ) {
+    return value as ShadowRealmExecutionPayload;
+  }
+
+  throw new Error("ShadowRealm bridge returned an invalid payload shape");
+}
+
+async function withSandboxTimeoutAndAbort<T>(input: {
+  timeoutMs: number;
+  signal?: AbortSignal;
+  timeoutMessage: string;
+  abortMessage: string;
+  operation: () => Promise<T>;
+}): Promise<T> {
+  throwIfAborted(input.signal);
+
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    let onAbort: (() => void) | undefined;
+
+    const cleanup = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      if (input.signal && onAbort) {
+        input.signal.removeEventListener("abort", onAbort);
+      }
+    };
+
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error(input.timeoutMessage));
+    }, input.timeoutMs);
+
+    if (input.signal) {
+      if (input.signal.aborted) {
+        cleanup();
+        reject(createAbortError(input.abortMessage));
+        return;
+      }
+      onAbort = () => {
+        cleanup();
+        reject(createAbortError(input.abortMessage));
+      };
+      input.signal.addEventListener("abort", onAbort, { once: true });
+    }
+
+    input
+      .operation()
+      .then((result) => {
+        cleanup();
+        resolve(result);
+      })
+      .catch((error) => {
+        cleanup();
+        reject(error);
+      });
+  });
+}
+
 function isRuntimeSandboxResponse(
   value: unknown,
   expectedId: string,
@@ -396,9 +599,8 @@ function isRuntimeSandboxResponse(
   );
 }
 
-function isWorkerSandboxAvailable(): boolean {
+function hasRuntimeModuleBlobSupport(): boolean {
   return (
-    typeof Worker === "function" &&
     typeof Blob !== "undefined" &&
     typeof URL !== "undefined" &&
     typeof URL.createObjectURL === "function" &&
@@ -406,14 +608,22 @@ function isWorkerSandboxAvailable(): boolean {
   );
 }
 
+function getShadowRealmConstructor(): ShadowRealmConstructor | undefined {
+  const candidate = (globalThis as { ShadowRealm?: unknown }).ShadowRealm;
+  return typeof candidate === "function"
+    ? (candidate as ShadowRealmConstructor)
+    : undefined;
+}
+
+function isWorkerSandboxAvailable(): boolean {
+  return typeof Worker === "function" && hasRuntimeModuleBlobSupport();
+}
+
 function isIframeSandboxAvailable(): boolean {
   if (
     typeof document === "undefined" ||
     typeof window === "undefined" ||
-    typeof Blob === "undefined" ||
-    typeof URL === "undefined" ||
-    typeof URL.createObjectURL !== "function" ||
-    typeof URL.revokeObjectURL !== "function"
+    !hasRuntimeModuleBlobSupport()
   ) {
     return false;
   }
@@ -427,6 +637,12 @@ function isIframeSandboxAvailable(): boolean {
     typeof candidateDocument.createElement === "function" &&
     candidateBody !== undefined &&
     typeof candidateBody.appendChild === "function"
+  );
+}
+
+function isShadowRealmSandboxAvailable(): boolean {
+  return (
+    getShadowRealmConstructor() !== undefined && hasRuntimeModuleBlobSupport()
   );
 }
 

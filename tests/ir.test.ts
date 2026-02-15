@@ -116,6 +116,16 @@ test("runtime plan/type guards validate structures", () => {
     }),
     false,
   );
+  assert.equal(
+    isRuntimePlan({
+      ...plan,
+      capabilities: {
+        ...plan.capabilities,
+        executionProfile: "sandbox-shadowrealm",
+      },
+    }),
+    true,
+  );
 
   assert.equal(
     isRuntimeSourceModule({

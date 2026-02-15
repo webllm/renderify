@@ -4,7 +4,11 @@ import type {
 } from "@renderify/ir";
 import { BabelRuntimeSourceTranspiler } from "./transpiler";
 
-export type RuntimeSourceSandboxMode = "none" | "worker" | "iframe";
+export type RuntimeSourceSandboxMode =
+  | "none"
+  | "worker"
+  | "iframe"
+  | "shadowrealm";
 
 export interface RuntimeSourceTranspilerLike {
   transpile(input: {
@@ -30,6 +34,10 @@ export function executionProfileToSourceSandboxMode(
 
   if (executionProfile === "sandbox-iframe") {
     return "iframe";
+  }
+
+  if (executionProfile === "sandbox-shadowrealm") {
+    return "shadowrealm";
   }
 
   return undefined;

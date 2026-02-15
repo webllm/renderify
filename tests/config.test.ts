@@ -182,6 +182,25 @@ test("config reads runtime policy values from env", async () => {
   }
 });
 
+test("config reads shadowrealm browser sandbox mode from env", async () => {
+  const previousBrowserSandboxMode =
+    process.env.RENDERIFY_RUNTIME_BROWSER_SANDBOX_MODE;
+
+  process.env.RENDERIFY_RUNTIME_BROWSER_SANDBOX_MODE = "shadowrealm";
+
+  try {
+    const config = new DefaultRenderifyConfig();
+    await config.load();
+
+    assert.equal(config.get("runtimeBrowserSourceSandboxMode"), "shadowrealm");
+  } finally {
+    restoreEnv(
+      "RENDERIFY_RUNTIME_BROWSER_SANDBOX_MODE",
+      previousBrowserSandboxMode,
+    );
+  }
+});
+
 test("config applies jspm-only strict mode from env", async () => {
   const previousMode = process.env.RENDERIFY_RUNTIME_JSPM_ONLY_STRICT_MODE;
   const previousProfile = process.env.RENDERIFY_SECURITY_PROFILE;

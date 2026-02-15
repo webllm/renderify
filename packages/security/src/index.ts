@@ -29,7 +29,11 @@ export interface RuntimeSecurityPolicy {
   allowedNetworkHosts: string[];
   allowArbitraryNetwork: boolean;
   allowedExecutionProfiles: Array<
-    "standard" | "isolated-vm" | "sandbox-worker" | "sandbox-iframe"
+    | "standard"
+    | "isolated-vm"
+    | "sandbox-worker"
+    | "sandbox-iframe"
+    | "sandbox-shadowrealm"
   >;
   maxTransitionsPerPlan: number;
   maxActionsPerTransition: number;
@@ -88,6 +92,7 @@ const SECURITY_PROFILE_POLICIES: Record<
       "isolated-vm",
       "sandbox-worker",
       "sandbox-iframe",
+      "sandbox-shadowrealm",
     ],
     maxTransitionsPerPlan: 40,
     maxActionsPerTransition: 20,
@@ -131,6 +136,7 @@ const SECURITY_PROFILE_POLICIES: Record<
       "isolated-vm",
       "sandbox-worker",
       "sandbox-iframe",
+      "sandbox-shadowrealm",
     ],
     maxTransitionsPerPlan: 100,
     maxActionsPerTransition: 50,
@@ -176,6 +182,7 @@ const SECURITY_PROFILE_POLICIES: Record<
       "isolated-vm",
       "sandbox-worker",
       "sandbox-iframe",
+      "sandbox-shadowrealm",
     ],
     maxTransitionsPerPlan: 400,
     maxActionsPerTransition: 150,

@@ -52,7 +52,7 @@ const runtime = new DefaultRuntimeManager({
   remoteFallbackCdnBases: ["https://esm.sh", "https://cdn.jsdelivr.net"],
 
   // Browser sandbox
-  browserSourceSandboxMode: "worker", // "none" | "worker" | "iframe"
+  browserSourceSandboxMode: "worker", // "none" | "worker" | "iframe" | "shadowrealm"
   browserSourceSandboxTimeoutMs: 4000,
   browserSourceSandboxFailClosed: true,
 });
@@ -186,6 +186,17 @@ RENDERIFY_RUNTIME_BROWSER_SANDBOX_FAIL_CLOSED=true
 ### sandbox-iframe
 
 Source code executes in a sandboxed iframe with restricted permissions. Similar timeout and fail-closed behavior as worker mode.
+
+### sandbox-shadowrealm
+
+Source code executes in a `ShadowRealm` when available. If `ShadowRealm` is unavailable, runtime falls back to Worker and then iframe sandbox modes.
+
+```bash
+RENDERIFY_RUNTIME_BROWSER_SANDBOX_MODE=shadowrealm
+RENDERIFY_RUNTIME_BROWSER_SANDBOX_TIMEOUT_MS=4000
+RENDERIFY_RUNTIME_BROWSER_SANDBOX_FAIL_CLOSED=true
+```
+
 
 ## Execution Budgets
 

@@ -82,7 +82,7 @@ flowchart TD
 - Runtime sandbox profile:
   - `executionProfile: "isolated-vm"` for VM-isolated sync component execution
   - fail-closed by default when isolation runtime is unavailable
-  - browser source sandbox with `sandbox-worker` / `sandbox-iframe` execution profiles
+  - browser source sandbox with `sandbox-worker` / `sandbox-iframe` / `sandbox-shadowrealm` execution profiles
   - runtime-level controls: mode / timeout / fail-closed
 - LLM structured contract:
   - prompt flow prefers structured `runtime-plan` output
@@ -175,7 +175,7 @@ RENDERIFY_RUNTIME_SPEC_VERSIONS=runtime-plan/v1 pnpm playground
 RENDERIFY_RUNTIME_PREFLIGHT=true RENDERIFY_RUNTIME_PREFLIGHT_FAIL_FAST=true pnpm playground
 RENDERIFY_RUNTIME_REMOTE_FETCH_TIMEOUT_MS=12000 RENDERIFY_RUNTIME_REMOTE_FETCH_RETRIES=2 pnpm playground
 RENDERIFY_RUNTIME_REMOTE_FALLBACK_CDNS=https://esm.sh,https://cdn.jsdelivr.net pnpm playground
-RENDERIFY_RUNTIME_BROWSER_SANDBOX_MODE=worker RENDERIFY_RUNTIME_BROWSER_SANDBOX_TIMEOUT_MS=4000 pnpm playground
+RENDERIFY_RUNTIME_BROWSER_SANDBOX_MODE=shadowrealm RENDERIFY_RUNTIME_BROWSER_SANDBOX_TIMEOUT_MS=4000 pnpm playground
 RENDERIFY_RUNTIME_BROWSER_SANDBOX_FAIL_CLOSED=true pnpm playground
 
 # Force text/TSX generation path instead of structured RuntimePlan
@@ -291,10 +291,10 @@ Beyond the end-to-end pipeline, several components have standalone value:
 
 ## Roadmap
 
-**In Progress — Hardened sandbox & isolation**
+**Completed — Hardened sandbox & isolation**
 
-- Web Worker / iframe execution boundary for untrusted runtime source (implemented; continue hardening)
-- ShadowRealm integration when available in browsers
+- Web Worker / iframe execution boundary for untrusted runtime source (implemented)
+- ShadowRealm runtime sandbox integration with automatic fallback to Worker/iframe
 
 **Next — Ecosystem expansion**
 

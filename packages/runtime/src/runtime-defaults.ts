@@ -52,9 +52,14 @@ export function normalizeSupportedSpecVersions(
 }
 
 export function normalizeSourceSandboxMode(
-  mode: "none" | "worker" | "iframe" | undefined,
-): "none" | "worker" | "iframe" {
-  if (mode === "none" || mode === "worker" || mode === "iframe") {
+  mode: "none" | "worker" | "iframe" | "shadowrealm" | undefined,
+): "none" | "worker" | "iframe" | "shadowrealm" {
+  if (
+    mode === "none" ||
+    mode === "worker" ||
+    mode === "iframe" ||
+    mode === "shadowrealm"
+  ) {
     return mode;
   }
 

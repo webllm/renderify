@@ -99,7 +99,8 @@ type RuntimeExecutionProfile =
   | "standard" // Default, in-page execution
   | "isolated-vm" // VM-isolated sync execution
   | "sandbox-worker" // Web Worker sandbox
-  | "sandbox-iframe"; // iframe sandbox
+  | "sandbox-iframe" // iframe sandbox
+  | "sandbox-shadowrealm"; // ShadowRealm sandbox
 ```
 
 ### Execution Budgets

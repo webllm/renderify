@@ -70,7 +70,8 @@ type RuntimeExecutionProfile =
   | "standard"
   | "isolated-vm"
   | "sandbox-worker"
-  | "sandbox-iframe";
+  | "sandbox-iframe"
+  | "sandbox-shadowrealm";
 ```
 
 #### RuntimeStateModel
@@ -350,7 +351,7 @@ interface RuntimeManagerOptions {
   supportedPlanSpecVersions?: string[];
   enforceModuleManifest?: boolean;
   allowIsolationFallback?: boolean;
-  browserSourceSandboxMode?: "none" | "worker" | "iframe";
+  browserSourceSandboxMode?: "none" | "worker" | "iframe" | "shadowrealm";
   browserSourceSandboxTimeoutMs?: number;
   browserSourceSandboxFailClosed?: boolean;
   enableDependencyPreflight?: boolean;

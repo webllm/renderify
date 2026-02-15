@@ -104,7 +104,7 @@ interface RuntimeSecurityPolicy {
   allowedNetworkHosts: string[];
   allowArbitraryNetwork: boolean;
   allowedExecutionProfiles: Array<
-    "standard" | "isolated-vm" | "sandbox-worker" | "sandbox-iframe"
+    "standard" | "isolated-vm" | "sandbox-worker" | "sandbox-iframe" | "sandbox-shadowrealm"
   >;
   maxTransitionsPerPlan: number;
   maxActionsPerTransition: number;
@@ -260,7 +260,7 @@ RENDERIFY_SECURITY_PROFILE=strict|balanced|relaxed
 RENDERIFY_RUNTIME_ENFORCE_MANIFEST=true|false
 
 # Sandbox mode
-RENDERIFY_RUNTIME_BROWSER_SANDBOX_MODE=none|worker|iframe
+RENDERIFY_RUNTIME_BROWSER_SANDBOX_MODE=none|worker|iframe|shadowrealm
 RENDERIFY_RUNTIME_BROWSER_SANDBOX_TIMEOUT_MS=4000
 RENDERIFY_RUNTIME_BROWSER_SANDBOX_FAIL_CLOSED=true|false
 ```

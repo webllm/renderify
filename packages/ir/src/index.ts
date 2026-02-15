@@ -48,7 +48,8 @@ export type RuntimeExecutionProfile =
   | "standard"
   | "isolated-vm"
   | "sandbox-worker"
-  | "sandbox-iframe";
+  | "sandbox-iframe"
+  | "sandbox-shadowrealm";
 
 export const DEFAULT_JSPM_SPECIFIER_OVERRIDES: Readonly<
   Record<string, string>
@@ -381,7 +382,8 @@ export function isRuntimeCapabilities(
     value.executionProfile !== "standard" &&
     value.executionProfile !== "isolated-vm" &&
     value.executionProfile !== "sandbox-worker" &&
-    value.executionProfile !== "sandbox-iframe"
+    value.executionProfile !== "sandbox-iframe" &&
+    value.executionProfile !== "sandbox-shadowrealm"
   ) {
     return false;
   }
