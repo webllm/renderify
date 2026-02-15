@@ -7,6 +7,31 @@
 > LLM generates JSX/TSX → browser renders it directly at runtime — no backend build server, no deploy step, JSPM package support with an explicit compatibility contract.
 > Renderify is a runtime-first dynamic renderer that lets LLMs produce real, interactive UI on the fly. It bridges the gap between "LLM can generate code" and "users can see and interact with that UI instantly" — with inline transpilation via `@babel/standalone`, and no backend compiler/deploy pipeline in the loop.
 
+## 30-Second JSX Example
+
+```tsx
+import { renderPlanInBrowser } from "renderify";
+
+await renderPlanInBrowser(
+  {
+    id: "hello_jsx_runtime",
+    version: 1,
+    root: { type: "text", value: "Loading..." },
+    source: {
+      language: "tsx",
+      code: `import { format } from "date-fns/format"; export default () => <section>Today: {format(new Date(), "yyyy-MM-dd")}</section>;`,
+    },
+  },
+  { target: "#mount" },
+);
+```
+
+Defaults (no extra config):
+
+1. Execute JSX/TSX directly at browser runtime.
+2. Resolve bare imports through JSPM (`auto-pin-latest`).
+3. Pin resolved URLs into `moduleManifest` before execution.
+
 ## The Problem
 
 LLMs are increasingly capable of generating UI code, but **there is no good way to render that output directly in the browser**:
