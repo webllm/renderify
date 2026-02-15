@@ -1,5 +1,9 @@
 # @renderify/core
 
+![Node CI](https://github.com/webllm/renderify/workflows/CI/badge.svg)
+![npm](https://img.shields.io/npm/v/@renderify/core.svg)
+![license](https://img.shields.io/npm/l/@renderify/core)
+
 Core orchestration layer for Renderify.
 
 `@renderify/core` wires together config, context, LLM, code generation, runtime execution, security checks, and UI rendering via `RenderifyApp`.

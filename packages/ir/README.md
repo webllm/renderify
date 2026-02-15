@@ -1,5 +1,9 @@
 # @renderify/ir
 
+![Node CI](https://github.com/webllm/renderify/workflows/CI/badge.svg)
+![npm](https://img.shields.io/npm/v/@renderify/ir.svg)
+![license](https://img.shields.io/npm/l/@renderify/ir)
+
 Runtime IR contracts and utilities for Renderify.
 
 `@renderify/ir` defines the RuntimePlan schema, node/state/action types, guards, path helpers, import parsing, and shared constants used across all other packages.

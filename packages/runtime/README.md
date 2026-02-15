@@ -1,5 +1,9 @@
 # @renderify/runtime
 
+![Node CI](https://github.com/webllm/renderify/workflows/CI/badge.svg)
+![npm](https://img.shields.io/npm/v/@renderify/runtime.svg)
+![license](https://img.shields.io/npm/l/@renderify/runtime)
+
 Runtime execution engine for Renderify.
 
 `@renderify/runtime` executes RuntimePlan trees, resolves JSPM modules, supports runtime source modules (TSX/JSX/TS/JS), and renders output to HTML or browser targets.

@@ -1,5 +1,9 @@
 # @renderify/cli
 
+![Node CI](https://github.com/webllm/renderify/workflows/CI/badge.svg)
+![npm](https://img.shields.io/npm/v/@renderify/cli.svg)
+![license](https://img.shields.io/npm/l/@renderify/cli)
+
 CLI utilities for Renderify.
 
 `@renderify/cli` is the fastest way to run prompts, inspect generated RuntimePlan JSON, probe plan dependencies, execute plan files, and open the browser playground.

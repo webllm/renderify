@@ -1,5 +1,9 @@
 # @renderify/security
 
+![Node CI](https://github.com/webllm/renderify/workflows/CI/badge.svg)
+![npm](https://img.shields.io/npm/v/@renderify/security.svg)
+![license](https://img.shields.io/npm/l/@renderify/security)
+
 Security policy engine for Renderify RuntimePlan execution.
 
 `@renderify/security` validates plans, capabilities, module sources, and runtime source code before execution.

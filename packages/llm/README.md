@@ -1,5 +1,9 @@
 # @renderify/llm
 
+![Node CI](https://github.com/webllm/renderify/workflows/CI/badge.svg)
+![npm](https://img.shields.io/npm/v/@renderify/llm.svg)
+![license](https://img.shields.io/npm/l/@renderify/llm)
+
 LLM provider implementations and registry for Renderify.
 
 `@renderify/llm` provides built-in interpreters for OpenAI, Anthropic, and Google, plus a provider registry API for custom providers.
