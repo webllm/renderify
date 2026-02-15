@@ -2,33 +2,27 @@
   "name": "@renderify/runtime",
   "version": "0.0.1",
   "main": "dist/runtime.cjs.js",
-  "types": "dist/runtime.cjs.d.ts",
+  "types": "dist/runtime.d.ts",
   "module": "dist/runtime.esm.js",
   "exports": {
     ".": {
-      "types": {
-        "import": "./dist/runtime.cjs.mjs",
-        "default": "./dist/runtime.cjs.js"
-      },
-      "module": "./dist/runtime.esm.js",
-      "import": "./dist/runtime.cjs.mjs",
-      "default": "./dist/runtime.cjs.js"
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.esm.js",
+      "require": "./dist/runtime.cjs.js",
+      "default": "./dist/runtime.esm.js"
     },
     "./package.json": "./package.json"
   },
   "files": [
     "dist"
   ],
-  "preconstruct": {
-    "entrypoints": [
-      "index.ts"
-    ]
-  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "typecheck": "tsc -p tsconfig.json --pretty false --noEmit",
     "lint": "biome lint src",
-    "clean": "rm -rf dist dist-types"
+    "clean": "rm -rf dist dist-types",
+    "build:repo": "tsup --config tsup.config.ts",
+    "watch:repo": "tsup --config tsup.config.ts --watch"
   },
   "author": "unadlib",
   "license": "MIT",

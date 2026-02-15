@@ -40,7 +40,7 @@ renderify/
 # Install dependencies
 pnpm install
 
-# Start development mode (preconstruct dev)
+# Start development mode (tsup watch)
 pnpm dev
 
 # Start the playground
@@ -114,18 +114,18 @@ The monorepo uses [Turborepo](https://turbo.build) for task orchestration with c
 - `e2e` depends on `build` (no caching)
 - `bench` depends on `typecheck` (no caching)
 
-### Preconstruct
+### Tsup
 
-[Preconstruct](https://preconstruct.tools) manages package builds:
+[tsup](https://tsup.egoist.dev) manages package builds:
 
-- Generates CommonJS and ESM outputs (UMD only for packages that declare `umd:main`)
-- Handles TypeScript declaration files
-- Validates package.json entry points
+- Generates CommonJS and ESM outputs for each package entrypoint
+- Emits TypeScript declaration files alongside build outputs
+- Supports package-local watch mode used by `pnpm dev`
 
 ```bash
-pnpm dev       # Link source files for development
-pnpm build     # Production build
-pnpm validate  # Check package metadata
+pnpm dev       # Run tsup watch across all packages
+pnpm build     # Production build for all packages
+pnpm validate  # Check package metadata conventions
 ```
 
 ### TypeScript

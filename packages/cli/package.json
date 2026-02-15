@@ -2,17 +2,14 @@
   "name": "@renderify/cli",
   "version": "0.0.1",
   "main": "dist/cli.cjs.js",
-  "types": "dist/cli.cjs.d.ts",
+  "types": "dist/cli.d.ts",
   "module": "dist/cli.esm.js",
   "exports": {
     ".": {
-      "types": {
-        "import": "./dist/cli.cjs.mjs",
-        "default": "./dist/cli.cjs.js"
-      },
-      "module": "./dist/cli.esm.js",
-      "import": "./dist/cli.cjs.mjs",
-      "default": "./dist/cli.cjs.js"
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.esm.js",
+      "require": "./dist/cli.cjs.js",
+      "default": "./dist/cli.esm.js"
     },
     "./package.json": "./package.json"
   },
@@ -20,16 +17,13 @@
     "dist",
     "bin"
   ],
-  "preconstruct": {
-    "entrypoints": [
-      "index.ts"
-    ]
-  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "typecheck": "tsc -p tsconfig.json --pretty false --noEmit",
     "lint": "biome lint src",
-    "clean": "rm -rf dist dist-types"
+    "clean": "rm -rf dist dist-types",
+    "build:repo": "tsup --config tsup.config.ts",
+    "watch:repo": "tsup --config tsup.config.ts --watch"
   },
   "author": "unadlib",
   "license": "MIT",

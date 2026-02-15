@@ -2,35 +2,27 @@
   "name": "@renderify/core",
   "version": "0.0.1",
   "main": "dist/core.cjs.js",
-  "types": "dist/core.cjs.d.ts",
+  "types": "dist/core.d.ts",
   "module": "dist/core.esm.js",
-  "umd:main": "dist/core.umd.min.js",
   "exports": {
     ".": {
-      "types": {
-        "import": "./dist/core.cjs.mjs",
-        "default": "./dist/core.cjs.js"
-      },
-      "module": "./dist/core.esm.js",
-      "import": "./dist/core.cjs.mjs",
-      "default": "./dist/core.cjs.js"
+      "types": "./dist/core.d.ts",
+      "import": "./dist/core.esm.js",
+      "require": "./dist/core.cjs.js",
+      "default": "./dist/core.esm.js"
     },
     "./package.json": "./package.json"
   },
   "files": [
     "dist"
   ],
-  "preconstruct": {
-    "umdName": "RenderifyCore",
-    "entrypoints": [
-      "index.ts"
-    ]
-  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "typecheck": "tsc -p tsconfig.json --pretty false --noEmit",
     "lint": "biome lint src",
-    "clean": "rm -rf dist dist-types"
+    "clean": "rm -rf dist dist-types",
+    "build:repo": "tsup --config tsup.config.ts",
+    "watch:repo": "tsup --config tsup.config.ts --watch"
   },
   "author": "unadlib",
   "license": "MIT",

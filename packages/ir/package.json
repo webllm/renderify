@@ -2,35 +2,27 @@
   "name": "@renderify/ir",
   "version": "0.0.1",
   "main": "dist/ir.cjs.js",
-  "types": "dist/ir.cjs.d.ts",
+  "types": "dist/ir.d.ts",
   "module": "dist/ir.esm.js",
-  "umd:main": "dist/ir.umd.min.js",
   "exports": {
     ".": {
-      "types": {
-        "import": "./dist/ir.cjs.mjs",
-        "default": "./dist/ir.cjs.js"
-      },
-      "module": "./dist/ir.esm.js",
-      "import": "./dist/ir.cjs.mjs",
-      "default": "./dist/ir.cjs.js"
+      "types": "./dist/ir.d.ts",
+      "import": "./dist/ir.esm.js",
+      "require": "./dist/ir.cjs.js",
+      "default": "./dist/ir.esm.js"
     },
     "./package.json": "./package.json"
   },
   "files": [
     "dist"
   ],
-  "preconstruct": {
-    "umdName": "RenderifyIR",
-    "entrypoints": [
-      "index.ts"
-    ]
-  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "typecheck": "tsc -p tsconfig.json --pretty false --noEmit",
     "lint": "biome lint src",
-    "clean": "rm -rf dist dist-types"
+    "clean": "rm -rf dist dist-types",
+    "build:repo": "tsup --config tsup.config.ts",
+    "watch:repo": "tsup --config tsup.config.ts --watch"
   },
   "author": "unadlib",
   "license": "MIT",

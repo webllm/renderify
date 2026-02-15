@@ -2,27 +2,14 @@
   "name": "renderify-monorepo",
   "version": "0.0.1",
   "private": true,
-  "preconstruct": {
-    "packages": [
-      "packages/!(dev)"
-    ],
-    "distFilenameStrategy": "unscoped-package-name",
-    "globals": {},
-    "exports": {
-      "importConditionDefaultExport": "default"
-    },
-    "___experimentalFlags_WILL_CHANGE_IN_PATCH": {
-      "importsConditions": true
-    }
-  },
   "description": "A dynamic web framework powered by LLM",
   "main": "index.js",
   "scripts": {
     "preinstall": "node scripts/ensure-pnpm.js",
     "build": "turbo run build:repo",
-    "build:repo": "preconstruct build",
+    "build:repo": "pnpm -r --filter \"./packages/*\" run build:repo",
     "validate": "turbo run validate:repo",
-    "validate:repo": "preconstruct validate",
+    "validate:repo": "node scripts/validate-package-metadata.mjs",
     "typecheck": "turbo run typecheck:repo",
     "typecheck:repo": "tsc -b tsconfig.build.json --pretty false",
     "lint": "turbo run lint:repo",
@@ -42,8 +29,8 @@
     "test:all": "pnpm run test && pnpm run e2e",
     "clean": "turbo run clean:repo",
     "clean:repo": "find packages -maxdepth 2 -type d -name dist -prune -exec rm -rf {} + && find packages -maxdepth 2 -type d -name dist-types -prune -exec rm -rf {} + && rm -rf .turbo",
-    "dev": "preconstruct dev",
-    "watch": "preconstruct watch",
+    "dev": "pnpm -r --parallel --filter \"./packages/*\" run watch:repo",
+    "watch": "pnpm -r --parallel --filter \"./packages/*\" run watch:repo",
     "cli": "tsx packages/cli/src/index.ts",
     "playground": "tsx packages/cli/src/index.ts playground",
     "changeset": "changeset",
@@ -56,12 +43,9 @@
   "author": "unadlib",
   "license": "MIT",
   "devDependencies": {
-    "@babel/preset-env": "^7.29.0",
-    "@babel/preset-typescript": "^7.28.5",
     "@biomejs/biome": "^2.3.14",
     "@changesets/changelog-github": "^0.5.2",
     "@changesets/cli": "^2.29.8",
-    "@preconstruct/cli": "^2.8.12",
     "@types/node": "^25.2.3",
     "commitizen": "^4.3.1",
     "cz-conventional-changelog": "^3.3.0",
@@ -72,7 +56,8 @@
     "tinybench": "^6.0.0",
     "tsx": "^4.21.0",
     "turbo": "^2.8.6",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "tsup": "^8.5.0"
   },
   "config": {
     "commitizen": {
