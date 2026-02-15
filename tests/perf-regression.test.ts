@@ -108,10 +108,14 @@ test("perf regression: runtime executes deeply nested tree under threshold", asy
 
     assert.equal(result.root.type, "element");
     let traversedDepth = 0;
-    let cursor = result.root;
+    let cursor: RuntimePlan["root"] = result.root;
     while (cursor.type === "element" && cursor.children?.length) {
       traversedDepth += 1;
-      cursor = cursor.children[0];
+      const nextNode: RuntimePlan["root"] | undefined = cursor.children[0];
+      if (!nextNode) {
+        break;
+      }
+      cursor = nextNode;
     }
     assert.ok(traversedDepth >= depth, `deep tree depth=${traversedDepth}`);
     assert.ok(
