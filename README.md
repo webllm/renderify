@@ -339,13 +339,13 @@ Use `manifest-only` in production (`autoPinLatestModuleManifest: false`) when yo
 
 ## Integration Docs
 
-- Architecture overview: `docs/architecture.md`
-- RuntimePlan IR reference: `docs/runtime-plan-ir.md`
-- Runtime execution engine: `docs/runtime-execution.md`
-- Dependency verification model: `docs/runtime-execution.md#verification-model`
-- Browser embedding: `docs/browser-integration.md`
-- Security guide: `docs/security.md`
-- Plugin system: `docs/plugin-system.md`
+- Architecture overview: [`docs/architecture.md`](docs/architecture.md)
+- RuntimePlan IR reference: [`docs/runtime-plan-ir.md`](docs/runtime-plan-ir.md)
+- Runtime execution engine: [`docs/runtime-execution.md`](docs/runtime-execution.md)
+- Dependency verification model: [`docs/runtime-execution.md#verification-model`](docs/runtime-execution.md#verification-model)
+- Browser embedding: [`docs/browser-integration.md`](docs/browser-integration.md)
+- Security guide: [`docs/security.md`](docs/security.md)
+- Plugin system: [`docs/plugin-system.md`](docs/plugin-system.md)
 
 ## Browser Examples
 
