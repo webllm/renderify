@@ -78,3 +78,47 @@ test("perf regression: runtime executes large plan under threshold", async () =>
     await runtime.terminate();
   }
 });
+
+test("perf regression: runtime executes deeply nested tree under threshold", async () => {
+  const runtime = new DefaultRuntimeManager();
+  await runtime.initialize();
+
+  try {
+    const depth = 320;
+    let root: RuntimePlan["root"] = createTextNode("leaf");
+    for (let index = 0; index < depth; index += 1) {
+      root = createElementNode("section", { [`data-depth-${index}`]: "1" }, [
+        root,
+      ]);
+    }
+
+    const plan: RuntimePlan = {
+      specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+      id: "perf_runtime_deep_plan",
+      version: 1,
+      capabilities: {
+        domWrite: true,
+      },
+      root,
+    };
+
+    const started = nowMs();
+    const result = await runtime.executePlan(plan);
+    const elapsed = nowMs() - started;
+
+    assert.equal(result.root.type, "element");
+    let traversedDepth = 0;
+    let cursor = result.root;
+    while (cursor.type === "element" && cursor.children?.length) {
+      traversedDepth += 1;
+      cursor = cursor.children[0];
+    }
+    assert.ok(traversedDepth >= depth, `deep tree depth=${traversedDepth}`);
+    assert.ok(
+      elapsed < 2500,
+      `runtime deep-tree regression: elapsed=${elapsed}ms`,
+    );
+  } finally {
+    await runtime.terminate();
+  }
+});

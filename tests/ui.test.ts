@@ -209,6 +209,34 @@ test("ui renderer drops null-byte obfuscated unsafe inline styles", () => {
   assert.doesNotMatch(literalNullHtml, /\sstyle=/);
 });
 
+test("ui renderer blocks additional css injection vectors", () => {
+  const renderer = new DefaultUIRenderer();
+  const vectors = [
+    "@import url(https://evil.example/style.css);",
+    "@im\\70ort url(https://evil.example/style.css);",
+    "behavior:url(#default#time2);",
+    "-moz-binding:url(https://evil.example/xbl.xml#payload);",
+  ];
+
+  for (const styleValue of vectors) {
+    const html = renderer.renderNode(
+      createElementNode(
+        "div",
+        {
+          style: styleValue,
+        },
+        [createTextNode("unsafe style vector")],
+      ),
+    );
+
+    assert.doesNotMatch(
+      html,
+      /\sstyle=/,
+      `expected style sanitizer to block vector: ${styleValue}`,
+    );
+  }
+});
+
 test("ui renderer tolerates css escape edge cases in safe styles", () => {
   const renderer = new DefaultUIRenderer();
   const safeEscapedHtml = renderer.renderNode(

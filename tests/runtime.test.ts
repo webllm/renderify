@@ -1823,6 +1823,59 @@ test("runtime source loader supports disabling fallback cdn attempts", async () 
   }
 });
 
+test("runtime module caches are released across lifecycle cycles", async () => {
+  const runtime = new DefaultRuntimeManager({
+    remoteFallbackCdnBases: [],
+    remoteFetchRetries: 0,
+    remoteFetchBackoffMs: 10,
+    remoteFetchTimeoutMs: 600,
+  });
+
+  const internals = runtime as unknown as {
+    createSourceModuleLoader: (
+      moduleManifest: RuntimeModuleManifest | undefined,
+      diagnostics: Array<{ code?: string; message?: string }>,
+    ) => {
+      materializeRemoteModule(url: string): Promise<string>;
+    };
+    browserModuleUrlCache: Map<string, string>;
+    browserModuleInflight: Map<string, Promise<string>>;
+    browserBlobUrls: Set<string>;
+  };
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL) => {
+    return new Response("export default 'ok';", {
+      status: 200,
+      headers: {
+        "content-type": "text/javascript; charset=utf-8",
+      },
+    });
+  }) as typeof fetch;
+
+  try {
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      await runtime.initialize();
+
+      const diagnostics: Array<{ code?: string; message?: string }> = [];
+      const loader = internals.createSourceModuleLoader(undefined, diagnostics);
+      await loader.materializeRemoteModule(
+        `https://ga.jspm.io/npm:lit@3.3.0/index.js?cycle=${cycle}`,
+      );
+
+      assert.ok(internals.browserModuleUrlCache.size > 0);
+      await runtime.terminate();
+
+      assert.equal(internals.browserModuleUrlCache.size, 0);
+      assert.equal(internals.browserModuleInflight.size, 0);
+      assert.equal(internals.browserBlobUrls.size, 0);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+    await runtime.terminate();
+  }
+});
+
 test("runtime enforces moduleManifest for bare component specifiers by default", async () => {
   const runtime = new DefaultRuntimeManager({
     moduleLoader: new MockLoader({

@@ -452,6 +452,52 @@ test("core renderPromptStream uses incremental codegen session", async () => {
   await app.stop();
 });
 
+test("core renderPromptStream supports 120 concurrent streams", async () => {
+  const app = createRenderifyApp(createDependencies());
+  await app.start();
+
+  const concurrentStreams = 120;
+  const started = Date.now();
+  const runs = await Promise.all(
+    Array.from({ length: concurrentStreams }, async (_, index) => {
+      let sawDelta = false;
+      let sawFinal = false;
+      let finalHtml = "";
+
+      for await (const chunk of app.renderPromptStream(`parallel-${index}`, {
+        previewEveryChunks: 64,
+      })) {
+        if (chunk.type === "llm-delta") {
+          sawDelta = true;
+        }
+
+        if (chunk.type === "final" && chunk.final) {
+          sawFinal = true;
+          finalHtml = chunk.final.html;
+        }
+      }
+
+      return {
+        sawDelta,
+        sawFinal,
+        finalHtml,
+      };
+    }),
+  );
+  const elapsed = Date.now() - started;
+
+  assert.equal(runs.length, concurrentStreams);
+  assert.ok(runs.every((entry) => entry.sawDelta));
+  assert.ok(runs.every((entry) => entry.sawFinal));
+  assert.ok(runs.every((entry) => entry.finalHtml.length > 0));
+  assert.ok(
+    elapsed < 25000,
+    `concurrent stream regression: elapsed=${elapsed}ms`,
+  );
+
+  await app.stop();
+});
+
 test("core renderPromptStream emits error chunk before throwing", async () => {
   const app = createRenderifyApp(
     createDependencies({
