@@ -5,7 +5,10 @@
 ![license](https://img.shields.io/npm/l/renderify)
 
 > LLM generates JSX/TSX → browser renders it directly at runtime — no backend build server, no deploy step, JSPM package support with an explicit compatibility contract.
+
 > Renderify is a runtime-first dynamic renderer that lets LLMs produce real, interactive UI on the fly. It bridges the gap between "LLM can generate code" and "users can see and interact with that UI instantly" — with inline transpilation via `@babel/standalone`, and no backend compiler/deploy pipeline in the loop.
+
+A modern runtime renderer that lets LLMs generate JSX/TSX and render interactive UI instantly in the browser — no build step, no backend compiler.
 
 ## 30-Second JSX Example
 
