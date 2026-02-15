@@ -255,6 +255,37 @@ const plan = {
 await renderPlanInBrowser(plan, { target: "#mount" });
 ```
 
+### Renderer-only TSX + Dependency Package (JSPM)
+
+```ts
+import { renderPlanInBrowser } from "renderify";
+
+const tsxPlan = {
+  specVersion: "runtime-plan/v1",
+  id: "renderer_only_tsx_datefns",
+  version: 1,
+  capabilities: { domWrite: true },
+  root: {
+    type: "element",
+    tag: "div",
+    children: [{ type: "text", value: "Loading..." }],
+  },
+  source: {
+    language: "tsx",
+    runtime: "renderify",
+    code: [
+      "import { format } from \"https://ga.jspm.io/npm:date-fns@4.1.0/format.js\";",
+      "",
+      "export default function App() {",
+      "  return <section>Today: {format(new Date(), \"yyyy-MM-dd\")}</section>;",
+      "}",
+    ].join("\n"),
+  },
+};
+
+await renderPlanInBrowser(tsxPlan, { target: "#mount" });
+```
+
 ## Package Topology
 
 | Package               | Responsibility                                                   |
