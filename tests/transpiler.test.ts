@@ -267,3 +267,64 @@ test("transpileRuntimeSource skips helpers when jsxHelperMode=never", async () =
   await transpileRuntimeSource(source, transpiler, "never");
   assert.doesNotMatch(receivedCode, /__renderify_runtime_h/);
 });
+
+test("default transpiler reports cache and duration metrics", async () => {
+  const restore = installMockBabel(() => ({ code: "metrics-output" }));
+
+  try {
+    const transpiler = new DefaultRuntimeSourceTranspiler();
+    const input = {
+      code: "export default () => <div/>;",
+      language: "jsx" as const,
+      runtime: "renderify" as const,
+    };
+
+    await transpiler.transpile(input);
+    await transpiler.transpile(input);
+
+    const metrics = transpiler.getMetrics();
+    assert.equal(metrics.requests, 2);
+    assert.equal(metrics.cacheMisses, 1);
+    assert.equal(metrics.cacheHits, 1);
+    assert.equal(metrics.babelTranspiles, 1);
+    assert.equal(metrics.esbuildFallbackTranspiles, 0);
+    assert.equal(metrics.duration.count, 2);
+    assert.ok(metrics.duration.totalMs >= 0);
+    assert.ok(metrics.duration.maxMs >= metrics.duration.minMs);
+  } finally {
+    restore();
+  }
+});
+
+test("default transpiler reports esbuild fallback metrics", async () => {
+  const root = globalThis as Record<string, unknown>;
+  const descriptor = Object.getOwnPropertyDescriptor(root, "Babel");
+  delete root.Babel;
+
+  try {
+    const transpiler = new DefaultRuntimeSourceTranspiler();
+    await transpiler.transpile({
+      code: "export default () => <div/>;",
+      language: "jsx",
+      runtime: "renderify",
+    });
+
+    const metrics = transpiler.getMetrics();
+    assert.equal(metrics.requests, 1);
+    assert.equal(metrics.cacheMisses, 1);
+    assert.equal(metrics.cacheHits, 0);
+    assert.equal(metrics.babelTranspiles, 0);
+    assert.equal(metrics.esbuildFallbackTranspiles, 1);
+    assert.equal(metrics.duration.count, 1);
+
+    transpiler.resetMetrics();
+    const resetMetrics = transpiler.getMetrics();
+    assert.equal(resetMetrics.requests, 0);
+    assert.equal(resetMetrics.duration.count, 0);
+    assert.equal(resetMetrics.duration.minMs, 0);
+  } finally {
+    if (descriptor) {
+      Object.defineProperty(root, "Babel", descriptor);
+    }
+  }
+});

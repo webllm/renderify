@@ -1,4 +1,4 @@
-import { isBrowserRuntime } from "./runtime-environment";
+import { isBrowserRuntime, nowMs } from "./runtime-environment";
 import type {
   RuntimeSourceTranspileInput,
   RuntimeSourceTranspiler,
@@ -93,6 +93,23 @@ function __renderify_runtime_fragment(...children) {
 }
 `.trim();
 const DEFAULT_TRANSPILE_CACHE_MAX_ENTRIES = 256;
+
+export interface RuntimeSourceTranspileDurationMetrics {
+  count: number;
+  totalMs: number;
+  minMs: number;
+  maxMs: number;
+  avgMs: number;
+}
+
+export interface RuntimeSourceTranspileMetrics {
+  requests: number;
+  cacheHits: number;
+  cacheMisses: number;
+  babelTranspiles: number;
+  esbuildFallbackTranspiles: number;
+  duration: RuntimeSourceTranspileDurationMetrics;
+}
 
 export class BabelRuntimeSourceTranspiler implements RuntimeSourceTranspiler {
   async transpile(input: RuntimeSourceTranspileInput): Promise<string> {
@@ -279,32 +296,87 @@ export class DefaultRuntimeSourceTranspiler implements RuntimeSourceTranspiler {
   private readonly babelTranspiler = new BabelRuntimeSourceTranspiler();
   private readonly esbuildTranspiler = new EsbuildRuntimeSourceTranspiler();
   private readonly transpileCache = new Map<string, string>();
+  private metrics: RuntimeSourceTranspileMetrics = {
+    requests: 0,
+    cacheHits: 0,
+    cacheMisses: 0,
+    babelTranspiles: 0,
+    esbuildFallbackTranspiles: 0,
+    duration: {
+      count: 0,
+      totalMs: 0,
+      minMs: Number.POSITIVE_INFINITY,
+      maxMs: 0,
+      avgMs: 0,
+    },
+  };
 
   async transpile(input: RuntimeSourceTranspileInput): Promise<string> {
+    const startedAt = nowMs();
+    this.metrics.requests += 1;
     const cacheKey = this.createCacheKey(input);
     const cached = this.transpileCache.get(cacheKey);
     if (cached !== undefined) {
+      this.metrics.cacheHits += 1;
       this.promoteCachedTranspile(cacheKey, cached);
+      this.recordDuration(nowMs() - startedAt);
       return cached;
     }
+    this.metrics.cacheMisses += 1;
 
     let transpiled: string;
     try {
       transpiled = await this.babelTranspiler.transpile(input);
+      this.metrics.babelTranspiles += 1;
     } catch (error) {
       if (!isMissingBabelStandaloneError(error)) {
+        this.recordDuration(nowMs() - startedAt);
         throw error;
       }
 
       if (isBrowserRuntime()) {
+        this.recordDuration(nowMs() - startedAt);
         throw error;
       }
 
       transpiled = await this.esbuildTranspiler.transpile(input);
+      this.metrics.esbuildFallbackTranspiles += 1;
     }
 
     this.cacheTranspileOutput(cacheKey, transpiled);
+    this.recordDuration(nowMs() - startedAt);
     return transpiled;
+  }
+
+  getMetrics(): RuntimeSourceTranspileMetrics {
+    const duration = this.metrics.duration;
+    return {
+      ...this.metrics,
+      duration: {
+        count: duration.count,
+        totalMs: duration.totalMs,
+        minMs: Number.isFinite(duration.minMs) ? duration.minMs : 0,
+        maxMs: duration.maxMs,
+        avgMs: duration.avgMs,
+      },
+    };
+  }
+
+  resetMetrics(): void {
+    this.metrics = {
+      requests: 0,
+      cacheHits: 0,
+      cacheMisses: 0,
+      babelTranspiles: 0,
+      esbuildFallbackTranspiles: 0,
+      duration: {
+        count: 0,
+        totalMs: 0,
+        minMs: Number.POSITIVE_INFINITY,
+        maxMs: 0,
+        avgMs: 0,
+      },
+    };
   }
 
   private createCacheKey(input: RuntimeSourceTranspileInput): string {
@@ -331,6 +403,18 @@ export class DefaultRuntimeSourceTranspiler implements RuntimeSourceTranspiler {
     if (oldestKey !== undefined) {
       this.transpileCache.delete(oldestKey);
     }
+  }
+
+  private recordDuration(durationMs: number): void {
+    const normalizedDuration = Number.isFinite(durationMs)
+      ? Math.max(0, durationMs)
+      : 0;
+    const duration = this.metrics.duration;
+    duration.count += 1;
+    duration.totalMs += normalizedDuration;
+    duration.minMs = Math.min(duration.minMs, normalizedDuration);
+    duration.maxMs = Math.max(duration.maxMs, normalizedDuration);
+    duration.avgMs = duration.totalMs / duration.count;
   }
 }
 
