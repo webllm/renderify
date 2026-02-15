@@ -782,6 +782,102 @@ test("e2e: framework adapters mount, update, unmount and fallback in browser", a
   }
 });
 
+test("e2e: renderPlanInBrowser covers auto-pin-latest and manifest-only modes", async (t) => {
+  const e2eTempRoot = path.join(REPO_ROOT, ".tmp");
+  await mkdir(e2eTempRoot, { recursive: true });
+  const tempDir = await mkdtemp(
+    path.join(e2eTempRoot, "renderify-e2e-autopin-manifest-modes-"),
+  );
+  const harnessSourcePath = path.join(tempDir, "autopin-manifest-harness.ts");
+  const harnessBundlePath = path.join(tempDir, "autopin-manifest-harness.js");
+  const port = await allocatePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  let browser: Browser | undefined;
+  let closeHarnessServer: (() => Promise<void>) | undefined;
+
+  try {
+    const runtimeIndexPath = path
+      .join(REPO_ROOT, "packages", "runtime", "src", "index.ts")
+      .replace(/\\/g, "/");
+    const harnessSource = AUTOPIN_MANIFEST_HARNESS_SOURCE.replace(
+      "__RUNTIME_INDEX_PATH__",
+      runtimeIndexPath,
+    );
+
+    await writeFile(harnessSourcePath, harnessSource, "utf8");
+
+    const esbuildResult = await runCommand("pnpm", [
+      "exec",
+      "esbuild",
+      harnessSourcePath,
+      "--bundle",
+      "--format=esm",
+      "--platform=browser",
+      "--target=es2022",
+      `--outfile=${harnessBundlePath}`,
+    ]);
+    assert.equal(esbuildResult.code, 0, esbuildResult.stderr);
+
+    const fsPromises = await import("node:fs/promises");
+    const harnessBundle = await fsPromises.readFile(harnessBundlePath, "utf8");
+
+    closeHarnessServer = await startAutoPinManifestHarnessServer({
+      port,
+      harnessBundle,
+    });
+
+    try {
+      browser = await chromium.launch({ headless: true });
+    } catch (error) {
+      t.skip(
+        `playwright chromium is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return;
+    }
+
+    const page = await browser.newPage();
+    await page.goto(baseUrl, {
+      waitUntil: "networkidle",
+    });
+
+    const report = (await page.evaluate(async () => {
+      // @ts-expect-error runtime-served test harness module
+      const harness = await import("/auto-pin-harness.js");
+      return await harness.runAutoPinManifestE2E(window.location.origin);
+    })) as {
+      autoPinHtml: string;
+      autoPinDiagnostics: string[];
+      autoPinSecuritySafe: boolean;
+      manifestOnlyHtml: string;
+      manifestOnlyDiagnostics: string[];
+      manifestOnlySecuritySafe: boolean;
+    };
+
+    assert.match(report.autoPinHtml, /Today:\s*1970-01-01/);
+    assert.doesNotMatch(report.autoPinHtml, /fallback root/);
+    assert.equal(
+      report.autoPinDiagnostics.includes("RUNTIME_MANIFEST_MISSING"),
+      false,
+    );
+    assert.equal(report.autoPinSecuritySafe, true);
+
+    assert.match(report.manifestOnlyHtml, /Today:\s*1970-01-01/);
+    assert.doesNotMatch(report.manifestOnlyHtml, /fallback root/);
+    assert.equal(
+      report.manifestOnlyDiagnostics.includes("RUNTIME_MANIFEST_MISSING"),
+      false,
+    );
+    assert.equal(report.manifestOnlySecuritySafe, true);
+  } finally {
+    await browser?.close();
+    if (closeHarnessServer) {
+      await closeHarnessServer();
+    }
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 function toBase64Url(value: string): string {
   return Buffer.from(value, "utf8").toString("base64url");
 }
@@ -1239,6 +1335,229 @@ async function startFrameworkAdapterHarnessServer(input: {
 
   return () => closeServer(server);
 }
+
+async function startAutoPinManifestHarnessServer(input: {
+  port: number;
+  harnessBundle: string;
+}): Promise<() => Promise<void>> {
+  const html = [
+    "<!doctype html>",
+    "<html>",
+    "  <head>",
+    '    <meta charset="utf-8" />',
+    "    <title>Renderify AutoPin Manifest E2E</title>",
+    "  </head>",
+    "  <body>",
+    '    <main id="app"></main>',
+    "  </body>",
+    "</html>",
+  ].join("\n");
+
+  const formatModuleSource = [
+    "export function format(input, pattern = 'yyyy-MM-dd') {",
+    "  const value = input instanceof Date ? input : new Date(input);",
+    "  if (pattern !== 'yyyy-MM-dd') {",
+    "    throw new Error('unsupported format pattern: ' + pattern);",
+    "  }",
+    "  return value.toISOString().slice(0, 10);",
+    "}",
+  ].join("\n");
+
+  const packageJsonSource = JSON.stringify({
+    name: "date-fns",
+    version: "4.1.0",
+    exports: {
+      ".": {
+        import: {
+          default: "./index.js",
+        },
+      },
+      "./format": {
+        import: {
+          default: "./format.js",
+        },
+      },
+    },
+  });
+
+  const server = createServer((req, res) => {
+    const url = new URL(req.url ?? "/", "http://127.0.0.1");
+
+    if (req.method === "GET" && url.pathname === "/") {
+      const body = Buffer.from(html, "utf8");
+      res.statusCode = 200;
+      res.setHeader("content-type", "text/html; charset=utf-8");
+      res.setHeader("content-length", body.length);
+      res.end(body);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/auto-pin-harness.js") {
+      const body = Buffer.from(input.harnessBundle, "utf8");
+      res.statusCode = 200;
+      res.setHeader("content-type", "text/javascript; charset=utf-8");
+      res.setHeader("content-length", body.length);
+      res.end(body);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/npm:date-fns") {
+      const body = Buffer.from("4.1.0", "utf8");
+      res.statusCode = 200;
+      res.setHeader("content-type", "text/plain; charset=utf-8");
+      res.setHeader("content-length", body.length);
+      res.end(body);
+      return;
+    }
+
+    if (
+      req.method === "GET" &&
+      url.pathname === "/npm:date-fns@4.1.0/package.json"
+    ) {
+      const body = Buffer.from(packageJsonSource, "utf8");
+      res.statusCode = 200;
+      res.setHeader("content-type", "application/json; charset=utf-8");
+      res.setHeader("content-length", body.length);
+      res.end(body);
+      return;
+    }
+
+    if (
+      req.method === "GET" &&
+      url.pathname === "/npm:date-fns@4.1.0/format.js"
+    ) {
+      const body = Buffer.from(formatModuleSource, "utf8");
+      res.statusCode = 200;
+      res.setHeader("content-type", "text/javascript; charset=utf-8");
+      res.setHeader("content-length", body.length);
+      res.end(body);
+      return;
+    }
+
+    const notFound = Buffer.from("not found", "utf8");
+    res.statusCode = 404;
+    res.setHeader("content-type", "text/plain; charset=utf-8");
+    res.setHeader("content-length", notFound.length);
+    res.end(notFound);
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(input.port, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+
+  return () => closeServer(server);
+}
+
+const AUTOPIN_MANIFEST_HARNESS_SOURCE = `
+import { JspmModuleLoader, renderPlanInBrowser } from "__RUNTIME_INDEX_PATH__";
+
+const mountRoot = (id) => {
+  const existing = document.getElementById(id);
+  if (existing) {
+    existing.remove();
+  }
+
+  const container = document.createElement("section");
+  container.id = id;
+  document.body.appendChild(container);
+  return container;
+};
+
+const createPlan = (id, manifest) => ({
+  specVersion: "runtime-plan/v1",
+  id,
+  version: 1,
+  capabilities: {
+    domWrite: true,
+    maxExecutionMs: 8000,
+  },
+  root: {
+    type: "element",
+    tag: "section",
+    children: [{ type: "text", value: "fallback root" }],
+  },
+  ...(manifest ? { moduleManifest: manifest } : {}),
+  source: {
+    language: "js",
+    runtime: "renderify",
+    code: [
+      'import { format } from "date-fns/format";',
+      "export default function App() {",
+      "  return {",
+      "    type: 'element',",
+      "    tag: 'section',",
+      "    children: [",
+      "      { type: 'text', value: 'Today: ' + format(new Date(0), 'yyyy-MM-dd') },",
+      "    ],",
+      "  };",
+      "}",
+    ].join("\\n"),
+  },
+});
+
+export async function runAutoPinManifestE2E(baseUrl) {
+  const autoPinMount = mountRoot("auto-pin-mode");
+  const autoPinLoader = new JspmModuleLoader({
+    cdnBaseUrl: baseUrl,
+  });
+  const autoPinResult = await renderPlanInBrowser(
+    createPlan("auto_pin_latest_default"),
+    {
+      target: autoPinMount,
+      autoPinModuleLoader: autoPinLoader,
+      autoPinFetchTimeoutMs: 4000,
+      securityInitialization: { profile: "relaxed" },
+      runtimeOptions: {
+        moduleLoader: autoPinLoader,
+        remoteFallbackCdnBases: [],
+        remoteFetchTimeoutMs: 4000,
+        remoteFetchRetries: 0,
+        remoteFetchBackoffMs: 10,
+      },
+    },
+  );
+
+  const manifestOnlyMount = mountRoot("manifest-only-mode");
+  const manifestOnlyLoader = new JspmModuleLoader({
+    cdnBaseUrl: baseUrl,
+  });
+  const manifestOnlyResult = await renderPlanInBrowser(
+    createPlan("manifest_only_mode", {
+      "date-fns/format": {
+        resolvedUrl: baseUrl + "/npm:date-fns@4.1.0/format.js",
+        version: "4.1.0",
+      },
+    }),
+    {
+      target: manifestOnlyMount,
+      autoPinLatestModuleManifest: false,
+      securityInitialization: { profile: "relaxed" },
+      runtimeOptions: {
+        moduleLoader: manifestOnlyLoader,
+        remoteFallbackCdnBases: [],
+        remoteFetchTimeoutMs: 4000,
+        remoteFetchRetries: 0,
+        remoteFetchBackoffMs: 10,
+      },
+    },
+  );
+
+  return {
+    autoPinHtml: autoPinMount.innerHTML,
+    autoPinDiagnostics: autoPinResult.execution.diagnostics.map((item) => item.code),
+    autoPinSecuritySafe: autoPinResult.security.safe,
+    manifestOnlyHtml: manifestOnlyMount.innerHTML,
+    manifestOnlyDiagnostics: manifestOnlyResult.execution.diagnostics.map(
+      (item) => item.code,
+    ),
+    manifestOnlySecuritySafe: manifestOnlyResult.security.safe,
+  };
+}
+`;
 
 const FRAMEWORK_ADAPTERS_HARNESS_SOURCE = `
 import { h, render } from "preact";
