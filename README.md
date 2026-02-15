@@ -1,5 +1,9 @@
 # Renderify
 
+![Node CI](https://github.com/webllm/renderify/workflows/CI/badge.svg)
+![npm](https://img.shields.io/npm/v/renderify.svg)
+![license](https://img.shields.io/npm/l/renderify)
+
 > LLM generates JSX/TSX → browser renders it directly at runtime — no backend build server, no deploy step, JSPM package support with an explicit compatibility contract.
 > Renderify is a runtime-first dynamic renderer that lets LLMs produce real, interactive UI on the fly. It bridges the gap between "LLM can generate code" and "users can see and interact with that UI instantly" — with inline transpilation via `@babel/standalone`, and no backend compiler/deploy pipeline in the loop.
 
@@ -250,12 +254,12 @@ await renderPlanInBrowser(plan, { target: "#mount" });
 
 | Package               | Responsibility                                                   |
 | --------------------- | ---------------------------------------------------------------- |
-| `renderify`          | Official top-level SDK facade (recommended app entry)            |
+| `renderify`           | Official top-level SDK facade (recommended app entry)            |
 | `@renderify/ir`       | Runtime IR contracts (plan/node/state/action/event/capabilities) |
 | `@renderify/runtime`  | Runtime execution engine + JSPM loader + one-line embed API      |
 | `@renderify/security` | Policy profiles + plan/module/source static checks               |
 | `@renderify/core`     | Legacy orchestration facade (optional compatibility layer)       |
-| `@renderify/llm`      | LLM provider package (OpenAI + Anthropic + Google)              |
+| `@renderify/llm`      | LLM provider package (OpenAI + Anthropic + Google)               |
 | `@renderify/cli`      | CLI + browser playground                                         |
 
 ## Integration Docs
