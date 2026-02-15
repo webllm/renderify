@@ -349,12 +349,12 @@ Use `manifest-only` in production (`autoPinLatestModuleManifest: false`) when yo
 
 ## Browser Examples
 
-- Runtime plan flow: `examples/runtime/browser-runtime-example.html`
-- TSX runtime flow (Babel + JSPM): `examples/runtime/browser-tsx-jspm-example.html`
-- Recharts + Preact RuntimePlan: `examples/runtime/recharts-dashboard-plan.json`
-- Killer demo: one-line chat dashboard embed: `examples/killer/one-line-chat-dashboard.html`
-- Killer demo: one-line form/state/date-fns embed: `examples/killer/one-line-chat-form.html`
-- Killer demo: one-line worker-sandbox source embed: `examples/killer/one-line-sandbox-worker.html`
+- Runtime plan flow: [`examples/runtime/browser-runtime-example.html`](examples/runtime/browser-runtime-example.html)
+- TSX runtime flow (Babel + JSPM): [`examples/runtime/browser-tsx-jspm-example.html`](examples/runtime/browser-tsx-jspm-example.html)
+- Recharts + Preact RuntimePlan: [`examples/runtime/recharts-dashboard-plan.json`](examples/runtime/recharts-dashboard-plan.json)
+- Killer demo: one-line chat dashboard embed: [`examples/killer/one-line-chat-dashboard.html`](examples/killer/one-line-chat-dashboard.html)
+- Killer demo: one-line form/state/date-fns embed: [`examples/killer/one-line-chat-form.html`](examples/killer/one-line-chat-form.html)
+- Killer demo: one-line worker-sandbox source embed: [`examples/killer/one-line-sandbox-worker.html`](examples/killer/one-line-sandbox-worker.html)
 
 ## Technical Highlights
 
