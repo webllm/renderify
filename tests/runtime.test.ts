@@ -349,62 +349,65 @@ function installBrowserIframeSandboxGlobals(): () => void {
   const previousWorker = Object.getOwnPropertyDescriptor(root, "Worker");
   const previousCreateObjectURL = urlStatics.createObjectURL;
   const previousRevokeObjectURL = urlStatics.revokeObjectURL;
-
-  const windowMessageHandlers = new Set<
-    (event: MessageEvent<unknown>) => void
-  >();
-
-  const mockWindow = {
-    addEventListener(type: string, handler: EventListener): void {
-      if (type === "message") {
-        windowMessageHandlers.add(
-          handler as (event: MessageEvent<unknown>) => void,
-        );
-      }
-    },
-    removeEventListener(type: string, handler: EventListener): void {
-      if (type === "message") {
-        windowMessageHandlers.delete(
-          handler as (event: MessageEvent<unknown>) => void,
-        );
-      }
-    },
-    dispatchMessage(event: MessageEvent<unknown>): void {
-      for (const handler of windowMessageHandlers) {
-        handler(event);
-      }
-    },
-  } as unknown as Window & {
-    dispatchMessage(event: MessageEvent<unknown>): void;
-  };
+  const mockWindow = {} as Window;
 
   class MockIframeElement {
     private readonly loadHandlers = new Set<EventListener>();
     readonly style: Record<string, string> = {};
     srcdoc = "";
     contentWindow: {
-      postMessage: (payload: unknown, targetOrigin: string) => void;
+      postMessage: (
+        payload: unknown,
+        targetOrigin: string,
+        transfer?: unknown[],
+      ) => void;
     };
 
     constructor() {
       const contentWindowRef = {
-        postMessage: (payload: unknown) => {
-          const requestPayload = payload as {
+        postMessage: (
+          payload: unknown,
+          _targetOrigin: string,
+          transfer?: unknown[],
+        ) => {
+          const initPayload = payload as {
             channel?: string;
-            request?: {
-              runtimeInput?: {
-                state?: {
-                  count?: number;
+            type?: string;
+          };
+          const port = transfer?.[0] as
+            | {
+                postMessage: (value: unknown) => void;
+                addEventListener?: (
+                  type: string,
+                  listener: EventListener,
+                  options?: AddEventListenerOptions,
+                ) => void;
+              }
+            | undefined;
+          if (!port || initPayload.type !== "init") {
+            return;
+          }
+
+          port.addEventListener?.(
+            "message",
+            ((event: MessageEvent<unknown>) => {
+              const executePayload = event.data as {
+                type?: string;
+                request?: {
+                  runtimeInput?: {
+                    state?: {
+                      count?: number;
+                    };
+                  };
                 };
               };
-            };
-          };
-          const count = requestPayload.request?.runtimeInput?.state?.count ?? 0;
-          queueMicrotask(() => {
-            mockWindow.dispatchMessage({
-              source: contentWindowRef,
-              data: {
-                channel: requestPayload.channel,
+              if (executePayload.type !== "execute") {
+                return;
+              }
+              const count =
+                executePayload.request?.runtimeInput?.state?.count ?? 0;
+              port.postMessage({
+                type: "result",
                 ok: true,
                 output: {
                   type: "element",
@@ -416,8 +419,16 @@ function installBrowserIframeSandboxGlobals(): () => void {
                     },
                   ],
                 },
-              },
-            } as MessageEvent<unknown>);
+              });
+            }) as EventListener,
+            { once: true },
+          );
+
+          queueMicrotask(() => {
+            port.postMessage({
+              type: "ready",
+              channel: initPayload.channel,
+            });
           });
         },
       };

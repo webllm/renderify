@@ -95,23 +95,22 @@ function installIframeEnvironment(output: unknown): () => void {
   const windowDescriptor = Object.getOwnPropertyDescriptor(root, "window");
   const documentDescriptor = Object.getOwnPropertyDescriptor(root, "document");
 
-  const windowHandlers = new Set<(event: MessageEvent<unknown>) => void>();
-
   const contentWindow = {
-    postMessage(payload: { channel?: string }): void {
-      queueMicrotask(() => {
-        const event = {
-          source: contentWindow,
-          data: {
-            channel: payload.channel,
-            ok: true,
-            output,
-          },
-        } as MessageEvent<unknown>;
+    postMessage(
+      payload: { channel?: string; type?: string },
+      _targetOrigin?: string,
+      transfer?: unknown[],
+    ): void {
+      const port = transfer?.[0] as
+        | { postMessage: (value: unknown) => void }
+        | undefined;
+      if (!port || payload.type !== "init") {
+        return;
+      }
 
-        for (const handler of windowHandlers) {
-          handler(event);
-        }
+      queueMicrotask(() => {
+        port.postMessage({ type: "ready" });
+        port.postMessage({ type: "result", ok: true, output });
       });
     },
   };
@@ -155,20 +154,7 @@ function installIframeEnvironment(output: unknown): () => void {
     },
   };
 
-  const mockWindow = {
-    addEventListener(type: string, handler: EventListener): void {
-      if (type === "message") {
-        windowHandlers.add(handler as (event: MessageEvent<unknown>) => void);
-      }
-    },
-    removeEventListener(type: string, handler: EventListener): void {
-      if (type === "message") {
-        windowHandlers.delete(
-          handler as (event: MessageEvent<unknown>) => void,
-        );
-      }
-    },
-  };
+  const mockWindow = {} as Window;
 
   Object.defineProperty(root, "document", {
     configurable: true,

@@ -210,6 +210,9 @@ async function executeSourceInIframeSandbox(
 
   const channel = `renderify-runtime-source-${options.request.id}`;
   const channelLiteral = JSON.stringify(channel);
+  const channelPair = new MessageChannel();
+  const channelPort = channelPair.port1;
+  const iframePort = channelPair.port2;
   iframe.srcdoc = buildIframeSandboxSrcdoc(channelLiteral);
 
   document.body.appendChild(iframe);
@@ -227,7 +230,17 @@ async function executeSourceInIframeSandbox(
       if (options.signal && onAbort) {
         options.signal.removeEventListener("abort", onAbort);
       }
-      window.removeEventListener("message", onMessage);
+      channelPort.removeEventListener("message", onMessage);
+      try {
+        channelPort.close();
+      } catch {
+        // Ignore close failures.
+      }
+      try {
+        iframePort.close();
+      } catch {
+        // Ignore close failures.
+      }
       iframe.removeEventListener("load", onLoad);
       iframe.remove();
     };
@@ -238,14 +251,33 @@ async function executeSourceInIframeSandbox(
     }, options.timeoutMs);
 
     const onMessage = (event: MessageEvent<unknown>) => {
-      if (event.source !== iframe.contentWindow) {
+      const data = event.data as
+        | { type?: string; ok?: boolean; output?: unknown; error?: string }
+        | undefined;
+      if (!data || typeof data.type !== "string") {
         return;
       }
 
-      const data = event.data as
-        | { channel?: string; ok?: boolean; output?: unknown; error?: string }
-        | undefined;
-      if (!data || data.channel !== channel) {
+      if (data.type === "ready") {
+        try {
+          channelPort.postMessage({
+            type: "execute",
+            request: options.request,
+          });
+        } catch (error) {
+          cleanup();
+          reject(
+            new Error(
+              `Iframe sandbox failed to receive request: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            ),
+          );
+        }
+        return;
+      }
+
+      if (data.type !== "result") {
         return;
       }
 
@@ -267,10 +299,9 @@ async function executeSourceInIframeSandbox(
         if (!iframe.contentWindow) {
           throw new Error("Iframe sandbox contentWindow is unavailable");
         }
-        iframe.contentWindow.postMessage(
-          { channel, request: options.request },
-          "*",
-        );
+        iframe.contentWindow.postMessage({ channel, type: "init" }, "*", [
+          iframePort,
+        ]);
       } catch (error) {
         cleanup();
         reject(
@@ -281,7 +312,8 @@ async function executeSourceInIframeSandbox(
       }
     };
 
-    window.addEventListener("message", onMessage);
+    channelPort.addEventListener("message", onMessage);
+    channelPort.start();
     iframe.addEventListener("load", onLoad, { once: true });
 
     if (options.signal) {
@@ -486,6 +518,7 @@ function isIframeSandboxAvailable(): boolean {
   if (
     typeof document === "undefined" ||
     typeof window === "undefined" ||
+    typeof MessageChannel !== "function" ||
     !hasRuntimeModuleBlobSupport()
   ) {
     return false;
