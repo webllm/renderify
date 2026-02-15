@@ -1,0 +1,58 @@
+# @renderify/cli
+
+CLI utilities for Renderify.
+
+`@renderify/cli` is the fastest way to run prompts, inspect generated RuntimePlan JSON, probe plan dependencies, execute plan files, and open the browser playground.
+
+## Install
+
+```bash
+pnpm add -D @renderify/cli
+# or
+npm i -D @renderify/cli
+```
+
+Run directly from your project:
+
+```bash
+npx renderify help
+```
+
+## Commands
+
+```bash
+renderify run <prompt>          # Render prompt and print HTML
+renderify plan <prompt>         # Print RuntimePlan JSON
+renderify probe-plan <file>     # Probe plan dependencies and policy compatibility
+renderify render-plan <file>    # Execute RuntimePlan JSON file and print HTML
+renderify playground [port]     # Start browser playground server
+```
+
+## Quick Start
+
+```bash
+# Generate and render HTML from a prompt
+renderify run "build a KPI dashboard with a chart"
+
+# Generate RuntimePlan JSON
+renderify plan "build a todo app"
+
+# Probe and execute a local plan file
+renderify probe-plan ./examples/runtime/recharts-dashboard-plan.json
+renderify render-plan ./examples/runtime/recharts-dashboard-plan.json
+```
+
+## Useful Environment Variables
+
+- `RENDERIFY_LLM_API_KEY`
+- `RENDERIFY_LLM_PROVIDER` (`openai`, `anthropic`, `google`)
+- `RENDERIFY_LLM_MODEL`
+- `RENDERIFY_LLM_BASE_URL`
+- `RENDERIFY_SECURITY_PROFILE` (`strict`, `balanced`, `relaxed`)
+
+See `../../docs/getting-started.md` and `../../docs/security.md` for runtime and policy options.
+
+## Notes
+
+- Node.js `>=22` is required.
+- The CLI composes `@renderify/core`, `@renderify/runtime`, `@renderify/security`, `@renderify/llm`, and `@renderify/ir`.
