@@ -2,6 +2,7 @@
   "name": "@renderify/cli",
   "version": "0.0.1",
   "main": "dist/cli.cjs.js",
+  "types": "dist/cli.cjs.d.ts",
   "module": "dist/cli.esm.js",
   "exports": {
     ".": {
@@ -33,6 +34,31 @@
   "author": "unadlib",
   "license": "MIT",
   "description": "A CLI for Renderify",
+  "keywords": [
+    "renderify",
+    "cli",
+    "playground",
+    "streaming",
+    "dynamic-ui",
+    "llm"
+  ],
+  "homepage": "https://github.com/webllm/renderify#readme",
+  "bugs": {
+    "url": "https://github.com/webllm/renderify/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/webllm/renderify.git",
+    "directory": "packages/cli"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "sideEffects": false,
   "dependencies": {
     "@renderify/core": "workspace:^",
     "@renderify/ir": "workspace:^",

@@ -2,6 +2,7 @@
   "name": "@renderify/runtime",
   "version": "0.0.1",
   "main": "dist/runtime.cjs.js",
+  "types": "dist/runtime.cjs.d.ts",
   "module": "dist/runtime.esm.js",
   "exports": {
     ".": {
@@ -32,6 +33,31 @@
   "author": "unadlib",
   "license": "MIT",
   "description": "A runtime for Renderify",
+  "keywords": [
+    "renderify",
+    "runtime",
+    "jspm",
+    "llm",
+    "preact",
+    "ui-runtime"
+  ],
+  "homepage": "https://github.com/webllm/renderify#readme",
+  "bugs": {
+    "url": "https://github.com/webllm/renderify/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/webllm/renderify.git",
+    "directory": "packages/runtime"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "sideEffects": false,
   "dependencies": {
     "@renderify/ir": "workspace:^",
     "@renderify/security": "workspace:^",

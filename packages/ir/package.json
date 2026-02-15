@@ -2,6 +2,7 @@
   "name": "@renderify/ir",
   "version": "0.0.1",
   "main": "dist/ir.cjs.js",
+  "types": "dist/ir.cjs.d.ts",
   "module": "dist/ir.esm.js",
   "umd:main": "dist/ir.umd.min.js",
   "exports": {
@@ -34,6 +35,30 @@
   "author": "unadlib",
   "license": "MIT",
   "description": "Runtime IR contracts for Renderify",
+  "keywords": [
+    "renderify",
+    "runtime-plan",
+    "runtime",
+    "ui-runtime",
+    "ir"
+  ],
+  "homepage": "https://github.com/webllm/renderify#readme",
+  "bugs": {
+    "url": "https://github.com/webllm/renderify/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/webllm/renderify.git",
+    "directory": "packages/ir"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "sideEffects": false,
   "dependencies": {
     "es-module-lexer": "^1.7.0"
   }

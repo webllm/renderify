@@ -3,6 +3,7 @@
   "version": "0.0.1",
   "description": "LLM providers for Renderify",
   "main": "dist/llm.cjs.js",
+  "types": "dist/llm.cjs.d.ts",
   "module": "dist/llm.esm.js",
   "umd:main": "dist/llm.umd.min.js",
   "exports": {
@@ -34,6 +35,31 @@
   },
   "author": "unadlib",
   "license": "MIT",
+  "keywords": [
+    "renderify",
+    "llm",
+    "openai",
+    "anthropic",
+    "google",
+    "llm-provider"
+  ],
+  "homepage": "https://github.com/webllm/renderify#readme",
+  "bugs": {
+    "url": "https://github.com/webllm/renderify/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/webllm/renderify.git",
+    "directory": "packages/llm"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "sideEffects": false,
   "dependencies": {
     "@renderify/core": "workspace:^",
     "@renderify/ir": "workspace:^"
