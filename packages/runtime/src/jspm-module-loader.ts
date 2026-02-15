@@ -66,6 +66,7 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
   private readonly cdnBaseUrl: string;
   private readonly importMap: Record<string, string>;
   private readonly cache = new Map<string, unknown>();
+  private readonly inflight = new Map<string, Promise<unknown>>();
 
   constructor(options: JspmModuleLoaderOptions = {}) {
     this.cdnBaseUrl = this.normalizeCdnBaseUrl(options.cdnBaseUrl);
@@ -79,15 +80,29 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
       return this.cache.get(resolved);
     }
 
-    const loaded = await this.importWithBestEffort(resolved);
-    this.cache.set(resolved, loaded);
+    const inflight = this.inflight.get(resolved);
+    if (inflight) {
+      return inflight;
+    }
 
-    return loaded;
+    const loading = (async () => {
+      const loaded = await this.importWithBestEffort(resolved);
+      this.cache.set(resolved, loaded);
+      return loaded;
+    })();
+
+    this.inflight.set(resolved, loading);
+    try {
+      return await loading;
+    } finally {
+      this.inflight.delete(resolved);
+    }
   }
 
   async unload(specifier: string): Promise<void> {
     const resolved = this.resolveSpecifier(specifier);
     this.cache.delete(resolved);
+    this.inflight.delete(resolved);
   }
 
   resolveSpecifier(specifier: string): string {

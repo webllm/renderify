@@ -11,6 +11,8 @@ import type { RuntimeModuleLoader } from "./runtime-manager.types";
 
 const FALLBACK_JSPM_CDN_ROOT = "https://ga.jspm.io";
 const FALLBACK_AUTOPIN_FETCH_TIMEOUT_MS = 4000;
+const FALLBACK_AUTOPIN_MAX_CONCURRENCY = 4;
+const FALLBACK_AUTOPIN_MAX_FAILURES = 8;
 
 interface ParsedBareNpmSpecifier {
   packageName: string;
@@ -36,6 +38,8 @@ export interface AutoPinRuntimePlanManifestOptions {
   moduleLoader?: RuntimeModuleLoader;
   jspmCdnRoot?: string;
   fetchTimeoutMs?: number;
+  maxConcurrentResolutions?: number;
+  maxFailedResolutions?: number;
   signal?: AbortSignal;
   diagnostics?: RuntimeDiagnostic[];
 }
@@ -66,27 +70,79 @@ export async function autoPinRuntimePlanModuleManifest(
     signal: options.signal,
   });
 
+  const pendingSpecifiers = bareSpecifiers.filter(
+    (specifier) => !nextManifest[specifier],
+  );
+  if (pendingSpecifiers.length === 0) {
+    return plan;
+  }
+
+  const maxConcurrentResolutions = normalizeAutoPinPositiveInteger(
+    options.maxConcurrentResolutions,
+    FALLBACK_AUTOPIN_MAX_CONCURRENCY,
+  );
+  const maxFailedResolutions = normalizeAutoPinNonNegativeInteger(
+    options.maxFailedResolutions,
+    FALLBACK_AUTOPIN_MAX_FAILURES,
+  );
+
   let changed = false;
+  let failedResolutions = 0;
+  let nextIndex = 0;
+  let stoppedByFailureBudget = false;
 
-  for (const specifier of bareSpecifiers) {
-    if (nextManifest[specifier]) {
-      continue;
-    }
+  const workerCount = Math.min(
+    maxConcurrentResolutions,
+    pendingSpecifiers.length,
+  );
 
-    try {
-      const descriptor = await resolver.resolve(specifier);
-      if (!descriptor) {
-        continue;
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (true) {
+        if (stoppedByFailureBudget) {
+          return;
+        }
+
+        const index = nextIndex;
+        nextIndex += 1;
+        if (index >= pendingSpecifiers.length) {
+          return;
+        }
+
+        const specifier = pendingSpecifiers[index];
+        try {
+          const descriptor = await resolver.resolve(specifier);
+          if (!descriptor) {
+            continue;
+          }
+          nextManifest[specifier] = descriptor;
+          changed = true;
+        } catch (error) {
+          failedResolutions += 1;
+          options.diagnostics?.push({
+            level: "warning",
+            code: "RUNTIME_MANIFEST_AUTOPIN_FAILED",
+            message: `${specifier}: ${toErrorMessage(error)}`,
+          });
+
+          if (
+            maxFailedResolutions > 0 &&
+            failedResolutions >= maxFailedResolutions
+          ) {
+            stoppedByFailureBudget = true;
+            return;
+          }
+        }
       }
-      nextManifest[specifier] = descriptor;
-      changed = true;
-    } catch (error) {
-      options.diagnostics?.push({
-        level: "warning",
-        code: "RUNTIME_MANIFEST_AUTOPIN_FAILED",
-        message: `${specifier}: ${toErrorMessage(error)}`,
-      });
-    }
+    }),
+  );
+
+  if (stoppedByFailureBudget) {
+    options.diagnostics?.push({
+      level: "warning",
+      code: "RUNTIME_MANIFEST_AUTOPIN_BUDGET_EXCEEDED",
+      message: `Stopped manifest auto-pin after ${failedResolutions} failures (maxFailedResolutions=${maxFailedResolutions})`,
+    });
   }
 
   if (!changed) {
@@ -439,6 +495,38 @@ function hasResolveSpecifier(
     typeof (loader as { resolveSpecifier?: unknown }).resolveSpecifier ===
       "function"
   );
+}
+
+function normalizeAutoPinPositiveInteger(
+  value: unknown,
+  fallback: number,
+): number {
+  if (
+    typeof value !== "number" ||
+    !Number.isInteger(value) ||
+    value <= 0 ||
+    !Number.isFinite(value)
+  ) {
+    return fallback;
+  }
+
+  return value;
+}
+
+function normalizeAutoPinNonNegativeInteger(
+  value: unknown,
+  fallback: number,
+): number {
+  if (
+    typeof value !== "number" ||
+    !Number.isInteger(value) ||
+    value < 0 ||
+    !Number.isFinite(value)
+  ) {
+    return fallback;
+  }
+
+  return value;
 }
 
 function resolveSubpathEntryFromPackageJson(

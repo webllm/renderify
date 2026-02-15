@@ -110,3 +110,50 @@ test("runtime-jspm rejects unsupported schemes and node builtins", () => {
     /Unsupported module scheme/,
   );
 });
+
+test("runtime-jspm de-duplicates concurrent in-flight loads", async () => {
+  const loader = new JspmModuleLoader();
+  const globalState = globalThis as unknown as {
+    System?: { import(url: string): Promise<unknown> };
+  };
+  const previousSystem = globalState.System;
+
+  let importCalls = 0;
+  let resolvePending: ((value: unknown) => void) | undefined;
+  const pending = new Promise<unknown>((resolve) => {
+    resolvePending = resolve;
+  });
+
+  globalState.System = {
+    import: async (_url: string): Promise<unknown> => {
+      importCalls += 1;
+      return pending;
+    },
+  };
+
+  try {
+    const first = loader.load("lodash-es");
+    const second = loader.load("lodash-es");
+
+    await Promise.resolve();
+    assert.equal(importCalls, 1);
+
+    const moduleNamespace = { loaded: true };
+    resolvePending?.(moduleNamespace);
+
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+    assert.equal(firstResult, moduleNamespace);
+    assert.equal(secondResult, moduleNamespace);
+    assert.equal(importCalls, 1);
+
+    const cachedResult = await loader.load("lodash-es");
+    assert.equal(cachedResult, moduleNamespace);
+    assert.equal(importCalls, 1);
+  } finally {
+    if (previousSystem === undefined) {
+      delete globalState.System;
+    } else {
+      globalState.System = previousSystem;
+    }
+  }
+});
