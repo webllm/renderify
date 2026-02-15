@@ -79,7 +79,7 @@ interface AnthropicStreamPayload {
 }
 
 const DEFAULT_BASE_URL = "https://api.anthropic.com/v1";
-const DEFAULT_MODEL = "claude-3-5-sonnet-latest";
+const DEFAULT_MODEL = "claude-sonnet-4-5";
 const DEFAULT_TIMEOUT_MS = 30000;
 const DEFAULT_MAX_TOKENS = 2048;
 const DEFAULT_ANTHROPIC_VERSION = "2023-06-01";

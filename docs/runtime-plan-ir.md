@@ -352,7 +352,7 @@ isSafePath("__proto__.hack"); // => false
   },
   "metadata": {
     "sourcePrompt": "Build an analytics dashboard",
-    "sourceModel": "gpt-4.1-mini",
+    "sourceModel": "gpt-5-mini",
     "tags": ["dashboard", "analytics"]
   }
 }

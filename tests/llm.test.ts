@@ -16,7 +16,7 @@ test("openai interpreter generates text response", async () => {
 
   const llm = new OpenAILLMInterpreter({
     apiKey: "test-key",
-    model: "gpt-4.1-mini",
+    model: "gpt-5-mini",
     baseUrl: "https://example.openai.test/v1",
     fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
       requests.push({
@@ -26,7 +26,7 @@ test("openai interpreter generates text response", async () => {
 
       return jsonResponse({
         id: "chatcmpl_text_1",
-        model: "gpt-4.1-mini",
+        model: "gpt-5-mini",
         usage: {
           total_tokens: 42,
         },
@@ -51,14 +51,14 @@ test("openai interpreter generates text response", async () => {
   });
 
   assert.equal(response.text, "runtime text response");
-  assert.equal(response.model, "gpt-4.1-mini");
+  assert.equal(response.model, "gpt-5-mini");
   assert.equal(response.tokensUsed, 42);
   assert.equal(requests.length, 1);
   assert.equal(
     requests[0].url,
     "https://example.openai.test/v1/chat/completions",
   );
-  assert.equal(requests[0].body.model, "gpt-4.1-mini");
+  assert.equal(requests[0].body.model, "gpt-5-mini");
 
   const messages = requests[0].body.messages as Array<{ role: string }>;
   assert.ok(Array.isArray(messages));
@@ -71,7 +71,7 @@ test("openai interpreter streams text response chunks", async () => {
 
   const llm = new OpenAILLMInterpreter({
     apiKey: "test-key",
-    model: "gpt-4.1-mini",
+    model: "gpt-5-mini",
     baseUrl: "https://example.openai.test/v1",
     fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
       requests.push({
@@ -82,17 +82,17 @@ test("openai interpreter streams text response chunks", async () => {
       return sseResponse([
         `data: ${JSON.stringify({
           id: "chatcmpl_stream_1",
-          model: "gpt-4.1-mini",
+          model: "gpt-5-mini",
           choices: [{ delta: { content: "hello " } }],
         })}`,
         `data: ${JSON.stringify({
           id: "chatcmpl_stream_1",
-          model: "gpt-4.1-mini",
+          model: "gpt-5-mini",
           choices: [{ delta: { content: "world" } }],
         })}`,
         `data: ${JSON.stringify({
           id: "chatcmpl_stream_1",
-          model: "gpt-4.1-mini",
+          model: "gpt-5-mini",
           usage: { total_tokens: 77 },
           choices: [],
         })}`,
@@ -135,7 +135,7 @@ test("openai interpreter retries transient network errors", async () => {
 
   const llm = new OpenAILLMInterpreter({
     apiKey: "test-key",
-    model: "gpt-4.1-mini",
+    model: "gpt-5-mini",
     baseUrl: "https://example.openai.test/v1",
     reliability: {
       maxRetries: 2,
@@ -153,7 +153,7 @@ test("openai interpreter retries transient network errors", async () => {
 
       return jsonResponse({
         id: "chatcmpl_retry_1",
-        model: "gpt-4.1-mini",
+        model: "gpt-5-mini",
         choices: [
           {
             message: {
@@ -254,7 +254,7 @@ test("openai interpreter validates structured runtime plan response", async () =
 
       return jsonResponse({
         id: "chatcmpl_structured_1",
-        model: "gpt-4.1-mini",
+        model: "gpt-5-mini",
         usage: {
           total_tokens: 111,
         },
@@ -276,7 +276,7 @@ test("openai interpreter validates structured runtime plan response", async () =
   });
 
   assert.equal(response.valid, true);
-  assert.equal(response.model, "gpt-4.1-mini");
+  assert.equal(response.model, "gpt-5-mini");
   assert.equal(response.tokensUsed, 111);
   assert.deepEqual(response.value, plan);
 
@@ -295,7 +295,7 @@ test("openai interpreter marks invalid structured JSON as invalid result", async
     fetchImpl: async (_input: RequestInfo | URL, _init?: RequestInit) => {
       return jsonResponse({
         id: "chatcmpl_structured_2",
-        model: "gpt-4.1-mini",
+        model: "gpt-5-mini",
         choices: [
           {
             message: {
@@ -327,7 +327,7 @@ test("openai interpreter accepts fenced json in structured mode", async () => {
     fetchImpl: async (_input: RequestInfo | URL, _init?: RequestInit) => {
       return jsonResponse({
         id: "chatcmpl_structured_3",
-        model: "gpt-4.1-mini",
+        model: "gpt-5-mini",
         choices: [
           {
             message: {
@@ -387,7 +387,7 @@ test("anthropic interpreter generates text response", async () => {
 
   const llm = new AnthropicLLMInterpreter({
     apiKey: "anthropic-key",
-    model: "claude-3-5-sonnet-latest",
+    model: "claude-sonnet-4-5",
     baseUrl: "https://example.anthropic.test/v1",
     fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
       requests.push({
@@ -398,7 +398,7 @@ test("anthropic interpreter generates text response", async () => {
 
       return jsonResponse({
         id: "msg_001",
-        model: "claude-3-5-sonnet-latest",
+        model: "claude-sonnet-4-5",
         usage: {
           input_tokens: 9,
           output_tokens: 12,
@@ -418,13 +418,13 @@ test("anthropic interpreter generates text response", async () => {
   });
 
   assert.equal(response.text, "anthropic text response");
-  assert.equal(response.model, "claude-3-5-sonnet-latest");
+  assert.equal(response.model, "claude-sonnet-4-5");
   assert.equal(response.tokensUsed, 21);
   assert.equal(requests.length, 1);
   assert.equal(requests[0].url, "https://example.anthropic.test/v1/messages");
   assert.equal(requests[0].headers.get("x-api-key"), "anthropic-key");
   assert.equal(requests[0].headers.get("anthropic-version"), "2023-06-01");
-  assert.equal(requests[0].body.model, "claude-3-5-sonnet-latest");
+  assert.equal(requests[0].body.model, "claude-sonnet-4-5");
 });
 
 test("anthropic interpreter streams text response chunks", async () => {
@@ -432,7 +432,7 @@ test("anthropic interpreter streams text response chunks", async () => {
 
   const llm = new AnthropicLLMInterpreter({
     apiKey: "anthropic-key",
-    model: "claude-3-5-sonnet-latest",
+    model: "claude-sonnet-4-5",
     baseUrl: "https://example.anthropic.test/v1",
     fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
       requests.push({
@@ -446,7 +446,7 @@ test("anthropic interpreter streams text response chunks", async () => {
             type: "message_start",
             message: {
               id: "msg_stream_1",
-              model: "claude-3-5-sonnet-latest",
+              model: "claude-sonnet-4-5",
               usage: { input_tokens: 11 },
             },
           }),
@@ -517,7 +517,7 @@ test("anthropic interpreter validates structured runtime plan response", async (
     fetchImpl: async (_input: RequestInfo | URL, _init?: RequestInit) =>
       jsonResponse({
         id: "msg_002",
-        model: "claude-3-5-sonnet-latest",
+        model: "claude-sonnet-4-5",
         usage: {
           input_tokens: 10,
           output_tokens: 13,
@@ -538,7 +538,7 @@ test("anthropic interpreter validates structured runtime plan response", async (
   });
 
   assert.equal(response.valid, true);
-  assert.equal(response.model, "claude-3-5-sonnet-latest");
+  assert.equal(response.model, "claude-sonnet-4-5");
   assert.equal(response.tokensUsed, 23);
   assert.deepEqual(response.value, plan);
 });
@@ -552,7 +552,7 @@ test("google interpreter generates text response", async () => {
 
   const llm = new GoogleLLMInterpreter({
     apiKey: "google-key",
-    model: "gemini-2.0-flash",
+    model: "gemini-2.5-flash",
     baseUrl: "https://example.google.test/v1beta",
     fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
       requests.push({
@@ -562,7 +562,7 @@ test("google interpreter generates text response", async () => {
       });
 
       return jsonResponse({
-        modelVersion: "gemini-2.0-flash",
+        modelVersion: "gemini-2.5-flash",
         usageMetadata: {
           promptTokenCount: 8,
           candidatesTokenCount: 11,
@@ -588,12 +588,12 @@ test("google interpreter generates text response", async () => {
   });
 
   assert.equal(response.text, "google text response");
-  assert.equal(response.model, "gemini-2.0-flash");
+  assert.equal(response.model, "gemini-2.5-flash");
   assert.equal(response.tokensUsed, 19);
   assert.equal(requests.length, 1);
   assert.equal(
     requests[0].url,
-    "https://example.google.test/v1beta/models/gemini-2.0-flash:generateContent",
+    "https://example.google.test/v1beta/models/gemini-2.5-flash:generateContent",
   );
   assert.equal(requests[0].headers.get("x-goog-api-key"), "google-key");
   assert.deepEqual(requests[0].body.generationConfig, {
@@ -607,7 +607,7 @@ test("google interpreter streams text response chunks", async () => {
 
   const llm = new GoogleLLMInterpreter({
     apiKey: "google-key",
-    model: "gemini-2.0-flash",
+    model: "gemini-2.5-flash",
     baseUrl: "https://example.google.test/v1beta",
     fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
       requests.push({
@@ -618,7 +618,7 @@ test("google interpreter streams text response chunks", async () => {
       return sseResponse([
         "data: " +
           JSON.stringify({
-            modelVersion: "gemini-2.0-flash",
+            modelVersion: "gemini-2.5-flash",
             candidates: [
               {
                 finishReason: "STOP",
@@ -628,7 +628,7 @@ test("google interpreter streams text response chunks", async () => {
           }),
         "data: " +
           JSON.stringify({
-            modelVersion: "gemini-2.0-flash",
+            modelVersion: "gemini-2.5-flash",
             candidates: [
               {
                 finishReason: "STOP",
@@ -638,7 +638,7 @@ test("google interpreter streams text response chunks", async () => {
           }),
         "data: " +
           JSON.stringify({
-            modelVersion: "gemini-2.0-flash",
+            modelVersion: "gemini-2.5-flash",
             usageMetadata: { totalTokenCount: 55 },
             candidates: [],
           }),
@@ -656,7 +656,7 @@ test("google interpreter streams text response chunks", async () => {
   assert.equal(requests.length, 1);
   assert.equal(
     requests[0].url,
-    "https://example.google.test/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse",
+    "https://example.google.test/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse",
   );
   assert.deepEqual(requests[0].body.generationConfig, {
     responseMimeType: "text/plain",
@@ -694,7 +694,7 @@ test("google interpreter validates structured runtime plan response", async () =
     apiKey: "google-key",
     fetchImpl: async (_input: RequestInfo | URL, _init?: RequestInit) =>
       jsonResponse({
-        modelVersion: "gemini-2.0-flash",
+        modelVersion: "gemini-2.5-flash",
         usageMetadata: {
           totalTokenCount: 27,
         },
@@ -720,7 +720,7 @@ test("google interpreter validates structured runtime plan response", async () =
   });
 
   assert.equal(response.valid, true);
-  assert.equal(response.model, "gemini-2.0-flash");
+  assert.equal(response.model, "gemini-2.5-flash");
   assert.equal(response.tokensUsed, 27);
   assert.deepEqual(response.value, plan);
 });
@@ -823,7 +823,7 @@ test("llm provider registry can create builtin openai interpreter", async () => 
       fetchImpl: async (_input: RequestInfo | URL, _init?: RequestInit) =>
         jsonResponse({
           id: "chatcmpl_provider_openai",
-          model: "gpt-4.1-mini",
+          model: "gpt-5-mini",
           choices: [{ message: { content: "ok" } }],
         }),
     },
@@ -844,7 +844,7 @@ test("llm provider registry can create builtin anthropic interpreter", async () 
       fetchImpl: async (_input: RequestInfo | URL, _init?: RequestInit) =>
         jsonResponse({
           id: "msg_provider_anthropic",
-          model: "claude-3-5-sonnet-latest",
+          model: "claude-sonnet-4-5",
           content: [{ type: "text", text: "ok-anthropic" }],
         }),
     },

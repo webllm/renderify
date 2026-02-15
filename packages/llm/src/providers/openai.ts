@@ -86,7 +86,7 @@ interface OpenAIExtractedOutput {
 }
 
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
-const DEFAULT_MODEL = "gpt-4.1-mini";
+const DEFAULT_MODEL = "gpt-5-mini";
 const DEFAULT_TIMEOUT_MS = 30000;
 
 const RUNTIME_PLAN_JSON_SCHEMA = {

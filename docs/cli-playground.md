@@ -279,7 +279,7 @@ All CLI and playground behavior can be configured via environment:
 # LLM Configuration
 RENDERIFY_LLM_PROVIDER=openai|anthropic|google
 RENDERIFY_LLM_API_KEY=...
-RENDERIFY_LLM_MODEL=gpt-4.1-mini
+RENDERIFY_LLM_MODEL=gpt-5-mini
 RENDERIFY_LLM_BASE_URL=https://api.openai.com/v1
 RENDERIFY_LLM_USE_STRUCTURED_OUTPUT=true|false
 

@@ -291,7 +291,7 @@ test("e2e: cli uses openai provider when configured", async () => {
       RENDERIFY_LLM_PROVIDER: "openai",
       RENDERIFY_LLM_API_KEY: "test-key",
       RENDERIFY_LLM_BASE_URL: `http://127.0.0.1:${port}/v1`,
-      RENDERIFY_LLM_MODEL: "gpt-4.1-mini",
+      RENDERIFY_LLM_MODEL: "gpt-5-mini",
     });
 
     assert.equal(result.code, 0, result.stderr);
@@ -307,7 +307,7 @@ test("e2e: cli uses openai provider when configured", async () => {
     assert.equal(plan.version, 1);
     assert.equal(plan.root.type, "element");
     assert.equal(requests.length, 1);
-    assert.equal(requests[0].model, "gpt-4.1-mini");
+    assert.equal(requests[0].model, "gpt-5-mini");
 
     const responseFormat = requests[0].response_format as {
       type?: string;
@@ -336,7 +336,7 @@ test("e2e: cli uses google provider when configured", async () => {
       RENDERIFY_LLM_PROVIDER: "google",
       RENDERIFY_LLM_API_KEY: "test-google-key",
       RENDERIFY_LLM_BASE_URL: `http://127.0.0.1:${port}/v1beta`,
-      RENDERIFY_LLM_MODEL: "gemini-2.0-flash",
+      RENDERIFY_LLM_MODEL: "gemini-2.5-flash",
     });
 
     assert.equal(result.code, 0, result.stderr);
@@ -378,7 +378,7 @@ test("e2e: playground api supports prompt and stream flow", async () => {
     RENDERIFY_LLM_PROVIDER: "openai",
     RENDERIFY_LLM_API_KEY: "test-key",
     RENDERIFY_LLM_BASE_URL: `http://127.0.0.1:${openaiPort}/v1`,
-    RENDERIFY_LLM_MODEL: "gpt-4.1-mini",
+    RENDERIFY_LLM_MODEL: "gpt-5-mini",
   });
 
   try {
@@ -1045,7 +1045,7 @@ async function startFakeOpenAIServer(port: number): Promise<{
 
         sendJson(res, 200, {
           id: "chatcmpl_e2e_openai",
-          model: "gpt-4.1-mini",
+          model: "gpt-5-mini",
           usage: {
             total_tokens: 64,
           },
@@ -1113,7 +1113,7 @@ async function startFakeGoogleServer(port: number): Promise<{
 
         if (
           method !== "POST" ||
-          pathName !== "/v1beta/models/gemini-2.0-flash:generateContent"
+          pathName !== "/v1beta/models/gemini-2.5-flash:generateContent"
         ) {
           sendJson(res, 404, { error: { message: "not found" } });
           return;
@@ -1126,7 +1126,7 @@ async function startFakeGoogleServer(port: number): Promise<{
         });
 
         sendJson(res, 200, {
-          modelVersion: "gemini-2.0-flash",
+          modelVersion: "gemini-2.5-flash",
           usageMetadata: {
             totalTokenCount: 48,
           },

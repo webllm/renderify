@@ -11,7 +11,7 @@ test("config loads default security profile and runtime defaults", async () => {
 
   assert.equal(config.get("securityProfile"), "balanced");
   assert.equal(config.get("llmProvider"), "openai");
-  assert.equal(config.get("llmModel"), "gpt-4.1-mini");
+  assert.equal(config.get("llmModel"), "gpt-5-mini");
   assert.equal(config.get("llmBaseUrl"), "https://api.openai.com/v1");
   assert.equal(config.get("llmRequestTimeoutMs"), 30000);
   assert.equal(config.get("runtimeJspmOnlyStrictMode"), false);

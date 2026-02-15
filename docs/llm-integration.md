@@ -6,9 +6,9 @@ Renderify supports multiple LLM providers for generating UI from natural languag
 
 | Provider        | Default Model              | Package          |
 | --------------- | -------------------------- | ---------------- |
-| OpenAI          | `gpt-4.1-mini`             | `@renderify/llm` |
-| Anthropic       | `claude-3-5-sonnet-latest` | `@renderify/llm` |
-| Google (Gemini) | `gemini-2.0-flash`         | `@renderify/llm` |
+| OpenAI          | `gpt-5-mini`             | `@renderify/llm` |
+| Anthropic       | `claude-sonnet-4-5` | `@renderify/llm` |
+| Google (Gemini) | `gemini-2.5-flash`         | `@renderify/llm` |
 
 ## Configuration
 
@@ -22,7 +22,7 @@ RENDERIFY_LLM_PROVIDER=openai|anthropic|google
 RENDERIFY_LLM_API_KEY=your-api-key
 
 # Optional: custom model
-RENDERIFY_LLM_MODEL=gpt-4.1-mini
+RENDERIFY_LLM_MODEL=gpt-5-mini
 
 # Optional: custom base URL (for proxies or self-hosted)
 RENDERIFY_LLM_BASE_URL=https://api.openai.com/v1
@@ -44,7 +44,7 @@ const openai = createLLMInterpreter({
   provider: "openai",
   providerOptions: {
     apiKey: "sk-...",
-    model: "gpt-4.1-mini",
+    model: "gpt-5-mini",
     baseUrl: "https://api.openai.com/v1",
     timeoutMs: 30000,
   },
@@ -55,7 +55,7 @@ const anthropic = createLLMInterpreter({
   provider: "anthropic",
   providerOptions: {
     apiKey: "sk-ant-...",
-    model: "claude-3-5-sonnet-latest",
+    model: "claude-sonnet-4-5",
     maxTokens: 4096,
   },
 });
@@ -65,7 +65,7 @@ const google = createLLMInterpreter({
   provider: "google",
   providerOptions: {
     apiKey: "...",
-    model: "gemini-2.0-flash",
+    model: "gemini-2.5-flash",
     baseUrl: "https://generativelanguage.googleapis.com/v1beta",
   },
 });

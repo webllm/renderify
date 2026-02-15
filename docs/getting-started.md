@@ -153,7 +153,7 @@ You can also customize the model and base URL:
 
 ```bash
 RENDERIFY_LLM_PROVIDER=openai \
-RENDERIFY_LLM_MODEL=gpt-4.1-mini \
+RENDERIFY_LLM_MODEL=gpt-5-mini \
 RENDERIFY_LLM_BASE_URL=https://api.openai.com/v1 \
 RENDERIFY_LLM_API_KEY=sk-... \
 pnpm playground

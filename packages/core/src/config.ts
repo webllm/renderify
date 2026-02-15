@@ -79,7 +79,7 @@ export class DefaultRenderifyConfig implements RenderifyConfig {
     const env = getEnvironmentValues();
     const defaultValues: RenderifyConfigValues = {
       llmProvider: "openai",
-      llmModel: "gpt-4.1-mini",
+      llmModel: "gpt-5-mini",
       llmBaseUrl: "https://api.openai.com/v1",
       llmRequestTimeoutMs: 30000,
       jspmCdnUrl: "https://ga.jspm.io/npm",

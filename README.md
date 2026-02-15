@@ -200,11 +200,11 @@ RENDERIFY_LLM_USE_STRUCTURED_OUTPUT=false pnpm playground
 
 # Optional LLM provider env
 RENDERIFY_LLM_PROVIDER=openai RENDERIFY_LLM_API_KEY=<your_key> pnpm playground
-RENDERIFY_LLM_PROVIDER=openai RENDERIFY_LLM_MODEL=gpt-4.1-mini RENDERIFY_LLM_BASE_URL=https://api.openai.com/v1 pnpm playground
+RENDERIFY_LLM_PROVIDER=openai RENDERIFY_LLM_MODEL=gpt-5-mini RENDERIFY_LLM_BASE_URL=https://api.openai.com/v1 pnpm playground
 RENDERIFY_LLM_PROVIDER=anthropic RENDERIFY_LLM_API_KEY=<your_key> pnpm playground
-RENDERIFY_LLM_PROVIDER=anthropic RENDERIFY_LLM_MODEL=claude-3-5-sonnet-latest RENDERIFY_LLM_BASE_URL=https://api.anthropic.com/v1 pnpm playground
+RENDERIFY_LLM_PROVIDER=anthropic RENDERIFY_LLM_MODEL=claude-sonnet-4-5 RENDERIFY_LLM_BASE_URL=https://api.anthropic.com/v1 pnpm playground
 RENDERIFY_LLM_PROVIDER=google RENDERIFY_LLM_API_KEY=<your_key> pnpm playground
-RENDERIFY_LLM_PROVIDER=google RENDERIFY_LLM_MODEL=gemini-2.0-flash RENDERIFY_LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta pnpm playground
+RENDERIFY_LLM_PROVIDER=google RENDERIFY_LLM_MODEL=gemini-2.5-flash RENDERIFY_LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta pnpm playground
 
 # Runtime protocol/runtime safety env
 RENDERIFY_RUNTIME_ENFORCE_MANIFEST=true pnpm playground
