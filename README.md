@@ -148,6 +148,33 @@ flowchart TD
 - PR changeset enforcement for release-relevant package changes
 - Benchmark workflow with JSON artifacts uploaded per CI run
 
+## SDK Quick Start (Non-CLI)
+
+Use Renderify directly in your app code (no `pnpm cli`).
+
+```bash
+pnpm add renderify
+```
+
+```ts
+import { renderPlanInBrowser } from "renderify";
+
+await renderPlanInBrowser(
+  {
+    id: "quickstart_non_cli",
+    version: 1,
+    root: { type: "text", value: "Loading..." },
+    source: {
+      language: "tsx",
+      code: `export default () => <section>Hello from Renderify SDK</section>;`,
+    },
+  },
+  { target: "#mount" },
+);
+```
+
+For pure browser pages without a build tool, load `@babel/standalone` before running TSX/JSX source.
+
 ## CLI Quick Start
 
 ```bash
