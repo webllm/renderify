@@ -28,7 +28,7 @@ test("context update merges nested user fields without losing existing values", 
   manager.updateContext({
     user: {
       name: "Grace",
-    },
+    } as never,
   });
 
   assert.deepEqual(manager.getContext().user, {
@@ -54,7 +54,7 @@ test("context update merges app fields and preserves extensions", async () => {
   manager.updateContext({
     app: {
       environment: "production",
-    },
+    } as never,
     featureFlag: false,
   });
 

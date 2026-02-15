@@ -31,18 +31,20 @@ test("customization runHook executes plugins in registration order", async () =>
 
   engine.registerPlugin(
     plugin("a", {
-      beforeCodeGen: async (payload: { value: number }) => {
+      beforeCodeGen: async (payload: unknown) => {
         order.push("a");
-        return { value: payload.value + 1 };
+        const next = payload as { value: number };
+        return { value: next.value + 1 };
       },
     }),
   );
 
   engine.registerPlugin(
     plugin("b", {
-      beforeCodeGen: (payload: { value: number }) => {
+      beforeCodeGen: (payload: unknown) => {
         order.push("b");
-        return { value: payload.value * 2 };
+        const next = payload as { value: number };
+        return { value: next.value * 2 };
       },
     }),
   );
@@ -65,7 +67,7 @@ test("customization runHook skips plugins without requested hook", async () => {
 
   engine.registerPlugin(
     plugin("no-hook", {
-      afterRender: (payload: string) => `${payload}!`,
+      afterRender: (payload: unknown) => `${String(payload)}!`,
     }),
   );
 
@@ -86,7 +88,7 @@ test("customization runHook awaits async handlers and propagates errors", async 
 
   engine.registerPlugin(
     plugin("async", {
-      beforeRender: async (payload: string) => `${payload}-ready`,
+      beforeRender: async (payload: unknown) => `${String(payload)}-ready`,
     }),
   );
 

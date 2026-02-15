@@ -616,6 +616,7 @@ test("e2e: framework adapters mount, update, unmount and fallback in browser", a
     });
 
     const report = (await page.evaluate(async () => {
+      // @ts-expect-error runtime-served test harness module
       const harness = await import("/adapter-harness.js");
       return await harness.runFrameworkAdapterE2E();
     })) as {

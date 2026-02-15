@@ -89,12 +89,13 @@ test("pipeline runs full prompt flow with plugin hook transformations", async ()
   customization.registerPlugin({
     name: "pipeline-hooks",
     hooks: {
-      beforeLLM: async (payload: string, context: PluginContext) => {
+      beforeLLM: async (payload: unknown, context: PluginContext) => {
         hookOrder.push(context.hookName);
-        return `${payload} [hook-before-llm]`;
+        return `${String(payload)} [hook-before-llm]`;
       },
-      afterCodeGen: async (plan: RuntimePlan, context: PluginContext) => {
+      afterCodeGen: async (payload: unknown, context: PluginContext) => {
         hookOrder.push(context.hookName);
+        const plan = payload as RuntimePlan;
         return {
           ...plan,
           root: createElementNode("section", undefined, [
@@ -102,9 +103,9 @@ test("pipeline runs full prompt flow with plugin hook transformations", async ()
           ]),
         };
       },
-      afterRender: async (html: string, context: PluginContext) => {
+      afterRender: async (payload: unknown, context: PluginContext) => {
         hookOrder.push(context.hookName);
-        return `${html}<!--hook-after-render-->`;
+        return `${String(payload)}<!--hook-after-render-->`;
       },
     },
   });
