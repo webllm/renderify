@@ -2,6 +2,8 @@
 
 This document describes the end-to-end architecture of Renderify, covering the pipeline stages, package responsibilities, data flow, and key design decisions.
 
+For Mermaid diagrams of the same architecture, see [`docs/architecture-visual.md`](./architecture-visual.md).
+
 ## High-Level Pipeline
 
 ```

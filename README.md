@@ -367,12 +367,16 @@ Use `manifest-only` in production (`autoPinLatestModuleManifest: false`) when yo
 ## Integration Docs
 
 - Architecture overview: [`docs/architecture.md`](docs/architecture.md)
+- Visual architecture diagrams (Mermaid): [`docs/architecture-visual.md`](docs/architecture-visual.md)
 - RuntimePlan IR reference: [`docs/runtime-plan-ir.md`](docs/runtime-plan-ir.md)
 - Runtime execution engine: [`docs/runtime-execution.md`](docs/runtime-execution.md)
 - Dependency verification model: [`docs/runtime-execution.md#verification-model`](docs/runtime-execution.md#verification-model)
 - Browser embedding: [`docs/browser-integration.md`](docs/browser-integration.md)
 - Security guide: [`docs/security.md`](docs/security.md)
 - Plugin system: [`docs/plugin-system.md`](docs/plugin-system.md)
+- Troubleshooting & FAQ: [`docs/troubleshooting-faq.md`](docs/troubleshooting-faq.md)
+- Cookbook / common integration patterns: [`docs/cookbook.md`](docs/cookbook.md)
+- Performance tuning guide: [`docs/performance-tuning.md`](docs/performance-tuning.md)
 
 ## Browser Examples
 

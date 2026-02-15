@@ -208,6 +208,7 @@ pnpm format           # Auto-format code
 ## Next Steps
 
 - [Architecture Overview](./architecture.md) — understand the full pipeline
+- [Visual Architecture (Mermaid)](./architecture-visual.md) — system diagrams for data flow and package boundaries
 - [RuntimePlan IR Reference](./runtime-plan-ir.md) — learn the intermediate representation
 - [Security Guide](./security.md) — security policies and profiles
 - [LLM Integration](./llm-integration.md) — provider configuration and structured output
@@ -216,4 +217,7 @@ pnpm format           # Auto-format code
 - [CLI & Playground](./cli-playground.md) — CLI commands and playground features
 - [Browser Integration](./browser-integration.md) — embedding in web applications
 - [API Reference](./api-reference.md) — complete type and function reference
+- [Troubleshooting & FAQ](./troubleshooting-faq.md) — failure diagnostics and recovery checklist
+- [Cookbook](./cookbook.md) — copy-paste integration patterns
+- [Performance Tuning](./performance-tuning.md) — runtime knobs, CI guardrails, and optimization workflow
 - [Contributing Guide](./contributing.md) — development workflow and conventions
