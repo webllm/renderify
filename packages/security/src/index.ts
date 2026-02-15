@@ -217,6 +217,10 @@ export class DefaultSecurityChecker implements SecurityChecker {
   private policy: RuntimeSecurityPolicy = getSecurityProfilePolicy(
     DEFAULT_SECURITY_PROFILE,
   );
+  private sourceBannedPatterns: Array<{
+    raw: string;
+    regex: RegExp;
+  }> = compileSourceBannedPatterns(this.policy.sourceBannedPatternStrings);
   private profile: RuntimeSecurityProfile = DEFAULT_SECURITY_PROFILE;
 
   initialize(input?: SecurityInitializationInput): void {
@@ -243,6 +247,9 @@ export class DefaultSecurityChecker implements SecurityChecker {
         normalized.overrides?.sourceBannedPatternStrings ??
         basePolicy.sourceBannedPatternStrings,
     };
+    this.sourceBannedPatterns = compileSourceBannedPatterns(
+      this.policy.sourceBannedPatternStrings,
+    );
     this.profile = profile;
   }
 
@@ -598,16 +605,9 @@ export class DefaultSecurityChecker implements SecurityChecker {
       issues.push("Runtime source dynamic import() is disabled by policy");
     }
 
-    for (const patternText of this.policy.sourceBannedPatternStrings) {
-      let pattern: RegExp;
-      try {
-        pattern = new RegExp(patternText, "i");
-      } catch {
-        continue;
-      }
-
-      if (pattern.test(source.code)) {
-        issues.push(`Runtime source contains blocked pattern: ${patternText}`);
+    for (const pattern of this.sourceBannedPatterns) {
+      if (pattern.regex.test(source.code)) {
+        issues.push(`Runtime source contains blocked pattern: ${pattern.raw}`);
       }
     }
 
@@ -816,6 +816,27 @@ function clonePolicy(policy: RuntimeSecurityPolicy): RuntimeSecurityPolicy {
     supportedSpecVersions: [...policy.supportedSpecVersions],
     sourceBannedPatternStrings: [...policy.sourceBannedPatternStrings],
   };
+}
+
+function compileSourceBannedPatterns(patterns: string[]): Array<{
+  raw: string;
+  regex: RegExp;
+}> {
+  const compiled: Array<{
+    raw: string;
+    regex: RegExp;
+  }> = [];
+
+  for (const patternText of patterns) {
+    try {
+      compiled.push({
+        raw: patternText,
+        regex: new RegExp(patternText, "i"),
+      });
+    } catch {}
+  }
+
+  return compiled;
 }
 
 function walkNodes(

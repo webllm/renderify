@@ -179,6 +179,24 @@ test("security checker supports profile initialization", async () => {
   assert.equal(checker.getProfile(), "strict");
 });
 
+test("security checker precompiles source banned patterns on initialize", async () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize({
+    sourceBannedPatternStrings: ["\\beval\\s*\\(", "["],
+  });
+
+  const compiled = (
+    checker as unknown as {
+      sourceBannedPatterns?: Array<{ raw?: string }>;
+    }
+  ).sourceBannedPatterns;
+
+  assert.deepEqual(
+    (compiled ?? []).map((entry) => entry.raw),
+    ["\\beval\\s*\\("],
+  );
+});
+
 test("security profiles list includes strict balanced relaxed", async () => {
   const profiles = listSecurityProfiles();
   assert.deepEqual(profiles.sort(), ["balanced", "relaxed", "strict"]);
