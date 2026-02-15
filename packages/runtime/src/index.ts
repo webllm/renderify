@@ -3,6 +3,7 @@ export * from "./framework-adapters";
 export type { JspmModuleLoaderOptions } from "./jspm-module-loader";
 export { JspmModuleLoader } from "./jspm-module-loader";
 export * from "./manager";
+export * from "./primitives";
 export * from "./runtime-manager.types";
 export * from "./transpiler";
 export type {

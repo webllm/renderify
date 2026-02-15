@@ -44,6 +44,27 @@ export default function App() {
 
 These adapters lazy-load framework runtimes via ESM `import()` and expose fallback text on mount failures.
 
+## Themes & Layout Primitives
+
+Runtime also exports pre-built theme tokens and layout primitives:
+
+- `renderifyThemes`, `resolveRenderifyTheme`, `ThemeProvider`
+- `Stack`, `Inline`, `Grid`, `Surface`, `MetricTile`
+
+```tsx
+import { ThemeProvider, Grid, MetricTile } from "@renderify/runtime";
+
+export default function Dashboard() {
+  return (
+    <ThemeProvider theme="aurora">
+      <Grid columns={3}>
+        <MetricTile label="Requests" value="12.3k" delta="+8.2%" tone="success" />
+      </Grid>
+    </ThemeProvider>
+  );
+}
+```
+
 ## Quick Start (Browser)
 
 ```ts
