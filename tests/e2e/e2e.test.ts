@@ -558,6 +558,137 @@ test("e2e: playground hash js64 source auto-renders on load", async (t) => {
   }
 });
 
+test("e2e: framework adapters mount, update, unmount and fallback in browser", async (t) => {
+  const tempDir = await mkdtemp(
+    path.join(os.tmpdir(), "renderify-e2e-framework-adapters-"),
+  );
+  const harnessSourcePath = path.join(tempDir, "framework-adapters-harness.ts");
+  const harnessBundlePath = path.join(tempDir, "framework-adapters-harness.js");
+  const port = await allocatePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  let browser: Browser | undefined;
+  let closeHarnessServer: (() => Promise<void>) | undefined;
+
+  try {
+    const runtimeFrameworkAdaptersPath = path
+      .join(REPO_ROOT, "packages", "runtime", "src", "framework-adapters.ts")
+      .replace(/\\/g, "/");
+    const harnessSource = FRAMEWORK_ADAPTERS_HARNESS_SOURCE.replace(
+      "__RUNTIME_FRAMEWORK_ADAPTERS_PATH__",
+      runtimeFrameworkAdaptersPath,
+    );
+
+    await writeFile(harnessSourcePath, harnessSource, "utf8");
+
+    const esbuildResult = await runCommand("pnpm", [
+      "exec",
+      "esbuild",
+      harnessSourcePath,
+      "--bundle",
+      "--format=esm",
+      "--platform=browser",
+      "--target=es2022",
+      `--outfile=${harnessBundlePath}`,
+    ]);
+    assert.equal(esbuildResult.code, 0, esbuildResult.stderr);
+
+    const fsPromises = await import("node:fs/promises");
+    const harnessBundle = await fsPromises.readFile(harnessBundlePath, "utf8");
+
+    closeHarnessServer = await startFrameworkAdapterHarnessServer({
+      port,
+      harnessBundle,
+    });
+
+    try {
+      browser = await chromium.launch({ headless: true });
+    } catch (error) {
+      t.skip(
+        `playwright chromium is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return;
+    }
+
+    const page = await browser.newPage();
+    await page.goto(baseUrl, {
+      waitUntil: "networkidle",
+    });
+
+    const report = (await page.evaluate(async () => {
+      const harness = await import("/adapter-harness.js");
+      return await harness.runFrameworkAdapterE2E();
+    })) as {
+      vue: {
+        firstText: string;
+        secondText: string;
+        finalText: string;
+        trace: string[];
+        fallbackText: string;
+        fallbackError: string | null;
+      };
+      solid: {
+        firstText: string;
+        secondText: string;
+        finalText: string;
+        trace: string[];
+        fallbackText: string;
+        fallbackError: string | null;
+      };
+      svelte: {
+        firstText: string;
+        secondText: string;
+        finalText: string;
+        trace: string[];
+        fallbackText: string;
+        fallbackError: string | null;
+      };
+    };
+
+    assert.deepEqual(report.vue.trace, [
+      "mount:one",
+      "unmount:one",
+      "mount:two",
+      "unmount:two",
+    ]);
+    assert.equal(report.vue.firstText, "vue:one");
+    assert.equal(report.vue.secondText, "vue:two");
+    assert.equal(report.vue.finalText, "vue-complete");
+    assert.equal(report.vue.fallbackText, "vue-fallback");
+    assert.match(report.vue.fallbackError ?? "", /vue loader failed/);
+
+    assert.deepEqual(report.solid.trace, [
+      "mount:solid:one",
+      "unmount:solid:one",
+      "mount:solid:two",
+      "unmount:solid:two",
+    ]);
+    assert.equal(report.solid.firstText, "solid:one");
+    assert.equal(report.solid.secondText, "solid:two");
+    assert.equal(report.solid.finalText, "solid-complete");
+    assert.equal(report.solid.fallbackText, "solid-fallback");
+    assert.match(report.solid.fallbackError ?? "", /solid loader failed/);
+
+    assert.deepEqual(report.svelte.trace, [
+      "mount:one",
+      "unmount:one",
+      "mount:two",
+      "unmount:two",
+    ]);
+    assert.equal(report.svelte.firstText, "svelte:one");
+    assert.equal(report.svelte.secondText, "svelte:two");
+    assert.equal(report.svelte.finalText, "svelte-complete");
+    assert.equal(report.svelte.fallbackText, "svelte-fallback");
+    assert.match(report.svelte.fallbackError ?? "", /svelte loader failed/);
+  } finally {
+    await browser?.close();
+    if (closeHarnessServer) {
+      await closeHarnessServer();
+    }
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 function toBase64Url(value: string): string {
   return Buffer.from(value, "utf8").toString("base64url");
 }
@@ -928,3 +1059,359 @@ async function closeServer(server: Server): Promise<void> {
     });
   });
 }
+
+async function runCommand(
+  command: string,
+  args: string[],
+): Promise<CommandResult> {
+  return new Promise<CommandResult>((resolve) => {
+    const child = spawn(command, args, {
+      cwd: REPO_ROOT,
+      env: process.env,
+      stdio: "pipe",
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.on("data", (chunk: Buffer | string) => {
+      stdout += String(chunk);
+    });
+    child.stderr.on("data", (chunk: Buffer | string) => {
+      stderr += String(chunk);
+    });
+
+    child.on("close", (code) => {
+      resolve({
+        code: code ?? -1,
+        stdout,
+        stderr,
+      });
+    });
+  });
+}
+
+async function startFrameworkAdapterHarnessServer(input: {
+  port: number;
+  harnessBundle: string;
+}): Promise<() => Promise<void>> {
+  const html = [
+    "<!doctype html>",
+    "<html>",
+    "  <head>",
+    '    <meta charset="utf-8" />',
+    "    <title>Renderify Framework Adapter E2E</title>",
+    "  </head>",
+    "  <body>",
+    '    <main id="app"></main>',
+    "  </body>",
+    "</html>",
+  ].join("\n");
+
+  const server = createServer((req, res) => {
+    const url = new URL(req.url ?? "/", "http://127.0.0.1");
+
+    if (req.method === "GET" && url.pathname === "/") {
+      const body = Buffer.from(html, "utf8");
+      res.statusCode = 200;
+      res.setHeader("content-type", "text/html; charset=utf-8");
+      res.setHeader("content-length", body.length);
+      res.end(body);
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/adapter-harness.js") {
+      const body = Buffer.from(input.harnessBundle, "utf8");
+      res.statusCode = 200;
+      res.setHeader("content-type", "text/javascript; charset=utf-8");
+      res.setHeader("content-length", body.length);
+      res.end(body);
+      return;
+    }
+
+    const notFound = Buffer.from("not found", "utf8");
+    res.statusCode = 404;
+    res.setHeader("content-type", "text/plain; charset=utf-8");
+    res.setHeader("content-length", notFound.length);
+    res.end(notFound);
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(input.port, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+
+  return () => closeServer(server);
+}
+
+const FRAMEWORK_ADAPTERS_HARNESS_SOURCE = `
+import { h, render } from "preact";
+import {
+  SolidAdapter,
+  SvelteAdapter,
+  VueAdapter,
+} from "__RUNTIME_FRAMEWORK_ADAPTERS_PATH__";
+
+const flushEffects = async () => {
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  await new Promise((resolve) => setTimeout(resolve, 25));
+};
+
+const mountRoot = (id) => {
+  const existing = document.getElementById(id);
+  if (existing) {
+    existing.remove();
+  }
+
+  const container = document.createElement("section");
+  container.id = id;
+  document.body.appendChild(container);
+  return container;
+};
+
+async function runVueScenario() {
+  const trace = [];
+  const component = { name: "FakeVueComponent" };
+  const mount = mountRoot("vue-root");
+
+  const loadVue = async () => ({
+    createApp(_component, props) {
+      const label = String(props?.label ?? "");
+      return {
+        mount(target) {
+          trace.push("mount:" + label);
+          target.textContent = "vue:" + label;
+        },
+        unmount() {
+          trace.push("unmount:" + label);
+        },
+      };
+    },
+  });
+
+  render(
+    h(VueAdapter, {
+      component,
+      props: { label: "one" },
+      loadVue,
+      fallbackText: "vue-fallback",
+    }),
+    mount,
+  );
+  await flushEffects();
+  const firstText = mount.textContent ?? "";
+
+  render(
+    h(VueAdapter, {
+      component,
+      props: { label: "two" },
+      loadVue,
+      fallbackText: "vue-fallback",
+    }),
+    mount,
+  );
+  await flushEffects();
+  const secondText = mount.textContent ?? "";
+
+  render(h("div", null, "vue-complete"), mount);
+  await flushEffects();
+  const finalText = mount.textContent ?? "";
+
+  const fallbackMount = mountRoot("vue-fallback-root");
+  render(
+    h(VueAdapter, {
+      component,
+      props: { label: "fallback" },
+      loadVue: async () => {
+        throw new Error("vue loader failed");
+      },
+      fallbackText: "vue-fallback",
+    }),
+    fallbackMount,
+  );
+  await flushEffects();
+  const fallbackText = fallbackMount.textContent ?? "";
+  const fallbackError =
+    fallbackMount
+      .querySelector("[data-renderify-framework='vue']")
+      ?.getAttribute("data-renderify-framework-error") ?? null;
+
+  render(h("div", null, "cleanup"), fallbackMount);
+  await flushEffects();
+
+  return {
+    firstText,
+    secondText,
+    finalText,
+    trace,
+    fallbackText,
+    fallbackError,
+  };
+}
+
+async function runSolidScenario() {
+  const trace = [];
+  const mount = mountRoot("solid-root");
+  const component = (props) => "solid:" + String(props?.label ?? "");
+
+  const loadSolidWeb = async () => ({
+    render(factory, target) {
+      const output = String(factory());
+      trace.push("mount:" + output);
+      target.textContent = output;
+      return () => {
+        trace.push("unmount:" + output);
+      };
+    },
+  });
+
+  render(
+    h(SolidAdapter, {
+      component,
+      props: { label: "one" },
+      loadSolidWeb,
+      fallbackText: "solid-fallback",
+    }),
+    mount,
+  );
+  await flushEffects();
+  const firstText = mount.textContent ?? "";
+
+  render(
+    h(SolidAdapter, {
+      component,
+      props: { label: "two" },
+      loadSolidWeb,
+      fallbackText: "solid-fallback",
+    }),
+    mount,
+  );
+  await flushEffects();
+  const secondText = mount.textContent ?? "";
+
+  render(h("div", null, "solid-complete"), mount);
+  await flushEffects();
+  const finalText = mount.textContent ?? "";
+
+  const fallbackMount = mountRoot("solid-fallback-root");
+  render(
+    h(SolidAdapter, {
+      component,
+      props: { label: "fallback" },
+      loadSolidWeb: async () => {
+        throw new Error("solid loader failed");
+      },
+      fallbackText: "solid-fallback",
+    }),
+    fallbackMount,
+  );
+  await flushEffects();
+  const fallbackText = fallbackMount.textContent ?? "";
+  const fallbackError =
+    fallbackMount
+      .querySelector("[data-renderify-framework='solid']")
+      ?.getAttribute("data-renderify-framework-error") ?? null;
+
+  render(h("div", null, "cleanup"), fallbackMount);
+  await flushEffects();
+
+  return {
+    firstText,
+    secondText,
+    finalText,
+    trace,
+    fallbackText,
+    fallbackError,
+  };
+}
+
+async function runSvelteScenario() {
+  const trace = [];
+  const mount = mountRoot("svelte-root");
+
+  class FakeSvelteComponent {
+    constructor(options) {
+      this.label = String(options.props?.label ?? "");
+      this.target = options.target;
+      trace.push("mount:" + this.label);
+      this.target.textContent = "svelte:" + this.label;
+    }
+
+    $destroy() {
+      trace.push("unmount:" + this.label);
+    }
+  }
+
+  const loadSvelte = async () => ({ runtime: "fake" });
+
+  render(
+    h(SvelteAdapter, {
+      component: FakeSvelteComponent,
+      props: { label: "one" },
+      loadSvelte,
+      fallbackText: "svelte-fallback",
+    }),
+    mount,
+  );
+  await flushEffects();
+  const firstText = mount.textContent ?? "";
+
+  render(
+    h(SvelteAdapter, {
+      component: FakeSvelteComponent,
+      props: { label: "two" },
+      loadSvelte,
+      fallbackText: "svelte-fallback",
+    }),
+    mount,
+  );
+  await flushEffects();
+  const secondText = mount.textContent ?? "";
+
+  render(h("div", null, "svelte-complete"), mount);
+  await flushEffects();
+  const finalText = mount.textContent ?? "";
+
+  const fallbackMount = mountRoot("svelte-fallback-root");
+  render(
+    h(SvelteAdapter, {
+      component: FakeSvelteComponent,
+      props: { label: "fallback" },
+      loadSvelte: async () => {
+        throw new Error("svelte loader failed");
+      },
+      fallbackText: "svelte-fallback",
+    }),
+    fallbackMount,
+  );
+  await flushEffects();
+  const fallbackText = fallbackMount.textContent ?? "";
+  const fallbackError =
+    fallbackMount
+      .querySelector("[data-renderify-framework='svelte']")
+      ?.getAttribute("data-renderify-framework-error") ?? null;
+
+  render(h("div", null, "cleanup"), fallbackMount);
+  await flushEffects();
+
+  return {
+    firstText,
+    secondText,
+    finalText,
+    trace,
+    fallbackText,
+    fallbackError,
+  };
+}
+
+export async function runFrameworkAdapterE2E() {
+  return {
+    vue: await runVueScenario(),
+    solid: await runSolidScenario(),
+    svelte: await runSvelteScenario(),
+  };
+}
+`;
