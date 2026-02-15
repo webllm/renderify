@@ -27,6 +27,7 @@ renderify/
 │   ├── security/     # @renderify/security — Security policies
 │   ├── core/         # @renderify/core — Orchestration facade
 │   ├── llm/          # @renderify/llm — LLM providers
+│   ├── renderify/    # renderify — Official SDK facade
 │   └── cli/          # @renderify/cli — CLI and playground
 ├── tests/            # Unit, integration, e2e, and benchmark tests
 ├── examples/         # Browser and runtime examples
@@ -98,10 +99,12 @@ core (depends on ir, security, runtime)
   ↑
 llm (depends on core, ir)
   ↑
+renderify (depends on core, ir, llm, runtime, security)
+
 cli (depends on core, ir, llm, security, runtime)
 ```
 
-Changes to `@renderify/ir` may affect all packages. Changes to `@renderify/cli` affect nothing downstream.
+Changes to `@renderify/ir` may affect all packages. Changes to `renderify` and `@renderify/cli` typically affect nothing downstream.
 
 ## Build System
 

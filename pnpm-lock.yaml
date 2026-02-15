@@ -105,6 +105,24 @@ importers:
         specifier: workspace:^
         version: link:../ir
 
+  packages/renderify:
+    dependencies:
+      '@renderify/core':
+        specifier: workspace:^
+        version: link:../core
+      '@renderify/ir':
+        specifier: workspace:^
+        version: link:../ir
+      '@renderify/llm':
+        specifier: workspace:^
+        version: link:../llm
+      '@renderify/runtime':
+        specifier: workspace:^
+        version: link:../runtime
+      '@renderify/security':
+        specifier: workspace:^
+        version: link:../security
+
   packages/runtime:
     dependencies:
       '@renderify/ir':

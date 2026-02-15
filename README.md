@@ -250,11 +250,12 @@ await renderPlanInBrowser(plan, { target: "#mount" });
 
 | Package               | Responsibility                                                   |
 | --------------------- | ---------------------------------------------------------------- |
+| `renderify`          | Official top-level SDK facade (recommended app entry)            |
 | `@renderify/ir`       | Runtime IR contracts (plan/node/state/action/event/capabilities) |
 | `@renderify/runtime`  | Runtime execution engine + JSPM loader + one-line embed API      |
 | `@renderify/security` | Policy profiles + plan/module/source static checks               |
 | `@renderify/core`     | Legacy orchestration facade (optional compatibility layer)       |
-| `@renderify/llm`      | LLM provider package (OpenAI + Anthropic + Google)               |
+| `@renderify/llm`      | LLM provider package (OpenAI + Anthropic + Google)              |
 | `@renderify/cli`      | CLI + browser playground                                         |
 
 ## Integration Docs

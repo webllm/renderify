@@ -3,7 +3,15 @@ import fs from "node:fs";
 import path from "node:path";
 
 const PACKAGE_DIR = "packages";
-const REQUIRED_PACKAGES = ["cli", "core", "ir", "llm", "runtime", "security"];
+const REQUIRED_PACKAGES = [
+  "cli",
+  "core",
+  "ir",
+  "llm",
+  "renderify",
+  "runtime",
+  "security",
+];
 
 const failures = [];
 

@@ -24,6 +24,9 @@
     },
     {
       "path": "packages/runtime"
+    },
+    {
+      "path": "packages/renderify"
     }
   ]
 }

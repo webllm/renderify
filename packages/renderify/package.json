@@ -1,0 +1,62 @@
+{
+  "name": "renderify",
+  "version": "0.0.1",
+  "description": "Official Renderify SDK facade",
+  "main": "dist/renderify.cjs.js",
+  "types": "dist/renderify.d.ts",
+  "module": "dist/renderify.esm.js",
+  "exports": {
+    ".": {
+      "types": "./dist/renderify.d.ts",
+      "import": "./dist/renderify.esm.js",
+      "require": "./dist/renderify.cjs.js",
+      "default": "./dist/renderify.esm.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "typecheck": "tsc -p tsconfig.json --pretty false --noEmit",
+    "lint": "biome lint src",
+    "clean": "rm -rf dist dist-types",
+    "build:repo": "tsup --config tsup.config.ts",
+    "watch:repo": "tsup --config tsup.config.ts --watch"
+  },
+  "author": "unadlib",
+  "license": "MIT",
+  "keywords": [
+    "renderify",
+    "runtime",
+    "llm",
+    "ui",
+    "sdk",
+    "typescript"
+  ],
+  "homepage": "https://github.com/webllm/renderify#readme",
+  "bugs": {
+    "url": "https://github.com/webllm/renderify/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/webllm/renderify.git",
+    "directory": "packages/renderify"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "sideEffects": false,
+  "dependencies": {
+    "@renderify/core": "workspace:^",
+    "@renderify/ir": "workspace:^",
+    "@renderify/llm": "workspace:^",
+    "@renderify/runtime": "workspace:^",
+    "@renderify/security": "workspace:^"
+  }
+}

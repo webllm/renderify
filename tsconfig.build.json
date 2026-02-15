@@ -2,6 +2,9 @@
   "files": [],
   "references": [
     {
+      "path": "packages/renderify"
+    },
+    {
       "path": "packages/cli"
     },
     {

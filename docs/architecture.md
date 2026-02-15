@@ -42,16 +42,20 @@ User Prompt
 ## Package Dependency Graph
 
 ```
-@renderify/cli
+renderify
   ├── @renderify/core
   │     ├── @renderify/ir
   │     ├── @renderify/security ── @renderify/ir
   │     └── @renderify/runtime
   │           ├── @renderify/ir
   │           └── @renderify/security
-  └── @renderify/llm
+  ├── @renderify/llm
+  │     ├── @renderify/core
+  │     └── @renderify/ir
+  └── (optional) @renderify/cli
         ├── @renderify/core
-        └── @renderify/ir
+        ├── @renderify/llm
+        └── @renderify/runtime
 ```
 
 ## Pipeline Stages in Detail
