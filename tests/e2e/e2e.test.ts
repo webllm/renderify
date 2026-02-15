@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import {
   createServer,
   type IncomingMessage,
@@ -559,8 +559,10 @@ test("e2e: playground hash js64 source auto-renders on load", async (t) => {
 });
 
 test("e2e: framework adapters mount, update, unmount and fallback in browser", async (t) => {
+  const e2eTempRoot = path.join(REPO_ROOT, ".tmp");
+  await mkdir(e2eTempRoot, { recursive: true });
   const tempDir = await mkdtemp(
-    path.join(os.tmpdir(), "renderify-e2e-framework-adapters-"),
+    path.join(e2eTempRoot, "renderify-e2e-framework-adapters-"),
   );
   const harnessSourcePath = path.join(tempDir, "framework-adapters-harness.ts");
   const harnessBundlePath = path.join(tempDir, "framework-adapters-harness.js");
