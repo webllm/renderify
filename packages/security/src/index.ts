@@ -283,7 +283,7 @@ export class DefaultSecurityChecker implements SecurityChecker {
     }
 
     const capabilityResult = this.checkCapabilities(
-      plan.capabilities,
+      plan.capabilities ?? {},
       moduleManifest,
     );
     issues.push(...capabilityResult.issues);
@@ -658,7 +658,7 @@ export class DefaultSecurityChecker implements SecurityChecker {
       }
     }
 
-    for (const specifier of plan.capabilities.allowedModules ?? []) {
+    for (const specifier of plan.capabilities?.allowedModules ?? []) {
       if (this.isBareSpecifier(specifier)) {
         requiredSpecifiers.add(specifier);
       }

@@ -688,7 +688,7 @@ async function collectRuntimePlanBareSpecifiers(
     }
   }
 
-  for (const specifier of plan.capabilities.allowedModules ?? []) {
+  for (const specifier of plan.capabilities?.allowedModules ?? []) {
     if (isBareModuleSpecifier(specifier)) {
       specifiers.add(specifier);
     }

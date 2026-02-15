@@ -596,6 +596,25 @@ test("renderPlanInBrowser renders runtime node HTML without mount target", async
   assert.equal(result.security.safe, true);
 });
 
+test("renderPlanInBrowser accepts plans without capabilities", async () => {
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "embed_runtime_plan_without_capabilities",
+    version: 1,
+    root: createElementNode("section", undefined, [createTextNode("hello")]),
+  };
+
+  const result = await renderPlanInBrowser(plan, {
+    runtimeOptions: {
+      browserSourceSandboxMode: "none",
+    },
+  });
+
+  assert.match(result.html, /<section>/);
+  assert.match(result.html, /hello/);
+  assert.equal(result.security.safe, true);
+});
+
 test("renderPlanInBrowser rejects plan when security policy fails", async () => {
   const plan: RuntimePlan = {
     specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,

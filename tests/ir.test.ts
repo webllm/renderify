@@ -105,6 +105,13 @@ test("runtime plan/type guards validate structures", () => {
   assert.equal(
     isRuntimePlan({
       ...plan,
+      capabilities: undefined,
+    }),
+    true,
+  );
+  assert.equal(
+    isRuntimePlan({
+      ...plan,
       capabilities: { ...plan.capabilities, maxExecutionMs: 0 },
     }),
     false,

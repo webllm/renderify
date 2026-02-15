@@ -13,7 +13,9 @@ import {
   listSecurityProfiles,
 } from "../packages/security/src/index";
 
-function createPlan(rootTag = "section"): RuntimePlan {
+function createPlan(rootTag = "section"): RuntimePlan & {
+  capabilities: NonNullable<RuntimePlan["capabilities"]>;
+} {
   return {
     specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
     id: "plan_security_test",

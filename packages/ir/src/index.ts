@@ -168,7 +168,7 @@ export interface RuntimePlan {
   id: string;
   version: number;
   root: RuntimeNode;
-  capabilities: RuntimeCapabilities;
+  capabilities?: RuntimeCapabilities;
   state?: RuntimeStateModel;
   imports?: string[];
   moduleManifest?: RuntimeModuleManifest;
@@ -539,7 +539,10 @@ export function isRuntimePlan(value: unknown): value is RuntimePlan {
     return false;
   }
 
-  if (!isRuntimeCapabilities(value.capabilities)) {
+  if (
+    value.capabilities !== undefined &&
+    !isRuntimeCapabilities(value.capabilities)
+  ) {
     return false;
   }
 

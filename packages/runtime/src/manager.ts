@@ -226,16 +226,16 @@ export class DefaultRuntimeManager implements RuntimeManager {
       };
     }
 
+    const capabilities = plan.capabilities ?? {};
     const frame: ExecutionFrame = {
       startedAt: nowMs(),
-      maxExecutionMs:
-        plan.capabilities.maxExecutionMs ?? this.defaultMaxExecutionMs,
+      maxExecutionMs: capabilities.maxExecutionMs ?? this.defaultMaxExecutionMs,
       maxComponentInvocations:
-        plan.capabilities.maxComponentInvocations ??
+        capabilities.maxComponentInvocations ??
         this.defaultMaxComponentInvocations,
       componentInvocations: 0,
       executionProfile:
-        plan.capabilities.executionProfile ?? this.defaultExecutionProfile,
+        capabilities.executionProfile ?? this.defaultExecutionProfile,
     };
 
     const dependencies = await this.preflightPlanDependencies(
@@ -284,21 +284,21 @@ export class DefaultRuntimeManager implements RuntimeManager {
 
     const state = this.resolveState(plan, stateOverride);
     const appliedActions: RuntimeAction[] = [];
+    const capabilities = plan.capabilities ?? {};
 
     const frame: ExecutionFrame = {
       startedAt: nowMs(),
-      maxExecutionMs:
-        plan.capabilities.maxExecutionMs ?? this.defaultMaxExecutionMs,
+      maxExecutionMs: capabilities.maxExecutionMs ?? this.defaultMaxExecutionMs,
       maxComponentInvocations:
-        plan.capabilities.maxComponentInvocations ??
+        capabilities.maxComponentInvocations ??
         this.defaultMaxComponentInvocations,
       componentInvocations: 0,
       executionProfile:
-        plan.capabilities.executionProfile ?? this.defaultExecutionProfile,
+        capabilities.executionProfile ?? this.defaultExecutionProfile,
       signal,
     };
 
-    const maxImports = plan.capabilities.maxImports ?? this.defaultMaxImports;
+    const maxImports = capabilities.maxImports ?? this.defaultMaxImports;
     const imports = plan.imports ?? [];
 
     if (this.enableDependencyPreflight) {

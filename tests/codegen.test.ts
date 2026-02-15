@@ -36,7 +36,7 @@ test("codegen parses RuntimePlan JSON output directly", async () => {
   assert.equal(plan.version, 3);
   assert.equal(plan.specVersion, "runtime-plan/v1");
   assert.equal(plan.state?.initial.count, 0);
-  assert.equal(plan.capabilities.maxExecutionMs, 1200);
+  assert.equal(plan.capabilities?.maxExecutionMs, 1200);
   assert.equal(plan.metadata?.sourcePrompt, "Counter plan");
 });
 
@@ -53,7 +53,7 @@ test("codegen falls back to section root when no JSON payload exists", async () 
     throw new Error("expected fallback element node");
   }
   assert.equal(plan.root.tag, "section");
-  assert.equal(plan.capabilities.domWrite, true);
+  assert.equal(plan.capabilities?.domWrite, true);
   assert.equal(plan.specVersion, "runtime-plan/v1");
 });
 

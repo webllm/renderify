@@ -147,7 +147,10 @@ export class DefaultCodeGenerator implements CodeGenerator {
       return false;
     }
 
-    return typeof plan.capabilities === "object" && plan.capabilities !== null;
+    return (
+      plan.capabilities === undefined ||
+      (typeof plan.capabilities === "object" && plan.capabilities !== null)
+    );
   }
 
   async transformPlan(
