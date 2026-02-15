@@ -20,6 +20,7 @@ export default defineConfig({
   external: [
     /^@renderify\//,
     "es-module-lexer",
+    "esbuild",
     "preact",
     "preact-render-to-string",
   ],

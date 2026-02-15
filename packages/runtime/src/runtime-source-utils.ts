@@ -6,8 +6,10 @@ import {
   type RuntimeNode,
 } from "@renderify/ir";
 
+import { isBrowserRuntime } from "./runtime-environment";
 export function canMaterializeBrowserModules(): boolean {
   return (
+    isBrowserRuntime() &&
     typeof URL !== "undefined" &&
     typeof URL.createObjectURL === "function" &&
     typeof Blob !== "undefined" &&

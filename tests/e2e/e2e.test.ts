@@ -120,6 +120,96 @@ test("e2e: cli render-plan executes runtime source module", async () => {
   }
 });
 
+test("e2e: cli render-plan executes template-literal TSX source with remote dependency", async () => {
+  const tempDir = await mkdtemp(
+    path.join(os.tmpdir(), "renderify-e2e-tsx-template-source-"),
+  );
+  const sourcePlanPath = path.join(tempDir, "tsx-template-source-plan.json");
+  const port = await allocatePort();
+
+  const dependencyServer = createServer((req, res) => {
+    const url = new URL(req.url ?? "/", "http://127.0.0.1");
+    if (req.method === "GET" && url.pathname === "/deps/date-format.js") {
+      const moduleSource = [
+        "export function format(input) {",
+        "  const value = input instanceof Date ? input : new Date(input);",
+        "  return value.toISOString().slice(0, 10);",
+        "}",
+      ].join("\n");
+      const body = Buffer.from(moduleSource, "utf8");
+      res.statusCode = 200;
+      res.setHeader("content-type", "text/javascript; charset=utf-8");
+      res.setHeader("content-length", body.length);
+      res.end(body);
+      return;
+    }
+
+    const notFound = Buffer.from("not found", "utf8");
+    res.statusCode = 404;
+    res.setHeader("content-type", "text/plain; charset=utf-8");
+    res.setHeader("content-length", notFound.length);
+    res.end(notFound);
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    dependencyServer.once("error", reject);
+    dependencyServer.listen(port, "127.0.0.1", () => {
+      dependencyServer.off("error", reject);
+      resolve();
+    });
+  });
+
+  try {
+    const sourcePlan = {
+      specVersion: "runtime-plan/v1",
+      id: "tsx_template_source_render_plan",
+      version: 1,
+      capabilities: {
+        domWrite: true,
+      },
+      root: {
+        type: "element",
+        tag: "section",
+        children: [
+          {
+            type: "text",
+            value: "fallback root",
+          },
+        ],
+      },
+      source: {
+        language: "tsx",
+        runtime: "renderify",
+        code: `
+          import { format } from "http://127.0.0.1:${port}/deps/date-format.js";
+
+          export default function App() {
+            return <section>Today: {format(new Date(0))}</section>;
+          }
+        `,
+      },
+    };
+
+    await writeFile(
+      sourcePlanPath,
+      JSON.stringify(sourcePlan, null, 2),
+      "utf8",
+    );
+
+    const result = await runCli(["render-plan", sourcePlanPath], {
+      RENDERIFY_SECURITY_PROFILE: "relaxed",
+      RENDERIFY_SESSION_FILE: path.join(tempDir, "session.json"),
+    });
+
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stdout, /Today:\s*1970-01-01/);
+    assert.doesNotMatch(result.stdout, /fallback root/);
+  } finally {
+    await closeServer(dependencyServer);
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("e2e: cli probe-plan reports dependency preflight failures", async () => {
   const tempDir = await mkdtemp(
     path.join(os.tmpdir(), "renderify-e2e-probe-plan-"),

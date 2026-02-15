@@ -1,3 +1,4 @@
+import { isBrowserRuntime } from "./runtime-environment";
 import type {
   RuntimeSourceTranspileInput,
   RuntimeSourceTranspiler,
@@ -17,6 +18,27 @@ interface BabelStandaloneLike {
   ): {
     code?: string;
   };
+}
+
+interface EsbuildTransformResultLike {
+  code?: string;
+}
+
+interface EsbuildLikeModule {
+  transform(
+    code: string,
+    options: {
+      loader: "js" | "jsx" | "ts" | "tsx";
+      format: "esm";
+      target: "es2022";
+      sourcefile?: string;
+      sourcemap: false;
+      jsx?: "automatic" | "transform";
+      jsxImportSource?: string;
+      jsxFactory?: string;
+      jsxFragment?: string;
+    },
+  ): Promise<EsbuildTransformResultLike>;
 }
 
 const RUNTIME_JSX_HELPERS = `
@@ -144,4 +166,132 @@ export class BabelRuntimeSourceTranspiler implements RuntimeSourceTranspiler {
 
     return `${source}\n\n${RUNTIME_JSX_HELPERS}`;
   }
+}
+
+export class EsbuildRuntimeSourceTranspiler implements RuntimeSourceTranspiler {
+  private esbuildPromise?: Promise<EsbuildLikeModule>;
+
+  async transpile(input: RuntimeSourceTranspileInput): Promise<string> {
+    if (input.language === "js") {
+      return input.code;
+    }
+
+    const esbuild = await this.resolveEsbuild();
+    const transformed = await esbuild.transform(input.code, {
+      loader: this.resolveLoader(input.language),
+      format: "esm",
+      target: "es2022",
+      sourcefile: input.filename,
+      sourcemap: false,
+      ...this.resolveJsxTransformOptions(input),
+    });
+
+    if (!transformed.code) {
+      throw new Error("esbuild returned empty output");
+    }
+
+    return transformed.code;
+  }
+
+  private resolveLoader(
+    language: RuntimeSourceTranspileInput["language"],
+  ): "js" | "jsx" | "ts" | "tsx" {
+    if (language === "jsx") {
+      return "jsx";
+    }
+    if (language === "ts") {
+      return "ts";
+    }
+    if (language === "tsx") {
+      return "tsx";
+    }
+    return "js";
+  }
+
+  private resolveJsxTransformOptions(input: RuntimeSourceTranspileInput): {
+    jsx?: "automatic" | "transform";
+    jsxImportSource?: string;
+    jsxFactory?: string;
+    jsxFragment?: string;
+  } {
+    if (input.language !== "jsx" && input.language !== "tsx") {
+      return {};
+    }
+
+    if (input.runtime === "preact") {
+      return {
+        jsx: "automatic",
+        jsxImportSource: "preact",
+      };
+    }
+
+    return {
+      jsx: "transform",
+      jsxFactory: "__renderify_runtime_h",
+      jsxFragment: "__renderify_runtime_fragment",
+    };
+  }
+
+  private async resolveEsbuild(): Promise<EsbuildLikeModule> {
+    if (!this.esbuildPromise) {
+      this.esbuildPromise = (async () => {
+        try {
+          const dynamicImport = new Function(
+            "specifier",
+            "return import(specifier)",
+          ) as (specifier: string) => Promise<unknown>;
+          const mod = (await dynamicImport("esbuild")) as {
+            transform?: EsbuildLikeModule["transform"];
+            default?: {
+              transform?: EsbuildLikeModule["transform"];
+            };
+          };
+          const transform = mod.transform ?? mod.default?.transform;
+          if (typeof transform !== "function") {
+            throw new Error("esbuild.transform is not available");
+          }
+
+          return {
+            transform,
+          } satisfies EsbuildLikeModule;
+        } catch (error) {
+          throw new Error(
+            `esbuild is not available for runtime source transpilation: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+      })();
+    }
+
+    return this.esbuildPromise;
+  }
+}
+
+export class DefaultRuntimeSourceTranspiler implements RuntimeSourceTranspiler {
+  private readonly babelTranspiler = new BabelRuntimeSourceTranspiler();
+  private readonly esbuildTranspiler = new EsbuildRuntimeSourceTranspiler();
+
+  async transpile(input: RuntimeSourceTranspileInput): Promise<string> {
+    try {
+      return await this.babelTranspiler.transpile(input);
+    } catch (error) {
+      if (!isMissingBabelStandaloneError(error)) {
+        throw error;
+      }
+
+      if (isBrowserRuntime()) {
+        throw error;
+      }
+
+      return this.esbuildTranspiler.transpile(input);
+    }
+  }
+}
+
+function isMissingBabelStandaloneError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message.includes("Babel standalone is not available")
+  );
 }

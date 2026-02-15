@@ -18,18 +18,18 @@ import { isHttpUrl } from "./runtime-specifier";
 export interface RuntimeSourceModuleLoaderOptions {
   moduleManifest: RuntimeModuleManifest | undefined;
   diagnostics: RuntimeDiagnostic[];
-  browserModuleUrlCache: Map<string, string>;
-  browserModuleInflight: Map<string, Promise<string>>;
+  materializedModuleUrlCache: Map<string, string>;
+  materializedModuleInflight: Map<string, Promise<string>>;
   remoteFallbackCdnBases: string[];
   remoteFetchTimeoutMs: number;
   remoteFetchRetries: number;
   remoteFetchBackoffMs: number;
-  canMaterializeBrowserModules: () => boolean;
+  canMaterializeRuntimeModules: () => boolean;
   rewriteImportsAsync: (
     code: string,
     resolver: (specifier: string) => Promise<string>,
   ) => Promise<string>;
-  createBrowserBlobModuleUrl: (code: string) => string;
+  createInlineModuleUrl: (code: string) => string;
   resolveRuntimeSourceSpecifier: (
     specifier: string,
     moduleManifest: RuntimeModuleManifest | undefined,
@@ -41,18 +41,18 @@ export interface RuntimeSourceModuleLoaderOptions {
 export class RuntimeSourceModuleLoader {
   private readonly moduleManifest: RuntimeModuleManifest | undefined;
   private readonly diagnostics: RuntimeDiagnostic[];
-  private readonly browserModuleUrlCache: Map<string, string>;
-  private readonly browserModuleInflight: Map<string, Promise<string>>;
+  private readonly materializedModuleUrlCache: Map<string, string>;
+  private readonly materializedModuleInflight: Map<string, Promise<string>>;
   private readonly remoteFallbackCdnBases: string[];
   private readonly remoteFetchTimeoutMs: number;
   private readonly remoteFetchRetries: number;
   private readonly remoteFetchBackoffMs: number;
-  private readonly canMaterializeBrowserModulesFn: () => boolean;
+  private readonly canMaterializeRuntimeModulesFn: () => boolean;
   private readonly rewriteImportsAsyncFn: (
     code: string,
     resolver: (specifier: string) => Promise<string>,
   ) => Promise<string>;
-  private readonly createBrowserBlobModuleUrlFn: (code: string) => string;
+  private readonly createInlineModuleUrlFn: (code: string) => string;
   private readonly resolveRuntimeSourceSpecifierFn: (
     specifier: string,
     moduleManifest: RuntimeModuleManifest | undefined,
@@ -63,40 +63,27 @@ export class RuntimeSourceModuleLoader {
   constructor(options: RuntimeSourceModuleLoaderOptions) {
     this.moduleManifest = options.moduleManifest;
     this.diagnostics = options.diagnostics;
-    this.browserModuleUrlCache = options.browserModuleUrlCache;
-    this.browserModuleInflight = options.browserModuleInflight;
+    this.materializedModuleUrlCache = options.materializedModuleUrlCache;
+    this.materializedModuleInflight = options.materializedModuleInflight;
     this.remoteFallbackCdnBases = options.remoteFallbackCdnBases;
     this.remoteFetchTimeoutMs = options.remoteFetchTimeoutMs;
     this.remoteFetchRetries = options.remoteFetchRetries;
     this.remoteFetchBackoffMs = options.remoteFetchBackoffMs;
-    this.canMaterializeBrowserModulesFn = options.canMaterializeBrowserModules;
+    this.canMaterializeRuntimeModulesFn = options.canMaterializeRuntimeModules;
     this.rewriteImportsAsyncFn = options.rewriteImportsAsync;
-    this.createBrowserBlobModuleUrlFn = options.createBrowserBlobModuleUrl;
+    this.createInlineModuleUrlFn = options.createInlineModuleUrl;
     this.resolveRuntimeSourceSpecifierFn =
       options.resolveRuntimeSourceSpecifier;
   }
 
   async importSourceModuleFromCode(code: string): Promise<unknown> {
-    const isNodeRuntime =
-      typeof process !== "undefined" &&
-      process !== null &&
-      typeof process.versions === "object" &&
-      process.versions !== null &&
-      typeof process.versions.node === "string";
-
-    if (isNodeRuntime && typeof Buffer !== "undefined") {
-      const encoded = Buffer.from(code, "utf8").toString("base64");
-      const dataUrl = `data:text/javascript;base64,${encoded}`;
-      return import(/* webpackIgnore: true */ dataUrl);
-    }
-
-    if (this.canMaterializeBrowserModulesFn()) {
+    if (this.canMaterializeRuntimeModulesFn()) {
       const rewrittenEntry = await this.rewriteImportsAsyncFn(
         code,
         async (specifier) =>
-          this.resolveBrowserImportSpecifier(specifier, undefined),
+          this.resolveRuntimeImportSpecifier(specifier, undefined),
       );
-      const entryUrl = this.createBrowserBlobModuleUrlFn(rewrittenEntry);
+      const entryUrl = this.createInlineModuleUrlFn(rewrittenEntry);
       return import(/* webpackIgnore: true */ entryUrl);
     }
 
@@ -109,7 +96,7 @@ export class RuntimeSourceModuleLoader {
     throw new Error("No runtime module import strategy is available");
   }
 
-  async resolveBrowserImportSpecifier(
+  async resolveRuntimeImportSpecifier(
     specifier: string,
     parentUrl: string | undefined,
   ): Promise<string> {
@@ -123,7 +110,7 @@ export class RuntimeSourceModuleLoader {
     }
 
     if (isHttpUrl(trimmed)) {
-      return this.materializeBrowserRemoteModule(trimmed);
+      return this.materializeRemoteModule(trimmed);
     }
 
     if (
@@ -145,7 +132,7 @@ export class RuntimeSourceModuleLoader {
         return absolute;
       }
 
-      return this.materializeBrowserRemoteModule(absolute);
+      return this.materializeRemoteModule(absolute);
     }
 
     const resolved = this.resolveRuntimeSourceSpecifierFn(
@@ -156,7 +143,7 @@ export class RuntimeSourceModuleLoader {
     );
 
     if (isHttpUrl(resolved)) {
-      return this.materializeBrowserRemoteModule(resolved);
+      return this.materializeRemoteModule(resolved);
     }
 
     if (
@@ -171,24 +158,24 @@ export class RuntimeSourceModuleLoader {
         return absolute;
       }
 
-      return this.materializeBrowserRemoteModule(absolute);
+      return this.materializeRemoteModule(absolute);
     }
 
     return resolved;
   }
 
-  async materializeBrowserRemoteModule(url: string): Promise<string> {
+  async materializeRemoteModule(url: string): Promise<string> {
     const normalizedUrl = url.trim();
     if (normalizedUrl.length === 0) {
       return normalizedUrl;
     }
 
-    const cachedUrl = this.browserModuleUrlCache.get(normalizedUrl);
+    const cachedUrl = this.materializedModuleUrlCache.get(normalizedUrl);
     if (cachedUrl) {
       return cachedUrl;
     }
 
-    const inflight = this.browserModuleInflight.get(normalizedUrl);
+    const inflight = this.materializedModuleInflight.get(normalizedUrl);
     if (inflight) {
       return inflight;
     }
@@ -198,17 +185,17 @@ export class RuntimeSourceModuleLoader {
         await this.fetchRemoteModuleCodeWithFallback(normalizedUrl);
       const rewritten = await this.materializeFetchedModuleSource(fetched);
 
-      const blobUrl = this.createBrowserBlobModuleUrlFn(rewritten);
-      this.browserModuleUrlCache.set(normalizedUrl, blobUrl);
-      this.browserModuleUrlCache.set(fetched.url, blobUrl);
-      return blobUrl;
+      const inlineUrl = this.createInlineModuleUrlFn(rewritten);
+      this.materializedModuleUrlCache.set(normalizedUrl, inlineUrl);
+      this.materializedModuleUrlCache.set(fetched.url, inlineUrl);
+      return inlineUrl;
     })();
 
-    this.browserModuleInflight.set(normalizedUrl, loading);
+    this.materializedModuleInflight.set(normalizedUrl, loading);
     try {
       return await loading;
     } finally {
-      this.browserModuleInflight.delete(normalizedUrl);
+      this.materializedModuleInflight.delete(normalizedUrl);
     }
   }
 
@@ -238,7 +225,7 @@ export class RuntimeSourceModuleLoader {
     }
 
     return this.rewriteImportsAsyncFn(fetched.code, async (childSpecifier) =>
-      this.resolveBrowserImportSpecifier(childSpecifier, fetched.url),
+      this.resolveRuntimeImportSpecifier(childSpecifier, fetched.url),
     );
   }
 

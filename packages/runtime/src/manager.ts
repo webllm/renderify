@@ -92,7 +92,7 @@ import {
   resolveRuntimeSpecifier,
   resolveSourceImportLoaderCandidate,
 } from "./runtime-specifier";
-import { BabelRuntimeSourceTranspiler } from "./transpiler";
+import { DefaultRuntimeSourceTranspiler } from "./transpiler";
 
 interface ExecutionFrame {
   startedAt: number;
@@ -133,7 +133,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
   constructor(options: RuntimeManagerOptions = {}) {
     this.moduleLoader = options.moduleLoader;
     this.sourceTranspiler =
-      options.sourceTranspiler ?? new BabelRuntimeSourceTranspiler();
+      options.sourceTranspiler ?? new DefaultRuntimeSourceTranspiler();
     this.defaultMaxImports = options.defaultMaxImports ?? FALLBACK_MAX_IMPORTS;
     this.defaultMaxComponentInvocations =
       options.defaultMaxComponentInvocations ??
@@ -473,7 +473,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
         this.createSourceModuleLoader(
           manifest,
           runtimeDiagnostics,
-        ).materializeBrowserRemoteModule(url),
+        ).materializeRemoteModule(url),
       fetchRemoteModuleCodeWithFallback: (url, runtimeDiagnostics) =>
         this.createSourceModuleLoader(
           undefined,
@@ -601,17 +601,17 @@ export class DefaultRuntimeManager implements RuntimeManager {
     return new RuntimeSourceModuleLoader({
       moduleManifest,
       diagnostics,
-      browserModuleUrlCache: this.browserModuleUrlCache,
-      browserModuleInflight: this.browserModuleInflight,
+      materializedModuleUrlCache: this.browserModuleUrlCache,
+      materializedModuleInflight: this.browserModuleInflight,
       remoteFallbackCdnBases: this.remoteFallbackCdnBases,
       remoteFetchTimeoutMs: this.remoteFetchTimeoutMs,
       remoteFetchRetries: this.remoteFetchRetries,
       remoteFetchBackoffMs: this.remoteFetchBackoffMs,
-      canMaterializeBrowserModules: () => canMaterializeBrowserModules(),
+      canMaterializeRuntimeModules: () =>
+        canMaterializeBrowserModules() || typeof Buffer !== "undefined",
       rewriteImportsAsync: (code, resolver) =>
         this.rewriteImportsAsync(code, resolver),
-      createBrowserBlobModuleUrl: (code) =>
-        this.createBrowserBlobModuleUrl(code),
+      createInlineModuleUrl: (code) => this.createInlineModuleUrl(code),
       resolveRuntimeSourceSpecifier: (
         specifier,
         manifest,
@@ -657,6 +657,19 @@ export class DefaultRuntimeManager implements RuntimeManager {
     resolver: (specifier: string) => Promise<string>,
   ): Promise<string> {
     return rewriteImportsAsync(code, resolver);
+  }
+
+  private createInlineModuleUrl(code: string): string {
+    if (isBrowserRuntime() && canMaterializeBrowserModules()) {
+      return this.createBrowserBlobModuleUrl(code);
+    }
+
+    if (typeof Buffer !== "undefined") {
+      const encoded = Buffer.from(code, "utf8").toString("base64");
+      return `data:text/javascript;base64,${encoded}`;
+    }
+
+    throw new Error("No runtime module URL strategy is available");
   }
 
   private createBrowserBlobModuleUrl(code: string): string {

@@ -134,6 +134,9 @@ importers:
       '@renderify/security':
         specifier: workspace:^
         version: link:../security
+      esbuild:
+        specifier: ^0.27.3
+        version: 0.27.3
       preact:
         specifier: ^10.28.3
         version: 10.28.3

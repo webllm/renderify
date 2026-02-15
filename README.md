@@ -273,13 +273,13 @@ const tsxPlan = {
   source: {
     language: "tsx",
     runtime: "renderify",
-    code: [
-      "import { format } from \"https://ga.jspm.io/npm:date-fns@4.1.0/format.js\";",
-      "",
-      "export default function App() {",
-      "  return <section>Today: {format(new Date(), \"yyyy-MM-dd\")}</section>;",
-      "}",
-    ].join("\n"),
+    code: `
+      import { format } from "https://ga.jspm.io/npm:date-fns@4.1.0/format.js";
+
+      export default function App() {
+        return <section>Today: {format(new Date(), "yyyy-MM-dd")}</section>;
+      }
+    `,
   },
 };
 
