@@ -25,6 +25,25 @@ npm i @renderify/runtime @renderify/ir @renderify/security
 - `BabelRuntimeSourceTranspiler`
 - Types from `runtime-manager.types.ts` and `ui-renderer.ts`
 
+## Framework Adapter Components
+
+Runtime exports preact bridge components for mounting framework-native components inside Renderify trees:
+
+- `VueAdapter`
+- `SvelteAdapter`
+- `SolidAdapter`
+
+```tsx
+import { VueAdapter } from "@renderify/runtime";
+import Counter from "vue-counter-component";
+
+export default function App() {
+  return <VueAdapter component={Counter} props={{ initial: 1 }} />;
+}
+```
+
+These adapters lazy-load framework runtimes via ESM `import()` and expose fallback text on mount failures.
+
 ## Quick Start (Browser)
 
 ```ts

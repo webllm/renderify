@@ -1,4 +1,5 @@
 export * from "./embed";
+export * from "./framework-adapters";
 export type { JspmModuleLoaderOptions } from "./jspm-module-loader";
 export { JspmModuleLoader } from "./jspm-module-loader";
 export * from "./manager";

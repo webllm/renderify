@@ -65,6 +65,30 @@ await app.stop();
 
 Use `renderPromptStream()` for progressive updates from LLM output to UI preview chunks.
 
+## Framework Adapter Plugins
+
+`@renderify/core` now exports framework adapter plugins for Vue/Svelte/Solid:
+
+- `createVueAdapterPlugin()`
+- `createSvelteAdapterPlugin()`
+- `createSolidAdapterPlugin()`
+
+They do three things in the pipeline:
+
+1. Enrich `beforeLLM` prompt instructions with framework-specific adapter hints.
+2. Normalize framework code fences (`vue`, `svelte`, `solid-js`) to `tsx` in `beforeCodeGen`.
+3. Annotate plan metadata and force JSX source runtime to `preact` in `afterCodeGen`.
+
+```ts
+import {
+  DefaultCustomizationEngine,
+  createVueAdapterPlugin,
+} from "@renderify/core";
+
+const customization = new DefaultCustomizationEngine();
+customization.registerPlugin(createVueAdapterPlugin());
+```
+
 ## Docs
 
 - `../../docs/architecture.md`

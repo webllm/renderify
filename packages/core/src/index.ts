@@ -903,6 +903,7 @@ export * from "./codegen";
 export * from "./config";
 export * from "./context";
 export * from "./customization";
+export * from "./framework-adapters";
 export * from "./llm-interpreter";
 export * from "./performance";
 export * from "./security";
