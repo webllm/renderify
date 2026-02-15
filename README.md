@@ -219,24 +219,6 @@ The playground now uses streaming prompt rendering (`/api/prompt-stream`), so yo
 
 ![Renderify streaming demo](docs/assets/renderify-streaming-demo.gif)
 
-## Release Flow
-
-```bash
-# CI enforces that package changes include a `.changeset/*.md` entry
-# run this when your PR changes package behavior/API
-
-# add a release note for changed packages
-pnpm changeset
-
-# apply versions/changelog updates
-pnpm version-packages
-
-# publish packages
-pnpm release
-```
-
-Release automation is gated by CI success on `main` and uses Changesets to either open a version PR or publish to npm with provenance enabled.
-
 ## Programmatic Example
 
 Core quick embed path (`ir + runtime`, default security checker included):
@@ -290,11 +272,6 @@ Beyond the end-to-end pipeline, several components have standalone value:
 - **Browser ESM module graph materialization** — the `fetch → rewrite imports → blob URL` pipeline solves a problem browser standards have not natively addressed (bare specifiers are not usable in browsers). This module loading strategy can be extracted as an independent utility.
 
 ## Roadmap
-
-**Completed — Hardened sandbox & isolation**
-
-- Web Worker / iframe execution boundary for untrusted runtime source (implemented)
-- ShadowRealm runtime sandbox integration with automatic fallback to Worker/iframe
 
 **Next — Ecosystem expansion**
 
