@@ -137,7 +137,7 @@ export async function executeRuntimeSourceRoot(
         diagnostics.push({
           level: "info",
           code: "RUNTIME_SOURCE_SANDBOX_EXECUTED",
-          message: `Runtime source executed in ${sandboxMode} sandbox`,
+          message: `Runtime source executed in ${sandboxResult.mode} sandbox`,
         });
 
         return {

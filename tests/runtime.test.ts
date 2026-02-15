@@ -312,6 +312,195 @@ function installBrowserSandboxGlobals(workerCtor: unknown): () => void {
   };
 }
 
+function installBrowserIframeSandboxGlobals(): () => void {
+  const root = globalThis as Record<string, unknown>;
+  const urlStatics = URL as unknown as {
+    createObjectURL?: (blob: Blob) => string;
+    revokeObjectURL?: (url: string) => void;
+  };
+
+  const previousWindow = Object.getOwnPropertyDescriptor(root, "window");
+  const previousDocument = Object.getOwnPropertyDescriptor(root, "document");
+  const previousNavigator = Object.getOwnPropertyDescriptor(root, "navigator");
+  const previousWorker = Object.getOwnPropertyDescriptor(root, "Worker");
+  const previousCreateObjectURL = urlStatics.createObjectURL;
+  const previousRevokeObjectURL = urlStatics.revokeObjectURL;
+
+  const windowMessageHandlers = new Set<
+    (event: MessageEvent<unknown>) => void
+  >();
+
+  const mockWindow = {
+    addEventListener(type: string, handler: EventListener): void {
+      if (type === "message") {
+        windowMessageHandlers.add(
+          handler as (event: MessageEvent<unknown>) => void,
+        );
+      }
+    },
+    removeEventListener(type: string, handler: EventListener): void {
+      if (type === "message") {
+        windowMessageHandlers.delete(
+          handler as (event: MessageEvent<unknown>) => void,
+        );
+      }
+    },
+    dispatchMessage(event: MessageEvent<unknown>): void {
+      for (const handler of windowMessageHandlers) {
+        handler(event);
+      }
+    },
+  } as unknown as Window & {
+    dispatchMessage(event: MessageEvent<unknown>): void;
+  };
+
+  class MockIframeElement {
+    private readonly loadHandlers = new Set<EventListener>();
+    readonly style: Record<string, string> = {};
+    srcdoc = "";
+    contentWindow: {
+      postMessage: (payload: unknown, targetOrigin: string) => void;
+    };
+
+    constructor() {
+      const contentWindowRef = {
+        postMessage: (payload: unknown) => {
+          const requestPayload = payload as {
+            channel?: string;
+            request?: {
+              runtimeInput?: {
+                state?: {
+                  count?: number;
+                };
+              };
+            };
+          };
+          const count = requestPayload.request?.runtimeInput?.state?.count ?? 0;
+          queueMicrotask(() => {
+            mockWindow.dispatchMessage({
+              source: contentWindowRef,
+              data: {
+                channel: requestPayload.channel,
+                ok: true,
+                output: {
+                  type: "element",
+                  tag: "article",
+                  children: [
+                    {
+                      type: "text",
+                      value: `iframe-sandbox-count:${count}`,
+                    },
+                  ],
+                },
+              },
+            } as MessageEvent<unknown>);
+          });
+        },
+      };
+      this.contentWindow = contentWindowRef;
+    }
+
+    setAttribute(_name: string, _value: string): void {}
+
+    addEventListener(type: string, handler: EventListener): void {
+      if (type === "load") {
+        this.loadHandlers.add(handler);
+      }
+    }
+
+    removeEventListener(type: string, handler: EventListener): void {
+      if (type === "load") {
+        this.loadHandlers.delete(handler);
+      }
+    }
+
+    remove(): void {}
+
+    dispatchLoad(): void {
+      for (const handler of this.loadHandlers) {
+        handler({} as Event);
+      }
+    }
+  }
+
+  const mockDocument = {
+    createElement(tag: string) {
+      if (tag !== "iframe") {
+        throw new Error(`Unexpected element request: ${tag}`);
+      }
+      return new MockIframeElement();
+    },
+    body: {
+      appendChild(element: unknown) {
+        queueMicrotask(() => {
+          (element as MockIframeElement).dispatchLoad();
+        });
+      },
+    },
+  } as unknown as Document;
+
+  Object.defineProperty(root, "window", {
+    configurable: true,
+    writable: true,
+    value: mockWindow,
+  });
+  Object.defineProperty(root, "document", {
+    configurable: true,
+    writable: true,
+    value: mockDocument,
+  });
+  Object.defineProperty(root, "navigator", {
+    configurable: true,
+    writable: true,
+    value: {} as Navigator,
+  });
+  Object.defineProperty(root, "Worker", {
+    configurable: true,
+    writable: true,
+    value: undefined,
+  });
+
+  Object.defineProperty(urlStatics, "createObjectURL", {
+    configurable: true,
+    writable: true,
+    value: () => "blob:runtime-test",
+  });
+  Object.defineProperty(urlStatics, "revokeObjectURL", {
+    configurable: true,
+    writable: true,
+    value: () => {},
+  });
+
+  return () => {
+    restoreDescriptor(root, "window", previousWindow);
+    restoreDescriptor(root, "document", previousDocument);
+    restoreDescriptor(root, "navigator", previousNavigator);
+    restoreDescriptor(root, "Worker", previousWorker);
+    restoreDescriptor(
+      urlStatics as unknown as Record<string, unknown>,
+      "createObjectURL",
+      previousCreateObjectURL
+        ? {
+            configurable: true,
+            writable: true,
+            value: previousCreateObjectURL,
+          }
+        : undefined,
+    );
+    restoreDescriptor(
+      urlStatics as unknown as Record<string, unknown>,
+      "revokeObjectURL",
+      previousRevokeObjectURL
+        ? {
+            configurable: true,
+            writable: true,
+            value: previousRevokeObjectURL,
+          }
+        : undefined,
+    );
+  };
+}
+
 function restoreDescriptor(
   target: Record<string, unknown>,
   key: string,
@@ -862,6 +1051,115 @@ test("runtime executes source modules inside worker sandbox in browser mode", as
     assert.ok(
       result.diagnostics.some(
         (item) => item.code === "RUNTIME_SOURCE_SANDBOX_EXECUTED",
+      ),
+    );
+  } finally {
+    await runtime.terminate();
+    restoreGlobals();
+  }
+});
+
+test("runtime falls back to iframe sandbox when worker is unavailable", async () => {
+  const restoreGlobals = installBrowserIframeSandboxGlobals();
+  const runtime = new DefaultRuntimeManager({
+    sourceTranspiler: new PassthroughSourceTranspiler(),
+    browserSourceSandboxMode: "worker",
+    browserSourceSandboxFailClosed: true,
+  });
+
+  try {
+    await runtime.initialize();
+
+    const plan: RuntimePlan = {
+      specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+      id: "runtime_source_worker_iframe_fallback_plan",
+      version: 1,
+      root: createElementNode("div", undefined, [createTextNode("fallback")]),
+      capabilities: {
+        domWrite: true,
+      },
+      state: {
+        initial: {
+          count: 21,
+        },
+      },
+      source: {
+        language: "js",
+        code: "this is not valid js but iframe mock handles it",
+      },
+    };
+
+    const result = await runtime.executePlan(plan);
+
+    assert.equal(result.root.type, "element");
+    if (result.root.type !== "element") {
+      throw new Error("expected element root");
+    }
+    assert.equal(result.root.tag, "article");
+    assert.equal(result.root.children?.[0]?.type, "text");
+    if (!result.root.children?.[0] || result.root.children[0].type !== "text") {
+      throw new Error("expected text child");
+    }
+    assert.equal(result.root.children[0].value, "iframe-sandbox-count:21");
+    assert.ok(
+      result.diagnostics.some(
+        (item) =>
+          item.code === "RUNTIME_SOURCE_SANDBOX_EXECUTED" &&
+          item.message.includes("iframe sandbox"),
+      ),
+    );
+  } finally {
+    await runtime.terminate();
+    restoreGlobals();
+  }
+});
+
+test("runtime falls back to worker sandbox when iframe is unavailable", async () => {
+  const restoreGlobals = installBrowserSandboxGlobals(SandboxSuccessWorker);
+  const runtime = new DefaultRuntimeManager({
+    sourceTranspiler: new PassthroughSourceTranspiler(),
+    browserSourceSandboxMode: "iframe",
+    browserSourceSandboxFailClosed: true,
+  });
+
+  try {
+    await runtime.initialize();
+
+    const plan: RuntimePlan = {
+      specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+      id: "runtime_source_iframe_worker_fallback_plan",
+      version: 1,
+      root: createElementNode("div", undefined, [createTextNode("fallback")]),
+      capabilities: {
+        domWrite: true,
+      },
+      state: {
+        initial: {
+          count: 33,
+        },
+      },
+      source: {
+        language: "js",
+        code: "this is not valid js but worker mock handles it",
+      },
+    };
+
+    const result = await runtime.executePlan(plan);
+
+    assert.equal(result.root.type, "element");
+    if (result.root.type !== "element") {
+      throw new Error("expected element root");
+    }
+    assert.equal(result.root.children?.[0]?.type, "text");
+    if (!result.root.children?.[0] || result.root.children[0].type !== "text") {
+      throw new Error("expected text child");
+    }
+    assert.equal(result.root.children[0].value, "sandbox-count:33");
+    assert.ok(
+      result.diagnostics.some(
+        (item) =>
+          item.code === "RUNTIME_SOURCE_SANDBOX_EXECUTED" &&
+          item.message.includes("worker sandbox"),
       ),
     );
   } finally {

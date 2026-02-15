@@ -2,6 +2,7 @@ import type { JsonValue } from "@renderify/ir";
 import type { RuntimeSourceSandboxMode } from "./runtime-manager.types";
 
 export interface RuntimeSandboxResult {
+  mode: RuntimeSourceSandboxMode;
   output: unknown;
 }
 
@@ -32,13 +33,30 @@ export async function executeSourceInBrowserSandbox(
   options: RuntimeSandboxExecutionOptions,
 ): Promise<RuntimeSandboxResult> {
   throwIfAborted(options.signal);
+  validateSandboxRequest(options.request);
 
   if (options.mode === "worker") {
-    return executeSourceInWorkerSandbox(options);
+    if (isWorkerSandboxAvailable()) {
+      return executeSourceInWorkerSandbox(options);
+    }
+    if (isIframeSandboxAvailable()) {
+      return executeSourceInIframeSandbox(options);
+    }
+    throw new Error(
+      "Worker sandbox is unavailable and iframe fallback is unavailable in this runtime",
+    );
   }
 
   if (options.mode === "iframe") {
-    return executeSourceInIframeSandbox(options);
+    if (isIframeSandboxAvailable()) {
+      return executeSourceInIframeSandbox(options);
+    }
+    if (isWorkerSandboxAvailable()) {
+      return executeSourceInWorkerSandbox(options);
+    }
+    throw new Error(
+      "Iframe sandbox is unavailable and worker fallback is unavailable in this runtime",
+    );
   }
 
   throw new Error(`Unsupported runtime source sandbox mode: ${options.mode}`);
@@ -47,13 +65,7 @@ export async function executeSourceInBrowserSandbox(
 async function executeSourceInWorkerSandbox(
   options: RuntimeSandboxExecutionOptions,
 ): Promise<RuntimeSandboxResult> {
-  if (
-    typeof Worker === "undefined" ||
-    typeof Blob === "undefined" ||
-    typeof URL === "undefined" ||
-    typeof URL.createObjectURL !== "function" ||
-    typeof URL.revokeObjectURL !== "function"
-  ) {
+  if (!isWorkerSandboxAvailable()) {
     throw new Error("Worker sandbox is unavailable in this runtime");
   }
 
@@ -162,6 +174,7 @@ async function executeSourceInWorkerSandbox(
       }
 
       resolve({
+        mode: "worker",
         output: payload.output,
       });
     };
@@ -194,26 +207,30 @@ async function executeSourceInWorkerSandbox(
       options.signal.addEventListener("abort", onAbort, { once: true });
     }
 
-    worker.postMessage(options.request);
+    try {
+      worker.postMessage(options.request);
+    } catch (error) {
+      cleanup();
+      worker.terminate();
+      reject(
+        new Error(
+          `Worker sandbox failed to receive request: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
+    }
   });
 }
 
 async function executeSourceInIframeSandbox(
   options: RuntimeSandboxExecutionOptions,
 ): Promise<RuntimeSandboxResult> {
-  if (
-    typeof document === "undefined" ||
-    typeof window === "undefined" ||
-    typeof Blob === "undefined" ||
-    typeof URL === "undefined" ||
-    typeof URL.createObjectURL !== "function" ||
-    typeof URL.revokeObjectURL !== "function"
-  ) {
+  if (!isIframeSandboxAvailable()) {
     throw new Error("Iframe sandbox is unavailable in this runtime");
   }
 
   const iframe = document.createElement("iframe");
   iframe.setAttribute("sandbox", "allow-scripts");
+  iframe.setAttribute("referrerpolicy", "no-referrer");
   iframe.style.display = "none";
 
   const channel = `renderify-runtime-source-${options.request.id}`;
@@ -321,15 +338,28 @@ async function executeSourceInIframeSandbox(
       }
 
       resolve({
+        mode: "iframe",
         output: data.output,
       });
     };
 
     const onLoad = () => {
-      iframe.contentWindow?.postMessage(
-        { channel, request: options.request },
-        "*",
-      );
+      try {
+        if (!iframe.contentWindow) {
+          throw new Error("Iframe sandbox contentWindow is unavailable");
+        }
+        iframe.contentWindow.postMessage(
+          { channel, request: options.request },
+          "*",
+        );
+      } catch (error) {
+        cleanup();
+        reject(
+          new Error(
+            `Iframe sandbox failed to receive request: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+        );
+      }
     };
 
     window.addEventListener("message", onMessage);
@@ -364,6 +394,69 @@ function isRuntimeSandboxResponse(
     candidate.id === expectedId &&
     typeof candidate.ok === "boolean"
   );
+}
+
+function isWorkerSandboxAvailable(): boolean {
+  return (
+    typeof Worker === "function" &&
+    typeof Blob !== "undefined" &&
+    typeof URL !== "undefined" &&
+    typeof URL.createObjectURL === "function" &&
+    typeof URL.revokeObjectURL === "function"
+  );
+}
+
+function isIframeSandboxAvailable(): boolean {
+  if (
+    typeof document === "undefined" ||
+    typeof window === "undefined" ||
+    typeof Blob === "undefined" ||
+    typeof URL === "undefined" ||
+    typeof URL.createObjectURL !== "function" ||
+    typeof URL.revokeObjectURL !== "function"
+  ) {
+    return false;
+  }
+
+  const candidateDocument = document as Partial<Document>;
+  const candidateBody = candidateDocument.body as
+    | (Partial<HTMLElement> & { appendChild?: (node: Node) => Node })
+    | undefined;
+
+  return (
+    typeof candidateDocument.createElement === "function" &&
+    candidateBody !== undefined &&
+    typeof candidateBody.appendChild === "function"
+  );
+}
+
+function validateSandboxRequest(request: RuntimeSandboxRequest): void {
+  if (
+    request.renderifySandbox !== "runtime-source" ||
+    typeof request.id !== "string" ||
+    request.id.trim().length === 0
+  ) {
+    throw new Error("Invalid runtime sandbox request envelope");
+  }
+
+  if (typeof request.code !== "string") {
+    throw new Error("Invalid runtime sandbox request code payload");
+  }
+
+  if (
+    typeof request.exportName !== "string" ||
+    request.exportName.trim().length === 0
+  ) {
+    throw new Error("Invalid runtime sandbox request exportName");
+  }
+
+  if (
+    typeof request.runtimeInput !== "object" ||
+    request.runtimeInput === null ||
+    Array.isArray(request.runtimeInput)
+  ) {
+    throw new Error("Invalid runtime sandbox request runtimeInput");
+  }
 }
 
 function throwIfAborted(signal?: AbortSignal): void {
