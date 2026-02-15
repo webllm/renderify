@@ -8,13 +8,18 @@ import type {
 } from "@renderify/core";
 import { isRuntimePlan } from "@renderify/ir";
 import {
+  createLLMReliabilityState,
   createTimeoutAbortScope,
+  fetchWithReliability,
   formatContext,
+  type LLMReliabilityOptions,
   pickFetch,
+  pickLLMReliabilityOptions,
   pickPositiveInt,
   pickString,
   readErrorResponse,
   resolveFetch,
+  resolveLLMReliabilityOptions,
   tryParseJson,
   withTimeoutAbortScope,
 } from "./shared";
@@ -25,6 +30,7 @@ export interface OllamaLLMInterpreterOptions {
   timeoutMs?: number;
   systemPrompt?: string;
   keepAlive?: string;
+  reliability?: LLMReliabilityOptions;
   fetchImpl?: typeof fetch;
 }
 
@@ -58,6 +64,8 @@ export class OllamaLLMInterpreter implements LLMInterpreter {
     systemPrompt: undefined,
   };
   private fetchImpl: typeof fetch | undefined;
+  private reliability = resolveLLMReliabilityOptions();
+  private readonly reliabilityState = createLLMReliabilityState();
 
   constructor(options: OllamaLLMInterpreterOptions = {}) {
     this.configure({ ...options });
@@ -77,6 +85,7 @@ export class OllamaLLMInterpreter implements LLMInterpreter {
       "llmRequestTimeoutMs",
     );
     const fetchImpl = pickFetch(options, "fetchImpl");
+    const reliability = pickLLMReliabilityOptions(options);
 
     this.options = {
       ...this.options,
@@ -89,6 +98,13 @@ export class OllamaLLMInterpreter implements LLMInterpreter {
 
     if (fetchImpl) {
       this.fetchImpl = fetchImpl;
+    }
+
+    if (reliability) {
+      this.reliability = resolveLLMReliabilityOptions(
+        reliability,
+        this.reliability,
+      );
     }
   }
 
@@ -202,9 +218,10 @@ export class OllamaLLMInterpreter implements LLMInterpreter {
     };
 
     try {
-      const response = await fetchImpl(
-        `${this.options.baseUrl.replace(/\/$/, "")}/api/generate`,
-        {
+      const response = await fetchWithReliability({
+        fetchImpl,
+        input: `${this.options.baseUrl.replace(/\/$/, "")}/api/generate`,
+        init: {
           method: "POST",
           headers: {
             "content-type": "application/json",
@@ -219,7 +236,10 @@ export class OllamaLLMInterpreter implements LLMInterpreter {
           }),
           signal: abortScope.signal,
         },
-      );
+        reliability: this.reliability,
+        state: this.reliabilityState,
+        operationName: "Ollama request",
+      });
 
       if (!response.ok) {
         const details = await readErrorResponse(response);
@@ -418,9 +438,10 @@ export class OllamaLLMInterpreter implements LLMInterpreter {
         this.options.timeoutMs,
         signal,
         async (scopedSignal) => {
-          const response = await fetchImpl(
-            `${this.options.baseUrl.replace(/\/$/, "")}/api/generate`,
-            {
+          const response = await fetchWithReliability({
+            fetchImpl,
+            input: `${this.options.baseUrl.replace(/\/$/, "")}/api/generate`,
+            init: {
               method: "POST",
               headers: {
                 "content-type": "application/json",
@@ -428,7 +449,10 @@ export class OllamaLLMInterpreter implements LLMInterpreter {
               body: JSON.stringify(body),
               signal: scopedSignal,
             },
-          );
+            reliability: this.reliability,
+            state: this.reliabilityState,
+            operationName: "Ollama request",
+          });
 
           if (!response.ok) {
             const details = await readErrorResponse(response);

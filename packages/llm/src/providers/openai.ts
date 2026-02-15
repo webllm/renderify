@@ -9,13 +9,18 @@ import type {
 import { isRuntimePlan } from "@renderify/ir";
 import {
   consumeSseEvents,
+  createLLMReliabilityState,
   createTimeoutAbortScope,
+  fetchWithReliability,
   formatContext,
+  type LLMReliabilityOptions,
   pickFetch,
+  pickLLMReliabilityOptions,
   pickPositiveInt,
   pickString,
   readErrorResponse,
   resolveFetch,
+  resolveLLMReliabilityOptions,
   tryParseJson,
   withTimeoutAbortScope,
 } from "./shared";
@@ -28,6 +33,7 @@ export interface OpenAILLMInterpreterOptions {
   organization?: string;
   project?: string;
   systemPrompt?: string;
+  reliability?: LLMReliabilityOptions;
   fetchImpl?: typeof fetch;
 }
 
@@ -180,6 +186,8 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
     systemPrompt: undefined,
   };
   private fetchImpl: typeof fetch | undefined;
+  private reliability = resolveLLMReliabilityOptions();
+  private readonly reliabilityState = createLLMReliabilityState();
 
   constructor(options: OpenAILLMInterpreterOptions = {}) {
     this.configure({ ...options });
@@ -205,6 +213,7 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
       "llmRequestTimeoutMs",
     );
     const fetchImpl = pickFetch(options, "fetchImpl");
+    const reliability = pickLLMReliabilityOptions(options);
 
     this.options = {
       ...this.options,
@@ -219,6 +228,13 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
 
     if (fetchImpl) {
       this.fetchImpl = fetchImpl;
+    }
+
+    if (reliability) {
+      this.reliability = resolveLLMReliabilityOptions(
+        reliability,
+        this.reliability,
+      );
     }
   }
 
@@ -358,9 +374,10 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
     };
 
     try {
-      const response = await fetchImpl(
-        `${this.options.baseUrl.replace(/\/$/, "")}/chat/completions`,
-        {
+      const response = await fetchWithReliability({
+        fetchImpl,
+        input: `${this.options.baseUrl.replace(/\/$/, "")}/chat/completions`,
+        init: {
           method: "POST",
           headers: this.createHeaders(apiKey),
           body: JSON.stringify({
@@ -373,7 +390,10 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
           }),
           signal: abortScope.signal,
         },
-      );
+        reliability: this.reliability,
+        state: this.reliabilityState,
+        operationName: "OpenAI request",
+      });
 
       if (!response.ok) {
         const details = await readErrorResponse(response);
@@ -580,15 +600,19 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
         this.options.timeoutMs,
         signal,
         async (timeoutSignal) => {
-          const response = await fetchImpl(
-            `${this.options.baseUrl.replace(/\/$/, "")}/chat/completions`,
-            {
+          const response = await fetchWithReliability({
+            fetchImpl,
+            input: `${this.options.baseUrl.replace(/\/$/, "")}/chat/completions`,
+            init: {
               method: "POST",
               headers: this.createHeaders(apiKey),
               body: JSON.stringify(body),
               signal: timeoutSignal,
             },
-          );
+            reliability: this.reliability,
+            state: this.reliabilityState,
+            operationName: "OpenAI request",
+          });
 
           if (!response.ok) {
             const details = await readErrorResponse(response);

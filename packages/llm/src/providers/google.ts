@@ -9,13 +9,18 @@ import type {
 import { isRuntimePlan } from "@renderify/ir";
 import {
   consumeSseEvents,
+  createLLMReliabilityState,
   createTimeoutAbortScope,
+  fetchWithReliability,
   formatContext,
+  type LLMReliabilityOptions,
   pickFetch,
+  pickLLMReliabilityOptions,
   pickPositiveInt,
   pickString,
   readErrorResponse,
   resolveFetch,
+  resolveLLMReliabilityOptions,
   tryParseJson,
   withTimeoutAbortScope,
 } from "./shared";
@@ -26,6 +31,7 @@ export interface GoogleLLMInterpreterOptions {
   baseUrl?: string;
   timeoutMs?: number;
   systemPrompt?: string;
+  reliability?: LLMReliabilityOptions;
   fetchImpl?: typeof fetch;
 }
 
@@ -77,6 +83,8 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
     systemPrompt: undefined,
   };
   private fetchImpl: typeof fetch | undefined;
+  private reliability = resolveLLMReliabilityOptions();
+  private readonly reliabilityState = createLLMReliabilityState();
 
   constructor(options: GoogleLLMInterpreterOptions = {}) {
     this.configure({ ...options });
@@ -96,6 +104,7 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
       "llmRequestTimeoutMs",
     );
     const fetchImpl = pickFetch(options, "fetchImpl");
+    const reliability = pickLLMReliabilityOptions(options);
 
     this.options = {
       ...this.options,
@@ -108,6 +117,13 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
 
     if (fetchImpl) {
       this.fetchImpl = fetchImpl;
+    }
+
+    if (reliability) {
+      this.reliability = resolveLLMReliabilityOptions(
+        reliability,
+        this.reliability,
+      );
     }
   }
 
@@ -240,9 +256,10 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
     };
 
     try {
-      const response = await fetchImpl(
-        `${this.options.baseUrl.replace(/\/$/, "")}/models/${encodeURIComponent(this.options.model)}:streamGenerateContent?alt=sse`,
-        {
+      const response = await fetchWithReliability({
+        fetchImpl,
+        input: `${this.options.baseUrl.replace(/\/$/, "")}/models/${encodeURIComponent(this.options.model)}:streamGenerateContent?alt=sse`,
+        init: {
           method: "POST",
           headers: {
             "content-type": "application/json",
@@ -251,7 +268,10 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
           body: JSON.stringify(this.buildRequest(req)),
           signal: abortScope.signal,
         },
-      );
+        reliability: this.reliability,
+        state: this.reliabilityState,
+        operationName: "Google request",
+      });
 
       if (!response.ok) {
         const details = await readErrorResponse(response);
@@ -531,9 +551,10 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
         this.options.timeoutMs,
         signal,
         async (timeoutSignal) => {
-          const response = await fetchImpl(
-            `${this.options.baseUrl.replace(/\/$/, "")}/models/${encodeURIComponent(this.options.model)}:generateContent`,
-            {
+          const response = await fetchWithReliability({
+            fetchImpl,
+            input: `${this.options.baseUrl.replace(/\/$/, "")}/models/${encodeURIComponent(this.options.model)}:generateContent`,
+            init: {
               method: "POST",
               headers: {
                 "content-type": "application/json",
@@ -542,7 +563,10 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
               body: JSON.stringify(body),
               signal: timeoutSignal,
             },
-          );
+            reliability: this.reliability,
+            state: this.reliabilityState,
+            operationName: "Google request",
+          });
 
           if (!response.ok) {
             const details = await readErrorResponse(response);

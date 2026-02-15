@@ -73,6 +73,31 @@ const lmstudio = createLLMInterpreter({
 });
 ```
 
+## Reliability Controls
+
+Each provider supports request reliability options through `providerOptions.reliability`:
+
+```ts
+const llm = createLLMInterpreter({
+  provider: "openai",
+  providerOptions: {
+    apiKey: process.env.RENDERIFY_LLM_API_KEY,
+    reliability: {
+      maxRetries: 2,
+      retryBaseDelayMs: 250,
+      retryMaxDelayMs: 2000,
+      retryJitterMs: 50,
+      retryStatusCodes: [408, 429, 500, 502, 503, 504],
+      retryOnNetworkError: true,
+      circuitBreakerFailureThreshold: 5,
+      circuitBreakerCooldownMs: 15000,
+    },
+  },
+});
+```
+
+Defaults include bounded retry/backoff and circuit breaking for repeated upstream failures.
+
 ## Custom Provider
 
 ```ts

@@ -9,13 +9,18 @@ import type {
 import { isRuntimePlan } from "@renderify/ir";
 import {
   consumeSseEvents,
+  createLLMReliabilityState,
   createTimeoutAbortScope,
+  fetchWithReliability,
   formatContext,
+  type LLMReliabilityOptions,
   pickFetch,
+  pickLLMReliabilityOptions,
   pickPositiveInt,
   pickString,
   readErrorResponse,
   resolveFetch,
+  resolveLLMReliabilityOptions,
   tryParseJson,
   withTimeoutAbortScope,
 } from "./shared";
@@ -28,6 +33,7 @@ export interface AnthropicLLMInterpreterOptions {
   maxTokens?: number;
   version?: string;
   systemPrompt?: string;
+  reliability?: LLMReliabilityOptions;
   fetchImpl?: typeof fetch;
 }
 
@@ -99,6 +105,8 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
     systemPrompt: undefined,
   };
   private fetchImpl: typeof fetch | undefined;
+  private reliability = resolveLLMReliabilityOptions();
+  private readonly reliabilityState = createLLMReliabilityState();
 
   constructor(options: AnthropicLLMInterpreterOptions = {}) {
     this.configure({ ...options });
@@ -120,6 +128,7 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
     );
     const maxTokens = pickPositiveInt(options, "maxTokens");
     const fetchImpl = pickFetch(options, "fetchImpl");
+    const reliability = pickLLMReliabilityOptions(options);
 
     this.options = {
       ...this.options,
@@ -134,6 +143,13 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
 
     if (fetchImpl) {
       this.fetchImpl = fetchImpl;
+    }
+
+    if (reliability) {
+      this.reliability = resolveLLMReliabilityOptions(
+        reliability,
+        this.reliability,
+      );
     }
   }
 
@@ -296,9 +312,10 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
     };
 
     try {
-      const response = await fetchImpl(
-        `${this.options.baseUrl.replace(/\/$/, "")}/messages`,
-        {
+      const response = await fetchWithReliability({
+        fetchImpl,
+        input: `${this.options.baseUrl.replace(/\/$/, "")}/messages`,
+        init: {
           method: "POST",
           headers: {
             "content-type": "application/json",
@@ -319,7 +336,10 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
           }),
           signal: abortScope.signal,
         },
-      );
+        reliability: this.reliability,
+        state: this.reliabilityState,
+        operationName: "Anthropic request",
+      });
 
       if (!response.ok) {
         const details = await readErrorResponse(response);
@@ -552,9 +572,10 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
         this.options.timeoutMs,
         signal,
         async (timeoutSignal) => {
-          const response = await fetchImpl(
-            `${this.options.baseUrl.replace(/\/$/, "")}/messages`,
-            {
+          const response = await fetchWithReliability({
+            fetchImpl,
+            input: `${this.options.baseUrl.replace(/\/$/, "")}/messages`,
+            init: {
               method: "POST",
               headers: {
                 "content-type": "application/json",
@@ -564,7 +585,10 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
               body: JSON.stringify(body),
               signal: timeoutSignal,
             },
-          );
+            reliability: this.reliability,
+            state: this.reliabilityState,
+            operationName: "Anthropic request",
+          });
 
           if (!response.ok) {
             const details = await readErrorResponse(response);

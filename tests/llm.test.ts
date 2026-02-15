@@ -130,6 +130,102 @@ test("openai interpreter streams text response chunks", async () => {
   assert.equal(chunks[2].tokensUsed, 77);
 });
 
+test("openai interpreter retries transient network errors", async () => {
+  let attempt = 0;
+
+  const llm = new OpenAILLMInterpreter({
+    apiKey: "test-key",
+    model: "gpt-4.1-mini",
+    baseUrl: "https://example.openai.test/v1",
+    reliability: {
+      maxRetries: 2,
+      retryBaseDelayMs: 1,
+      retryMaxDelayMs: 1,
+      retryJitterMs: 0,
+      circuitBreakerFailureThreshold: 5,
+      circuitBreakerCooldownMs: 1000,
+    },
+    fetchImpl: async (_input: RequestInfo | URL, _init?: RequestInit) => {
+      attempt += 1;
+      if (attempt === 1) {
+        throw new Error("temporary network fault");
+      }
+
+      return jsonResponse({
+        id: "chatcmpl_retry_1",
+        model: "gpt-4.1-mini",
+        choices: [
+          {
+            message: {
+              content: "recovered",
+            },
+          },
+        ],
+      });
+    },
+  });
+
+  const response = await llm.generateResponse({
+    prompt: "retry request",
+  });
+
+  assert.equal(response.text, "recovered");
+  assert.equal(attempt, 2);
+});
+
+test("openai interpreter opens circuit breaker after repeated failures", async () => {
+  let attempt = 0;
+
+  const llm = new OpenAILLMInterpreter({
+    apiKey: "test-key",
+    baseUrl: "https://example.openai.test/v1",
+    reliability: {
+      maxRetries: 0,
+      retryBaseDelayMs: 1,
+      retryMaxDelayMs: 1,
+      retryJitterMs: 0,
+      circuitBreakerFailureThreshold: 1,
+      circuitBreakerCooldownMs: 60000,
+    },
+    fetchImpl: async (_input: RequestInfo | URL, _init?: RequestInit) => {
+      attempt += 1;
+      return new Response(
+        JSON.stringify({
+          error: {
+            message: "service unavailable",
+          },
+        }),
+        {
+          status: 503,
+          headers: {
+            "content-type": "application/json",
+          },
+        },
+      );
+    },
+  });
+
+  await assert.rejects(
+    () =>
+      llm.generateResponse({
+        prompt: "trip breaker",
+      }),
+    /OpenAI request failed \(503\)/,
+  );
+
+  assert.equal(attempt, 1);
+
+  await assert.rejects(
+    () =>
+      llm.generateResponse({
+        prompt: "trip breaker again",
+      }),
+    /circuit breaker is open/,
+  );
+
+  assert.equal(attempt, 1);
+});
+
 test("openai interpreter validates structured runtime plan response", async () => {
   const requests: Array<Record<string, unknown>> = [];
 
