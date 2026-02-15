@@ -12,14 +12,20 @@
 ```tsx
 import { renderPlanInBrowser } from "renderify";
 
-await renderPlanInBrowser(
+renderPlanInBrowser(
   {
     id: "hello_jsx_runtime",
     version: 1,
     root: { type: "text", value: "Loading..." },
     source: {
       language: "tsx",
-      code: `import { format } from "date-fns/format"; export default () => <section>Today: {format(new Date(), "yyyy-MM-dd")}</section>;`,
+      code: `
+        import { format } from "date-fns/format";
+
+        export default function App() {
+          return <section>Today: {format(new Date(), "yyyy-MM-dd")}</section>;
+        }
+      `,
     },
   },
   { target: "#mount" },
