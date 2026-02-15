@@ -46,9 +46,11 @@ import {
   FALLBACK_REMOTE_FETCH_BACKOFF_MS,
   FALLBACK_REMOTE_FETCH_RETRIES,
   FALLBACK_REMOTE_FETCH_TIMEOUT_MS,
+  FALLBACK_RUNTIME_SOURCE_JSX_HELPER_MODE,
   normalizeFallbackCdnBases,
   normalizeNonNegativeInteger,
   normalizePositiveInteger,
+  normalizeRuntimeSourceJsxHelperMode,
   normalizeSourceSandboxMode,
   normalizeSupportedSpecVersions,
 } from "./runtime-defaults";
@@ -117,6 +119,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
   private readonly enforceModuleManifest: boolean;
   private readonly allowIsolationFallback: boolean;
   private readonly browserSourceSandboxMode: RuntimeSourceSandboxMode;
+  private readonly runtimeSourceJsxHelperMode: "auto" | "always" | "never";
   private readonly browserSourceSandboxTimeoutMs: number;
   private readonly browserSourceSandboxFailClosed: boolean;
   private readonly enableDependencyPreflight: boolean;
@@ -151,6 +154,10 @@ export class DefaultRuntimeManager implements RuntimeManager {
       options.allowIsolationFallback ?? FALLBACK_ALLOW_ISOLATION_FALLBACK;
     this.browserSourceSandboxMode = normalizeSourceSandboxMode(
       options.browserSourceSandboxMode,
+    );
+    this.runtimeSourceJsxHelperMode = normalizeRuntimeSourceJsxHelperMode(
+      options.runtimeSourceJsxHelperMode ??
+        FALLBACK_RUNTIME_SOURCE_JSX_HELPER_MODE,
     );
     this.browserSourceSandboxTimeoutMs = normalizePositiveInteger(
       options.browserSourceSandboxTimeoutMs,
@@ -511,7 +518,11 @@ export class DefaultRuntimeManager implements RuntimeManager {
       withRemainingBudget: (operation, timeoutMessage) =>
         withRuntimeRemainingBudget(operation, frame, timeoutMessage),
       transpileRuntimeSource: (runtimeSource) =>
-        transpileRuntimeSource(runtimeSource, this.sourceTranspiler),
+        transpileRuntimeSource(
+          runtimeSource,
+          this.sourceTranspiler,
+          this.runtimeSourceJsxHelperMode,
+        ),
       rewriteSourceImports: async (code, manifest, runtimeDiagnostics) =>
         this.rewriteImportsAsync(code, async (specifier) =>
           this.resolveRuntimeSourceSpecifier(

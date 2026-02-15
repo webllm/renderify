@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { RuntimeSourceModule } from "../packages/ir/src/index";
+import { transpileRuntimeSource } from "../packages/runtime/src/runtime-source-runtime";
 import {
   BabelRuntimeSourceTranspiler,
   DefaultRuntimeSourceTranspiler,
@@ -175,6 +177,24 @@ test("mergeRuntimeHelpers injects helpers only for non-preact runtime", () => {
   assert.equal(mergedPreact, source);
 });
 
+test("mergeRuntimeHelpers supports explicit helper mode overrides", () => {
+  const source = "export default () => <div>Hello</div>;";
+
+  const forcedForPreact = BabelRuntimeSourceTranspiler.mergeRuntimeHelpers(
+    source,
+    "preact",
+    "always",
+  );
+  const disabledForRenderify = BabelRuntimeSourceTranspiler.mergeRuntimeHelpers(
+    source,
+    "renderify",
+    "never",
+  );
+
+  assert.match(forcedForPreact, /__renderify_runtime_h/);
+  assert.equal(disabledForRenderify, source);
+});
+
 test("default transpiler caches repeated transpile inputs", async () => {
   let callCount = 0;
   const restore = installMockBabel(() => {
@@ -200,4 +220,50 @@ test("default transpiler caches repeated transpile inputs", async () => {
   } finally {
     restore();
   }
+});
+
+test("transpileRuntimeSource injects helpers when jsxHelperMode=always", async () => {
+  const source: RuntimeSourceModule = {
+    code: "export default () => <div>Hello</div>;",
+    language: "jsx",
+    runtime: "preact",
+  };
+  let receivedCode = "";
+  const transpiler = {
+    async transpile(input: {
+      code: string;
+      language: RuntimeSourceModule["language"];
+      filename?: string;
+      runtime?: RuntimeSourceModule["runtime"];
+    }): Promise<string> {
+      receivedCode = input.code;
+      return "export default function App(){ return { type: 'text', value: 'ok' }; }";
+    },
+  };
+
+  await transpileRuntimeSource(source, transpiler, "always");
+  assert.match(receivedCode, /__renderify_runtime_h/);
+});
+
+test("transpileRuntimeSource skips helpers when jsxHelperMode=never", async () => {
+  const source: RuntimeSourceModule = {
+    code: "export default () => <div>Hello</div>;",
+    language: "jsx",
+    runtime: "renderify",
+  };
+  let receivedCode = "";
+  const transpiler = {
+    async transpile(input: {
+      code: string;
+      language: RuntimeSourceModule["language"];
+      filename?: string;
+      runtime?: RuntimeSourceModule["runtime"];
+    }): Promise<string> {
+      receivedCode = input.code;
+      return "export default function App(){ return { type: 'text', value: 'ok' }; }";
+    },
+  };
+
+  await transpileRuntimeSource(source, transpiler, "never");
+  assert.doesNotMatch(receivedCode, /__renderify_runtime_h/);
 });

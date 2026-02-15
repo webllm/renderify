@@ -18,7 +18,10 @@ import type {
   RuntimeDependencyProbeStatus,
   RuntimeDependencyUsage,
 } from "./runtime-preflight";
-import type { RuntimeSourceSandboxMode as RuntimeSourceRuntimeMode } from "./runtime-source-runtime";
+import type {
+  RuntimeSourceJsxHelperMode as RuntimeSourceRuntimeJsxHelperMode,
+  RuntimeSourceSandboxMode as RuntimeSourceRuntimeMode,
+} from "./runtime-source-runtime";
 import type { RenderTarget, UIRenderer } from "./ui-renderer";
 
 export interface CompileOptions {
@@ -75,6 +78,7 @@ export interface RuntimeManagerOptions {
   enforceModuleManifest?: boolean;
   allowIsolationFallback?: boolean;
   browserSourceSandboxMode?: RuntimeSourceSandboxMode;
+  runtimeSourceJsxHelperMode?: RuntimeSourceJsxHelperMode;
   browserSourceSandboxTimeoutMs?: number;
   browserSourceSandboxFailClosed?: boolean;
   enableDependencyPreflight?: boolean;
@@ -131,3 +135,4 @@ export class RuntimeSecurityViolationError extends Error {
 }
 
 export type RuntimeSourceSandboxMode = RuntimeSourceRuntimeMode;
+export type RuntimeSourceJsxHelperMode = RuntimeSourceRuntimeJsxHelperMode;

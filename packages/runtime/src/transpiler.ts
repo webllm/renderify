@@ -3,6 +3,7 @@ import type {
   RuntimeSourceTranspileInput,
   RuntimeSourceTranspiler,
 } from "./runtime-manager.types";
+import type { RuntimeSourceJsxHelperMode } from "./runtime-source-runtime";
 
 interface BabelStandaloneLike {
   transform(
@@ -160,8 +161,13 @@ export class BabelRuntimeSourceTranspiler implements RuntimeSourceTranspiler {
   static mergeRuntimeHelpers(
     source: RuntimeSourceTranspileInput["code"],
     runtime: RuntimeSourceTranspileInput["runtime"],
+    mode: RuntimeSourceJsxHelperMode = "auto",
   ): string {
-    if (runtime === "preact") {
+    if (mode === "never") {
+      return source;
+    }
+
+    if (mode === "auto" && runtime === "preact") {
       return source;
     }
 

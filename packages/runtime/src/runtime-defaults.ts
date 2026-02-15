@@ -24,6 +24,7 @@ export const FALLBACK_ENFORCE_MODULE_MANIFEST = true;
 export const FALLBACK_ALLOW_ISOLATION_FALLBACK = false;
 export const FALLBACK_BROWSER_SOURCE_SANDBOX_TIMEOUT_MS = 4000;
 export const FALLBACK_BROWSER_SOURCE_SANDBOX_FAIL_CLOSED = true;
+export const FALLBACK_RUNTIME_SOURCE_JSX_HELPER_MODE = "auto";
 
 export function normalizeSupportedSpecVersions(
   versions?: string[],
@@ -64,6 +65,16 @@ export function normalizeSourceSandboxMode(
   }
 
   return isBrowserRuntime() ? "worker" : "none";
+}
+
+export function normalizeRuntimeSourceJsxHelperMode(
+  mode: "auto" | "always" | "never" | undefined,
+): "auto" | "always" | "never" {
+  if (mode === "auto" || mode === "always" || mode === "never") {
+    return mode;
+  }
+
+  return FALLBACK_RUNTIME_SOURCE_JSX_HELPER_MODE;
 }
 
 export function normalizeFallbackCdnBases(input?: string[]): string[] {

@@ -9,6 +9,7 @@ export type RuntimeSourceSandboxMode =
   | "worker"
   | "iframe"
   | "shadowrealm";
+export type RuntimeSourceJsxHelperMode = "auto" | "always" | "never";
 
 export interface RuntimeSourceTranspilerLike {
   transpile(input: {
@@ -75,10 +76,12 @@ export function resolveSourceSandboxMode(input: {
 export async function transpileRuntimeSource(
   source: RuntimeSourceModule,
   sourceTranspiler: RuntimeSourceTranspilerLike,
+  jsxHelperMode: RuntimeSourceJsxHelperMode = "auto",
 ): Promise<string> {
   const mergedSource = BabelRuntimeSourceTranspiler.mergeRuntimeHelpers(
     source.code,
     source.runtime,
+    jsxHelperMode,
   );
   return sourceTranspiler.transpile({
     code: mergedSource,
