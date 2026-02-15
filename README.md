@@ -148,28 +148,6 @@ flowchart TD
 - PR changeset enforcement for release-relevant package changes
 - Benchmark workflow with JSON artifacts uploaded per CI run
 
-## Monorepo Commands
-
-```bash
-# install
-pnpm install
-
-# quality + tests
-pnpm lint
-pnpm typecheck
-pnpm unit
-pnpm e2e
-pnpm bench
-pnpm test
-
-# package quality and builds
-pnpm validate
-pnpm build
-
-# auto-format
-pnpm format
-```
-
 ## CLI Quick Start
 
 ```bash
@@ -385,15 +363,6 @@ Beyond the end-to-end pipeline, several components have standalone value:
 - **RuntimePlan IR** — a standardized intermediate representation for "LLM-generated interactive UI." Even outside Renderify, the IR design provides a reusable schema for any system that needs to describe dynamic, composable UI from model output.
 - **Security policy framework** — a systematic approach to executing untrusted dynamic code: blocked tags, module allowlists, execution budgets, and source pattern analysis. The policy model is reusable for any browser-side dynamic code execution scenario.
 - **Browser ESM module graph materialization** — the `fetch → rewrite imports → blob URL` pipeline solves a problem browser standards have not natively addressed (bare specifiers are not usable in browsers). This module loading strategy can be extracted as an independent utility.
-
-## Roadmap
-
-**Next — Ecosystem expansion**
-
-- Additional LLM provider adapters (local models)
-- Reliability strategies (retry, backoff, circuit breaking)
-- Pre-built component themes and layout primitives
-- Framework adapter plugins (Vue, Svelte, Solid)
 
 ## License
 
