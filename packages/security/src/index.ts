@@ -383,7 +383,7 @@ export class DefaultSecurityChecker implements SecurityChecker {
     const issues: string[] = [];
     const diagnostics: RuntimeDiagnostic[] = [];
 
-    if (specifier.includes("..")) {
+    if (this.hasPathTraversalSequence(specifier)) {
       issues.push(
         `Path traversal is not allowed in module specifier: ${specifier}`,
       );
@@ -766,6 +766,43 @@ export class DefaultSecurityChecker implements SecurityChecker {
     } catch {
       return false;
     }
+  }
+
+  private hasPathTraversalSequence(specifier: string): boolean {
+    if (specifier.includes("..")) {
+      return true;
+    }
+
+    for (const decoded of this.decodeSpecifierVariants(specifier)) {
+      if (decoded.includes("..")) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private decodeSpecifierVariants(specifier: string): string[] {
+    const variants: string[] = [];
+    let current = specifier;
+
+    for (let i = 0; i < 2; i += 1) {
+      let decoded: string;
+      try {
+        decoded = decodeURIComponent(current);
+      } catch {
+        break;
+      }
+
+      if (decoded === current) {
+        break;
+      }
+
+      variants.push(decoded);
+      current = decoded;
+    }
+
+    return variants;
   }
 }
 

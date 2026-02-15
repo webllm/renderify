@@ -69,6 +69,30 @@ test("security checker allows allowed JSPM module specifiers", async () => {
   assert.equal(moduleResult.issues.length, 0);
 });
 
+test("security checker blocks encoded path traversal module specifiers", async () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize();
+
+  const encodedLowerResult = checker.checkModuleSpecifier(
+    "https://ga.jspm.io/%2e%2e/escape.js",
+  );
+  const encodedUpperResult = checker.checkModuleSpecifier(
+    "https://ga.jspm.io/%2E%2E/escape.js",
+  );
+  const doubleEncodedResult = checker.checkModuleSpecifier(
+    "https://ga.jspm.io/%252e%252e/escape.js",
+  );
+
+  assert.equal(encodedLowerResult.safe, false);
+  assert.equal(encodedUpperResult.safe, false);
+  assert.equal(doubleEncodedResult.safe, false);
+  assert.ok(
+    encodedLowerResult.issues.some((issue) =>
+      issue.includes("Path traversal is not allowed"),
+    ),
+  );
+});
+
 test("security checker blocks unsafe state action paths", async () => {
   const checker = new DefaultSecurityChecker();
   checker.initialize();
