@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { BabelRuntimeSourceTranspiler } from "../packages/runtime/src/transpiler";
+import {
+  BabelRuntimeSourceTranspiler,
+  DefaultRuntimeSourceTranspiler,
+} from "../packages/runtime/src/transpiler";
 
 interface BabelCall {
   code: string;
@@ -170,4 +173,31 @@ test("mergeRuntimeHelpers injects helpers only for non-preact runtime", () => {
 
   assert.match(mergedRenderify, /__renderify_runtime_h/);
   assert.equal(mergedPreact, source);
+});
+
+test("default transpiler caches repeated transpile inputs", async () => {
+  let callCount = 0;
+  const restore = installMockBabel(() => {
+    callCount += 1;
+    return { code: "compiled-cached" };
+  });
+
+  try {
+    const transpiler = new DefaultRuntimeSourceTranspiler();
+    const input = {
+      code: "export default () => <div/>;",
+      language: "jsx" as const,
+      runtime: "renderify" as const,
+      filename: "cached.jsx",
+    };
+
+    const first = await transpiler.transpile(input);
+    const second = await transpiler.transpile(input);
+
+    assert.equal(first, "compiled-cached");
+    assert.equal(second, "compiled-cached");
+    assert.equal(callCount, 1);
+  } finally {
+    restore();
+  }
 });

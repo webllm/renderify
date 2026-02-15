@@ -91,6 +91,7 @@ function __renderify_runtime_fragment(...children) {
   return __renderify_runtime_to_nodes(children);
 }
 `.trim();
+const DEFAULT_TRANSPILE_CACHE_MAX_ENTRIES = 256;
 
 export class BabelRuntimeSourceTranspiler implements RuntimeSourceTranspiler {
   async transpile(input: RuntimeSourceTranspileInput): Promise<string> {
@@ -271,10 +272,19 @@ export class EsbuildRuntimeSourceTranspiler implements RuntimeSourceTranspiler {
 export class DefaultRuntimeSourceTranspiler implements RuntimeSourceTranspiler {
   private readonly babelTranspiler = new BabelRuntimeSourceTranspiler();
   private readonly esbuildTranspiler = new EsbuildRuntimeSourceTranspiler();
+  private readonly transpileCache = new Map<string, string>();
 
   async transpile(input: RuntimeSourceTranspileInput): Promise<string> {
+    const cacheKey = this.createCacheKey(input);
+    const cached = this.transpileCache.get(cacheKey);
+    if (cached !== undefined) {
+      this.promoteCachedTranspile(cacheKey, cached);
+      return cached;
+    }
+
+    let transpiled: string;
     try {
-      return await this.babelTranspiler.transpile(input);
+      transpiled = await this.babelTranspiler.transpile(input);
     } catch (error) {
       if (!isMissingBabelStandaloneError(error)) {
         throw error;
@@ -284,7 +294,36 @@ export class DefaultRuntimeSourceTranspiler implements RuntimeSourceTranspiler {
         throw error;
       }
 
-      return this.esbuildTranspiler.transpile(input);
+      transpiled = await this.esbuildTranspiler.transpile(input);
+    }
+
+    this.cacheTranspileOutput(cacheKey, transpiled);
+    return transpiled;
+  }
+
+  private createCacheKey(input: RuntimeSourceTranspileInput): string {
+    return [
+      input.language,
+      input.runtime ?? "",
+      input.filename ?? "",
+      input.code,
+    ].join("\u0000");
+  }
+
+  private promoteCachedTranspile(cacheKey: string, output: string): void {
+    this.transpileCache.delete(cacheKey);
+    this.transpileCache.set(cacheKey, output);
+  }
+
+  private cacheTranspileOutput(cacheKey: string, output: string): void {
+    this.transpileCache.set(cacheKey, output);
+    if (this.transpileCache.size <= DEFAULT_TRANSPILE_CACHE_MAX_ENTRIES) {
+      return;
+    }
+
+    const oldestKey = this.transpileCache.keys().next().value;
+    if (oldestKey !== undefined) {
+      this.transpileCache.delete(oldestKey);
     }
   }
 }
