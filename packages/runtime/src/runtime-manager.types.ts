@@ -87,6 +87,8 @@ export interface RuntimeManagerOptions {
   remoteFetchRetries?: number;
   remoteFetchBackoffMs?: number;
   remoteFallbackCdnBases?: string[];
+  allowArbitraryNetwork?: boolean;
+  allowedNetworkHosts?: string[];
 }
 
 export interface RuntimeSourceTranspileInput {

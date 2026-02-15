@@ -22,20 +22,22 @@ export async function renderPlanInBrowser(
       options.autoPinModuleLoader ??
       options.runtimeOptions?.moduleLoader ??
       new JspmModuleLoader();
+    const security = options.security ?? new DefaultSecurityChecker();
+    security.initialize(options.securityInitialization);
+    const policy = security.getPolicy();
     const runtime =
       options.runtime ??
       new DefaultRuntimeManager({
         moduleLoader,
         ...(options.runtimeOptions ?? {}),
+        allowArbitraryNetwork: policy.allowArbitraryNetwork,
+        allowedNetworkHosts: policy.allowedNetworkHosts,
       });
-    const security = options.security ?? new DefaultSecurityChecker();
 
     const shouldInitializeRuntime =
       options.autoInitializeRuntime !== false || options.runtime === undefined;
     const shouldTerminateRuntime =
       options.autoTerminateRuntime !== false && options.runtime === undefined;
-
-    security.initialize(options.securityInitialization);
 
     if (shouldInitializeRuntime) {
       await runtime.initialize();

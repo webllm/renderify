@@ -128,6 +128,8 @@ export class DefaultRuntimeManager implements RuntimeManager {
   private readonly remoteFetchRetries: number;
   private readonly remoteFetchBackoffMs: number;
   private readonly remoteFallbackCdnBases: string[];
+  private readonly allowArbitraryNetwork: boolean;
+  private readonly allowedNetworkHosts: Set<string>;
   private readonly browserModuleUrlCache = new Map<string, string>();
   private readonly browserModuleInflight = new Map<string, Promise<string>>();
   private readonly browserBlobUrls = new Set<string>();
@@ -185,6 +187,13 @@ export class DefaultRuntimeManager implements RuntimeManager {
     );
     this.remoteFallbackCdnBases = normalizeFallbackCdnBases(
       options.remoteFallbackCdnBases,
+    );
+    this.allowArbitraryNetwork = options.allowArbitraryNetwork ?? true;
+    this.allowedNetworkHosts = new Set(
+      (options.allowedNetworkHosts ?? [])
+        .filter((entry): entry is string => typeof entry === "string")
+        .map((entry) => entry.trim().toLowerCase())
+        .filter((entry) => entry.length > 0),
     );
   }
 
@@ -635,6 +644,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
           runtimeDiagnostics,
           requireManifest,
         ),
+      isRemoteUrlAllowed: (url) => this.isRemoteUrlAllowed(url),
     });
   }
 
@@ -693,6 +703,29 @@ export class DefaultRuntimeManager implements RuntimeManager {
 
   private normalizeSourceOutput(output: unknown): RuntimeNode | undefined {
     return normalizeRuntimeSourceOutput(output);
+  }
+
+  private isRemoteUrlAllowed(url: string): boolean {
+    if (this.allowArbitraryNetwork) {
+      return true;
+    }
+
+    if (this.allowedNetworkHosts.size === 0) {
+      return false;
+    }
+
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(url);
+    } catch {
+      return false;
+    }
+
+    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+      return false;
+    }
+
+    return this.allowedNetworkHosts.has(parsedUrl.host.toLowerCase());
   }
 
   private async resolveNode(

@@ -36,6 +36,7 @@ export interface RuntimeSourceModuleLoaderOptions {
     diagnostics: RuntimeDiagnostic[],
     requireManifest?: boolean,
   ) => string;
+  isRemoteUrlAllowed?: (url: string) => boolean;
 }
 
 export class RuntimeSourceModuleLoader {
@@ -59,6 +60,7 @@ export class RuntimeSourceModuleLoader {
     diagnostics: RuntimeDiagnostic[],
     requireManifest?: boolean,
   ) => string;
+  private readonly isRemoteUrlAllowedFn: (url: string) => boolean;
 
   constructor(options: RuntimeSourceModuleLoaderOptions) {
     this.moduleManifest = options.moduleManifest;
@@ -74,6 +76,7 @@ export class RuntimeSourceModuleLoader {
     this.createInlineModuleUrlFn = options.createInlineModuleUrl;
     this.resolveRuntimeSourceSpecifierFn =
       options.resolveRuntimeSourceSpecifier;
+    this.isRemoteUrlAllowedFn = options.isRemoteUrlAllowed ?? (() => true);
   }
 
   async importSourceModuleFromCode(code: string): Promise<unknown> {
@@ -241,11 +244,18 @@ export class RuntimeSourceModuleLoader {
       throw new Error(`Failed to load module: ${url}`);
     }
 
+    const filteredAttempts = this.filterDisallowedAttempts(attempts);
+    if (filteredAttempts.length === 0) {
+      throw new Error(
+        `Remote module URL is blocked by runtime network policy: ${url}`,
+      );
+    }
+
     const hedgeDelayMs = Math.max(
       50,
       Math.min(300, this.remoteFetchBackoffMs || 100),
     );
-    const fetchTasks = attempts.map((attempt, index) =>
+    const fetchTasks = filteredAttempts.map((attempt, index) =>
       this.fetchRemoteModuleAttemptWithRetries(
         attempt,
         url,
@@ -335,6 +345,24 @@ export class RuntimeSourceModuleLoader {
       });
       return createTextProxyModuleSource(fetched.code);
     }
+  }
+
+  private filterDisallowedAttempts(attempts: string[]): string[] {
+    const allowed: string[] = [];
+    for (const attempt of attempts) {
+      if (this.isRemoteUrlAllowedFn(attempt)) {
+        allowed.push(attempt);
+        continue;
+      }
+
+      this.diagnostics.push({
+        level: "warning",
+        code: "RUNTIME_SOURCE_IMPORT_BLOCKED",
+        message: `Blocked remote module URL by runtime network policy: ${attempt}`,
+      });
+    }
+
+    return allowed;
   }
 
   private errorToMessage(error: unknown): string {
