@@ -413,6 +413,8 @@ export const PLAYGROUND_HTML = `<!doctype html>
         return ESM_SH_BASE_URL + normalized;
       };
 
+      // Playground-only simplification: this regex-based rewrite can match
+      // comment/string literals. Production runtime paths must use lexer parsing.
       const rewriteTranspiledImports = (code, planDetail) =>
         String(code ?? "")
           .replace(/\\bfrom\\s+["']([^"']+)["']/g, (full, specifier) =>
