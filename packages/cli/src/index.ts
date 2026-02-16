@@ -229,7 +229,12 @@ async function main() {
 }
 
 function parseArgs(argv: string[]): CliArgs {
-  const [rawCommand, ...rest] = argv;
+  const normalizedArgv = [...argv];
+  while (normalizedArgv[0] === "--") {
+    normalizedArgv.shift();
+  }
+
+  const [rawCommand, ...rest] = normalizedArgv;
 
   switch (rawCommand) {
     case undefined:
@@ -715,7 +720,12 @@ async function collectRuntimePlanBareSpecifiers(
 
 function isBareModuleSpecifier(specifier: string): boolean {
   const trimmed = specifier.trim();
+  const normalized = trimmed.toLowerCase();
   if (trimmed.length === 0) {
+    return false;
+  }
+
+  if (normalized.startsWith("inline://") || normalized === "this-plan-source") {
     return false;
   }
 

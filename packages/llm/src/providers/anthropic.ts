@@ -40,6 +40,9 @@ export interface AnthropicLLMInterpreterOptions {
 interface AnthropicContentPart {
   type?: string;
   text?: string;
+  id?: string;
+  name?: string;
+  input?: unknown;
 }
 
 interface AnthropicMessagesPayload {
@@ -83,6 +86,130 @@ const DEFAULT_MODEL = "claude-sonnet-4-5";
 const DEFAULT_TIMEOUT_MS = 30000;
 const DEFAULT_MAX_TOKENS = 2048;
 const DEFAULT_ANTHROPIC_VERSION = "2023-06-01";
+const STRUCTURED_TOOL_NAME = "runtime_plan";
+const RUNTIME_PLAN_JSON_SCHEMA = {
+  type: "object",
+  additionalProperties: true,
+  required: ["id", "version", "root", "capabilities"],
+  properties: {
+    specVersion: {
+      type: "string",
+      enum: ["runtime-plan/v1"],
+    },
+    id: {
+      type: "string",
+      minLength: 1,
+    },
+    version: {
+      type: "integer",
+      minimum: 1,
+    },
+    root: {
+      type: "object",
+      required: ["type"],
+      additionalProperties: true,
+      properties: {
+        type: {
+          type: "string",
+          enum: ["text", "element", "component"],
+        },
+        value: {
+          type: "string",
+        },
+        tag: {
+          type: "string",
+          minLength: 1,
+        },
+        module: {
+          type: "string",
+          minLength: 1,
+        },
+        exportName: {
+          type: "string",
+          minLength: 1,
+        },
+        props: {
+          type: "object",
+          additionalProperties: true,
+        },
+        children: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: true,
+          },
+        },
+      },
+    },
+    capabilities: {
+      type: "object",
+      required: ["domWrite"],
+      additionalProperties: true,
+      properties: {
+        domWrite: {
+          type: "boolean",
+        },
+        allowedModules: {
+          type: "array",
+          items: {
+            type: "string",
+          },
+        },
+      },
+    },
+    imports: {
+      type: "array",
+      items: {
+        type: "string",
+      },
+    },
+    moduleManifest: {
+      type: "object",
+      additionalProperties: {
+        type: "object",
+        additionalProperties: false,
+        required: ["resolvedUrl"],
+        properties: {
+          resolvedUrl: { type: "string", minLength: 1 },
+          integrity: { type: "string", minLength: 1 },
+          version: { type: "string", minLength: 1 },
+          signer: { type: "string", minLength: 1 },
+        },
+      },
+    },
+    metadata: {
+      type: "object",
+      additionalProperties: true,
+    },
+    state: {
+      type: "object",
+      additionalProperties: true,
+    },
+    source: {
+      type: "object",
+      additionalProperties: false,
+      required: ["language", "code"],
+      properties: {
+        language: {
+          type: "string",
+          enum: ["js", "jsx", "ts", "tsx"],
+        },
+        code: {
+          type: "string",
+          minLength: 1,
+        },
+        exportName: {
+          type: "string",
+          minLength: 1,
+        },
+        runtime: {
+          type: "string",
+          enum: ["renderify", "preact"],
+        },
+      },
+    },
+  },
+} as const;
 
 export class AnthropicLLMInterpreter implements LLMInterpreter {
   private readonly templates = new Map<string, string>();
@@ -429,7 +556,20 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
       {
         model: this.options.model,
         max_tokens: this.options.maxTokens,
+        temperature: 0,
         system: this.resolveStructuredSystemPrompt(req),
+        tools: [
+          {
+            name: STRUCTURED_TOOL_NAME,
+            description:
+              "Return one valid Renderify RuntimePlan object as tool input.",
+            input_schema: RUNTIME_PLAN_JSON_SCHEMA,
+          },
+        ],
+        tool_choice: {
+          type: "tool",
+          name: STRUCTURED_TOOL_NAME,
+        },
         messages: [
           {
             role: "user",
@@ -440,7 +580,14 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
       req.signal,
     );
 
-    const text = this.extractText(payload);
+    const toolInput = this.extractStructuredToolInput(
+      payload,
+      STRUCTURED_TOOL_NAME,
+    );
+    const text =
+      toolInput !== undefined
+        ? JSON.stringify(toolInput)
+        : this.extractText(payload);
 
     if (text.trim().length === 0) {
       return {
@@ -456,7 +603,10 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
       };
     }
 
-    const parsed = tryParseJson(text);
+    const parsed =
+      toolInput !== undefined
+        ? ({ ok: true, value: toolInput } as const)
+        : tryParseJson(text);
     if (!parsed.ok) {
       return {
         text,
@@ -530,7 +680,13 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
     const defaultPrompt = [
       "You generate RuntimePlan JSON for Renderify.",
       "Return only JSON with no markdown or explanations.",
+      'Use specVersion exactly as "runtime-plan/v1".',
       "Schema priority: id/version/root/capabilities must be valid.",
+      "Do not reference local component modules such as main/app/root in root.module.",
+      "If source is provided, keep root as text/element instead of a component module alias.",
+      'Do not include synthetic source module aliases such as "this-plan-source" in imports, capabilities.allowedModules, or moduleManifest.',
+      'If source.language is jsx/tsx and code uses React-like hooks/imports, set source.runtime to "preact".',
+      "For preact source modules, import hooks from preact/compat or preact/hooks (not renderify).",
       `Strict mode: ${strictHint}.`,
     ].join(" ");
 
@@ -630,6 +786,28 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
       )
       .join("")
       .trim();
+  }
+
+  private extractStructuredToolInput(
+    payload: AnthropicMessagesPayload,
+    toolName: string,
+  ): unknown {
+    const content = payload.content;
+    if (!Array.isArray(content) || content.length === 0) {
+      return undefined;
+    }
+
+    for (const part of content) {
+      if (
+        part.type === "tool_use" &&
+        part.name === toolName &&
+        part.input !== undefined
+      ) {
+        return part.input;
+      }
+    }
+
+    return undefined;
   }
 
   private extractTotalTokens(

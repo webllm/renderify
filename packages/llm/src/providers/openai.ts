@@ -681,7 +681,11 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
     return [
       "You generate RuntimePlan JSON for Renderify.",
       "Return only JSON with no markdown or explanations.",
+      'Use specVersion exactly as "runtime-plan/v1".',
       "Schema priority: id/version/root/capabilities must be valid.",
+      'Do not include synthetic source module aliases such as "this-plan-source" in imports, capabilities.allowedModules, or moduleManifest.',
+      'If source.language is jsx/tsx and code uses React-like hooks/imports, set source.runtime to "preact".',
+      "For preact source modules, import hooks from preact/compat or preact/hooks (not renderify).",
       `Strict mode: ${strictHint}.`,
     ].join(" ");
   }

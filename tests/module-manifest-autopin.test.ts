@@ -102,6 +102,64 @@ test("auto pin latest fills moduleManifest for bare source imports", async () =>
   }
 });
 
+test("auto pin latest ignores synthetic source module aliases", async () => {
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "autopin_skip_synthetic_source_alias_plan",
+    version: 1,
+    root: createElementNode("section", undefined, [createTextNode("fallback")]),
+    capabilities: {
+      domWrite: true,
+    },
+    imports: ["this-plan-source", "date-fns"],
+  };
+
+  const requestedUrls: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    requestedUrls.push(url);
+
+    if (url === "https://ga.jspm.io/npm:date-fns") {
+      return new Response("4.1.0", {
+        status: 200,
+        headers: {
+          "content-type": "text/plain; charset=utf-8",
+        },
+      });
+    }
+
+    if (url === "https://ga.jspm.io/npm:date-fns@4.1.0/package.json") {
+      return new Response(JSON.stringify({ module: "./index.js" }), {
+        status: 200,
+        headers: {
+          "content-type": "application/json; charset=utf-8",
+        },
+      });
+    }
+
+    return new Response("not found", { status: 404 });
+  }) as typeof fetch;
+
+  try {
+    const hydrated = await autoPinRuntimePlanModuleManifest(plan, {
+      moduleLoader: new ResolveOnlyJspmLoader(),
+    });
+
+    assert.equal(hydrated.moduleManifest?.["this-plan-source"], undefined);
+    assert.equal(
+      hydrated.moduleManifest?.["date-fns"]?.resolvedUrl,
+      "https://ga.jspm.io/npm:date-fns@4.1.0/index.js",
+    );
+    assert.equal(
+      requestedUrls.some((url) => url.includes("this-plan-source")),
+      false,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("auto pin latest leaves existing moduleManifest entries unchanged", async () => {
   const plan: RuntimePlan = {
     specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,

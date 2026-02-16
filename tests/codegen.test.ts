@@ -108,6 +108,29 @@ test("codegen extracts tsx source module from fenced output", async () => {
   assert.ok(plan.metadata?.tags?.includes("source-module"));
 });
 
+test("codegen recognizes fenced typescript alias and infers tsx", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const llmText = [
+    "```typescript",
+    "import { useState } from 'react';",
+    "export default function Counter() {",
+    "  const [count, setCount] = useState(0);",
+    "  return <button onClick={() => setCount(count + 1)}>{count}</button>;",
+    "}",
+    "```",
+  ].join("\n");
+
+  const plan = await codegen.generatePlan({
+    prompt: "typescript source",
+    llmText,
+  });
+
+  assert.equal(plan.source?.language, "tsx");
+  assert.equal(plan.source?.runtime, "preact");
+  assert.match(plan.source?.code ?? "", /useState/);
+  assert.ok(plan.imports?.includes("react"));
+});
+
 test("codegen preserves source module when RuntimePlan JSON contains source", async () => {
   const codegen = new DefaultCodeGenerator();
   const planJson = JSON.stringify({
@@ -189,6 +212,102 @@ test("codegen merges imports from source and capabilities when payload imports a
   assert.equal(
     plan.moduleManifest?.["preact/hooks"]?.resolvedUrl,
     "https://ga.jspm.io/npm:preact@10.28.3/hooks/dist/hooks.module.js",
+  );
+});
+
+test("codegen rewrites inline source component root module aliases", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const planJson = JSON.stringify({
+    specVersion: "runtime-plan/v1",
+    id: "inline_root_alias_plan",
+    version: 1,
+    root: {
+      type: "component",
+      module: "main",
+      exportName: "default",
+    },
+    capabilities: {
+      domWrite: true,
+    },
+    source: {
+      language: "jsx",
+      runtime: "preact",
+      code: "export default function App(){ return <section>ok</section>; }",
+    },
+  });
+
+  const plan = await codegen.generatePlan({
+    prompt: "inline source alias",
+    llmText: planJson,
+  });
+
+  assert.equal(plan.root.type, "element");
+  assert.equal(plan.source?.language, "jsx");
+  assert.ok(!(plan.imports ?? []).includes("main"));
+});
+
+test("codegen sanitizes synthetic source aliases and normalizes preact-style source runtime", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const planJson = JSON.stringify({
+    specVersion: "runtime-plan/v1",
+    id: "gemini_todo_source_plan",
+    version: 1,
+    root: {
+      type: "component",
+      module: "this-plan-source",
+      exportName: "TodoApp",
+      props: {},
+    },
+    imports: ["renderify", "this-plan-source"],
+    moduleManifest: {
+      renderify: {
+        resolvedUrl:
+          "https://cdn.renderify.dev/renderify@1.0.0/dist/renderify.js",
+        signer: "renderify-codegen",
+      },
+      "this-plan-source": {
+        resolvedUrl: "https://ga.jspm.io/npm:this-plan-source",
+        signer: "renderify-codegen",
+      },
+    },
+    capabilities: {
+      domWrite: true,
+      allowedModules: ["renderify", "this-plan-source"],
+    },
+    source: {
+      language: "jsx",
+      runtime: "renderify",
+      exportName: "TodoApp",
+      code: [
+        "import { useState } from 'renderify';",
+        "export function TodoApp() {",
+        "  const [todos, setTodos] = useState([]);",
+        "  return <section>{todos.length}</section>;",
+        "}",
+      ].join("\n"),
+    },
+  });
+
+  const plan = await codegen.generatePlan({
+    prompt: "create todo app",
+    llmText: planJson,
+  });
+
+  assert.equal(plan.root.type, "element");
+  assert.equal(plan.source?.runtime, "preact");
+  assert.match(plan.source?.code ?? "", /from 'preact\/compat'/);
+  assert.ok(!(plan.imports ?? []).includes("this-plan-source"));
+  assert.ok(
+    !(plan.capabilities?.allowedModules ?? []).includes("this-plan-source"),
+  );
+  assert.ok(!(plan.imports ?? []).includes("renderify"));
+  assert.ok(!(plan.capabilities?.allowedModules ?? []).includes("renderify"));
+  assert.equal(plan.moduleManifest?.["this-plan-source"], undefined);
+  assert.equal(plan.moduleManifest?.renderify, undefined);
+  assert.ok((plan.imports ?? []).includes("preact/compat"));
+  assert.equal(
+    plan.moduleManifest?.["preact/compat"]?.resolvedUrl,
+    "https://ga.jspm.io/npm:preact@10.28.3/compat/dist/compat.module.js",
   );
 });
 

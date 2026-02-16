@@ -13,6 +13,7 @@ const FALLBACK_JSPM_CDN_ROOT = "https://ga.jspm.io";
 const FALLBACK_AUTOPIN_FETCH_TIMEOUT_MS = 4000;
 const FALLBACK_AUTOPIN_MAX_CONCURRENCY = 4;
 const FALLBACK_AUTOPIN_MAX_FAILURES = 8;
+const INTERNAL_SOURCE_MODULE_SPECIFIERS = new Set(["this-plan-source"]);
 
 interface ParsedBareNpmSpecifier {
   packageName: string;
@@ -373,8 +374,11 @@ async function collectBareSpecifiers(plan: RuntimePlan): Promise<string[]> {
 
 function isBareSpecifierForManifest(specifier: string): boolean {
   const trimmed = specifier.trim();
+  const normalized = trimmed.toLowerCase();
   return (
     trimmed.length > 0 &&
+    !normalized.startsWith("inline://") &&
+    !INTERNAL_SOURCE_MODULE_SPECIFIERS.has(normalized) &&
     !trimmed.startsWith("./") &&
     !trimmed.startsWith("../") &&
     !trimmed.startsWith("/") &&

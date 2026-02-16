@@ -23,6 +23,15 @@ import {
   resolveRuntimePlanSpecVersion,
 } from "@renderify/ir";
 
+const INLINE_SOURCE_MODULE_ALIASES = new Set([
+  "main",
+  "app",
+  "root",
+  "default",
+  "this-plan-source",
+]);
+const SYNTHETIC_SOURCE_MODULE_SPECIFIER_ALIASES = new Set(["this-plan-source"]);
+
 export interface CodeGenerationInput {
   prompt: string;
   llmText: string;
@@ -309,19 +318,25 @@ export class DefaultCodeGenerator implements CodeGenerator {
       source?: RuntimeSourceModule;
     },
   ): RuntimePlan {
-    const imports =
-      this.normalizeImports(input.imports) ?? collectComponentModules(root);
     const source = this.normalizeSourceModule(input.source);
+    const imports = this.sanitizeSourceImportedSpecifiers(
+      this.normalizeImports(input.imports) ?? collectComponentModules(root),
+      source,
+    );
     const moduleManifest = this.ensureModuleManifestCoverage(
-      this.normalizeModuleManifest(input.moduleManifest),
-      this.mergeImportedSpecifiers([
-        ...imports,
-        ...(input.capabilities?.allowedModules ?? []),
-      ]),
+      this.normalizeModuleManifest(input.moduleManifest, source),
+      this.sanitizeSourceImportedSpecifiers(
+        this.mergeImportedSpecifiers([
+          ...imports,
+          ...(input.capabilities?.allowedModules ?? []),
+        ]),
+        source,
+      ),
     );
     const capabilities = this.normalizeCapabilities(
       input.capabilities,
       imports,
+      source,
     );
     const metadata = this.normalizeMetadata(input.prompt, input.metadata);
     const id = this.normalizePlanId(input.id);
@@ -352,6 +367,46 @@ export class DefaultCodeGenerator implements CodeGenerator {
     }
 
     return DEFAULT_RUNTIME_PLAN_SPEC_VERSION;
+  }
+
+  private rewriteRootForInlineSourceModuleReference(
+    root: RuntimeNode,
+    source: RuntimeSourceModule | undefined,
+    prompt: string,
+    moduleManifest: RuntimeModuleManifest | undefined,
+  ): RuntimeNode {
+    if (!source || root.type !== "component") {
+      return root;
+    }
+
+    const moduleSpecifier = root.module.trim();
+    if (moduleSpecifier.length === 0) {
+      return root;
+    }
+
+    const normalizedSpecifier = moduleSpecifier.toLowerCase();
+    const isLikelyInlineReference =
+      normalizedSpecifier.startsWith("inline://") ||
+      INLINE_SOURCE_MODULE_ALIASES.has(normalizedSpecifier);
+
+    if (!isLikelyInlineReference && moduleManifest?.[moduleSpecifier]) {
+      return root;
+    }
+
+    if (!isLikelyInlineReference) {
+      return root;
+    }
+
+    return createElementNode(
+      "section",
+      { class: "renderify-runtime-source-plan" },
+      [
+        createElementNode("h2", undefined, [createTextNode(prompt)]),
+        createElementNode("p", undefined, [
+          createTextNode(`Runtime source module (${source.language}) prepared`),
+        ]),
+      ],
+    );
   }
 
   private async tryParseRuntimePlan(
@@ -390,8 +445,14 @@ export class DefaultCodeGenerator implements CodeGenerator {
         : undefined;
     const source =
       this.isRecord(parsed.source) && isRuntimeSourceModule(parsed.source)
-        ? parsed.source
+        ? this.normalizeSourceModule(parsed.source)
         : undefined;
+    const normalizedRoot = this.rewriteRootForInlineSourceModuleReference(
+      root,
+      source,
+      prompt,
+      moduleManifest,
+    );
     const importsFromPayload = Array.isArray(parsed.imports)
       ? (parsed.imports as unknown[])
           .filter((item): item is string => typeof item === "string")
@@ -404,7 +465,7 @@ export class DefaultCodeGenerator implements CodeGenerator {
     const importsFromSource = source
       ? await this.parseImportsFromSource(source.code)
       : [];
-    const importsFromRoot = collectComponentModules(root);
+    const importsFromRoot = collectComponentModules(normalizedRoot);
     const importsFromCapabilities = capabilities?.allowedModules ?? [];
     const imports = this.mergeImportedSpecifiers([
       ...importsFromPayload,
@@ -414,7 +475,7 @@ export class DefaultCodeGenerator implements CodeGenerator {
       ...importsFromCapabilities,
     ]);
 
-    return this.createPlanFromRoot(root, {
+    return this.createPlanFromRoot(normalizedRoot, {
       prompt,
       specVersion:
         typeof parsed.specVersion === "string" ? parsed.specVersion : undefined,
@@ -553,12 +614,21 @@ export class DefaultCodeGenerator implements CodeGenerator {
 
   private normalizeModuleManifest(
     manifest?: RuntimeModuleManifest,
+    source?: RuntimeSourceModule,
   ): RuntimeModuleManifest | undefined {
     if (!manifest || Object.keys(manifest).length === 0) {
       return undefined;
     }
 
-    return manifest;
+    const nextEntries = Object.entries(manifest).filter(
+      ([specifier]) =>
+        !this.isSyntheticSourceModuleSpecifier(specifier, source),
+    );
+    if (nextEntries.length === 0) {
+      return undefined;
+    }
+
+    return Object.fromEntries(nextEntries);
   }
 
   private ensureModuleManifestCoverage(
@@ -588,9 +658,13 @@ export class DefaultCodeGenerator implements CodeGenerator {
   private normalizeCapabilities(
     capabilities: RuntimeCapabilities | undefined,
     imports: string[],
+    source: RuntimeSourceModule | undefined,
   ): RuntimeCapabilities {
     const requestedModules = Array.isArray(capabilities?.allowedModules)
-      ? capabilities.allowedModules
+      ? this.sanitizeSourceImportedSpecifiers(
+          capabilities.allowedModules,
+          source,
+        )
       : [];
     const allowedModules = this.mergeImportedSpecifiers([
       ...imports,
@@ -708,31 +782,65 @@ export class DefaultCodeGenerator implements CodeGenerator {
   private tryExtractRuntimeSource(
     text: string,
   ): RuntimeSourceModule | undefined {
-    const match = text.match(/```(tsx|jsx|ts|js)\s*([\s\S]*?)\s*```/i);
+    const fencePattern = /```([a-zA-Z0-9_-]*)\s*([\s\S]*?)\s*```/g;
+    let match: RegExpExecArray | null = fencePattern.exec(text);
 
-    if (!match) {
-      return undefined;
+    while (match) {
+      const languageHint = match[1] ?? "";
+      const code = match[2].trim();
+      const language = this.normalizeRuntimeSourceLanguage(languageHint, code);
+
+      if (language && code.length > 0) {
+        return this.normalizeSourceModule({
+          language,
+          code,
+          exportName: "default",
+        });
+      }
+
+      match = fencePattern.exec(text);
     }
 
-    const language = match[1].toLowerCase() as RuntimeSourceModule["language"];
-    const code = match[2].trim();
-    if (code.length === 0) {
-      return undefined;
+    return undefined;
+  }
+
+  private normalizeRuntimeSourceLanguage(
+    languageHint: string,
+    code: string,
+  ): RuntimeSourceModule["language"] | undefined {
+    const normalized = languageHint.trim().toLowerCase();
+
+    if (normalized === "tsx" || normalized === "typescriptreact") {
+      return "tsx";
     }
 
-    return this.normalizeSourceModule({
-      language,
-      code,
-      exportName: "default",
-    });
+    if (normalized === "jsx" || normalized === "javascriptreact") {
+      return "jsx";
+    }
+
+    if (normalized === "ts" || normalized === "typescript") {
+      return this.isLikelyJsxCode(code) ? "tsx" : "ts";
+    }
+
+    if (normalized === "js" || normalized === "javascript") {
+      return this.isLikelyJsxCode(code) ? "jsx" : "js";
+    }
+
+    return undefined;
+  }
+
+  private isLikelyJsxCode(code: string): boolean {
+    return /<\s*[A-Za-z][A-Za-z0-9:_-]*[\s/>]/.test(code);
   }
 
   private async createSourcePlan(
     prompt: string,
     source: RuntimeSourceModule,
   ): Promise<RuntimePlan> {
-    const imports = await this.parseImportsFromSource(source.code);
     const normalizedSource = this.normalizeSourceModule(source);
+    const imports = await this.parseImportsFromSource(
+      normalizedSource?.code ?? source.code,
+    );
     const sourceRuntime = normalizedSource?.runtime ?? "renderify";
 
     return this.createPlanFromRoot(
@@ -782,14 +890,110 @@ export class DefaultCodeGenerator implements CodeGenerator {
       return undefined;
     }
 
+    const inferredRuntime = this.inferSourceRuntimeFromLanguage(
+      source.language,
+      source.code,
+    );
     const runtime =
-      source.runtime ??
-      this.inferSourceRuntimeFromLanguage(source.language, source.code);
+      source.runtime === "renderify" &&
+      this.shouldPreferPreactSourceRuntime(source.language, source.code)
+        ? "preact"
+        : (source.runtime ?? inferredRuntime);
+    const code =
+      runtime === "preact"
+        ? this.rewriteRenderifyImportsForPreactSource(source.code)
+        : source.code;
 
     return {
       ...source,
+      code,
       runtime,
     };
+  }
+
+  private sanitizeSourceImportedSpecifiers(
+    specifiers: string[],
+    source: RuntimeSourceModule | undefined,
+  ): string[] {
+    const sanitized: string[] = [];
+    for (const specifier of specifiers) {
+      if (this.isSyntheticSourceModuleSpecifier(specifier, source)) {
+        continue;
+      }
+      sanitized.push(specifier);
+    }
+    return this.mergeImportedSpecifiers(sanitized);
+  }
+
+  private isSyntheticSourceModuleSpecifier(
+    specifier: string,
+    source: RuntimeSourceModule | undefined,
+  ): boolean {
+    if (!source) {
+      return false;
+    }
+
+    const normalizedSpecifier = specifier.trim().toLowerCase();
+    if (normalizedSpecifier.length === 0) {
+      return false;
+    }
+
+    if (normalizedSpecifier.startsWith("inline://")) {
+      return true;
+    }
+
+    if (SYNTHETIC_SOURCE_MODULE_SPECIFIER_ALIASES.has(normalizedSpecifier)) {
+      return true;
+    }
+
+    if (normalizedSpecifier !== "renderify") {
+      return false;
+    }
+
+    if (source.runtime !== "preact") {
+      return false;
+    }
+
+    return !this.hasRenderifyImportSpecifier(source.code);
+  }
+
+  private shouldPreferPreactSourceRuntime(
+    language: RuntimeSourceModule["language"],
+    code: string,
+  ): boolean {
+    const jsxLikeLanguage = language === "jsx" || language === "tsx";
+    if (!jsxLikeLanguage && language !== "js" && language !== "ts") {
+      return false;
+    }
+
+    const reactLikeImports =
+      /from\s+["'](?:react(?:\/jsx-(?:dev-)?runtime)?|react-dom(?:\/client)?|preact(?:\/(?:hooks|compat|jsx-runtime))?|renderify)["']/.test(
+        code,
+      );
+    const hookCalls =
+      /\buse(?:State|Effect|LayoutEffect|Memo|Callback|Ref|Reducer|Context|Id|Transition|DeferredValue|SyncExternalStore)\s*\(/.test(
+        code,
+      );
+
+    return reactLikeImports || hookCalls;
+  }
+
+  private rewriteRenderifyImportsForPreactSource(code: string): string {
+    return code
+      .replace(/(\bfrom\s+["'])renderify(["'])/g, "$1preact/compat$2")
+      .replace(/(\bimport\s+["'])renderify(["'])/g, "$1preact/compat$2")
+      .replace(
+        /(\bimport\s*\(\s*["'])renderify(["']\s*\))/g,
+        "$1preact/compat$2",
+      );
+  }
+
+  private hasRenderifyImportSpecifier(code: string): boolean {
+    return (
+      /(\bfrom\s+["'])renderify(["'])/.test(code) ||
+      /(\bimport\s+["'])renderify(["'])/.test(code) ||
+      /(\bimport\s*\(\s*["'])renderify(["']\s*\))/.test(code)
+    );
   }
 
   private inferSourceRuntimeFromLanguage(
