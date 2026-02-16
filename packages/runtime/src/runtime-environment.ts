@@ -17,6 +17,15 @@ export function isBrowserRuntime(): boolean {
   );
 }
 
+export function isNodeRuntime(): boolean {
+  return (
+    typeof process !== "undefined" &&
+    typeof process.versions === "object" &&
+    process.versions !== null &&
+    typeof process.versions.node === "string"
+  );
+}
+
 export interface NodeVmScript {
   runInNewContext(
     contextObject: Record<string, unknown>,

@@ -13,7 +13,7 @@ import {
   isJsonModuleResponse,
   type RemoteModuleFetchResult,
 } from "./module-fetch";
-import { isBrowserRuntime } from "./runtime-environment";
+import { isBrowserRuntime, isNodeRuntime } from "./runtime-environment";
 import { isHttpUrl } from "./runtime-specifier";
 
 export interface RuntimeSourceModuleLoaderOptions {
@@ -582,12 +582,7 @@ export class RuntimeSourceModuleLoader {
     }
 
     this.nodeModuleResolverPromise = (async () => {
-      if (
-        typeof process === "undefined" ||
-        typeof process.versions !== "object" ||
-        process.versions === null ||
-        typeof process.versions.node !== "string"
-      ) {
+      if (!isNodeRuntime()) {
         return undefined;
       }
 
@@ -618,12 +613,7 @@ export class RuntimeSourceModuleLoader {
     }
 
     this.nodePathToFileUrlPromise = (async () => {
-      if (
-        typeof process === "undefined" ||
-        typeof process.versions !== "object" ||
-        process.versions === null ||
-        typeof process.versions.node !== "string"
-      ) {
+      if (!isNodeRuntime()) {
         return undefined;
       }
 
@@ -649,12 +639,7 @@ export class RuntimeSourceModuleLoader {
     }
 
     this.nodePathModulePromise = (async () => {
-      if (
-        typeof process === "undefined" ||
-        typeof process.versions !== "object" ||
-        process.versions === null ||
-        typeof process.versions.node !== "string"
-      ) {
+      if (!isNodeRuntime()) {
         return undefined;
       }
 

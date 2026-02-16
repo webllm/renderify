@@ -3,6 +3,7 @@ import {
   type RuntimeDiagnostic,
 } from "@renderify/ir";
 import type { RuntimeModuleLoader } from "./index";
+import { isNodeRuntime } from "./runtime-environment";
 import { RuntimeSourceModuleLoader } from "./runtime-source-module-loader";
 import { rewriteImportsAsync } from "./runtime-source-utils";
 
@@ -267,7 +268,7 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
   }
 
   private shouldMaterializeRemoteModuleInNode(specifier: string): boolean {
-    return this.isNodeRuntime() && this.isUrl(specifier);
+    return isNodeRuntime() && this.isUrl(specifier);
   }
 
   private getRemoteSourceModuleLoader(): RuntimeSourceModuleLoader {
@@ -309,15 +310,6 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
 
     throw new Error(
       "Node remote module materialization requires Buffer support",
-    );
-  }
-
-  private isNodeRuntime(): boolean {
-    return (
-      typeof process !== "undefined" &&
-      typeof process.versions === "object" &&
-      process.versions !== null &&
-      typeof process.versions.node === "string"
     );
   }
 }

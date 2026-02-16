@@ -14,6 +14,7 @@ import {
   getVmSpecifier,
   hasPreactFactory,
   hasVmScript,
+  isNodeRuntime,
   type NodeVmModule,
   nowMs,
 } from "./runtime-environment";
@@ -216,12 +217,7 @@ async function loadPreactModule(): Promise<PreactLikeModule | undefined> {
 }
 
 async function loadVmModule(): Promise<NodeVmModule | undefined> {
-  if (
-    typeof process === "undefined" ||
-    typeof process.versions !== "object" ||
-    process.versions === null ||
-    typeof process.versions.node !== "string"
-  ) {
+  if (!isNodeRuntime()) {
     return undefined;
   }
 
