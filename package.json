@@ -32,7 +32,7 @@
     "dev": "pnpm -r --parallel --filter \"./packages/*\" run watch:repo",
     "watch": "pnpm -r --parallel --filter \"./packages/*\" run watch:repo",
     "cli": "tsx packages/cli/src/index.ts",
-    "playground": "tsx packages/cli/src/index.ts playground",
+    "playground": "node --env-file=.env --import tsx packages/cli/src/index.ts playground",
     "changeset": "changeset",
     "changeset:check": "node scripts/check-changeset.mjs",
     "version-packages": "changeset version",
