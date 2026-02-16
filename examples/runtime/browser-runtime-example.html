@@ -144,10 +144,10 @@
   </head>
   <body>
     <div class="page">
-      <h1>Renderify Runtime 浏览器示例</h1>
+      <h1>Renderify Runtime Browser Example</h1>
       <p class="hint">
-        这个页面不依赖打包器，直接使用本地 UMD bundle。示例内置了一个最小
-        Demo LLM（仅用于本地演示）。
+        This page does not rely on a bundler and uses the local UMD bundle directly.
+        It includes a minimal demo LLM (for local demo use only).
       </p>
 
       <div class="grid">
@@ -300,7 +300,7 @@
         renderButton.addEventListener("click", async function () {
           const prompt = promptInput.value.trim();
           if (!prompt) {
-            setStatus("Prompt 不能为空。");
+            setStatus("Prompt cannot be empty.");
             return;
           }
 
@@ -331,7 +331,7 @@
         streamButton.addEventListener("click", async function () {
           const prompt = promptInput.value.trim();
           if (!prompt) {
-            setStatus("Prompt 不能为空。");
+            setStatus("Prompt cannot be empty.");
             return;
           }
 

@@ -333,9 +333,9 @@
 
         const resetDemo = () => {
           setTodos([
-            { id: uid(), text: "整理今天最重要的 3 件事", done: false },
+            { id: uid(), text: "List the top 3 priorities for today", done: false },
             { id: uid(), text: "Review PR #142", done: true },
-            { id: uid(), text: "给团队同步 demo 进展", done: false },
+            { id: uid(), text: "Share demo progress with the team", done: false },
           ]);
         };
 
@@ -345,7 +345,7 @@
               <header className="card-header">
                 <h1 className="card-title">React + shadcn Todo Demo</h1>
                 <p className="card-description">
-                  单文件可直接打开（无构建），本地持久化在 LocalStorage。
+                  Single-file demo that opens directly (no build), persisted in LocalStorage.
                 </p>
               </header>
 
@@ -353,18 +353,18 @@
                 <div className="row">
                   <input
                     className="input"
-                    placeholder="输入待办，例如：设计 runtime streaming API"
+                    placeholder="Add a task, e.g. design runtime streaming API"
                     value=${value}
                     onChange=${(event) => setValue(event.target.value)}
                     onKeyDown=${onInputKeyDown}
                   />
                   <button className="btn btn-primary" onClick=${addTodo} disabled=${!value.trim()}>
-                    添加
+                    Add
                   </button>
                 </div>
 
                 ${filtered.length === 0
-                  ? html`<div className="todo-empty">当前筛选下没有任务。</div>`
+                  ? html`<div className="todo-empty">No tasks under the current filter.</div>`
                   : html`
                       <ul className="todo-list">
                         ${filtered.map(
@@ -382,10 +382,10 @@
                               <button
                                 className="btn btn-ghost"
                                 onClick=${() => removeTodo(todo.id)}
-                                aria-label="删除"
-                                title="删除"
+                                aria-label="Delete"
+                                title="Delete"
                               >
-                                删除
+                                Delete
                               </button>
                             </li>
                           `,
@@ -399,35 +399,35 @@
                       className=${`btn btn-outline ${filter === "all" ? "active" : ""}`}
                       onClick=${() => setFilter("all")}
                     >
-                      全部
+                      All
                     </button>
                     <button
                       className=${`btn btn-outline ${filter === "active" ? "active" : ""}`}
                       onClick=${() => setFilter("active")}
                     >
-                      进行中
+                      Active
                     </button>
                     <button
                       className=${`btn btn-outline ${filter === "done" ? "active" : ""}`}
                       onClick=${() => setFilter("done")}
                     >
-                      已完成
+                      Completed
                     </button>
                   </div>
 
                   <div className="row">
-                    <span className="badge">剩余 ${leftCount} 项</span>
+                    <span className="badge">${leftCount} remaining</span>
                     <button className="btn btn-danger" onClick=${clearDone}>
-                      清理已完成
+                      Clear completed
                     </button>
                     <button className="btn btn-ghost" onClick=${resetDemo}>
-                      重置示例
+                      Reset demo
                     </button>
                   </div>
                 </div>
 
                 <p className="muted" style=${{ marginTop: 12, fontSize: 12 }}>
-                  提示：数据保存在浏览器 LocalStorage，刷新页面会保留。
+                  Tip: data is saved in browser LocalStorage and persists across refreshes.
                 </p>
               </div>
             </section>
