@@ -175,6 +175,11 @@ export class RuntimeSourceModuleLoader {
     }
 
     if (isBrowserRuntime() && this.shouldPreserveRemoteImport(normalizedUrl)) {
+      if (!this.isRemoteImportAllowed(normalizedUrl)) {
+        throw new Error(
+          `Remote module URL is blocked by runtime network policy: ${normalizedUrl}`,
+        );
+      }
       return normalizedUrl;
     }
 
@@ -355,19 +360,25 @@ export class RuntimeSourceModuleLoader {
   private filterDisallowedAttempts(attempts: string[]): string[] {
     const allowed: string[] = [];
     for (const attempt of attempts) {
-      if (this.isRemoteUrlAllowedFn(attempt)) {
+      if (this.isRemoteImportAllowed(attempt)) {
         allowed.push(attempt);
-        continue;
       }
-
-      this.diagnostics.push({
-        level: "warning",
-        code: "RUNTIME_SOURCE_IMPORT_BLOCKED",
-        message: `Blocked remote module URL by runtime network policy: ${attempt}`,
-      });
     }
 
     return allowed;
+  }
+
+  private isRemoteImportAllowed(url: string): boolean {
+    if (this.isRemoteUrlAllowedFn(url)) {
+      return true;
+    }
+
+    this.diagnostics.push({
+      level: "warning",
+      code: "RUNTIME_SOURCE_IMPORT_BLOCKED",
+      message: `Blocked remote module URL by runtime network policy: ${url}`,
+    });
+    return false;
   }
 
   private errorToMessage(error: unknown): string {

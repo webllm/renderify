@@ -1869,6 +1869,63 @@ test("runtime source loader preserves preact remote imports in browser runtime",
   }
 });
 
+test("runtime source loader blocks preserved preact imports by runtime network policy", async () => {
+  class BrowserWorkerMock {}
+  const restoreGlobals = installBrowserSandboxGlobals(BrowserWorkerMock);
+  const runtime = new DefaultRuntimeManager({
+    remoteFallbackCdnBases: [],
+    remoteFetchRetries: 0,
+    remoteFetchBackoffMs: 10,
+    remoteFetchTimeoutMs: 500,
+    allowArbitraryNetwork: false,
+    allowedNetworkHosts: ["cdn.jspm.io"],
+  });
+
+  const internals = runtime as unknown as {
+    createSourceModuleLoader: (
+      moduleManifest: RuntimeModuleManifest | undefined,
+      diagnostics: Array<{ code?: string; message?: string }>,
+    ) => {
+      materializeRemoteModule(url: string): Promise<string>;
+    };
+  };
+
+  const preactUrl =
+    "https://ga.jspm.io/npm:preact@10.28.3/hooks/dist/hooks.module.js";
+  const diagnostics: Array<{ code?: string; message?: string }> = [];
+  const loader = internals.createSourceModuleLoader(undefined, diagnostics);
+
+  let fetchCount = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL) => {
+    fetchCount += 1;
+    return new Response("export default 1;", {
+      status: 200,
+      headers: {
+        "content-type": "text/javascript; charset=utf-8",
+      },
+    });
+  }) as typeof fetch;
+
+  try {
+    await assert.rejects(
+      loader.materializeRemoteModule(preactUrl),
+      /Remote module URL is blocked by runtime network policy/,
+    );
+    assert.equal(fetchCount, 0);
+    assert.ok(
+      diagnostics.some(
+        (item) =>
+          item.code === "RUNTIME_SOURCE_IMPORT_BLOCKED" &&
+          item.message?.includes(preactUrl),
+      ),
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreGlobals();
+  }
+});
+
 test("runtime source loader materializes preact remote imports outside browser runtime", async () => {
   const runtime = new DefaultRuntimeManager({
     remoteFallbackCdnBases: [],
