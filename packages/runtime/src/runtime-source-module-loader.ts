@@ -134,13 +134,18 @@ export class RuntimeSourceModuleLoader {
       return trimmed;
     }
 
-    const localPreact = await this.resolveLocalPreactSpecifier(trimmed);
-    if (localPreact) {
-      return localPreact;
-    }
+    const explicitManifestResolved =
+      this.resolveExplicitManifestSpecifier(trimmed);
 
     if (trimmed.startsWith("data:") || trimmed.startsWith("blob:")) {
       return trimmed;
+    }
+
+    if (!explicitManifestResolved) {
+      const localPreact = await this.resolveLocalPreactSpecifier(trimmed);
+      if (localPreact) {
+        return localPreact;
+      }
     }
 
     if (isHttpUrl(trimmed)) {
@@ -180,9 +185,12 @@ export class RuntimeSourceModuleLoader {
       this.diagnostics,
       false,
     );
-    const localFromResolved = await this.resolveLocalPreactSpecifier(resolved);
-    if (localFromResolved) {
-      return localFromResolved;
+    if (!explicitManifestResolved) {
+      const localFromResolved =
+        await this.resolveLocalPreactSpecifier(resolved);
+      if (localFromResolved) {
+        return localFromResolved;
+      }
     }
 
     if (isHttpUrl(resolved)) {
@@ -448,6 +456,18 @@ export class RuntimeSourceModuleLoader {
       path.includes("/npm:preact@") ||
       path.includes("/npm:preact-render-to-string@")
     );
+  }
+
+  private resolveExplicitManifestSpecifier(
+    specifier: string,
+  ): string | undefined {
+    const descriptor = this.moduleManifest?.[specifier];
+    if (!descriptor || typeof descriptor.resolvedUrl !== "string") {
+      return undefined;
+    }
+
+    const resolved = descriptor.resolvedUrl.trim();
+    return resolved.length > 0 ? resolved : undefined;
   }
 
   private async resolveLocalPreactSpecifier(

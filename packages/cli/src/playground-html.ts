@@ -239,7 +239,6 @@ export const PLAYGROUND_HTML = `<!doctype html>
       const DEFAULT_PREACT_VERSION = "10.28.3";
       const ESM_SH_BASE_URL = "https://esm.sh/";
       const BABEL_STANDALONE_URL = "https://unpkg.com/@babel/standalone/babel.min.js";
-      const JSSPM_HOSTNAMES = new Set(["ga.jspm.io", "cdn.jspm.io"]);
 
       let interactiveMountVersion = 0;
       let interactiveBlobModuleUrl = null;
@@ -337,15 +336,6 @@ export const PLAYGROUND_HTML = `<!doctype html>
         return true;
       };
 
-      const isJspmResolvedUrl = (url) => {
-        try {
-          const parsed = new URL(String(url));
-          return JSSPM_HOSTNAMES.has(parsed.hostname.toLowerCase());
-        } catch {
-          return false;
-        }
-      };
-
       const getManifestResolvedUrl = (planDetail, specifier) => {
         if (!isRecord(planDetail) || !isRecord(planDetail.moduleManifest)) {
           return undefined;
@@ -392,7 +382,7 @@ export const PLAYGROUND_HTML = `<!doctype html>
         }
 
         const manifestResolvedUrl = getManifestResolvedUrl(planDetail, normalized);
-        if (manifestResolvedUrl && !isJspmResolvedUrl(manifestResolvedUrl)) {
+        if (manifestResolvedUrl) {
           return manifestResolvedUrl;
         }
 

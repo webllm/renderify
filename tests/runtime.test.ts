@@ -2201,6 +2201,67 @@ test("runtime source loader maps remote preact imports to local node file URLs",
   }
 });
 
+test("runtime source loader honors explicit manifest mappings before local preact shortcuts", async () => {
+  const runtime = new DefaultRuntimeManager({
+    remoteFallbackCdnBases: [],
+    remoteFetchRetries: 0,
+    remoteFetchBackoffMs: 10,
+    remoteFetchTimeoutMs: 500,
+  });
+
+  const internals = runtime as unknown as {
+    createSourceModuleLoader: (
+      moduleManifest: RuntimeModuleManifest | undefined,
+      diagnostics: Array<{ code?: string; message?: string }>,
+    ) => {
+      resolveRuntimeImportSpecifier(
+        specifier: string,
+        parentUrl: string | undefined,
+      ): Promise<string>;
+    };
+  };
+
+  const diagnostics: Array<{ code?: string; message?: string }> = [];
+  const loader = internals.createSourceModuleLoader(
+    {
+      react: {
+        resolvedUrl:
+          "https://ga.jspm.io/npm:preact@10.28.3/compat/dist/compat.module.js",
+      },
+    },
+    diagnostics,
+  );
+
+  const requestedUrls: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    requestedUrls.push(String(input));
+    return new Response("export default function Compat() { return null; }", {
+      status: 200,
+      headers: {
+        "content-type": "text/javascript; charset=utf-8",
+      },
+    });
+  }) as typeof fetch;
+
+  try {
+    const resolved = await loader.resolveRuntimeImportSpecifier(
+      "react",
+      undefined,
+    );
+    assert.match(resolved, /^data:text\/javascript;base64,/);
+    assert.equal(
+      requestedUrls.some((url) =>
+        url.includes("/npm:preact@10.28.3/compat/dist/compat.module.js"),
+      ),
+      true,
+    );
+    assert.doesNotMatch(resolved, /^file:\/\//);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("runtime module caches are released across lifecycle cycles", async () => {
   const runtime = new DefaultRuntimeManager({
     remoteFallbackCdnBases: [],
