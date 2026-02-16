@@ -13,6 +13,7 @@ import {
   isJsonModuleResponse,
   type RemoteModuleFetchResult,
 } from "./module-fetch";
+import { isBrowserRuntime } from "./runtime-environment";
 import { isHttpUrl } from "./runtime-specifier";
 
 export interface RuntimeSourceModuleLoaderOptions {
@@ -170,6 +171,10 @@ export class RuntimeSourceModuleLoader {
   async materializeRemoteModule(url: string): Promise<string> {
     const normalizedUrl = url.trim();
     if (normalizedUrl.length === 0) {
+      return normalizedUrl;
+    }
+
+    if (isBrowserRuntime() && this.shouldPreserveRemoteImport(normalizedUrl)) {
       return normalizedUrl;
     }
 
@@ -371,5 +376,20 @@ export class RuntimeSourceModuleLoader {
     }
 
     return String(error);
+  }
+
+  private shouldPreserveRemoteImport(url: string): boolean {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return false;
+    }
+
+    const path = parsed.pathname.toLowerCase();
+    return (
+      path.includes("/npm:preact@") ||
+      path.includes("/npm:preact-render-to-string@")
+    );
   }
 }

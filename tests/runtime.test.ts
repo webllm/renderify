@@ -1823,6 +1823,96 @@ test("runtime source loader supports disabling fallback cdn attempts", async () 
   }
 });
 
+test("runtime source loader preserves preact remote imports in browser runtime", async () => {
+  class BrowserWorkerMock {}
+  const restoreGlobals = installBrowserSandboxGlobals(BrowserWorkerMock);
+  const runtime = new DefaultRuntimeManager({
+    remoteFallbackCdnBases: [],
+    remoteFetchRetries: 0,
+    remoteFetchBackoffMs: 10,
+    remoteFetchTimeoutMs: 500,
+  });
+
+  const internals = runtime as unknown as {
+    createSourceModuleLoader: (
+      moduleManifest: RuntimeModuleManifest | undefined,
+      diagnostics: Array<{ code?: string; message?: string }>,
+    ) => {
+      materializeRemoteModule(url: string): Promise<string>;
+    };
+  };
+
+  const preactUrl =
+    "https://ga.jspm.io/npm:preact@10.28.3/hooks/dist/hooks.module.js";
+  const diagnostics: Array<{ code?: string; message?: string }> = [];
+  const loader = internals.createSourceModuleLoader(undefined, diagnostics);
+
+  let fetchCount = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL) => {
+    fetchCount += 1;
+    return new Response("export default 1;", {
+      status: 200,
+      headers: {
+        "content-type": "text/javascript; charset=utf-8",
+      },
+    });
+  }) as typeof fetch;
+
+  try {
+    const resolved = await loader.materializeRemoteModule(preactUrl);
+    assert.equal(resolved, preactUrl);
+    assert.equal(fetchCount, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreGlobals();
+  }
+});
+
+test("runtime source loader materializes preact remote imports outside browser runtime", async () => {
+  const runtime = new DefaultRuntimeManager({
+    remoteFallbackCdnBases: [],
+    remoteFetchRetries: 0,
+    remoteFetchBackoffMs: 10,
+    remoteFetchTimeoutMs: 500,
+  });
+
+  const internals = runtime as unknown as {
+    createSourceModuleLoader: (
+      moduleManifest: RuntimeModuleManifest | undefined,
+      diagnostics: Array<{ code?: string; message?: string }>,
+    ) => {
+      materializeRemoteModule(url: string): Promise<string>;
+    };
+  };
+
+  const preactUrl =
+    "https://ga.jspm.io/npm:preact@10.28.3/hooks/dist/hooks.module.js";
+  const diagnostics: Array<{ code?: string; message?: string }> = [];
+  const loader = internals.createSourceModuleLoader(undefined, diagnostics);
+
+  let fetchCount = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL) => {
+    fetchCount += 1;
+    return new Response("export default 1;", {
+      status: 200,
+      headers: {
+        "content-type": "text/javascript; charset=utf-8",
+      },
+    });
+  }) as typeof fetch;
+
+  try {
+    const resolved = await loader.materializeRemoteModule(preactUrl);
+    assert.notEqual(resolved, preactUrl);
+    assert.match(resolved, /^data:text\/javascript;base64,/);
+    assert.ok(fetchCount >= 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("runtime module caches are released across lifecycle cycles", async () => {
   const runtime = new DefaultRuntimeManager({
     remoteFallbackCdnBases: [],

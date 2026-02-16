@@ -124,7 +124,12 @@
       {
         "imports": {
           "@renderify/ir": "../../packages/ir/dist/ir.esm.js",
-          "@renderify/security": "../../packages/security/dist/security.esm.js"
+          "@renderify/security": "../../packages/security/dist/security.esm.js",
+          "es-module-lexer": "https://ga.jspm.io/npm:es-module-lexer@1.7.0/dist/lexer.js",
+          "preact": "https://ga.jspm.io/npm:preact@10.28.3/dist/preact.module.js",
+          "preact/hooks": "https://ga.jspm.io/npm:preact@10.28.3/hooks/dist/hooks.module.js",
+          "preact/jsx-runtime": "https://ga.jspm.io/npm:preact@10.28.3/jsx-runtime/dist/jsxRuntime.module.js",
+          "preact-render-to-string": "https://ga.jspm.io/npm:preact-render-to-string@6.6.5/dist/index.module.js"
         }
       }
     </script>
@@ -138,10 +143,10 @@
         root: { type: "text", value: "loading" },
         capabilities: {
           domWrite: true,
-          allowedModules: ["preact", "preact/hooks", "recharts"],
+          allowedModules: ["preact", "preact/hooks"],
           maxExecutionMs: 5000,
         },
-        imports: ["preact", "preact/hooks", "recharts"],
+        imports: ["preact", "preact/hooks"],
         moduleManifest: {
           preact: {
             resolvedUrl: "https://ga.jspm.io/npm:preact@10.28.3/dist/preact.module.js",
@@ -155,30 +160,6 @@
             resolvedUrl: "https://ga.jspm.io/npm:preact@10.28.3/jsx-runtime/dist/jsxRuntime.module.js",
             signer: "examples",
           },
-          recharts: {
-            resolvedUrl: "https://ga.jspm.io/npm:recharts@3.3.0/es6/index.js",
-            signer: "examples",
-          },
-          react: {
-            resolvedUrl: "https://ga.jspm.io/npm:preact@10.28.3/compat/dist/compat.module.js",
-            signer: "examples",
-          },
-          "react-dom": {
-            resolvedUrl: "https://ga.jspm.io/npm:preact@10.28.3/compat/dist/compat.module.js",
-            signer: "examples",
-          },
-          "react-dom/client": {
-            resolvedUrl: "https://ga.jspm.io/npm:preact@10.28.3/compat/dist/compat.module.js",
-            signer: "examples",
-          },
-          "react/jsx-runtime": {
-            resolvedUrl: "https://ga.jspm.io/npm:preact@10.28.3/jsx-runtime/dist/jsxRuntime.module.js",
-            signer: "examples",
-          },
-          "react/jsx-dev-runtime": {
-            resolvedUrl: "https://ga.jspm.io/npm:preact@10.28.3/jsx-runtime/dist/jsxRuntime.module.js",
-            signer: "examples",
-          },
         },
         source: {
           language: "tsx",
@@ -187,7 +168,6 @@
           code: [
             "import { h } from 'preact';",
             "import { useMemo, useState } from 'preact/hooks';",
-            "import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';",
             "",
             "export default function Dashboard() {",
             "  const [metric, setMetric] = useState('revenue');",
@@ -198,6 +178,17 @@
             "    { day: 'Thu', revenue: 222, users: 74 },",
             "    { day: 'Fri', revenue: 261, users: 91 },",
             "  ], []);",
+            "  const key = metric === 'revenue' ? 'revenue' : 'users';",
+            "  const width = 560;",
+            "  const height = 280;",
+            "  const pad = 28;",
+            "  const max = Math.max(...data.map((entry) => entry[key]));",
+            "  const points = data.map((entry, index) => {",
+            "    const x = pad + (index * (width - pad * 2)) / Math.max(1, data.length - 1);",
+            "    const y = height - pad - (entry[key] / Math.max(1, max)) * (height - pad * 2);",
+            "    return { x, y, day: entry.day, value: entry[key] };",
+            "  });",
+            "  const polyline = points.map((point) => `${point.x},${point.y}`).join(' ');",
             "  return (",
             "    <section style={{ fontFamily: 'IBM Plex Sans, sans-serif' }}>",
             "      <h2 style={{ margin: '0 0 6px' }}>Revenue Assistant Dashboard</h2>",
@@ -206,16 +197,24 @@
             "        <button type='button' onClick={() => setMetric('revenue')}>Revenue</button>",
             "        <button type='button' onClick={() => setMetric('users')}>Users</button>",
             "      </div>",
-            "      <div style={{ width: '100%', height: 280 }}>",
-            "        <ResponsiveContainer>",
-            "          <LineChart data={data}>",
-            "            <CartesianGrid strokeDasharray='3 3' />",
-            "            <XAxis dataKey='day' />",
-            "            <YAxis />",
-            "            <Tooltip />",
-            "            <Line type='monotone' dataKey={metric} stroke={metric === 'revenue' ? '#0f766e' : '#1d4ed8'} strokeWidth={3} />",
-            "          </LineChart>",
-            "        </ResponsiveContainer>",
+            "      <div style={{ overflowX: 'auto' }}>",
+            "        <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} role='img' aria-label='Metric chart'>",
+            "          <line x1={pad} y1={height - pad} x2={width - pad} y2={height - pad} stroke='#d1d8e6' />",
+            "          <line x1={pad} y1={pad} x2={pad} y2={height - pad} stroke='#d1d8e6' />",
+            "          <polyline",
+            "            fill='none'",
+            "            stroke={metric === 'revenue' ? '#0f766e' : '#1d4ed8'}",
+            "            strokeWidth={3}",
+            "            points={polyline}",
+            "          />",
+            "          {points.map((point) => (",
+            "            <g key={point.day}>",
+            "              <circle cx={point.x} cy={point.y} r={4} fill={metric === 'revenue' ? '#0f766e' : '#1d4ed8'} />",
+            "              <text x={point.x} y={height - 8} textAnchor='middle' fontSize='11' fill='#5c6f88'>{point.day}</text>",
+            "              <text x={point.x} y={point.y - 10} textAnchor='middle' fontSize='11' fill='#2a3f58'>{point.value}</text>",
+            "            </g>",
+            "          ))}",
+            "        </svg>",
             "      </div>",
             "      <p style={{ marginBottom: 0 }}>Current metric: <strong>{metric}</strong></p>",
             "    </section>",
