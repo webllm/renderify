@@ -203,6 +203,25 @@ export class RenderifyApp {
 
         llmStructuredResponse =
           await this.deps.llm.generateStructuredResponse(structuredRequest);
+        const structuredErrors = [...(llmStructuredResponse.errors ?? [])];
+
+        if (!llmStructuredResponse.valid) {
+          const retryHint =
+            structuredErrors.length > 0
+              ? structuredErrors.join("; ")
+              : "response did not pass RuntimePlan validation";
+          const retryRequest: LLMStructuredRequest = {
+            ...structuredRequest,
+            prompt: `${promptAfterHook}\n\nPrevious structured response was invalid: ${retryHint}\nReturn corrected RuntimePlan JSON only. No markdown.`,
+          };
+          const retryStructuredResponse =
+            await this.deps.llm.generateStructuredResponse(retryRequest);
+          structuredErrors.push(...(retryStructuredResponse.errors ?? []));
+          llmStructuredResponse = {
+            ...retryStructuredResponse,
+            errors: structuredErrors,
+          };
+        }
 
         if (
           llmStructuredResponse.valid &&
@@ -374,8 +393,27 @@ export class RenderifyApp {
           strict: true,
         };
 
-        const structuredResponse =
+        let structuredResponse =
           await this.deps.llm.generateStructuredResponse(structuredRequest);
+        const structuredErrors = [...(structuredResponse.errors ?? [])];
+
+        if (!structuredResponse.valid) {
+          const retryHint =
+            structuredErrors.length > 0
+              ? structuredErrors.join("; ")
+              : "response did not pass RuntimePlan validation";
+          const retryRequest: LLMStructuredRequest = {
+            ...structuredRequest,
+            prompt: `${promptAfterHook}\n\nPrevious structured response was invalid: ${retryHint}\nReturn corrected RuntimePlan JSON only. No markdown.`,
+          };
+          const retryStructuredResponse =
+            await this.deps.llm.generateStructuredResponse(retryRequest);
+          structuredErrors.push(...(retryStructuredResponse.errors ?? []));
+          structuredResponse = {
+            ...retryStructuredResponse,
+            errors: structuredErrors,
+          };
+        }
 
         if (
           structuredResponse.valid &&

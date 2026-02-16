@@ -430,7 +430,18 @@ export const PLAYGROUND_HTML = `<!doctype html>
         return runtime === "preact" && typeof code === "string" && code.trim().length > 0;
       };
 
-      const transpilePreactSource = (source) => {
+      const shouldRunRenderifySource = (planDetail) => {
+        if (!isRecord(planDetail) || !isRecord(planDetail.source)) {
+          return false;
+        }
+        const runtime = String(planDetail.source.runtime ?? "")
+          .trim()
+          .toLowerCase();
+        const code = planDetail.source.code;
+        return runtime === "renderify" && typeof code === "string" && code.trim().length > 0;
+      };
+
+      const transpileSourceForInteractiveMount = (source, runtime) => {
         const language = String(source.language ?? "jsx")
           .trim()
           .toLowerCase();
@@ -443,11 +454,17 @@ export const PLAYGROUND_HTML = `<!doctype html>
           throw new Error("Unsupported source language for interactive mount: " + language);
         }
 
+        if (runtime === "renderify" && (language === "jsx" || language === "tsx")) {
+          throw new Error(
+            "Renderify runtime interactive mount does not support JSX source without preact runtime.",
+          );
+        }
+
         const presets = [];
         if (language === "ts" || language === "tsx") {
           presets.push("typescript");
         }
-        if (language === "jsx" || language === "tsx") {
+        if (runtime === "preact" && (language === "jsx" || language === "tsx")) {
           presets.push([
             "react",
             {
@@ -488,7 +505,7 @@ export const PLAYGROUND_HTML = `<!doctype html>
         }
 
         const source = planDetail.source;
-        const transpiled = transpilePreactSource(source);
+        const transpiled = transpileSourceForInteractiveMount(source, "preact");
         const rewritten = rewriteTranspiledImports(transpiled, planDetail);
         const preactImportUrl = toEsmShUrl("preact", planDetail);
         const exportNameRaw =
@@ -547,6 +564,32 @@ export const PLAYGROUND_HTML = `<!doctype html>
           preactNamespace.h(component, runtimeInput),
           htmlOutputEl,
         );
+      };
+
+      const runRenderifySourceInteractively = async (planDetail, mountVersion) => {
+        if (!shouldRunRenderifySource(planDetail)) {
+          return;
+        }
+
+        await ensureBabelStandalone();
+        if (mountVersion !== interactiveMountVersion) {
+          return;
+        }
+
+        const source = planDetail.source;
+        const transpiled = transpileSourceForInteractiveMount(source, "renderify");
+        const rewritten = rewriteTranspiledImports(transpiled, planDetail);
+
+        if (interactiveBlobModuleUrl) {
+          URL.revokeObjectURL(interactiveBlobModuleUrl);
+          interactiveBlobModuleUrl = null;
+        }
+
+        interactiveBlobModuleUrl = URL.createObjectURL(
+          new Blob([rewritten], { type: "text/javascript" }),
+        );
+
+        await import(interactiveBlobModuleUrl);
       };
 
       const HASH_SOURCE_LANGUAGE_KEYS = {
@@ -704,11 +747,15 @@ export const PLAYGROUND_HTML = `<!doctype html>
 
         const mountVersion = interactiveMountVersion;
         try {
-          await mountPreactSourceInteractively(
-            payload.planDetail,
-            payload.state ?? {},
-            mountVersion,
-          );
+          if (shouldMountPreactSource(payload.planDetail)) {
+            await mountPreactSourceInteractively(
+              payload.planDetail,
+              payload.state ?? {},
+              mountVersion,
+            );
+          } else if (shouldRunRenderifySource(payload.planDetail)) {
+            await runRenderifySourceInteractively(payload.planDetail, mountVersion);
+          }
         } catch (error) {
           if (mountVersion !== interactiveMountVersion) {
             return;

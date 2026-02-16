@@ -60,6 +60,13 @@ test("cli shows help text", async () => {
   assert.match(result.stdout, /renderify playground \[port\]/);
 });
 
+test("cli accepts leading -- separator", async () => {
+  const result = await runCli(["--", "help"]);
+
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /Usage:/);
+});
+
 test("cli validates playground port argument", async () => {
   const result = await runCli(["playground", "abc"]);
 

@@ -494,6 +494,7 @@ test("anthropic interpreter streams text response chunks", async () => {
 });
 
 test("anthropic interpreter validates structured runtime plan response", async () => {
+  const requests: Array<Record<string, unknown>> = [];
   const plan = {
     id: "anthropic_runtime_plan_1",
     version: 1,
@@ -514,8 +515,9 @@ test("anthropic interpreter validates structured runtime plan response", async (
 
   const llm = new AnthropicLLMInterpreter({
     apiKey: "anthropic-key",
-    fetchImpl: async (_input: RequestInfo | URL, _init?: RequestInit) =>
-      jsonResponse({
+    fetchImpl: async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push(parseBody(init?.body));
+      return jsonResponse({
         id: "msg_002",
         model: "claude-sonnet-4-5",
         usage: {
@@ -526,6 +528,62 @@ test("anthropic interpreter validates structured runtime plan response", async (
           {
             type: "text",
             text: JSON.stringify(plan),
+          },
+        ],
+      });
+    },
+  });
+
+  const response = await llm.generateStructuredResponse({
+    prompt: "build structured runtime plan",
+    format: "runtime-plan",
+    strict: true,
+  });
+
+  assert.equal(response.valid, true);
+  assert.equal(response.model, "claude-sonnet-4-5");
+  assert.equal(response.tokensUsed, 23);
+  assert.deepEqual(response.value, plan);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].model, "claude-sonnet-4-5");
+  assert.ok(Array.isArray(requests[0].tools));
+  assert.deepEqual(requests[0].tool_choice, {
+    type: "tool",
+    name: "runtime_plan",
+  });
+});
+
+test("anthropic interpreter accepts structured tool_use payload", async () => {
+  const plan = {
+    specVersion: "runtime-plan/v1",
+    id: "anthropic_tool_plan",
+    version: 1,
+    capabilities: {
+      domWrite: true,
+      allowedModules: [],
+    },
+    root: {
+      type: "text",
+      value: "tool plan",
+    },
+  };
+
+  const llm = new AnthropicLLMInterpreter({
+    apiKey: "anthropic-key",
+    fetchImpl: async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      jsonResponse({
+        id: "msg_tool_001",
+        model: "claude-sonnet-4-5",
+        usage: {
+          input_tokens: 12,
+          output_tokens: 9,
+        },
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_001",
+            name: "runtime_plan",
+            input: plan,
           },
         ],
       }),
@@ -539,7 +597,7 @@ test("anthropic interpreter validates structured runtime plan response", async (
 
   assert.equal(response.valid, true);
   assert.equal(response.model, "claude-sonnet-4-5");
-  assert.equal(response.tokensUsed, 23);
+  assert.equal(response.tokensUsed, 21);
   assert.deepEqual(response.value, plan);
 });
 
