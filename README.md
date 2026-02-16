@@ -253,7 +253,7 @@ pnpm playground
 Then open the playground page and run this prompt:
 
 ```text
-Build an analytics dashboard with a LineChart from recharts and KPI toggle buttons
+Build an analytics dashboard with KPI toggle buttons and a multi-point bar chart
 ```
 
 The playground now uses streaming prompt rendering (`/api/prompt-stream`), so you'll see incremental preview updates before final UI completion.
