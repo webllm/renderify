@@ -29,7 +29,7 @@ renderify run <prompt>          # Render prompt and print HTML
 renderify plan <prompt>         # Print RuntimePlan JSON
 renderify probe-plan <file>     # Probe plan dependencies and policy compatibility
 renderify render-plan <file>    # Execute RuntimePlan JSON file and print HTML
-renderify playground [port]     # Start browser playground server
+renderify playground [port] [--debug]  # Start browser playground server
 ```
 
 ## Quick Start
@@ -53,6 +53,9 @@ renderify render-plan ./examples/runtime/recharts-dashboard-plan.json
 - `RENDERIFY_LLM_MODEL`
 - `RENDERIFY_LLM_BASE_URL`
 - `RENDERIFY_SECURITY_PROFILE` (`strict`, `balanced`, `relaxed`)
+- `RENDERIFY_PLAYGROUND_DEBUG` (`1`, `true`, `yes`, `on`)
+
+When debug mode is enabled, playground prints key inbound/outbound request logs and exposes `/api/debug/stats` for request distribution snapshots.
 
 See `../../docs/getting-started.md` and `../../docs/security.md` for runtime and policy options.
 

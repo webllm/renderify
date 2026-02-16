@@ -196,6 +196,8 @@ pnpm cli -- render-plan examples/runtime/counter-plan.json
 
 # Browser playground
 pnpm playground
+pnpm cli -- playground --debug
+RENDERIFY_PLAYGROUND_DEBUG=1 pnpm playground
 
 # Optional security env
 RENDERIFY_SECURITY_PROFILE=strict pnpm playground
@@ -222,6 +224,8 @@ RENDERIFY_RUNTIME_BROWSER_SANDBOX_FAIL_CLOSED=true pnpm playground
 # Force text/TSX generation path instead of structured RuntimePlan
 RENDERIFY_LLM_USE_STRUCTURED_OUTPUT=false pnpm playground
 ```
+
+When debug mode is enabled, playground logs key inbound/outbound request summaries and exposes `GET /api/debug/stats` for request distribution diagnostics.
 
 ### Playground Hash Deep-Link
 

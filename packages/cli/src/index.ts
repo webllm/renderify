@@ -42,6 +42,7 @@ interface CliArgs {
   prompt?: string;
   planFile?: string;
   port?: number;
+  debug?: boolean;
 }
 
 interface PlaygroundServerOptions {
@@ -49,6 +50,7 @@ interface PlaygroundServerOptions {
   port: number;
   moduleLoader: JspmModuleLoader;
   autoManifestIntegrityTimeoutMs: number;
+  debug: boolean;
 }
 
 const DEFAULT_PROMPT = "Hello Renderify runtime";
@@ -56,7 +58,314 @@ const DEFAULT_PORT = 4317;
 const JSON_BODY_LIMIT_BYTES = 1_000_000;
 const AUTO_MANIFEST_INTEGRITY_TIMEOUT_MS = 8000;
 const REMOTE_MODULE_INTEGRITY_CACHE = new Map<string, string>();
+const DEBUG_RECENT_LOG_LIMIT = 120;
 const { readFile } = fs.promises;
+
+interface PlaygroundDebugAggregate {
+  key: string;
+  count: number;
+  errorCount: number;
+  avgMs: number;
+  maxMs: number;
+  statusCodes: Record<string, number>;
+}
+
+interface PlaygroundDebugRecentRecord {
+  id: number;
+  ts: string;
+  type: "inbound" | "outbound";
+  method: string;
+  target: string;
+  statusCode?: number;
+  durationMs?: number;
+  request?: Record<string, unknown>;
+  response?: Record<string, unknown>;
+  error?: string;
+}
+
+interface PlaygroundDebugSnapshot {
+  enabled: true;
+  startedAt: string;
+  uptimeMs: number;
+  inbound: {
+    totalRequests: number;
+    routes: PlaygroundDebugAggregate[];
+  };
+  outbound: {
+    totalRequests: number;
+    targets: PlaygroundDebugAggregate[];
+  };
+  recent: PlaygroundDebugRecentRecord[];
+}
+
+interface PlaygroundDebugStatsAccumulator {
+  count: number;
+  totalMs: number;
+  maxMs: number;
+  errorCount: number;
+  statusCodes: Record<string, number>;
+}
+
+class PlaygroundDebugTracer {
+  private readonly startedAtMs = Date.now();
+  private readonly inboundRouteStats = new Map<
+    string,
+    PlaygroundDebugStatsAccumulator
+  >();
+  private readonly outboundTargetStats = new Map<
+    string,
+    PlaygroundDebugStatsAccumulator
+  >();
+  private readonly recentRecords: PlaygroundDebugRecentRecord[] = [];
+  private nextRecordId = 1;
+  private inboundCount = 0;
+  private outboundCount = 0;
+
+  logInboundStart(
+    method: string,
+    pathname: string,
+    requestSummary?: Record<string, unknown>,
+  ): void {
+    this.printLog("inbound:start", method, pathname, requestSummary);
+  }
+
+  recordInbound(input: {
+    method: string;
+    pathname: string;
+    statusCode: number;
+    durationMs: number;
+    request?: Record<string, unknown>;
+    response?: Record<string, unknown>;
+    error?: string;
+  }): void {
+    this.inboundCount += 1;
+    const key = `${input.method} ${input.pathname}`;
+    const accumulator = this.getOrCreateAccumulator(
+      this.inboundRouteStats,
+      key,
+    );
+    this.mergeAccumulator(
+      accumulator,
+      input.statusCode,
+      input.durationMs,
+      input.error,
+    );
+
+    this.pushRecent({
+      type: "inbound",
+      method: input.method,
+      target: input.pathname,
+      statusCode: input.statusCode,
+      durationMs: input.durationMs,
+      request: input.request,
+      response: input.response,
+      error: input.error,
+    });
+
+    this.printLog(
+      "inbound:end",
+      input.method,
+      input.pathname,
+      this.compactRecord({
+        statusCode: input.statusCode,
+        durationMs: input.durationMs,
+        request: input.request,
+        response: input.response,
+        error: input.error,
+      }),
+    );
+  }
+
+  logOutboundStart(
+    method: string,
+    target: string,
+    requestSummary?: Record<string, unknown>,
+  ): void {
+    this.printLog("outbound:start", method, target, requestSummary);
+  }
+
+  recordOutbound(input: {
+    method: string;
+    target: string;
+    statusCode?: number;
+    durationMs: number;
+    request?: Record<string, unknown>;
+    response?: Record<string, unknown>;
+    error?: string;
+  }): void {
+    this.outboundCount += 1;
+    const key = `${input.method} ${input.target}`;
+    const accumulator = this.getOrCreateAccumulator(
+      this.outboundTargetStats,
+      key,
+    );
+    this.mergeAccumulator(
+      accumulator,
+      input.statusCode,
+      input.durationMs,
+      input.error,
+    );
+
+    this.pushRecent({
+      type: "outbound",
+      method: input.method,
+      target: input.target,
+      statusCode: input.statusCode,
+      durationMs: input.durationMs,
+      request: input.request,
+      response: input.response,
+      error: input.error,
+    });
+
+    this.printLog(
+      "outbound:end",
+      input.method,
+      input.target,
+      this.compactRecord({
+        statusCode: input.statusCode,
+        durationMs: input.durationMs,
+        request: input.request,
+        response: input.response,
+        error: input.error,
+      }),
+    );
+  }
+
+  snapshot(): PlaygroundDebugSnapshot {
+    return {
+      enabled: true,
+      startedAt: new Date(this.startedAtMs).toISOString(),
+      uptimeMs: Date.now() - this.startedAtMs,
+      inbound: {
+        totalRequests: this.inboundCount,
+        routes: this.toAggregates(this.inboundRouteStats),
+      },
+      outbound: {
+        totalRequests: this.outboundCount,
+        targets: this.toAggregates(this.outboundTargetStats),
+      },
+      recent: [...this.recentRecords],
+    };
+  }
+
+  printSummary(): void {
+    const snapshot = this.snapshot();
+    const summary = {
+      uptimeMs: snapshot.uptimeMs,
+      inboundTotal: snapshot.inbound.totalRequests,
+      outboundTotal: snapshot.outbound.totalRequests,
+      topInbound: snapshot.inbound.routes.slice(0, 5),
+      topOutbound: snapshot.outbound.targets.slice(0, 8),
+    };
+    console.log(
+      `[playground-debug] ${new Date().toISOString()} summary ${safeInlineJson(summary)}`,
+    );
+  }
+
+  private printLog(
+    stage: string,
+    method: string,
+    target: string,
+    details?: Record<string, unknown>,
+  ): void {
+    const suffix = details ? ` ${safeInlineJson(details)}` : "";
+    console.log(
+      `[playground-debug] ${new Date().toISOString()} ${stage} ${method} ${target}${suffix}`,
+    );
+  }
+
+  private compactRecord(
+    value: Record<string, unknown>,
+  ): Record<string, unknown> | undefined {
+    const next = Object.fromEntries(
+      Object.entries(value).filter(([, item]) => item !== undefined),
+    );
+    return Object.keys(next).length > 0 ? next : undefined;
+  }
+
+  private getOrCreateAccumulator(
+    map: Map<string, PlaygroundDebugStatsAccumulator>,
+    key: string,
+  ): PlaygroundDebugStatsAccumulator {
+    const existing = map.get(key);
+    if (existing) {
+      return existing;
+    }
+
+    const created: PlaygroundDebugStatsAccumulator = {
+      count: 0,
+      totalMs: 0,
+      maxMs: 0,
+      errorCount: 0,
+      statusCodes: {},
+    };
+    map.set(key, created);
+    return created;
+  }
+
+  private mergeAccumulator(
+    accumulator: PlaygroundDebugStatsAccumulator,
+    statusCode: number | undefined,
+    durationMs: number,
+    error: string | undefined,
+  ): void {
+    accumulator.count += 1;
+    accumulator.totalMs += durationMs;
+    accumulator.maxMs = Math.max(accumulator.maxMs, durationMs);
+
+    if (typeof statusCode === "number") {
+      const key = String(statusCode);
+      accumulator.statusCodes[key] = (accumulator.statusCodes[key] ?? 0) + 1;
+      if (statusCode >= 500) {
+        accumulator.errorCount += 1;
+      }
+    }
+
+    if (error) {
+      accumulator.errorCount += 1;
+    }
+  }
+
+  private pushRecent(
+    input: Omit<PlaygroundDebugRecentRecord, "id" | "ts">,
+  ): void {
+    this.recentRecords.push({
+      id: this.nextRecordId,
+      ts: new Date().toISOString(),
+      ...input,
+    });
+    this.nextRecordId += 1;
+    if (this.recentRecords.length > DEBUG_RECENT_LOG_LIMIT) {
+      this.recentRecords.splice(
+        0,
+        this.recentRecords.length - DEBUG_RECENT_LOG_LIMIT,
+      );
+    }
+  }
+
+  private toAggregates(
+    map: Map<string, PlaygroundDebugStatsAccumulator>,
+  ): PlaygroundDebugAggregate[] {
+    return [...map.entries()]
+      .map(([key, value]) => ({
+        key,
+        count: value.count,
+        errorCount: value.errorCount,
+        avgMs:
+          value.count > 0
+            ? Number((value.totalMs / value.count).toFixed(2))
+            : 0,
+        maxMs: value.maxMs,
+        statusCodes: { ...value.statusCodes },
+      }))
+      .sort((left, right) => {
+        if (right.count !== left.count) {
+          return right.count - left.count;
+        }
+        return left.key.localeCompare(right.key);
+      });
+  }
+}
 
 function createLLM(config: DefaultRenderifyConfig): LLMInterpreter {
   const provider = config.get<LLMProviderConfig>("llmProvider") ?? "openai";
@@ -219,6 +528,7 @@ async function main() {
           port,
           moduleLoader: runtimeModuleLoader,
           autoManifestIntegrityTimeoutMs: AUTO_MANIFEST_INTEGRITY_TIMEOUT_MS,
+          debug: args.debug ?? resolvePlaygroundDebugMode(),
         });
         break;
       }
@@ -226,6 +536,63 @@ async function main() {
   } finally {
     await renderifyApp.stop();
   }
+}
+
+function parsePlaygroundArgs(args: string[]): CliArgs {
+  let port: number | undefined;
+  let debug: boolean | undefined;
+
+  for (const token of args) {
+    const normalized = token.trim();
+    if (normalized.length === 0) {
+      continue;
+    }
+
+    if (normalized === "--debug") {
+      debug = true;
+      continue;
+    }
+
+    if (normalized === "--no-debug") {
+      debug = false;
+      continue;
+    }
+
+    if (normalized.startsWith("--")) {
+      throw new Error(`Unknown playground option: ${normalized}`);
+    }
+
+    if (port !== undefined) {
+      throw new Error(`Unexpected playground argument: ${normalized}`);
+    }
+
+    port = parsePort(normalized);
+  }
+
+  return {
+    command: "playground",
+    port,
+    debug,
+  };
+}
+
+function resolvePlaygroundDebugMode(): boolean {
+  const candidate = process.env.RENDERIFY_PLAYGROUND_DEBUG;
+  if (!candidate) {
+    return false;
+  }
+
+  return parseBooleanEnv(candidate);
+}
+
+function parseBooleanEnv(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return (
+    normalized === "1" ||
+    normalized === "true" ||
+    normalized === "yes" ||
+    normalized === "on"
+  );
 }
 
 function parseArgs(argv: string[]): CliArgs {
@@ -255,8 +622,7 @@ function parseArgs(argv: string[]): CliArgs {
       return { command: "render-plan", planFile: rest[0] };
     case "playground":
       return {
-        command: "playground",
-        port: parsePort(rest[0]),
+        ...parsePlaygroundArgs(rest),
       };
     case "help":
       return { command: "help" };
@@ -313,7 +679,7 @@ function printHelp(): void {
   renderify plan <prompt>                    Print runtime plan JSON
   renderify probe-plan <file>                Probe RuntimePlan dependencies and policy compatibility
   renderify render-plan <file>               Execute RuntimePlan JSON file
-  renderify playground [port]                Start browser runtime playground`);
+  renderify playground [port] [--debug]      Start browser runtime playground`);
 }
 
 async function loadPlanFile(filePath: string): Promise<RuntimePlan> {
@@ -330,7 +696,12 @@ async function loadPlanFile(filePath: string): Promise<RuntimePlan> {
 async function runPlaygroundServer(
   options: PlaygroundServerOptions,
 ): Promise<void> {
-  const { app, port, moduleLoader, autoManifestIntegrityTimeoutMs } = options;
+  const { app, port, moduleLoader, autoManifestIntegrityTimeoutMs, debug } =
+    options;
+  const debugTracer = debug ? new PlaygroundDebugTracer() : undefined;
+  const restoreFetch = debugTracer
+    ? installPlaygroundDebugFetchTracer(debugTracer)
+    : undefined;
 
   const server = http.createServer((req, res) => {
     void handlePlaygroundRequest(
@@ -339,58 +710,71 @@ async function runPlaygroundServer(
       app,
       moduleLoader,
       autoManifestIntegrityTimeoutMs,
+      debugTracer,
     );
   });
 
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(port, () => {
-      server.off("error", reject);
-      resolve();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(port, () => {
+        server.off("error", reject);
+        resolve();
+      });
     });
-  });
 
-  const info = server.address();
-  const resolvedPort =
-    typeof info === "object" && info !== null
-      ? (info as AddressInfo).port
-      : port;
-  const baseUrl = `http://127.0.0.1:${resolvedPort}`;
-  console.log(`Renderify playground is running at ${baseUrl}`);
-  console.log("Press Ctrl+C to stop.");
+    const info = server.address();
+    const resolvedPort =
+      typeof info === "object" && info !== null
+        ? (info as AddressInfo).port
+        : port;
+    const baseUrl = `http://127.0.0.1:${resolvedPort}`;
+    console.log(`Renderify playground is running at ${baseUrl}`);
+    if (debugTracer) {
+      console.log(
+        "Playground debug mode is enabled. Inspect stats at /api/debug/stats.",
+      );
+    }
+    console.log("Press Ctrl+C to stop.");
 
-  await new Promise<void>((resolve, reject) => {
-    let closed = false;
+    await new Promise<void>((resolve, reject) => {
+      let closed = false;
 
-    const finalize = (error?: Error) => {
-      if (closed) {
-        return;
-      }
-      closed = true;
-      process.off("SIGINT", onSignal);
-      process.off("SIGTERM", onSignal);
-
-      if (error) {
-        reject(error);
-        return;
-      }
-
-      resolve();
-    };
-
-    const onSignal = () => {
-      server.close((error) => {
-        if (error) {
-          finalize(error);
+      const finalize = (error?: Error) => {
+        if (closed) {
           return;
         }
-        finalize();
-      });
-    };
+        closed = true;
+        process.off("SIGINT", onSignal);
+        process.off("SIGTERM", onSignal);
 
-    process.on("SIGINT", onSignal);
-    process.on("SIGTERM", onSignal);
-  });
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      };
+
+      const onSignal = () => {
+        server.close((error) => {
+          if (error) {
+            finalize(error);
+            return;
+          }
+          finalize();
+        });
+      };
+
+      process.on("SIGINT", onSignal);
+      process.on("SIGTERM", onSignal);
+    });
+  } finally {
+    if (restoreFetch) {
+      restoreFetch();
+    }
+    debugTracer?.printSummary();
+  }
 }
 
 async function handlePlaygroundRequest(
@@ -399,19 +783,63 @@ async function handlePlaygroundRequest(
   app: RenderifyApp,
   moduleLoader: JspmModuleLoader,
   autoManifestIntegrityTimeoutMs: number,
+  debugTracer?: PlaygroundDebugTracer,
 ): Promise<void> {
   const method = (req.method ?? "GET").toUpperCase();
   const parsedUrl = new URL(req.url ?? "/", "http://127.0.0.1");
   const pathname = parsedUrl.pathname;
+  const startedAtMs = Date.now();
+  let requestSummary: Record<string, unknown> | undefined;
+  let responseSummary: Record<string, unknown> | undefined;
+
+  const finishDebug = (statusCode: number, error?: string): void => {
+    if (!debugTracer) {
+      return;
+    }
+    debugTracer.recordInbound({
+      method,
+      pathname,
+      statusCode,
+      durationMs: Date.now() - startedAtMs,
+      request: requestSummary,
+      response: responseSummary,
+      error,
+    });
+  };
 
   try {
     if (method === "GET" && pathname === "/") {
       sendHtml(res, PLAYGROUND_HTML);
+      responseSummary = { contentType: "text/html" };
+      finishDebug(200);
       return;
     }
 
     if (method === "GET" && pathname === "/api/health") {
       sendJson(res, 200, { ok: true, status: "ready" });
+      responseSummary = { ok: true };
+      finishDebug(200);
+      return;
+    }
+
+    if (method === "GET" && pathname === "/api/debug/stats") {
+      if (!debugTracer) {
+        responseSummary = { enabled: false };
+        sendJson(res, 400, {
+          error:
+            "Playground debug mode is disabled. Start with --debug or set RENDERIFY_PLAYGROUND_DEBUG=1.",
+        });
+        finishDebug(400);
+        return;
+      }
+
+      const snapshot = debugTracer.snapshot();
+      responseSummary = {
+        inboundTotal: snapshot.inbound.totalRequests,
+        outboundTotal: snapshot.outbound.totalRequests,
+      };
+      sendJson(res, 200, snapshot);
+      finishDebug(200);
       return;
     }
 
@@ -421,8 +849,13 @@ async function handlePlaygroundRequest(
         typeof body.prompt === "string" && body.prompt.trim().length > 0
           ? body.prompt.trim()
           : DEFAULT_PROMPT;
+      requestSummary = summarizePromptDebugInput(prompt);
+      debugTracer?.logInboundStart(method, pathname, requestSummary);
       const result = await app.renderPrompt(prompt);
-      sendJson(res, 200, serializeRenderResult(result));
+      const payload = serializeRenderResult(result);
+      responseSummary = summarizeRenderResultDebugOutput(payload);
+      sendJson(res, 200, payload);
+      finishDebug(200);
       return;
     }
 
@@ -432,8 +865,12 @@ async function handlePlaygroundRequest(
         typeof body.prompt === "string" && body.prompt.trim().length > 0
           ? body.prompt.trim()
           : DEFAULT_PROMPT;
+      requestSummary = summarizePromptDebugInput(prompt);
+      debugTracer?.logInboundStart(method, pathname, requestSummary);
 
-      await sendPromptStream(res, app, prompt);
+      const streamSummary = await sendPromptStream(res, app, prompt);
+      responseSummary = streamSummary;
+      finishDebug(200, streamSummary.streamErrorMessage);
       return;
     }
 
@@ -441,9 +878,14 @@ async function handlePlaygroundRequest(
       const body = await readJsonBody(req);
       const plan = body.plan;
       if (!isRuntimePlan(plan)) {
+        requestSummary = { hasPlan: false };
         sendJson(res, 400, { error: "body.plan must be a RuntimePlan object" });
+        responseSummary = { error: "invalid-plan-payload" };
+        finishDebug(400);
         return;
       }
+      requestSummary = summarizePlanDebugInput(plan);
+      debugTracer?.logInboundStart(method, pathname, requestSummary);
 
       const hydratedPlan = await hydratePlaygroundPlanManifest(plan, {
         moduleLoader,
@@ -455,7 +897,10 @@ async function handlePlaygroundRequest(
       const result = await app.renderPlan(hydratedPlan, {
         prompt: "playground:plan",
       });
-      sendJson(res, 200, serializeRenderResult(result));
+      const payload = serializeRenderResult(result);
+      responseSummary = summarizeRenderResultDebugOutput(payload);
+      sendJson(res, 200, payload);
+      finishDebug(200);
       return;
     }
 
@@ -463,9 +908,14 @@ async function handlePlaygroundRequest(
       const body = await readJsonBody(req);
       const plan = body.plan;
       if (!isRuntimePlan(plan)) {
+        requestSummary = { hasPlan: false };
         sendJson(res, 400, { error: "body.plan must be a RuntimePlan object" });
+        responseSummary = { error: "invalid-plan-payload" };
+        finishDebug(400);
         return;
       }
+      requestSummary = summarizePlanDebugInput(plan);
+      debugTracer?.logInboundStart(method, pathname, requestSummary);
 
       const hydratedPlan = await hydratePlaygroundPlanManifest(plan, {
         moduleLoader,
@@ -478,21 +928,34 @@ async function handlePlaygroundRequest(
       const runtimeProbe = await app
         .getRuntimeManager()
         .probePlan(hydratedPlan);
-      sendJson(res, 200, {
+      const payload = {
         safe: security.safe,
         securityIssues: security.issues,
         securityDiagnostics: security.diagnostics,
         dependencies: runtimeProbe.dependencies,
         runtimeDiagnostics: runtimeProbe.diagnostics,
-      });
+      };
+      responseSummary = {
+        safe: security.safe,
+        securityIssueCount: security.issues.length,
+        runtimeDiagnosticCount: runtimeProbe.diagnostics.length,
+        dependencyCount: runtimeProbe.dependencies.length,
+      };
+      sendJson(res, 200, payload);
+      finishDebug(200);
       return;
     }
 
     sendJson(res, 404, { error: "Not found" });
+    responseSummary = { error: "not-found" };
+    finishDebug(404);
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     sendJson(res, 500, {
-      error: error instanceof Error ? error.message : String(error),
+      error: message,
     });
+    responseSummary = { error: message };
+    finishDebug(500, message);
   }
 }
 
@@ -571,7 +1034,11 @@ async function sendPromptStream(
   res: ServerResponse,
   app: RenderifyApp,
   prompt: string,
-): Promise<void> {
+): Promise<{
+  chunkCount: number;
+  eventTypeCounts: Record<string, number>;
+  streamErrorMessage?: string;
+}> {
   res.writeHead(200, {
     "content-type": "application/x-ndjson; charset=utf-8",
     "cache-control": "no-store",
@@ -579,21 +1046,36 @@ async function sendPromptStream(
     "x-accel-buffering": "no",
   });
 
+  let chunkCount = 0;
+  const eventTypeCounts: Record<string, number> = {};
+  let streamErrorMessage: string | undefined;
+
   try {
     for await (const chunk of app.renderPromptStream(prompt)) {
       const serialized = serializePromptStreamChunk(chunk);
+      chunkCount += 1;
+      const type = String(serialized.type ?? "unknown");
+      eventTypeCounts[type] = (eventTypeCounts[type] ?? 0) + 1;
       res.write(`${JSON.stringify(serialized)}\n`);
     }
   } catch (error) {
+    streamErrorMessage = error instanceof Error ? error.message : String(error);
     res.write(
       `${JSON.stringify({
         type: "error",
-        error: error instanceof Error ? error.message : String(error),
+        error: streamErrorMessage,
       })}\n`,
     );
+    eventTypeCounts.error = (eventTypeCounts.error ?? 0) + 1;
   } finally {
     res.end();
   }
+
+  return {
+    chunkCount,
+    eventTypeCounts,
+    ...(streamErrorMessage ? { streamErrorMessage } : {}),
+  };
 }
 
 function serializePromptStreamChunk(
@@ -780,6 +1262,269 @@ async function fetchRemoteModuleIntegrity(
     return undefined;
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+function installPlaygroundDebugFetchTracer(
+  debugTracer: PlaygroundDebugTracer,
+): () => void {
+  const originalFetch = globalThis.fetch;
+  if (typeof originalFetch !== "function") {
+    return () => {};
+  }
+
+  const wrappedFetch: typeof fetch = async (
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ) => {
+    const method = resolveFetchMethod(input, init);
+    const rawUrl = resolveFetchUrl(input);
+    const target = normalizeFetchTarget(rawUrl);
+    const requestSummary = summarizeFetchRequest(init);
+    const startedAtMs = Date.now();
+
+    debugTracer.logOutboundStart(method, target, requestSummary);
+
+    try {
+      const response = await originalFetch(input, init);
+      debugTracer.recordOutbound({
+        method,
+        target,
+        statusCode: response.status,
+        durationMs: Date.now() - startedAtMs,
+        request: requestSummary,
+        response: {
+          ok: response.ok,
+          redirected: response.redirected,
+          contentType: response.headers.get("content-type") ?? undefined,
+        },
+      });
+      return response;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      debugTracer.recordOutbound({
+        method,
+        target,
+        durationMs: Date.now() - startedAtMs,
+        request: requestSummary,
+        error: message,
+      });
+      throw error;
+    }
+  };
+
+  globalThis.fetch = wrappedFetch;
+  return () => {
+    globalThis.fetch = originalFetch;
+  };
+}
+
+function resolveFetchMethod(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): string {
+  if (init?.method && init.method.trim().length > 0) {
+    return init.method.trim().toUpperCase();
+  }
+
+  if (
+    typeof input === "object" &&
+    input !== null &&
+    "method" in input &&
+    typeof input.method === "string" &&
+    input.method.trim().length > 0
+  ) {
+    return input.method.trim().toUpperCase();
+  }
+
+  return "GET";
+}
+
+function resolveFetchUrl(input: RequestInfo | URL): string {
+  if (typeof input === "string") {
+    return input;
+  }
+  if (input instanceof URL) {
+    return input.toString();
+  }
+  if (
+    typeof input === "object" &&
+    input !== null &&
+    "url" in input &&
+    typeof input.url === "string"
+  ) {
+    return input.url;
+  }
+  return String(input);
+}
+
+function normalizeFetchTarget(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    const path = parsed.pathname || "/";
+    return `${parsed.host}${path}`;
+  } catch {
+    return rawUrl;
+  }
+}
+
+function summarizeFetchRequest(init?: RequestInit): Record<string, unknown> {
+  if (!init) {
+    return {};
+  }
+
+  const body = init.body;
+  const bodyInfo = summarizeRequestBody(body);
+  const headerKeys = extractHeaderKeys(init.headers);
+  const summary: Record<string, unknown> = {};
+
+  if (headerKeys.length > 0) {
+    summary.headerKeys = headerKeys;
+  }
+  if (Object.keys(bodyInfo).length > 0) {
+    summary.body = bodyInfo;
+  }
+
+  return summary;
+}
+
+function summarizeRequestBody(
+  body: RequestInit["body"],
+): Record<string, unknown> {
+  if (body === undefined || body === null) {
+    return {};
+  }
+
+  if (typeof body === "string") {
+    return {
+      type: "string",
+      size: Buffer.byteLength(body),
+      preview: clampDebugText(body),
+    };
+  }
+  if (body instanceof URLSearchParams) {
+    return {
+      type: "urlsearchparams",
+      size: Buffer.byteLength(body.toString()),
+    };
+  }
+  if (typeof Buffer !== "undefined" && Buffer.isBuffer(body)) {
+    return {
+      type: "buffer",
+      size: body.byteLength,
+    };
+  }
+  if (body instanceof ArrayBuffer) {
+    return {
+      type: "arraybuffer",
+      size: body.byteLength,
+    };
+  }
+  if (ArrayBuffer.isView(body)) {
+    return {
+      type: "typedarray",
+      size: body.byteLength,
+    };
+  }
+  if (typeof body === "object" && body !== null && "size" in body) {
+    return {
+      type: String(body.constructor?.name ?? "stream"),
+    };
+  }
+
+  return {
+    type: typeof body,
+  };
+}
+
+function extractHeaderKeys(headers: RequestInit["headers"]): string[] {
+  if (!headers) {
+    return [];
+  }
+
+  if (headers instanceof Headers) {
+    return [...headers.keys()].sort();
+  }
+
+  if (Array.isArray(headers)) {
+    return headers.map((entry) => String(entry[0]).toLowerCase()).sort();
+  }
+
+  return Object.keys(headers)
+    .map((item) => item.toLowerCase())
+    .sort();
+}
+
+function summarizePromptDebugInput(prompt: string): Record<string, unknown> {
+  return {
+    promptLength: prompt.length,
+    promptPreview: clampDebugText(prompt),
+  };
+}
+
+function summarizePlanDebugInput(plan: RuntimePlan): Record<string, unknown> {
+  const importsCount = Array.isArray(plan.imports) ? plan.imports.length : 0;
+  const moduleManifestCount = plan.moduleManifest
+    ? Object.keys(plan.moduleManifest).length
+    : 0;
+  const allowedModulesCount = Array.isArray(plan.capabilities?.allowedModules)
+    ? plan.capabilities.allowedModules.length
+    : 0;
+
+  return {
+    planId: plan.id,
+    version: plan.version,
+    rootType: plan.root.type,
+    importsCount,
+    moduleManifestCount,
+    allowedModulesCount,
+    hasSource: Boolean(plan.source),
+    sourceRuntime: plan.source?.runtime,
+    sourceLanguage: plan.source?.language,
+  };
+}
+
+function summarizeRenderResultDebugOutput(
+  payload: Record<string, unknown>,
+): Record<string, unknown> {
+  const html = typeof payload.html === "string" ? payload.html : "";
+  const diagnostics = Array.isArray(payload.diagnostics)
+    ? payload.diagnostics
+    : [];
+  const plan = isRecord(payload.plan) ? payload.plan : {};
+  const planDetail = isRecord(payload.planDetail) ? payload.planDetail : {};
+  const moduleManifest = isRecord(planDetail.moduleManifest)
+    ? planDetail.moduleManifest
+    : undefined;
+
+  return {
+    traceId: payload.traceId,
+    planId: plan.id,
+    htmlBytes: Buffer.byteLength(html),
+    diagnosticsCount: diagnostics.length,
+    moduleManifestCount: moduleManifest
+      ? Object.keys(moduleManifest).length
+      : 0,
+  };
+}
+
+function clampDebugText(value: string, maxLength = 180): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, maxLength)}…`;
+}
+
+function safeInlineJson(value: unknown): string {
+  try {
+    const json = JSON.stringify(value);
+    if (json.length <= 1400) {
+      return json;
+    }
+    return `${json.slice(0, 1400)}…`;
+  } catch (error) {
+    return `{"error":"${clampDebugText(String(error))}"}`;
   }
 }
 

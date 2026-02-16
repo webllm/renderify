@@ -74,6 +74,13 @@ test("cli validates playground port argument", async () => {
   assert.match(result.stderr, /Invalid port: abc/);
 });
 
+test("cli validates unknown playground option", async () => {
+  const result = await runCli(["playground", "--trace"]);
+
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /Unknown playground option: --trace/);
+});
+
 test("cli requires plan file for probe-plan", async () => {
   const result = await runCli(["probe-plan"]);
 

@@ -202,6 +202,7 @@ const SECURITY_PROFILE_POLICIES: Record<
 };
 
 const DEFAULT_SECURITY_PROFILE: RuntimeSecurityProfile = "balanced";
+const INTERNAL_RUNTIME_SOURCE_MODULE_SPECIFIERS = new Set(["this-plan-source"]);
 
 export function listSecurityProfiles(): RuntimeSecurityProfile[] {
   return Object.keys(SECURITY_PROFILE_POLICIES) as RuntimeSecurityProfile[];
@@ -394,6 +395,14 @@ export class DefaultSecurityChecker implements SecurityChecker {
       issues.push(
         `Path traversal is not allowed in module specifier: ${specifier}`,
       );
+    }
+
+    if (this.isInternalRuntimeSourceSpecifier(specifier)) {
+      return {
+        safe: issues.length === 0,
+        issues,
+        diagnostics,
+      };
     }
 
     const isUrl = this.isUrl(specifier);
@@ -710,6 +719,10 @@ export class DefaultSecurityChecker implements SecurityChecker {
   }
 
   private isBareSpecifier(specifier: string): boolean {
+    if (this.isInternalRuntimeSourceSpecifier(specifier)) {
+      return false;
+    }
+
     return (
       !specifier.startsWith("./") &&
       !specifier.startsWith("../") &&
@@ -718,6 +731,18 @@ export class DefaultSecurityChecker implements SecurityChecker {
       !specifier.startsWith("https://") &&
       !specifier.startsWith("data:") &&
       !specifier.startsWith("blob:")
+    );
+  }
+
+  private isInternalRuntimeSourceSpecifier(specifier: string): boolean {
+    const normalized = specifier.trim().toLowerCase();
+    if (normalized.length === 0) {
+      return false;
+    }
+
+    return (
+      normalized.startsWith("inline://") ||
+      INTERNAL_RUNTIME_SOURCE_MODULE_SPECIFIERS.has(normalized)
     );
   }
 

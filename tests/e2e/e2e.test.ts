@@ -438,6 +438,83 @@ test("e2e: playground api supports prompt and stream flow", async () => {
   }
 });
 
+test("e2e: playground debug mode exposes inbound/outbound request distribution", async () => {
+  const tempDir = await mkdtemp(
+    path.join(os.tmpdir(), "renderify-e2e-playground-debug-"),
+  );
+  const port = await allocatePort();
+  const openaiPort = await allocatePort();
+  const { close } = await startFakeOpenAIServer(openaiPort);
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  const processHandle = startPlayground(port, {
+    RENDERIFY_PLAYGROUND_DEBUG: "1",
+    RENDERIFY_SESSION_FILE: path.join(tempDir, "session.json"),
+    RENDERIFY_LLM_PROVIDER: "openai",
+    RENDERIFY_LLM_API_KEY: "test-key",
+    RENDERIFY_LLM_BASE_URL: `http://127.0.0.1:${openaiPort}/v1`,
+    RENDERIFY_LLM_MODEL: "gpt-5-mini",
+  });
+
+  try {
+    await waitForHealth(`${baseUrl}/api/health`, 10000);
+
+    const promptResponse = await fetchJson(`${baseUrl}/api/prompt`, {
+      method: "POST",
+      body: {
+        prompt: "debug stats prompt",
+      },
+    });
+    assert.equal(promptResponse.status, 200);
+
+    const statsResponse = await fetchJson(`${baseUrl}/api/debug/stats`, {
+      method: "GET",
+    });
+    assert.equal(statsResponse.status, 200);
+    const statsBody = statsResponse.body as {
+      enabled?: unknown;
+      inbound?: {
+        totalRequests?: unknown;
+        routes?: Array<{
+          key?: unknown;
+          count?: unknown;
+        }>;
+      };
+      outbound?: {
+        totalRequests?: unknown;
+        targets?: Array<{
+          key?: unknown;
+          count?: unknown;
+        }>;
+      };
+    };
+
+    assert.equal(statsBody.enabled, true);
+    assert.equal(typeof statsBody.inbound?.totalRequests, "number");
+    assert.equal(typeof statsBody.outbound?.totalRequests, "number");
+
+    const inboundPromptRoute = (statsBody.inbound?.routes ?? []).find(
+      (item) => item.key === "POST /api/prompt",
+    );
+    assert.equal(typeof inboundPromptRoute?.count, "number");
+    assert.ok((inboundPromptRoute?.count as number) >= 1);
+
+    const outboundModelRequest = (statsBody.outbound?.targets ?? []).find(
+      (item) =>
+        String(item.key ?? "").includes(
+          `127.0.0.1:${openaiPort}/v1/chat/completions`,
+        ),
+    );
+    assert.equal(typeof outboundModelRequest?.count, "number");
+    assert.ok((outboundModelRequest?.count as number) >= 1);
+  } finally {
+    processHandle.kill("SIGTERM");
+    await onceExit(processHandle, 3000);
+    await close();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("e2e: playground api auto-hydrates moduleManifest for bare specifiers", async () => {
   const tempDir = await mkdtemp(
     path.join(os.tmpdir(), "renderify-e2e-playground-manifest-auto-"),
@@ -491,6 +568,71 @@ test("e2e: playground api auto-hydrates moduleManifest for bare specifiers", asy
     assert.match(
       String(payload.planDetail?.moduleManifest?.recharts?.resolvedUrl ?? ""),
       /recharts/i,
+    );
+  } finally {
+    processHandle.kill("SIGTERM");
+    await onceExit(processHandle, 3000);
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("e2e: playground api accepts inline runtime source module specifiers", async () => {
+  const tempDir = await mkdtemp(
+    path.join(os.tmpdir(), "renderify-e2e-playground-inline-source-"),
+  );
+  const port = await allocatePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const processHandle = startPlayground(port, {
+    RENDERIFY_SESSION_FILE: path.join(tempDir, "session.json"),
+  });
+
+  try {
+    await waitForHealth(`${baseUrl}/api/health`, 10000);
+
+    const response = await fetchJson(`${baseUrl}/api/plan`, {
+      method: "POST",
+      body: {
+        plan: {
+          specVersion: "runtime-plan/v1",
+          id: "playground_inline_source_plan",
+          version: 1,
+          root: {
+            type: "component",
+            module: "inline://todo-app-source",
+            exportName: "TodoApp",
+            props: {},
+          },
+          imports: ["inline://todo-app-source"],
+          capabilities: {
+            domWrite: true,
+            allowedModules: ["inline://todo-app-source"],
+          },
+          source: {
+            language: "js",
+            runtime: "renderify",
+            exportName: "TodoApp",
+            code: [
+              "export function TodoApp() {",
+              '  return { type: "element", tag: "section", children: [{ type: "text", value: "inline source ok" }] };',
+              "}",
+            ].join("\n"),
+          },
+        },
+      },
+    });
+
+    assert.equal(response.status, 200);
+    const payload = response.body as {
+      html?: unknown;
+      diagnostics?: Array<{
+        code?: unknown;
+      }>;
+    };
+    assert.match(String(payload.html ?? ""), /inline source ok/);
+    assert.ok(
+      !(payload.diagnostics ?? []).some(
+        (diagnostic) => diagnostic.code === "SECURITY_POLICY_VIOLATION",
+      ),
     );
   } finally {
     processHandle.kill("SIGTERM");

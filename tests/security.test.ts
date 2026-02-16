@@ -317,6 +317,40 @@ test("security checker strict profile requires integrity for remote modules", as
   );
 });
 
+test("security checker allows internal inline runtime source specifiers without manifest entries", async () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize({ profile: "strict" });
+
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "inline_source_specifier_plan",
+    version: 1,
+    root: createComponentNode("inline://todo-app-source"),
+    capabilities: {
+      domWrite: true,
+      allowedModules: ["inline://todo-app-source"],
+    },
+    imports: ["inline://todo-app-source"],
+    source: {
+      language: "js",
+      runtime: "renderify",
+      code: 'export default () => ({ type: "text", value: "ok" });',
+    },
+  };
+
+  const result = await checker.checkPlan(plan);
+  assert.equal(result.safe, true, result.issues.join("; "));
+});
+
+test("security checker allows internal synthetic source alias specifiers", async () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize({ profile: "strict" });
+
+  const moduleResult = checker.checkModuleSpecifier("this-plan-source");
+  assert.equal(moduleResult.safe, true);
+  assert.equal(moduleResult.issues.length, 0);
+});
+
 test("security checker blocks banned runtime source patterns", async () => {
   const checker = new DefaultSecurityChecker();
   checker.initialize();
