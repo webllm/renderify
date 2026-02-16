@@ -55,7 +55,7 @@ renderify render-plan ./examples/runtime/recharts-dashboard-plan.json
 - `RENDERIFY_SECURITY_PROFILE` (`strict`, `balanced`, `relaxed`)
 - `RENDERIFY_PLAYGROUND_DEBUG` (`1`, `true`, `yes`, `on`)
 
-When debug mode is enabled, playground prints key inbound/outbound request logs and exposes `/api/debug/stats` for request distribution snapshots.
+When debug mode is enabled, playground prints key inbound/outbound request logs, exposes `/api/debug/stats`, and renders an in-page **Debug Stats** panel with manual/auto refresh.
 
 See `../../docs/getting-started.md` and `../../docs/security.md` for runtime and policy options.
 

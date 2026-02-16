@@ -125,6 +125,15 @@ export const PLAYGROUND_HTML = `<!doctype html>
         font-size: 13px;
       }
 
+      .toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 13px;
+        color: var(--subtle);
+        user-select: none;
+      }
+
       .render-output {
         min-height: 130px;
         border: 1px dashed rgba(15, 118, 110, 0.35);
@@ -193,6 +202,19 @@ export const PLAYGROUND_HTML = `<!doctype html>
           <h2>Streaming Feed</h2>
           <pre id="stream-output">[]</pre>
         </section>
+
+        <section class="card span-12">
+          <h2>Debug Stats</h2>
+          <div class="actions">
+            <button id="refresh-debug" class="secondary">Refresh Debug Stats</button>
+            <label class="toggle">
+              <input id="auto-refresh-debug" type="checkbox" checked />
+              Auto refresh (2s)
+            </label>
+          </div>
+          <div class="status" id="debug-status">Waiting for debug stats...</div>
+          <pre id="debug-output">{}</pre>
+        </section>
       </div>
     </div>
 
@@ -205,6 +227,10 @@ export const PLAYGROUND_HTML = `<!doctype html>
       const diagnosticsEl = byId("diagnostics");
       const streamOutputEl = byId("stream-output");
       const copyPlanLinkEl = byId("copy-plan-link");
+      const refreshDebugEl = byId("refresh-debug");
+      const autoRefreshDebugEl = byId("auto-refresh-debug");
+      const debugStatusEl = byId("debug-status");
+      const debugOutputEl = byId("debug-output");
 
       const controls = [
         byId("run-prompt"),
@@ -223,6 +249,10 @@ export const PLAYGROUND_HTML = `<!doctype html>
 
       const setStatus = (text) => {
         statusEl.textContent = text;
+      };
+
+      const setDebugStatus = (text) => {
+        debugStatusEl.textContent = text;
       };
 
       const safeJson = (value) => {
@@ -244,6 +274,8 @@ export const PLAYGROUND_HTML = `<!doctype html>
       let interactiveBlobModuleUrl = null;
       let babelStandalonePromise;
       let diagnosticsSnapshot = {};
+      let debugRefreshTimer = null;
+      let debugRefreshInFlight = false;
 
       const resetInteractiveMount = () => {
         interactiveMountVersion += 1;
@@ -272,6 +304,146 @@ export const PLAYGROUND_HTML = `<!doctype html>
           state: diagnosticsSnapshot.state ?? {},
           diagnostics,
         });
+      };
+
+      const toDebugCount = (value) =>
+        typeof value === "number" && Number.isFinite(value) && value >= 0
+          ? value
+          : 0;
+
+      const compactDebugSnapshot = (payload) => {
+        const inbound = isRecord(payload && payload.inbound) ? payload.inbound : {};
+        const outbound = isRecord(payload && payload.outbound) ? payload.outbound : {};
+        const inboundRoutes = Array.isArray(inbound.routes) ? inbound.routes : [];
+        const outboundTargets = Array.isArray(outbound.targets) ? outbound.targets : [];
+        const recent = Array.isArray(payload && payload.recent) ? payload.recent : [];
+
+        return {
+          enabled: payload && payload.enabled === true,
+          startedAt:
+            payload && typeof payload.startedAt === "string"
+              ? payload.startedAt
+              : undefined,
+          uptimeMs: toDebugCount(payload && payload.uptimeMs),
+          inbound: {
+            totalRequests: toDebugCount(inbound.totalRequests),
+            routes: inboundRoutes.slice(0, 10),
+          },
+          outbound: {
+            totalRequests: toDebugCount(outbound.totalRequests),
+            targets: outboundTargets.slice(0, 10),
+          },
+          recent: recent.slice(-25),
+          ...(payload && payload.error ? { error: String(payload.error) } : {}),
+        };
+      };
+
+      const setDebugOutput = (payload) => {
+        debugOutputEl.textContent = safeJson(compactDebugSnapshot(payload));
+      };
+
+      const formatDebugSummary = (snapshot) => {
+        if (!snapshot.enabled) {
+          return snapshot.error
+            ? "Debug stats unavailable: " + snapshot.error
+            : "Debug stats unavailable.";
+        }
+
+        const inboundTotal = toDebugCount(
+          snapshot.inbound && snapshot.inbound.totalRequests,
+        );
+        const outboundTotal = toDebugCount(
+          snapshot.outbound && snapshot.outbound.totalRequests,
+        );
+        return (
+          "Debug mode enabled. inbound=" +
+          inboundTotal +
+          ", outbound=" +
+          outboundTotal +
+          ". Updated " +
+          new Date().toLocaleTimeString() +
+          "."
+        );
+      };
+
+      async function requestDebugStats() {
+        const response = await fetch("/api/debug/stats", {
+          method: "GET",
+          cache: "no-store",
+        });
+
+        let payload = {};
+        try {
+          payload = await response.json();
+        } catch {
+          payload = {};
+        }
+
+        if (!response.ok) {
+          const message =
+            isRecord(payload) && typeof payload.error === "string"
+              ? payload.error
+              : "request failed with status " + response.status;
+          return {
+            enabled: false,
+            error: message,
+            statusCode: response.status,
+          };
+        }
+
+        return isRecord(payload) ? payload : {};
+      }
+
+      async function refreshDebugStats(options = {}) {
+        const silent = options && options.silent === true;
+        if (debugRefreshInFlight) {
+          return;
+        }
+
+        debugRefreshInFlight = true;
+        if (!silent) {
+          setDebugStatus("Refreshing debug stats...");
+        }
+
+        try {
+          const payload = await requestDebugStats();
+          setDebugOutput(payload);
+          setDebugStatus(formatDebugSummary(payload));
+          if (
+            payload &&
+            payload.enabled !== true &&
+            typeof payload.error === "string" &&
+            payload.error.toLowerCase().includes("debug mode is disabled")
+          ) {
+            autoRefreshDebugEl.checked = false;
+            restartDebugAutoRefresh();
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          const snapshot = {
+            enabled: false,
+            error: message,
+          };
+          setDebugOutput(snapshot);
+          setDebugStatus("Debug stats unavailable: " + message);
+        } finally {
+          debugRefreshInFlight = false;
+        }
+      }
+
+      const restartDebugAutoRefresh = () => {
+        if (debugRefreshTimer) {
+          clearInterval(debugRefreshTimer);
+          debugRefreshTimer = null;
+        }
+
+        if (!(autoRefreshDebugEl && autoRefreshDebugEl.checked)) {
+          return;
+        }
+
+        debugRefreshTimer = setInterval(() => {
+          void refreshDebugStats({ silent: true });
+        }, 2000);
       };
 
       const ensureBabelStandalone = async () => {
@@ -732,6 +904,10 @@ export const PLAYGROUND_HTML = `<!doctype html>
         if (!response.ok) {
           throw new Error(payload && payload.error ? String(payload.error) : "request failed");
         }
+
+        if (path !== "/api/debug/stats") {
+          void refreshDebugStats({ silent: true });
+        }
         return payload;
       }
 
@@ -787,6 +963,7 @@ export const PLAYGROUND_HTML = `<!doctype html>
           throw error;
         } finally {
           setBusy(false);
+          void refreshDebugStats({ silent: true });
         }
       }
 
@@ -810,6 +987,7 @@ export const PLAYGROUND_HTML = `<!doctype html>
           diagnosticsEl.textContent = String(error);
         } finally {
           setBusy(false);
+          void refreshDebugStats({ silent: true });
         }
       }
 
@@ -895,6 +1073,7 @@ export const PLAYGROUND_HTML = `<!doctype html>
           diagnosticsEl.textContent = String(error);
         } finally {
           setBusy(false);
+          void refreshDebugStats({ silent: true });
         }
       }
 
@@ -933,6 +1112,7 @@ export const PLAYGROUND_HTML = `<!doctype html>
           diagnosticsEl.textContent = String(error);
         } finally {
           setBusy(false);
+          void refreshDebugStats({ silent: true });
         }
       }
 
@@ -941,6 +1121,7 @@ export const PLAYGROUND_HTML = `<!doctype html>
         htmlOutputEl.innerHTML = "";
         writeDiagnostics({});
         streamOutputEl.textContent = "[]";
+        void refreshDebugStats({ silent: true });
         setStatus("Cleared.");
       }
 
@@ -1006,14 +1187,28 @@ export const PLAYGROUND_HTML = `<!doctype html>
       byId("stream-prompt").addEventListener("click", streamPrompt);
       byId("run-plan").addEventListener("click", runPlan);
       byId("probe-plan").addEventListener("click", probePlan);
+      refreshDebugEl.addEventListener("click", () => {
+        void refreshDebugStats();
+      });
+      autoRefreshDebugEl.addEventListener("change", () => {
+        restartDebugAutoRefresh();
+      });
       copyPlanLinkEl.addEventListener("click", () => {
         void copyPlanLink();
       });
       byId("clear").addEventListener("click", clearAll);
 
+      restartDebugAutoRefresh();
+      void refreshDebugStats({ silent: true });
       void renderFromHashPayload();
       window.addEventListener("hashchange", () => {
         void renderFromHashPayload();
+      });
+      window.addEventListener("beforeunload", () => {
+        if (debugRefreshTimer) {
+          clearInterval(debugRefreshTimer);
+          debugRefreshTimer = null;
+        }
       });
     </script>
   </body>

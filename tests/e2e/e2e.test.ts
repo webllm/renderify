@@ -459,6 +459,13 @@ test("e2e: playground debug mode exposes inbound/outbound request distribution",
   try {
     await waitForHealth(`${baseUrl}/api/health`, 10000);
 
+    const pageResponse = await fetch(`${baseUrl}/`);
+    assert.equal(pageResponse.status, 200);
+    const pageHtml = await pageResponse.text();
+    assert.match(pageHtml, /id="refresh-debug"/);
+    assert.match(pageHtml, /id="debug-status"/);
+    assert.match(pageHtml, /id="debug-output"/);
+
     const promptResponse = await fetchJson(`${baseUrl}/api/prompt`, {
       method: "POST",
       body: {

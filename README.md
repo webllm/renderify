@@ -225,7 +225,7 @@ RENDERIFY_RUNTIME_BROWSER_SANDBOX_FAIL_CLOSED=true pnpm playground
 RENDERIFY_LLM_USE_STRUCTURED_OUTPUT=false pnpm playground
 ```
 
-When debug mode is enabled, playground logs key inbound/outbound request summaries and exposes `GET /api/debug/stats` for request distribution diagnostics.
+When debug mode is enabled, playground logs key inbound/outbound request summaries, exposes `GET /api/debug/stats`, and shows an in-page **Debug Stats** panel with auto-refresh.
 
 ### Playground Hash Deep-Link
 
