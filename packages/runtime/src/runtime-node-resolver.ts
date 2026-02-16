@@ -66,6 +66,17 @@ export async function resolveRuntimeNode(input: {
     resolver,
   } = input;
 
+  if (!isRuntimeNode(node)) {
+    diagnostics.push({
+      level: "error",
+      code: "RUNTIME_NODE_INVALID",
+      message: "Runtime plan contains an invalid node payload",
+    });
+    return createElementNode("div", { "data-renderify-invalid-node": "true" }, [
+      createTextNode("Invalid runtime node"),
+    ]);
+  }
+
   if (node.type === "text") {
     return createTextNode(
       interpolateTemplate(node.value, context, state, event),

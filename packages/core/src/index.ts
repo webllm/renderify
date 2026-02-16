@@ -839,7 +839,17 @@ export class RenderifyApp {
         if (typeof delta === "string" && delta.length > 0) {
           const incrementalUpdate =
             await incrementalCodegenSession.pushDelta(delta);
-          plan = incrementalUpdate?.plan;
+          if (!incrementalUpdate) {
+            return undefined;
+          }
+
+          // Suppress noisy text-fallback previews while streaming;
+          // only render previews when a structured/source candidate emerges.
+          if (incrementalUpdate.mode === "runtime-text-fallback") {
+            return undefined;
+          }
+
+          plan = incrementalUpdate.plan;
         }
 
         if (!plan) {

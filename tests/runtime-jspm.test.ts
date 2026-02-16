@@ -157,3 +157,64 @@ test("runtime-jspm de-duplicates concurrent in-flight loads", async () => {
     }
   }
 });
+
+test("runtime-jspm materializes remote HTTP modules when System.import is unavailable", async () => {
+  const loader = new JspmModuleLoader({
+    importMap: {
+      "app:entry": "https://cdn.example.com/entry.mjs",
+    },
+  });
+  const globalState = globalThis as unknown as {
+    System?: { import(url: string): Promise<unknown> };
+    fetch?: typeof fetch;
+  };
+  const previousSystem = globalState.System;
+  const previousFetch = globalThis.fetch;
+  const requestedUrls: string[] = [];
+
+  delete globalState.System;
+  globalState.fetch = (async (input: RequestInfo | URL) => {
+    const requestUrl = String(input);
+    requestedUrls.push(requestUrl);
+
+    if (requestUrl === "https://cdn.example.com/entry.mjs") {
+      return new Response(
+        'import { value } from "./dep.mjs"; export default value + 1;',
+        {
+          status: 200,
+          headers: {
+            "content-type": "text/javascript; charset=utf-8",
+          },
+        },
+      );
+    }
+
+    if (requestUrl === "https://cdn.example.com/dep.mjs") {
+      return new Response("export const value = 41;", {
+        status: 200,
+        headers: {
+          "content-type": "text/javascript; charset=utf-8",
+        },
+      });
+    }
+
+    return new Response("not-found", { status: 404 });
+  }) as typeof fetch;
+
+  try {
+    const loaded = (await loader.load("app:entry")) as { default: number };
+    assert.equal(loaded.default, 42);
+    assert.deepEqual(requestedUrls, [
+      "https://cdn.example.com/entry.mjs",
+      "https://cdn.example.com/dep.mjs",
+    ]);
+  } finally {
+    if (previousSystem === undefined) {
+      delete globalState.System;
+    } else {
+      globalState.System = previousSystem;
+    }
+
+    globalThis.fetch = previousFetch;
+  }
+});

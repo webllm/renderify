@@ -229,6 +229,46 @@ class StreamingFailureLLM implements LLMInterpreter {
   }
 }
 
+class StreamingPlainTextLLM implements LLMInterpreter {
+  configure(_options: Record<string, unknown>): void {}
+
+  async generateResponse(req: LLMRequest): Promise<LLMResponse> {
+    return {
+      text: `plain stream output for ${req.prompt}`,
+      model: "streaming-plain-text",
+    };
+  }
+
+  async *generateResponseStream(
+    req: LLMRequest,
+  ): AsyncIterable<LLMResponseStreamChunk> {
+    const text = `plain stream output for ${req.prompt}`;
+    const firstDelta = text.slice(0, 8);
+    const secondDelta = text.slice(8);
+
+    yield {
+      delta: firstDelta,
+      text: firstDelta,
+      done: false,
+      index: 1,
+      model: "streaming-plain-text",
+    };
+    yield {
+      delta: secondDelta,
+      text,
+      done: true,
+      index: 2,
+      model: "streaming-plain-text",
+    };
+  }
+
+  setPromptTemplate(): void {}
+
+  getPromptTemplate(): string | undefined {
+    return undefined;
+  }
+}
+
 class CountingIncrementalCodeGenerator extends DefaultCodeGenerator {
   public generatePlanCalls = 0;
   public pushDeltaCalls = 0;
@@ -448,6 +488,34 @@ test("core renderPromptStream uses incremental codegen session", async () => {
   assert.ok(countingCodegen.pushDeltaCalls > 0);
   assert.equal(countingCodegen.finalizeCalls, 1);
   assert.ok(countingCodegen.generatePlanCalls <= 1);
+
+  await app.stop();
+});
+
+test("core renderPromptStream suppresses noisy text-fallback previews", async () => {
+  const app = createRenderifyApp(
+    createDependencies({
+      llm: new StreamingPlainTextLLM(),
+    }),
+  );
+  await app.start();
+
+  const chunkTypes: string[] = [];
+  let finalHtml = "";
+
+  for await (const chunk of app.renderPromptStream("text stream fallback", {
+    previewEveryChunks: 1,
+  })) {
+    chunkTypes.push(chunk.type);
+    if (chunk.type === "final" && chunk.final) {
+      finalHtml = chunk.final.html;
+    }
+  }
+
+  assert.ok(chunkTypes.includes("llm-delta"));
+  assert.ok(!chunkTypes.includes("preview"));
+  assert.ok(chunkTypes.includes("final"));
+  assert.match(finalHtml, /text stream fallback/);
 
   await app.stop();
 });

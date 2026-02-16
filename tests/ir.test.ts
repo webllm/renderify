@@ -62,6 +62,28 @@ test("walkRuntimeNode traverses tree depth-first and collectComponentModules ded
   assert.deepEqual(modules, ["npm:acme/chart", "npm:acme/table"]);
 });
 
+test("walkRuntimeNode skips malformed child payloads", () => {
+  const malformedRoot = {
+    type: "element",
+    tag: "main",
+    children: [
+      createTextNode("ok"),
+      null,
+      "string-child",
+      { type: "component" },
+      createComponentNode("npm:acme/widget"),
+    ],
+  } as unknown as ReturnType<typeof createElementNode>;
+
+  const visitedTypes: string[] = [];
+  walkRuntimeNode(malformedRoot, (node) => {
+    visitedTypes.push(node.type);
+  });
+
+  assert.deepEqual(visitedTypes, ["element", "text", "component"]);
+  assert.deepEqual(collectComponentModules(malformedRoot), ["npm:acme/widget"]);
+});
+
 test("path helpers set/get nested values and reject unsafe keys", () => {
   const state: Record<string, unknown> = {};
   setValueByPath(state as Record<string, any>, "counter.total", 7);

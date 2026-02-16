@@ -832,6 +832,52 @@ test("runtime resolves component nodes through module loader", async () => {
   await runtime.terminate();
 });
 
+test("runtime tolerates malformed child node payloads without throwing", async () => {
+  const runtime = new DefaultRuntimeManager();
+  await runtime.initialize();
+
+  const malformedRoot = {
+    type: "element",
+    tag: "section",
+    children: [
+      createTextNode("ok"),
+      '{"type":"text","value":"stringified"}',
+      {
+        type: "component",
+      },
+    ],
+  } as unknown as RuntimeNode;
+
+  const result = await runtime.executePlan(createPlan(malformedRoot));
+
+  assert.equal(result.root.type, "element");
+  if (result.root.type !== "element") {
+    throw new Error("expected element root");
+  }
+  assert.ok(
+    result.diagnostics.some((item) => item.code === "RUNTIME_NODE_INVALID"),
+  );
+
+  await runtime.terminate();
+});
+
+test("runtime tolerates malformed import specifier types", async () => {
+  const runtime = new DefaultRuntimeManager();
+  await runtime.initialize();
+
+  const plan = {
+    ...createPlan(createElementNode("div", undefined, [createTextNode("ok")])),
+    imports: [123],
+  } as unknown as RuntimePlan;
+
+  const result = await runtime.executePlan(plan);
+  assert.ok(
+    result.diagnostics.some((item) => item.code === "RUNTIME_MANIFEST_INVALID"),
+  );
+
+  await runtime.terminate();
+});
+
 test("runtime reports warning when no loader is configured", async () => {
   const runtime = new DefaultRuntimeManager();
   await runtime.initialize();
@@ -1095,6 +1141,60 @@ test("runtime executes source module export using custom transpiler", async () =
     throw new Error("expected text child");
   }
   assert.equal(result.root.children[0].value, "Count=7");
+
+  await runtime.terminate();
+});
+
+test("runtime falls back to default source export when exportName is missing", async () => {
+  const runtime = new DefaultRuntimeManager({
+    sourceTranspiler: new PassthroughSourceTranspiler(),
+  });
+
+  await runtime.initialize();
+
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "runtime_source_exportname_fallback_plan",
+    version: 1,
+    root: createElementNode("div", undefined, [createTextNode("fallback")]),
+    capabilities: {
+      domWrite: true,
+    },
+    source: {
+      language: "js",
+      exportName: "TodoApp",
+      code: [
+        "export default () => ({",
+        '  type: "element",',
+        '  tag: "section",',
+        "  children: [{ type: 'text', value: 'default-export-rendered' }],",
+        "});",
+      ].join("\n"),
+    },
+  };
+
+  const result = await runtime.executePlan(plan);
+
+  assert.equal(result.root.type, "element");
+  if (result.root.type !== "element") {
+    throw new Error("expected element root");
+  }
+  assert.equal(result.root.tag, "section");
+  assert.equal(result.root.children?.[0]?.type, "text");
+  if (!result.root.children?.[0] || result.root.children[0].type !== "text") {
+    throw new Error("expected text child");
+  }
+  assert.equal(result.root.children[0].value, "default-export-rendered");
+  assert.ok(
+    result.diagnostics.some(
+      (item) => item.code === "RUNTIME_SOURCE_EXPORT_FALLBACK_DEFAULT",
+    ),
+  );
+  assert.ok(
+    !result.diagnostics.some(
+      (item) => item.code === "RUNTIME_SOURCE_EXPORT_MISSING",
+    ),
+  );
 
   await runtime.terminate();
 });
@@ -1570,6 +1670,38 @@ test("runtime resolves react jsx-runtime through jspm compatibility aliases", ()
   );
 });
 
+test("runtime resolves preact jsx-runtime source imports without manifest entries", () => {
+  const runtime = new DefaultRuntimeManager({
+    moduleLoader: new JspmModuleLoader(),
+  });
+
+  const diagnostics: Array<{ code?: string; message: string }> = [];
+  const resolved = (
+    runtime as unknown as {
+      resolveRuntimeSourceSpecifier: (
+        specifier: string,
+        moduleManifest: RuntimeModuleManifest | undefined,
+        diagnostics: Array<{ code?: string; message: string }>,
+        requireManifest: boolean,
+      ) => string;
+    }
+  ).resolveRuntimeSourceSpecifier(
+    "preact/jsx-runtime",
+    undefined,
+    diagnostics,
+    true,
+  );
+
+  assert.equal(
+    resolved,
+    "https://ga.jspm.io/npm:preact@10.28.3/jsx-runtime/dist/jsxRuntime.module.js",
+  );
+  assert.equal(
+    diagnostics.some((item) => item.code === "RUNTIME_MANIFEST_MISSING"),
+    false,
+  );
+});
+
 test("runtime computes esm fallback url for jspm modules", () => {
   const runtime = new DefaultRuntimeManager();
   const fallback = (
@@ -1965,6 +2097,105 @@ test("runtime source loader materializes preact remote imports outside browser r
     assert.notEqual(resolved, preactUrl);
     assert.match(resolved, /^data:text\/javascript;base64,/);
     assert.ok(fetchCount >= 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("runtime source loader strips sourcemap directives from materialized modules", async () => {
+  const runtime = new DefaultRuntimeManager({
+    remoteFallbackCdnBases: [],
+    remoteFetchRetries: 0,
+    remoteFetchBackoffMs: 10,
+    remoteFetchTimeoutMs: 500,
+  });
+
+  const internals = runtime as unknown as {
+    createSourceModuleLoader: (
+      moduleManifest: RuntimeModuleManifest | undefined,
+      diagnostics: Array<{ code?: string; message?: string }>,
+    ) => {
+      materializeRemoteModule(url: string): Promise<string>;
+    };
+  };
+
+  const preactUrl =
+    "https://ga.jspm.io/npm:preact@10.28.3/hooks/dist/hooks.module.js";
+  const diagnostics: Array<{ code?: string; message?: string }> = [];
+  const loader = internals.createSourceModuleLoader(undefined, diagnostics);
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL) => {
+    return new Response(
+      [
+        "export const value = 1;",
+        "//# sourceMappingURL=hooks.module.js.map",
+      ].join("\n"),
+      {
+        status: 200,
+        headers: {
+          "content-type": "text/javascript; charset=utf-8",
+        },
+      },
+    );
+  }) as typeof fetch;
+
+  try {
+    const resolved = await loader.materializeRemoteModule(preactUrl);
+    assert.match(resolved, /^data:text\/javascript;base64,/);
+    const encoded = resolved.replace(/^data:text\/javascript;base64,/, "");
+    const decoded = Buffer.from(encoded, "base64").toString("utf8");
+    assert.doesNotMatch(decoded, /sourceMappingURL/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("runtime source loader maps remote preact imports to local node file URLs", async () => {
+  const runtime = new DefaultRuntimeManager({
+    remoteFallbackCdnBases: [],
+    remoteFetchRetries: 0,
+    remoteFetchBackoffMs: 10,
+    remoteFetchTimeoutMs: 500,
+  });
+
+  const internals = runtime as unknown as {
+    createSourceModuleLoader: (
+      moduleManifest: RuntimeModuleManifest | undefined,
+      diagnostics: Array<{ code?: string; message?: string }>,
+    ) => {
+      importSourceModuleFromCode(code: string): Promise<unknown>;
+    };
+  };
+
+  const diagnostics: Array<{ code?: string; message?: string }> = [];
+  const loader = internals.createSourceModuleLoader(undefined, diagnostics);
+
+  let fetchCount = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL) => {
+    fetchCount += 1;
+    return new Response("export default 1;", {
+      status: 200,
+      headers: {
+        "content-type": "text/javascript; charset=utf-8",
+      },
+    });
+  }) as typeof fetch;
+
+  try {
+    const namespace = (await loader.importSourceModuleFromCode(
+      [
+        'import { useState } from "https://ga.jspm.io/npm:preact@10.28.3/hooks/dist/hooks.module.js";',
+        "export default function Counter() {",
+        "  return typeof useState;",
+        "}",
+      ].join("\n"),
+    )) as { default?: unknown };
+
+    assert.equal(typeof namespace.default, "function");
+    assert.equal((namespace.default as () => unknown)(), "function");
+    assert.equal(fetchCount, 0);
   } finally {
     globalThis.fetch = originalFetch;
   }

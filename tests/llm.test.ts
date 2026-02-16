@@ -672,6 +672,7 @@ test("google interpreter streams text response chunks", async () => {
 });
 
 test("google interpreter validates structured runtime plan response", async () => {
+  const requests: Array<Record<string, unknown>> = [];
   const plan = {
     id: "google_runtime_plan_1",
     version: 1,
@@ -692,8 +693,9 @@ test("google interpreter validates structured runtime plan response", async () =
 
   const llm = new GoogleLLMInterpreter({
     apiKey: "google-key",
-    fetchImpl: async (_input: RequestInfo | URL, _init?: RequestInit) =>
-      jsonResponse({
+    fetchImpl: async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push(parseBody(init?.body));
+      return jsonResponse({
         modelVersion: "gemini-2.5-flash",
         usageMetadata: {
           totalTokenCount: 27,
@@ -710,7 +712,8 @@ test("google interpreter validates structured runtime plan response", async () =
             },
           },
         ],
-      }),
+      });
+    },
   });
 
   const response = await llm.generateStructuredResponse({
@@ -723,6 +726,118 @@ test("google interpreter validates structured runtime plan response", async () =
   assert.equal(response.model, "gemini-2.5-flash");
   assert.equal(response.tokensUsed, 27);
   assert.deepEqual(response.value, plan);
+  assert.equal(requests.length, 1);
+  const generationConfig = requests[0].generationConfig as Record<
+    string,
+    unknown
+  >;
+  assert.equal(generationConfig.responseMimeType, "application/json");
+  const responseJsonSchema = generationConfig.responseJsonSchema as Record<
+    string,
+    unknown
+  >;
+  assert.equal(responseJsonSchema.type, "object");
+  assert.deepEqual(responseJsonSchema.required, [
+    "id",
+    "version",
+    "root",
+    "capabilities",
+  ]);
+  const properties = responseJsonSchema.properties as Record<string, unknown>;
+  assert.ok(properties.root);
+  assert.ok(properties.capabilities);
+  assert.ok(properties.source);
+});
+
+test("google interpreter retries structured request without schema when unsupported", async () => {
+  const plan = {
+    id: "google_retry_plan",
+    version: 1,
+    capabilities: {
+      domWrite: true,
+    },
+    root: {
+      type: "element",
+      tag: "section",
+      children: [
+        {
+          type: "text",
+          value: "retry fallback",
+        },
+      ],
+    },
+  };
+
+  const requests: Array<Record<string, unknown>> = [];
+  let attempt = 0;
+
+  const llm = new GoogleLLMInterpreter({
+    apiKey: "google-key",
+    fetchImpl: async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push(parseBody(init?.body));
+      attempt += 1;
+
+      if (attempt === 1) {
+        return new Response(
+          JSON.stringify({
+            error: {
+              message:
+                "* GenerateContentRequest.generation_config.response_json_schema: unsupported by this model",
+            },
+          }),
+          {
+            status: 400,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        );
+      }
+
+      return jsonResponse({
+        modelVersion: "gemini-2.5-flash",
+        usageMetadata: {
+          totalTokenCount: 18,
+        },
+        candidates: [
+          {
+            finishReason: "STOP",
+            content: {
+              parts: [
+                {
+                  text: JSON.stringify(plan),
+                },
+              ],
+            },
+          },
+        ],
+      });
+    },
+  });
+
+  const response = await llm.generateStructuredResponse({
+    prompt: "retry structured runtime plan",
+    format: "runtime-plan",
+    strict: true,
+  });
+
+  assert.equal(response.valid, true);
+  assert.deepEqual(response.value, plan);
+  assert.equal(requests.length, 2);
+
+  const firstGenerationConfig = requests[0].generationConfig as Record<
+    string,
+    unknown
+  >;
+  assert.equal(firstGenerationConfig.responseMimeType, "application/json");
+  assert.ok("responseJsonSchema" in firstGenerationConfig);
+
+  const secondGenerationConfig = requests[1].generationConfig as Record<
+    string,
+    unknown
+  >;
+  assert.equal(secondGenerationConfig.responseMimeType, "application/json");
+  assert.equal(secondGenerationConfig.responseJsonSchema, undefined);
 });
 
 test("ollama interpreter generates text response", async () => {

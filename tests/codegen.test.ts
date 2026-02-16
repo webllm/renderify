@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DefaultCodeGenerator } from "../packages/core/src/codegen";
+import { DefaultSecurityChecker } from "../packages/security/src";
 
 test("codegen parses RuntimePlan JSON output directly", async () => {
   const codegen = new DefaultCodeGenerator();
@@ -38,6 +39,30 @@ test("codegen parses RuntimePlan JSON output directly", async () => {
   assert.equal(plan.state?.initial.count, 0);
   assert.equal(plan.capabilities?.maxExecutionMs, 1200);
   assert.equal(plan.metadata?.sourcePrompt, "Counter plan");
+});
+
+test("codegen normalizes unsupported specVersion to runtime-plan/v1", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const planJson = JSON.stringify({
+    specVersion: "1.0.0",
+    id: "codegen_spec_normalize",
+    version: 1,
+    capabilities: {
+      domWrite: true,
+    },
+    root: {
+      type: "element",
+      tag: "section",
+      children: [{ type: "text", value: "spec normalize" }],
+    },
+  });
+
+  const plan = await codegen.generatePlan({
+    prompt: "normalize spec version",
+    llmText: planJson,
+  });
+
+  assert.equal(plan.specVersion, "runtime-plan/v1");
 });
 
 test("codegen falls back to section root when no JSON payload exists", async () => {
@@ -119,6 +144,106 @@ test("codegen preserves source module when RuntimePlan JSON contains source", as
     plan.moduleManifest?.["npm:nanoid@5"]?.resolvedUrl,
     "https://ga.jspm.io/npm:nanoid@5",
   );
+});
+
+test("codegen merges imports from source and capabilities when payload imports are incomplete", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const planJson = JSON.stringify({
+    id: "source_import_merge_plan",
+    version: 1,
+    imports: [],
+    capabilities: {
+      domWrite: true,
+      allowedModules: ["preact"],
+    },
+    root: {
+      type: "element",
+      tag: "section",
+      children: [{ type: "text", value: "import merge" }],
+    },
+    source: {
+      language: "jsx",
+      code: [
+        "import { h } from 'preact';",
+        "import { useState } from 'preact/hooks';",
+        "export default function App() {",
+        "  const [count, setCount] = useState(0);",
+        "  return <button onClick={() => setCount(count + 1)}>{count}</button>;",
+        "}",
+      ].join("\n"),
+      exportName: "default",
+      runtime: "preact",
+    },
+  });
+
+  const plan = await codegen.generatePlan({
+    prompt: "merge imports",
+    llmText: planJson,
+  });
+
+  assert.deepEqual(plan.imports, ["preact", "preact/hooks"]);
+  assert.equal(
+    plan.moduleManifest?.preact?.resolvedUrl,
+    "https://ga.jspm.io/npm:preact@10.28.3/dist/preact.module.js",
+  );
+  assert.equal(
+    plan.moduleManifest?.["preact/hooks"]?.resolvedUrl,
+    "https://ga.jspm.io/npm:preact@10.28.3/hooks/dist/hooks.module.js",
+  );
+});
+
+test("codegen backfills moduleManifest and allowedModules when payload metadata is incomplete", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const planJson = JSON.stringify({
+    id: "manifest_backfill_plan",
+    version: 1,
+    imports: [],
+    capabilities: {
+      domWrite: true,
+      allowedModules: [],
+    },
+    moduleManifest: {
+      react: {
+        resolvedUrl:
+          "https://ga.jspm.io/npm:preact@10.28.3/compat/dist/compat.module.js",
+        signer: "renderify-codegen",
+      },
+    },
+    root: {
+      type: "element",
+      tag: "section",
+      children: [{ type: "text", value: "manifest backfill" }],
+    },
+    source: {
+      language: "jsx",
+      code: [
+        "import { h } from 'preact';",
+        "export default function App() {",
+        "  return <section>ok</section>;",
+        "}",
+      ].join("\n"),
+      exportName: "default",
+      runtime: "preact",
+    },
+  });
+
+  const plan = await codegen.generatePlan({
+    prompt: "manifest backfill",
+    llmText: planJson,
+  });
+
+  assert.ok(plan.imports?.includes("preact"));
+  assert.ok(plan.capabilities);
+  assert.ok(plan.capabilities.allowedModules?.includes("preact"));
+  assert.equal(
+    plan.moduleManifest?.preact?.resolvedUrl,
+    "https://ga.jspm.io/npm:preact@10.28.3/dist/preact.module.js",
+  );
+
+  const checker = new DefaultSecurityChecker();
+  checker.initialize();
+  const result = await checker.checkPlan(plan);
+  assert.equal(result.safe, true);
 });
 
 test("codegen incremental session streams source plans before finalization", async () => {

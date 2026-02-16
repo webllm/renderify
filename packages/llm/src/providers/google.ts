@@ -66,6 +66,118 @@ interface GoogleGenerateContentPayload {
 const DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 const DEFAULT_MODEL = "gemini-2.5-flash";
 const DEFAULT_TIMEOUT_MS = 30000;
+const RUNTIME_PLAN_JSON_SCHEMA = {
+  type: "object",
+  additionalProperties: true,
+  required: ["id", "version", "root", "capabilities"],
+  properties: {
+    specVersion: {
+      type: "string",
+      enum: ["runtime-plan/v1"],
+    },
+    id: {
+      type: "string",
+      minLength: 1,
+    },
+    version: {
+      type: "integer",
+      minimum: 1,
+    },
+    root: {
+      type: "object",
+      required: ["type", "tag"],
+      additionalProperties: true,
+      properties: {
+        type: {
+          type: "string",
+          enum: ["element"],
+        },
+        tag: {
+          type: "string",
+          minLength: 1,
+        },
+        props: {
+          type: "object",
+          additionalProperties: true,
+        },
+        children: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: true,
+          },
+        },
+      },
+    },
+    capabilities: {
+      type: "object",
+      required: ["domWrite"],
+      additionalProperties: true,
+      properties: {
+        domWrite: {
+          type: "boolean",
+        },
+        allowedModules: {
+          type: "array",
+          items: {
+            type: "string",
+          },
+        },
+      },
+    },
+    imports: {
+      type: "array",
+      items: {
+        type: "string",
+      },
+    },
+    moduleManifest: {
+      type: "object",
+      additionalProperties: {
+        type: "object",
+        additionalProperties: false,
+        required: ["resolvedUrl"],
+        properties: {
+          resolvedUrl: { type: "string", minLength: 1 },
+          integrity: { type: "string", minLength: 1 },
+          version: { type: "string", minLength: 1 },
+          signer: { type: "string", minLength: 1 },
+        },
+      },
+    },
+    metadata: {
+      type: "object",
+      additionalProperties: true,
+    },
+    state: {
+      type: "object",
+      additionalProperties: true,
+    },
+    source: {
+      type: "object",
+      additionalProperties: false,
+      required: ["language", "code"],
+      properties: {
+        language: {
+          type: "string",
+          enum: ["js", "jsx", "ts", "tsx"],
+        },
+        code: {
+          type: "string",
+          minLength: 1,
+        },
+        exportName: {
+          type: "string",
+          minLength: 1,
+        },
+        runtime: {
+          type: "string",
+          enum: ["renderify", "preact"],
+        },
+      },
+    },
+  },
+} as const;
 
 export class GoogleLLMInterpreter implements LLMInterpreter {
   private readonly templates = new Map<string, string>();
@@ -356,10 +468,22 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
       };
     }
 
-    const payload = await this.requestGenerateContent(
-      this.buildStructuredRequest(req),
-      req.signal,
-    );
+    let payload: GoogleGenerateContentPayload;
+    try {
+      payload = await this.requestGenerateContent(
+        this.buildStructuredRequest(req, true),
+        req.signal,
+      );
+    } catch (error) {
+      if (!this.shouldRetryStructuredWithoutSchema(error)) {
+        throw error;
+      }
+
+      payload = await this.requestGenerateContent(
+        this.buildStructuredRequest(req, false),
+        req.signal,
+      );
+    }
 
     const refusal = this.extractRefusal(payload);
     if (refusal) {
@@ -475,6 +599,7 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
 
   private buildStructuredRequest(
     req: LLMStructuredRequest,
+    includeJsonSchema: boolean,
   ): Record<string, unknown> {
     const body = this.buildRequest({
       ...req,
@@ -483,9 +608,27 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
 
     body.generationConfig = {
       responseMimeType: "application/json",
+      ...(includeJsonSchema
+        ? {
+            responseJsonSchema: RUNTIME_PLAN_JSON_SCHEMA,
+          }
+        : {}),
     };
 
     return body;
+  }
+
+  private shouldRetryStructuredWithoutSchema(error: unknown): boolean {
+    if (!(error instanceof Error)) {
+      return false;
+    }
+
+    const message = error.message.toLowerCase();
+    return (
+      message.includes("responsejsonschema") ||
+      message.includes("response_json_schema") ||
+      message.includes("response_schema")
+    );
   }
 
   private resolveSystemPrompt(req: LLMRequest): string | undefined {
@@ -511,6 +654,7 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
     const defaultPrompt = [
       "You generate RuntimePlan JSON for Renderify.",
       "Return only JSON with no markdown or explanations.",
+      'Use specVersion exactly as "runtime-plan/v1".',
       "Schema priority: id/version/root/capabilities must be valid.",
       `Strict mode: ${strictHint}.`,
     ].join(" ");

@@ -655,10 +655,14 @@ export function walkRuntimeNode(
   visitor: (node: RuntimeNode, depth: number) => void,
   depth = 0,
 ): void {
+  if (!isRuntimeNode(node)) {
+    return;
+  }
+
   visitor(node, depth);
 
   const children = node.type === "text" ? undefined : node.children;
-  if (!children || children.length === 0) {
+  if (!Array.isArray(children) || children.length === 0) {
     return;
   }
 

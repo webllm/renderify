@@ -6,6 +6,13 @@ export type LLMProviderConfig = string;
 const DEFAULT_RUNTIME_SPEC_VERSIONS = ["runtime-plan/v1"];
 const DEFAULT_RUNTIME_REMOTE_FALLBACK_CDNS = ["https://esm.sh"];
 const DEFAULT_JSPM_ALLOWED_NETWORK_HOSTS = ["ga.jspm.io", "cdn.jspm.io"];
+const DEFAULT_OPENAI_MODEL = "gpt-5-mini";
+const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
+const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-5";
+const DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1";
+const DEFAULT_GOOGLE_MODEL = "gemini-2.5-flash";
+const DEFAULT_GOOGLE_BASE_URL =
+  "https://generativelanguage.googleapis.com/v1beta";
 
 export interface RenderifyConfigValues {
   llmApiKey?: string;
@@ -77,10 +84,16 @@ export class DefaultRenderifyConfig implements RenderifyConfig {
 
   async load(overrides?: Partial<RenderifyConfigValues>) {
     const env = getEnvironmentValues();
+    const hasExplicitLlmModel =
+      typeof env.llmModel === "string" ||
+      typeof overrides?.llmModel === "string";
+    const hasExplicitLlmBaseUrl =
+      typeof env.llmBaseUrl === "string" ||
+      typeof overrides?.llmBaseUrl === "string";
     const defaultValues: RenderifyConfigValues = {
       llmProvider: "openai",
-      llmModel: "gpt-5-mini",
-      llmBaseUrl: "https://api.openai.com/v1",
+      llmModel: DEFAULT_OPENAI_MODEL,
+      llmBaseUrl: DEFAULT_OPENAI_BASE_URL,
       llmRequestTimeoutMs: 30000,
       jspmCdnUrl: "https://ga.jspm.io/npm",
       strictSecurity: true,
@@ -107,7 +120,10 @@ export class DefaultRenderifyConfig implements RenderifyConfig {
       ...(overrides ?? {}),
     } as RenderifyConfigValues;
 
-    this.config = applyDerivedConfig(merged);
+    this.config = applyDerivedConfig(merged, {
+      hasExplicitLlmModel,
+      hasExplicitLlmBaseUrl,
+    });
   }
 
   get<T = unknown>(key: string): T | undefined {
@@ -129,12 +145,32 @@ export class DefaultRenderifyConfig implements RenderifyConfig {
 
 function applyDerivedConfig(
   input: RenderifyConfigValues,
+  options: {
+    hasExplicitLlmModel: boolean;
+    hasExplicitLlmBaseUrl: boolean;
+  } = {
+    hasExplicitLlmModel: false,
+    hasExplicitLlmBaseUrl: false,
+  },
 ): RenderifyConfigValues {
-  if (input.runtimeJspmOnlyStrictMode !== true) {
-    return input;
+  const llmDefaults = resolveProviderLlmDefaults(input.llmProvider);
+  const withProviderDefaults: RenderifyConfigValues = {
+    ...input,
+    ...(!options.hasExplicitLlmModel && llmDefaults?.model
+      ? { llmModel: llmDefaults.model }
+      : {}),
+    ...(!options.hasExplicitLlmBaseUrl && llmDefaults?.baseUrl
+      ? { llmBaseUrl: llmDefaults.baseUrl }
+      : {}),
+  };
+
+  if (withProviderDefaults.runtimeJspmOnlyStrictMode !== true) {
+    return withProviderDefaults;
   }
 
-  const existingPolicy = toSecurityPolicyOverrides(input.securityPolicy);
+  const existingPolicy = toSecurityPolicyOverrides(
+    withProviderDefaults.securityPolicy,
+  );
   const strictPreset = createJspmOnlyStrictModeConfig({
     allowedNetworkHosts: normalizeJspmAllowedNetworkHosts(
       existingPolicy.allowedNetworkHosts,
@@ -142,13 +178,41 @@ function applyDerivedConfig(
   });
 
   return {
-    ...input,
+    ...withProviderDefaults,
     ...strictPreset,
     securityPolicy: {
       ...existingPolicy,
       ...toSecurityPolicyOverrides(strictPreset.securityPolicy),
     },
   };
+}
+
+function resolveProviderLlmDefaults(
+  provider: LLMProviderConfig,
+): { model: string; baseUrl: string } | undefined {
+  const normalizedProvider = parseLlmProvider(provider);
+  if (normalizedProvider === "openai") {
+    return {
+      model: DEFAULT_OPENAI_MODEL,
+      baseUrl: DEFAULT_OPENAI_BASE_URL,
+    };
+  }
+
+  if (normalizedProvider === "anthropic") {
+    return {
+      model: DEFAULT_ANTHROPIC_MODEL,
+      baseUrl: DEFAULT_ANTHROPIC_BASE_URL,
+    };
+  }
+
+  if (normalizedProvider === "google") {
+    return {
+      model: DEFAULT_GOOGLE_MODEL,
+      baseUrl: DEFAULT_GOOGLE_BASE_URL,
+    };
+  }
+
+  return undefined;
 }
 
 function getEnvironmentValues(): Partial<RenderifyConfigValues> {

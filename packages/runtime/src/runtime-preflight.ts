@@ -27,7 +27,11 @@ export async function collectDependencyProbes(
   const probes: DependencyProbe[] = [];
   const seen = new Set<string>();
 
-  const pushProbe = (usage: RuntimeDependencyUsage, specifier: string) => {
+  const pushProbe = (usage: RuntimeDependencyUsage, specifier: unknown) => {
+    if (typeof specifier !== "string") {
+      return;
+    }
+
     const trimmed = specifier.trim();
     if (trimmed.length === 0) {
       return;
@@ -45,7 +49,8 @@ export async function collectDependencyProbes(
     });
   };
 
-  for (const specifier of plan.imports ?? []) {
+  const declaredImports = Array.isArray(plan.imports) ? plan.imports : [];
+  for (const specifier of declaredImports) {
     pushProbe("import", specifier);
   }
 

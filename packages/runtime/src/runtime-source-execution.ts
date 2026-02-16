@@ -84,7 +84,11 @@ export async function executeRuntimeSourceRoot(
   } = input;
 
   try {
-    const exportName = source.exportName ?? "default";
+    const exportName =
+      typeof source.exportName === "string" &&
+      source.exportName.trim().length > 0
+        ? source.exportName.trim()
+        : "default";
     const runtimeInput = {
       context: input.cloneJsonValue(input.asJsonValue(context)),
       state: input.cloneJsonValue(state),
@@ -174,7 +178,18 @@ export async function executeRuntimeSourceRoot(
       "Runtime source module loading timed out",
     );
 
-    const selected = selectExportFromNamespace(namespace, exportName);
+    let selected = selectExportFromNamespace(namespace, exportName);
+    if (selected === undefined && exportName !== "default") {
+      const fallbackDefault = selectExportFromNamespace(namespace, "default");
+      if (fallbackDefault !== undefined) {
+        selected = fallbackDefault;
+        diagnostics.push({
+          level: "warning",
+          code: "RUNTIME_SOURCE_EXPORT_FALLBACK_DEFAULT",
+          message: `Runtime source export "${exportName}" is missing; falling back to "default" export`,
+        });
+      }
+    }
     if (selected === undefined) {
       diagnostics.push({
         level: "error",

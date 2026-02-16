@@ -40,6 +40,23 @@ export interface RuntimeSourceModuleLoaderOptions {
   isRemoteUrlAllowed?: (url: string) => boolean;
 }
 
+type NodeModuleResolver = {
+  resolve(specifier: string): string;
+};
+
+type NodePathToFileUrl = (path: string) => URL;
+type NodePathModule = {
+  dirname(path: string): string;
+  join(...segments: string[]): string;
+};
+
+const PREACT_LOCAL_ESM_ENTRYPOINTS = new Map<string, string>([
+  ["preact", "dist/preact.mjs"],
+  ["preact/hooks", "hooks/dist/hooks.mjs"],
+  ["preact/jsx-runtime", "jsx-runtime/dist/jsxRuntime.mjs"],
+  ["preact/compat", "compat/dist/compat.mjs"],
+]);
+
 export class RuntimeSourceModuleLoader {
   private readonly moduleManifest: RuntimeModuleManifest | undefined;
   private readonly diagnostics: RuntimeDiagnostic[];
@@ -62,6 +79,14 @@ export class RuntimeSourceModuleLoader {
     requireManifest?: boolean,
   ) => string;
   private readonly isRemoteUrlAllowedFn: (url: string) => boolean;
+  private readonly localNodeSpecifierUrlCache = new Map<
+    string,
+    string | null
+  >();
+  private nodeModuleResolverPromise?: Promise<NodeModuleResolver | undefined>;
+  private nodePathToFileUrlPromise?: Promise<NodePathToFileUrl | undefined>;
+  private nodePathModulePromise?: Promise<NodePathModule | undefined>;
+  private preactPackageRootPromise?: Promise<string | undefined>;
 
   constructor(options: RuntimeSourceModuleLoaderOptions) {
     this.moduleManifest = options.moduleManifest;
@@ -109,6 +134,11 @@ export class RuntimeSourceModuleLoader {
       return trimmed;
     }
 
+    const localPreact = await this.resolveLocalPreactSpecifier(trimmed);
+    if (localPreact) {
+      return localPreact;
+    }
+
     if (trimmed.startsWith("data:") || trimmed.startsWith("blob:")) {
       return trimmed;
     }
@@ -132,6 +162,11 @@ export class RuntimeSourceModuleLoader {
       }
 
       const absolute = new URL(trimmed, parentUrl).toString();
+      const localFromAbsolute =
+        await this.resolveLocalPreactSpecifier(absolute);
+      if (localFromAbsolute) {
+        return localFromAbsolute;
+      }
       if (!isHttpUrl(absolute)) {
         return absolute;
       }
@@ -145,6 +180,10 @@ export class RuntimeSourceModuleLoader {
       this.diagnostics,
       false,
     );
+    const localFromResolved = await this.resolveLocalPreactSpecifier(resolved);
+    if (localFromResolved) {
+      return localFromResolved;
+    }
 
     if (isHttpUrl(resolved)) {
       return this.materializeRemoteModule(resolved);
@@ -158,6 +197,11 @@ export class RuntimeSourceModuleLoader {
       isHttpUrl(parentUrl)
     ) {
       const absolute = new URL(resolved, parentUrl).toString();
+      const localFromAbsolute =
+        await this.resolveLocalPreactSpecifier(absolute);
+      if (localFromAbsolute) {
+        return localFromAbsolute;
+      }
       if (!isHttpUrl(absolute)) {
         return absolute;
       }
@@ -237,7 +281,9 @@ export class RuntimeSourceModuleLoader {
       return createTextProxyModuleSource(fetched.code);
     }
 
-    return this.rewriteImportsAsyncFn(fetched.code, async (childSpecifier) =>
+    const code = this.stripSourceMapDirectives(fetched.code);
+
+    return this.rewriteImportsAsyncFn(code, async (childSpecifier) =>
       this.resolveRuntimeImportSpecifier(childSpecifier, fetched.url),
     );
   }
@@ -401,6 +447,273 @@ export class RuntimeSourceModuleLoader {
     return (
       path.includes("/npm:preact@") ||
       path.includes("/npm:preact-render-to-string@")
+    );
+  }
+
+  private async resolveLocalPreactSpecifier(
+    specifier: string,
+  ): Promise<string | undefined> {
+    if (isBrowserRuntime()) {
+      return undefined;
+    }
+
+    const canonical = this.resolveCanonicalPreactSpecifier(specifier);
+    if (!canonical) {
+      return undefined;
+    }
+
+    const localFileUrl = await this.resolveNodeSpecifierToFileUrl(canonical);
+    if (!localFileUrl) {
+      return undefined;
+    }
+
+    return localFileUrl;
+  }
+
+  private resolveCanonicalPreactSpecifier(
+    specifier: string,
+  ): string | undefined {
+    const trimmed = specifier.trim();
+    if (trimmed.length === 0) {
+      return undefined;
+    }
+
+    const directAliases = new Map<string, string>([
+      ["preact", "preact"],
+      ["preact/hooks", "preact/hooks"],
+      ["preact/jsx-runtime", "preact/jsx-runtime"],
+      ["preact/compat", "preact/compat"],
+      ["react", "preact/compat"],
+      ["react-dom", "preact/compat"],
+      ["react-dom/client", "preact/compat"],
+      ["react/jsx-runtime", "preact/jsx-runtime"],
+      ["react/jsx-dev-runtime", "preact/jsx-runtime"],
+    ]);
+    const mapped = directAliases.get(trimmed);
+    if (mapped) {
+      return mapped;
+    }
+
+    if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+      return undefined;
+    }
+
+    const lower = trimmed.toLowerCase();
+    if (!lower.includes("preact@")) {
+      return undefined;
+    }
+
+    if (lower.includes("/hooks/")) {
+      return "preact/hooks";
+    }
+    if (lower.includes("/jsx-runtime/") || lower.includes("jsxruntime")) {
+      return "preact/jsx-runtime";
+    }
+    if (lower.includes("/compat/")) {
+      return "preact/compat";
+    }
+    if (lower.includes("/dist/preact")) {
+      return "preact";
+    }
+    return undefined;
+  }
+
+  private async resolveNodeSpecifierToFileUrl(
+    specifier: string,
+  ): Promise<string | undefined> {
+    const cached = this.localNodeSpecifierUrlCache.get(specifier);
+    if (cached !== undefined) {
+      return cached ?? undefined;
+    }
+
+    const pathToFileUrl = await this.getNodePathToFileUrl();
+    if (!pathToFileUrl) {
+      this.localNodeSpecifierUrlCache.set(specifier, null);
+      return undefined;
+    }
+
+    const preferredPreactPath =
+      await this.resolvePreferredLocalPreactEsmPath(specifier);
+    if (preferredPreactPath) {
+      const resolvedUrl = pathToFileUrl(preferredPreactPath).toString();
+      this.localNodeSpecifierUrlCache.set(specifier, resolvedUrl);
+      return resolvedUrl;
+    }
+
+    const moduleResolver = await this.getNodeModuleResolver();
+    if (!moduleResolver) {
+      this.localNodeSpecifierUrlCache.set(specifier, null);
+      return undefined;
+    }
+
+    try {
+      const resolvedPath = moduleResolver.resolve(specifier);
+      const resolvedUrl = pathToFileUrl(resolvedPath).toString();
+      this.localNodeSpecifierUrlCache.set(specifier, resolvedUrl);
+      return resolvedUrl;
+    } catch {
+      this.localNodeSpecifierUrlCache.set(specifier, null);
+      return undefined;
+    }
+  }
+
+  private async resolvePreferredLocalPreactEsmPath(
+    specifier: string,
+  ): Promise<string | undefined> {
+    const relativeEntry = PREACT_LOCAL_ESM_ENTRYPOINTS.get(specifier);
+    if (!relativeEntry) {
+      return undefined;
+    }
+
+    const preactRoot = await this.getPreactPackageRoot();
+    const pathModule = await this.getNodePathModule();
+    if (!preactRoot || !pathModule) {
+      return undefined;
+    }
+
+    return pathModule.join(preactRoot, relativeEntry);
+  }
+
+  private async getNodeModuleResolver(): Promise<
+    NodeModuleResolver | undefined
+  > {
+    if (this.nodeModuleResolverPromise) {
+      return this.nodeModuleResolverPromise;
+    }
+
+    this.nodeModuleResolverPromise = (async () => {
+      if (
+        typeof process === "undefined" ||
+        typeof process.versions !== "object" ||
+        process.versions === null ||
+        typeof process.versions.node !== "string"
+      ) {
+        return undefined;
+      }
+
+      try {
+        const moduleNamespace = (await import("node:module")) as {
+          createRequire?: (filename: string) => NodeModuleResolver;
+        };
+        if (typeof moduleNamespace.createRequire !== "function") {
+          return undefined;
+        }
+
+        const cwd =
+          typeof process.cwd === "function" ? process.cwd() : "/tmp/renderify";
+        return moduleNamespace.createRequire(
+          `${cwd}/__renderify_runtime_source_loader__.cjs`,
+        );
+      } catch {
+        return undefined;
+      }
+    })();
+
+    return this.nodeModuleResolverPromise;
+  }
+
+  private async getNodePathToFileUrl(): Promise<NodePathToFileUrl | undefined> {
+    if (this.nodePathToFileUrlPromise) {
+      return this.nodePathToFileUrlPromise;
+    }
+
+    this.nodePathToFileUrlPromise = (async () => {
+      if (
+        typeof process === "undefined" ||
+        typeof process.versions !== "object" ||
+        process.versions === null ||
+        typeof process.versions.node !== "string"
+      ) {
+        return undefined;
+      }
+
+      try {
+        const urlNamespace = (await import("node:url")) as {
+          pathToFileURL?: NodePathToFileUrl;
+        };
+        if (typeof urlNamespace.pathToFileURL !== "function") {
+          return undefined;
+        }
+        return urlNamespace.pathToFileURL;
+      } catch {
+        return undefined;
+      }
+    })();
+
+    return this.nodePathToFileUrlPromise;
+  }
+
+  private async getNodePathModule(): Promise<NodePathModule | undefined> {
+    if (this.nodePathModulePromise) {
+      return this.nodePathModulePromise;
+    }
+
+    this.nodePathModulePromise = (async () => {
+      if (
+        typeof process === "undefined" ||
+        typeof process.versions !== "object" ||
+        process.versions === null ||
+        typeof process.versions.node !== "string"
+      ) {
+        return undefined;
+      }
+
+      try {
+        const pathNamespace = (await import("node:path")) as {
+          dirname?: NodePathModule["dirname"];
+          join?: NodePathModule["join"];
+        };
+        if (
+          typeof pathNamespace.dirname !== "function" ||
+          typeof pathNamespace.join !== "function"
+        ) {
+          return undefined;
+        }
+        return {
+          dirname: pathNamespace.dirname,
+          join: pathNamespace.join,
+        };
+      } catch {
+        return undefined;
+      }
+    })();
+
+    return this.nodePathModulePromise;
+  }
+
+  private async getPreactPackageRoot(): Promise<string | undefined> {
+    if (this.preactPackageRootPromise) {
+      return this.preactPackageRootPromise;
+    }
+
+    this.preactPackageRootPromise = (async () => {
+      const moduleResolver = await this.getNodeModuleResolver();
+      const pathModule = await this.getNodePathModule();
+      if (!moduleResolver || !pathModule) {
+        return undefined;
+      }
+
+      try {
+        const packageJsonPath = moduleResolver.resolve("preact/package.json");
+        return pathModule.dirname(packageJsonPath);
+      } catch {
+        return undefined;
+      }
+    })();
+
+    return this.preactPackageRootPromise;
+  }
+
+  private stripSourceMapDirectives(code: string): string {
+    // Source-map directives from remote bundles often reference relative .map
+    // files, which break when modules are rematerialized as data: URLs.
+    const withoutLineComments = code.replace(
+      /^[ \t]*\/\/[#@]\s*sourceMappingURL=.*$/gm,
+      "",
+    );
+    return withoutLineComments.replace(
+      /\/\*[#@]\s*sourceMappingURL=[^*]*\*\//g,
+      "",
     );
   }
 }

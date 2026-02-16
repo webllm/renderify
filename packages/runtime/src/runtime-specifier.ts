@@ -86,6 +86,15 @@ export function resolveRuntimeSourceSpecifier(
 export function resolveRuntimeSpecifier(
   input: ResolveRuntimeSpecifierInput,
 ): string | undefined {
+  if (typeof input.specifier !== "string") {
+    input.diagnostics.push({
+      level: "error",
+      code: "RUNTIME_MANIFEST_INVALID",
+      message: `Invalid ${input.usage} specifier type: ${typeof input.specifier}`,
+    });
+    return undefined;
+  }
+
   const trimmed = input.specifier.trim();
   if (trimmed.length === 0) {
     input.diagnostics.push({
@@ -96,8 +105,21 @@ export function resolveRuntimeSpecifier(
     return undefined;
   }
 
+  if (isRuntimeSourceIntrinsicSpecifier(trimmed, input.usage)) {
+    return trimmed;
+  }
+
   const descriptor = input.moduleManifest?.[trimmed];
   if (descriptor) {
+    if (typeof descriptor.resolvedUrl !== "string") {
+      input.diagnostics.push({
+        level: "error",
+        code: "RUNTIME_MANIFEST_INVALID",
+        message: `Manifest entry has invalid resolvedUrl for ${trimmed}`,
+      });
+      return undefined;
+    }
+
     const resolved = descriptor.resolvedUrl.trim();
     if (resolved.length === 0) {
       input.diagnostics.push({
@@ -155,6 +177,10 @@ export function resolveOptionalManifestSpecifier(
   const descriptor = moduleManifest?.[specifier];
   if (!descriptor) {
     return specifier;
+  }
+
+  if (typeof descriptor.resolvedUrl !== "string") {
+    return undefined;
   }
 
   const resolved = descriptor.resolvedUrl.trim();
@@ -215,5 +241,20 @@ function hasResolveSpecifier(loader: unknown): loader is {
     "resolveSpecifier" in loader &&
     typeof (loader as { resolveSpecifier?: unknown }).resolveSpecifier ===
       "function"
+  );
+}
+
+function isRuntimeSourceIntrinsicSpecifier(
+  specifier: string,
+  usage: RuntimeSpecifierUsage,
+): boolean {
+  if (usage !== "source-import") {
+    return false;
+  }
+
+  return (
+    specifier === "preact/jsx-runtime" ||
+    specifier === "react/jsx-runtime" ||
+    specifier === "react/jsx-dev-runtime"
   );
 }

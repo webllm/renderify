@@ -233,6 +233,330 @@ export const PLAYGROUND_HTML = `<!doctype html>
         }
       };
 
+      const isRecord = (value) =>
+        typeof value === "object" && value !== null && !Array.isArray(value);
+
+      const DEFAULT_PREACT_VERSION = "10.28.3";
+      const ESM_SH_BASE_URL = "https://esm.sh/";
+      const BABEL_STANDALONE_URL = "https://unpkg.com/@babel/standalone/babel.min.js";
+      const JSSPM_HOSTNAMES = new Set(["ga.jspm.io", "cdn.jspm.io"]);
+
+      let interactiveMountVersion = 0;
+      let interactiveBlobModuleUrl = null;
+      let babelStandalonePromise;
+      let diagnosticsSnapshot = {};
+
+      const resetInteractiveMount = () => {
+        interactiveMountVersion += 1;
+        if (interactiveBlobModuleUrl) {
+          URL.revokeObjectURL(interactiveBlobModuleUrl);
+          interactiveBlobModuleUrl = null;
+        }
+      };
+
+      const writeDiagnostics = (payload) => {
+        diagnosticsSnapshot = isRecord(payload) ? payload : {};
+        diagnosticsEl.textContent = safeJson(diagnosticsSnapshot);
+      };
+
+      const appendInteractiveWarning = (message) => {
+        const diagnostics = Array.isArray(diagnosticsSnapshot.diagnostics)
+          ? diagnosticsSnapshot.diagnostics.slice()
+          : [];
+        diagnostics.push({
+          level: "warning",
+          code: "PLAYGROUND_INTERACTIVE_MOUNT_FAILED",
+          message,
+        });
+        writeDiagnostics({
+          traceId: diagnosticsSnapshot.traceId,
+          state: diagnosticsSnapshot.state ?? {},
+          diagnostics,
+        });
+      };
+
+      const ensureBabelStandalone = async () => {
+        if (window.Babel && typeof window.Babel.transform === "function") {
+          return;
+        }
+
+        if (!babelStandalonePromise) {
+          babelStandalonePromise = new Promise((resolve, reject) => {
+            const existing = document.querySelector("script[data-babel-standalone='1']");
+            if (existing) {
+              existing.addEventListener("load", () => resolve(), { once: true });
+              existing.addEventListener(
+                "error",
+                () => reject(new Error("Failed to load Babel standalone.")),
+                { once: true },
+              );
+              return;
+            }
+
+            const script = document.createElement("script");
+            script.src = BABEL_STANDALONE_URL;
+            script.async = true;
+            script.dataset.babelStandalone = "1";
+            script.onload = () => resolve();
+            script.onerror = () =>
+              reject(new Error("Failed to load Babel standalone."));
+            document.head.appendChild(script);
+          });
+        }
+
+        await babelStandalonePromise;
+
+        if (!(window.Babel && typeof window.Babel.transform === "function")) {
+          throw new Error("Babel standalone is unavailable in playground.");
+        }
+      };
+
+      const isBareModuleSpecifier = (specifier) => {
+        const normalized = String(specifier ?? "").trim();
+        if (!normalized) {
+          return false;
+        }
+
+        if (
+          normalized.startsWith("./") ||
+          normalized.startsWith("../") ||
+          normalized.startsWith("/") ||
+          normalized.startsWith("http://") ||
+          normalized.startsWith("https://") ||
+          normalized.startsWith("data:") ||
+          normalized.startsWith("blob:")
+        ) {
+          return false;
+        }
+
+        const firstColonIndex = normalized.indexOf(":");
+        if (firstColonIndex > 0) {
+          return false;
+        }
+
+        return true;
+      };
+
+      const isJspmResolvedUrl = (url) => {
+        try {
+          const parsed = new URL(String(url));
+          return JSSPM_HOSTNAMES.has(parsed.hostname.toLowerCase());
+        } catch {
+          return false;
+        }
+      };
+
+      const getManifestResolvedUrl = (planDetail, specifier) => {
+        if (!isRecord(planDetail) || !isRecord(planDetail.moduleManifest)) {
+          return undefined;
+        }
+        const descriptor = planDetail.moduleManifest[specifier];
+        if (!isRecord(descriptor)) {
+          return undefined;
+        }
+        const resolvedUrl = descriptor.resolvedUrl;
+        if (typeof resolvedUrl !== "string" || resolvedUrl.trim().length === 0) {
+          return undefined;
+        }
+        return resolvedUrl.trim();
+      };
+
+      const extractPreactVersion = (planDetail) => {
+        const candidates = [
+          getManifestResolvedUrl(planDetail, "preact"),
+          getManifestResolvedUrl(planDetail, "preact/hooks"),
+          getManifestResolvedUrl(planDetail, "preact/jsx-runtime"),
+        ];
+
+        for (const candidate of candidates) {
+          if (!candidate) {
+            continue;
+          }
+          const match = candidate.match(/preact@([^/]+)/);
+          if (match && typeof match[1] === "string" && match[1].trim()) {
+            return match[1].trim();
+          }
+        }
+
+        return DEFAULT_PREACT_VERSION;
+      };
+
+      const toEsmShUrl = (specifier, planDetail) => {
+        const normalized = String(specifier ?? "").trim();
+        if (!normalized) {
+          return normalized;
+        }
+
+        if (!isBareModuleSpecifier(normalized)) {
+          return normalized;
+        }
+
+        const manifestResolvedUrl = getManifestResolvedUrl(planDetail, normalized);
+        if (manifestResolvedUrl && !isJspmResolvedUrl(manifestResolvedUrl)) {
+          return manifestResolvedUrl;
+        }
+
+        const preactVersion = extractPreactVersion(planDetail);
+        if (normalized === "preact") {
+          return ESM_SH_BASE_URL + "preact@" + preactVersion;
+        }
+        if (normalized.startsWith("preact/")) {
+          return (
+            ESM_SH_BASE_URL +
+            "preact@" +
+            preactVersion +
+            "/" +
+            normalized.slice("preact/".length)
+          );
+        }
+
+        return ESM_SH_BASE_URL + normalized;
+      };
+
+      const rewriteTranspiledImports = (code, planDetail) =>
+        String(code ?? "")
+          .replace(/\\bfrom\\s+["']([^"']+)["']/g, (full, specifier) =>
+            full.replace(specifier, toEsmShUrl(specifier, planDetail)),
+          )
+          .replace(/\\bimport\\s+["']([^"']+)["']/g, (full, specifier) =>
+            full.replace(specifier, toEsmShUrl(specifier, planDetail)),
+          )
+          .replace(
+            /\\bimport\\s*\\(\\s*["']([^"']+)["']\\s*\\)/g,
+            (full, specifier) =>
+              full.replace(specifier, toEsmShUrl(specifier, planDetail)),
+          );
+
+      const shouldMountPreactSource = (planDetail) => {
+        if (!isRecord(planDetail) || !isRecord(planDetail.source)) {
+          return false;
+        }
+        const runtime = String(planDetail.source.runtime ?? "")
+          .trim()
+          .toLowerCase();
+        const code = planDetail.source.code;
+        return runtime === "preact" && typeof code === "string" && code.trim().length > 0;
+      };
+
+      const transpilePreactSource = (source) => {
+        const language = String(source.language ?? "jsx")
+          .trim()
+          .toLowerCase();
+        if (
+          language !== "js" &&
+          language !== "jsx" &&
+          language !== "ts" &&
+          language !== "tsx"
+        ) {
+          throw new Error("Unsupported source language for interactive mount: " + language);
+        }
+
+        const presets = [];
+        if (language === "ts" || language === "tsx") {
+          presets.push("typescript");
+        }
+        if (language === "jsx" || language === "tsx") {
+          presets.push([
+            "react",
+            {
+              runtime: "automatic",
+              importSource: "preact",
+            },
+          ]);
+        }
+
+        const transformed = window.Babel.transform(String(source.code ?? ""), {
+          sourceType: "module",
+          presets,
+          filename: "renderify-playground-source." + language,
+          babelrc: false,
+          configFile: false,
+          comments: false,
+        });
+
+        if (!isRecord(transformed) || typeof transformed.code !== "string") {
+          throw new Error("Babel returned empty code for interactive mount.");
+        }
+
+        return transformed.code;
+      };
+
+      const mountPreactSourceInteractively = async (
+        planDetail,
+        runtimeState,
+        mountVersion,
+      ) => {
+        if (!shouldMountPreactSource(planDetail)) {
+          return;
+        }
+
+        await ensureBabelStandalone();
+        if (mountVersion !== interactiveMountVersion) {
+          return;
+        }
+
+        const source = planDetail.source;
+        const transpiled = transpilePreactSource(source);
+        const rewritten = rewriteTranspiledImports(transpiled, planDetail);
+        const preactImportUrl = toEsmShUrl("preact", planDetail);
+        const exportNameRaw =
+          typeof source.exportName === "string" && source.exportName.trim().length > 0
+            ? source.exportName.trim()
+            : "default";
+
+        if (interactiveBlobModuleUrl) {
+          URL.revokeObjectURL(interactiveBlobModuleUrl);
+          interactiveBlobModuleUrl = null;
+        }
+
+        interactiveBlobModuleUrl = URL.createObjectURL(
+          new Blob([rewritten], { type: "text/javascript" }),
+        );
+
+        const sourceNamespace = await import(interactiveBlobModuleUrl);
+        if (mountVersion !== interactiveMountVersion) {
+          return;
+        }
+
+        let component = sourceNamespace[exportNameRaw];
+        if (
+          component === undefined &&
+          exportNameRaw !== "default" &&
+          typeof sourceNamespace.default === "function"
+        ) {
+          component = sourceNamespace.default;
+        }
+        if (typeof component !== "function") {
+          throw new Error(
+            "Source export '" + exportNameRaw + "' is not a component function.",
+          );
+        }
+
+        const preactNamespace = await import(preactImportUrl);
+        if (mountVersion !== interactiveMountVersion) {
+          return;
+        }
+
+        if (
+          !isRecord(preactNamespace) ||
+          typeof preactNamespace.h !== "function" ||
+          typeof preactNamespace.render !== "function"
+        ) {
+          throw new Error("Failed to load Preact runtime for interactive mount.");
+        }
+
+        const runtimeInput = {
+          context: {},
+          state: isRecord(runtimeState) ? runtimeState : {},
+          event: null,
+        };
+        htmlOutputEl.innerHTML = "";
+        preactNamespace.render(
+          preactNamespace.h(component, runtimeInput),
+          htmlOutputEl,
+        );
+      };
+
       const HASH_SOURCE_LANGUAGE_KEYS = {
         js64: "js",
         jsx64: "jsx",
@@ -376,14 +700,38 @@ export const PLAYGROUND_HTML = `<!doctype html>
         return payload;
       }
 
-      const applyRenderPayload = (payload) => {
+      const applyRenderPayload = async (payload) => {
+        resetInteractiveMount();
         htmlOutputEl.innerHTML = String(payload.html ?? "");
         planEditorEl.value = safeJson(payload.planDetail ?? {});
-        diagnosticsEl.textContent = safeJson({
+        writeDiagnostics({
           traceId: payload.traceId,
           state: payload.state ?? {},
           diagnostics: payload.diagnostics ?? [],
         });
+
+        const mountVersion = interactiveMountVersion;
+        try {
+          await mountPreactSourceInteractively(
+            payload.planDetail,
+            payload.state ?? {},
+            mountVersion,
+          );
+        } catch (error) {
+          if (mountVersion !== interactiveMountVersion) {
+            return;
+          }
+          htmlOutputEl.innerHTML = String(payload.html ?? "");
+          const message = error instanceof Error ? error.message : String(error);
+          appendInteractiveWarning(message);
+        }
+      };
+
+      const resetRenderPanels = () => {
+        resetInteractiveMount();
+        htmlOutputEl.innerHTML = "";
+        planEditorEl.value = "{}";
+        writeDiagnostics({});
       };
 
       async function renderPlanObject(plan, statusText) {
@@ -391,7 +739,7 @@ export const PLAYGROUND_HTML = `<!doctype html>
         setStatus(statusText || "Rendering plan...");
         try {
           const payload = await request("/api/plan", "POST", { plan });
-          applyRenderPayload(payload);
+          await applyRenderPayload(payload);
           setStatus("Plan rendered.");
           return payload;
         } catch (error) {
@@ -412,10 +760,11 @@ export const PLAYGROUND_HTML = `<!doctype html>
 
         setBusy(true);
         setStatus("Rendering prompt...");
+        resetRenderPanels();
+        streamOutputEl.textContent = "[]";
         try {
           const payload = await request("/api/prompt", "POST", { prompt });
-          applyRenderPayload(payload);
-          streamOutputEl.textContent = "[]";
+          await applyRenderPayload(payload);
           setStatus("Prompt rendered.");
         } catch (error) {
           setStatus("Prompt render failed.");
@@ -434,7 +783,10 @@ export const PLAYGROUND_HTML = `<!doctype html>
 
         setBusy(true);
         setStatus("Streaming prompt...");
+        resetRenderPanels();
         const streamEvents = [];
+        let streamErrorMessage;
+        let streamCompleted = false;
 
         try {
           const response = await fetch("/api/prompt-stream", {
@@ -472,17 +824,33 @@ export const PLAYGROUND_HTML = `<!doctype html>
                 llmTextLength: String(event.llmText ?? "").length,
               });
 
+              if (event.type === "error") {
+                const message =
+                  event.error && typeof event.error.message === "string"
+                    ? event.error.message
+                    : event.error
+                      ? String(event.error)
+                      : "Stream request failed";
+                streamErrorMessage = message;
+                continue;
+              }
+
               if (event.html) {
                 htmlOutputEl.innerHTML = String(event.html);
               }
               if (event.type === "final" && event.final) {
-                applyRenderPayload(event.final);
+                await applyRenderPayload(event.final);
+                streamCompleted = true;
               }
             }
           }
 
           streamOutputEl.textContent = safeJson(streamEvents);
-          setStatus("Stream completed.");
+          if (streamErrorMessage) {
+            throw new Error(streamErrorMessage);
+          }
+
+          setStatus(streamCompleted ? "Stream completed." : "Stream finished without final result.");
         } catch (error) {
           setStatus("Stream failed.");
           diagnosticsEl.textContent = String(error);
@@ -530,8 +898,9 @@ export const PLAYGROUND_HTML = `<!doctype html>
       }
 
       function clearAll() {
+        resetInteractiveMount();
         htmlOutputEl.innerHTML = "";
-        diagnosticsEl.textContent = "{}";
+        writeDiagnostics({});
         streamOutputEl.textContent = "[]";
         setStatus("Cleared.");
       }

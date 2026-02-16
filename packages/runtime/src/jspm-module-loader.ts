@@ -1,5 +1,10 @@
-import { DEFAULT_JSPM_SPECIFIER_OVERRIDES } from "@renderify/ir";
+import {
+  DEFAULT_JSPM_SPECIFIER_OVERRIDES,
+  type RuntimeDiagnostic,
+} from "@renderify/ir";
 import type { RuntimeModuleLoader } from "./index";
+import { RuntimeSourceModuleLoader } from "./runtime-source-module-loader";
+import { rewriteImportsAsync } from "./runtime-source-utils";
 
 export interface JspmModuleLoaderOptions {
   cdnBaseUrl?: string;
@@ -67,6 +72,13 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
   private readonly importMap: Record<string, string>;
   private readonly cache = new Map<string, unknown>();
   private readonly inflight = new Map<string, Promise<unknown>>();
+  private readonly remoteMaterializationDiagnostics: RuntimeDiagnostic[] = [];
+  private readonly remoteMaterializedUrlCache = new Map<string, string>();
+  private readonly remoteMaterializedInflight = new Map<
+    string,
+    Promise<string>
+  >();
+  private remoteSourceModuleLoader?: RuntimeSourceModuleLoader;
 
   constructor(options: JspmModuleLoaderOptions = {}) {
     this.cdnBaseUrl = this.normalizeCdnBaseUrl(options.cdnBaseUrl);
@@ -153,6 +165,15 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
 
     if (hasSystemImport(maybeSystem)) {
       return maybeSystem.import(resolved);
+    }
+
+    if (this.shouldMaterializeRemoteModuleInNode(resolved)) {
+      const rewrittenSpecifier =
+        await this.getRemoteSourceModuleLoader().resolveRuntimeImportSpecifier(
+          resolved,
+          undefined,
+        );
+      return import(/* webpackIgnore: true */ rewrittenSpecifier);
     }
 
     return import(/* webpackIgnore: true */ resolved);
@@ -243,5 +264,60 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
     return normalized.endsWith("/npm")
       ? normalized.slice(0, normalized.length - 4)
       : normalized;
+  }
+
+  private shouldMaterializeRemoteModuleInNode(specifier: string): boolean {
+    return this.isNodeRuntime() && this.isUrl(specifier);
+  }
+
+  private getRemoteSourceModuleLoader(): RuntimeSourceModuleLoader {
+    if (this.remoteSourceModuleLoader) {
+      return this.remoteSourceModuleLoader;
+    }
+
+    this.remoteSourceModuleLoader = new RuntimeSourceModuleLoader({
+      moduleManifest: undefined,
+      diagnostics: this.remoteMaterializationDiagnostics,
+      materializedModuleUrlCache: this.remoteMaterializedUrlCache,
+      materializedModuleInflight: this.remoteMaterializedInflight,
+      remoteFallbackCdnBases: [],
+      remoteFetchTimeoutMs: 12000,
+      remoteFetchRetries: 0,
+      remoteFetchBackoffMs: 120,
+      canMaterializeRuntimeModules: () => typeof Buffer !== "undefined",
+      rewriteImportsAsync: (code, resolver) =>
+        rewriteImportsAsync(code, resolver),
+      createInlineModuleUrl: (code) => this.createInlineModuleUrl(code),
+      resolveRuntimeSourceSpecifier: (specifier) => {
+        try {
+          return this.resolveSpecifier(specifier);
+        } catch {
+          return specifier;
+        }
+      },
+      isRemoteUrlAllowed: () => true,
+    });
+
+    return this.remoteSourceModuleLoader;
+  }
+
+  private createInlineModuleUrl(code: string): string {
+    if (typeof Buffer !== "undefined") {
+      const encoded = Buffer.from(code, "utf8").toString("base64");
+      return `data:text/javascript;base64,${encoded}`;
+    }
+
+    throw new Error(
+      "Node remote module materialization requires Buffer support",
+    );
+  }
+
+  private isNodeRuntime(): boolean {
+    return (
+      typeof process !== "undefined" &&
+      typeof process.versions === "object" &&
+      process.versions !== null &&
+      typeof process.versions.node === "string"
+    );
   }
 }

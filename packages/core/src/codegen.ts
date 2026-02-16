@@ -312,9 +312,13 @@ export class DefaultCodeGenerator implements CodeGenerator {
     const imports =
       this.normalizeImports(input.imports) ?? collectComponentModules(root);
     const source = this.normalizeSourceModule(input.source);
-    const moduleManifest =
-      this.normalizeModuleManifest(input.moduleManifest) ??
-      this.createModuleManifestFromImports(imports);
+    const moduleManifest = this.ensureModuleManifestCoverage(
+      this.normalizeModuleManifest(input.moduleManifest),
+      this.mergeImportedSpecifiers([
+        ...imports,
+        ...(input.capabilities?.allowedModules ?? []),
+      ]),
+    );
     const capabilities = this.normalizeCapabilities(
       input.capabilities,
       imports,
@@ -322,11 +326,10 @@ export class DefaultCodeGenerator implements CodeGenerator {
     const metadata = this.normalizeMetadata(input.prompt, input.metadata);
     const id = this.normalizePlanId(input.id);
     const version = this.normalizePlanVersion(input.version);
+    const specVersion = this.normalizePlanSpecVersion(input.specVersion);
 
     return {
-      specVersion: resolveRuntimePlanSpecVersion(
-        input.specVersion ?? DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
-      ),
+      specVersion,
       id,
       version,
       root,
@@ -337,6 +340,18 @@ export class DefaultCodeGenerator implements CodeGenerator {
       ...(input.state ? { state: input.state } : {}),
       ...(source ? { source } : {}),
     };
+  }
+
+  private normalizePlanSpecVersion(specVersion?: string): string {
+    const normalized = resolveRuntimePlanSpecVersion(
+      specVersion ?? DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    );
+
+    if (normalized.startsWith("runtime-plan/")) {
+      return normalized;
+    }
+
+    return DEFAULT_RUNTIME_PLAN_SPEC_VERSION;
   }
 
   private async tryParseRuntimePlan(
@@ -358,6 +373,11 @@ export class DefaultCodeGenerator implements CodeGenerator {
         ? parsed.metadata
         : undefined
       : undefined;
+    const capabilities: RuntimeCapabilities | undefined = isRuntimeCapabilities(
+      parsed.capabilities,
+    )
+      ? parsed.capabilities
+      : undefined;
     const moduleManifest =
       this.isRecord(parsed.moduleManifest) &&
       isRuntimeModuleManifest(parsed.moduleManifest)
@@ -377,14 +397,22 @@ export class DefaultCodeGenerator implements CodeGenerator {
           .filter((item): item is string => typeof item === "string")
           .map((item) => item.trim())
           .filter((item) => item.length > 0)
-      : undefined;
+      : [];
     const importsFromManifest = moduleManifest
       ? Object.keys(moduleManifest)
-      : undefined;
-    const imports =
-      importsFromPayload ??
-      importsFromManifest ??
-      (source ? await this.parseImportsFromSource(source.code) : undefined);
+      : [];
+    const importsFromSource = source
+      ? await this.parseImportsFromSource(source.code)
+      : [];
+    const importsFromRoot = collectComponentModules(root);
+    const importsFromCapabilities = capabilities?.allowedModules ?? [];
+    const imports = this.mergeImportedSpecifiers([
+      ...importsFromPayload,
+      ...importsFromManifest,
+      ...importsFromSource,
+      ...importsFromRoot,
+      ...importsFromCapabilities,
+    ]);
 
     return this.createPlanFromRoot(root, {
       prompt,
@@ -392,13 +420,9 @@ export class DefaultCodeGenerator implements CodeGenerator {
         typeof parsed.specVersion === "string" ? parsed.specVersion : undefined,
       id: typeof parsed.id === "string" ? parsed.id : undefined,
       version: typeof parsed.version === "number" ? parsed.version : undefined,
-      imports,
+      imports: imports.length > 0 ? imports : undefined,
       moduleManifest,
-      capabilities:
-        this.isRecord(parsed.capabilities) &&
-        isRuntimeCapabilities(parsed.capabilities)
-          ? parsed.capabilities
-          : undefined,
+      capabilities,
       metadata,
       state,
       source,
@@ -514,6 +538,19 @@ export class DefaultCodeGenerator implements CodeGenerator {
     return [...new Set(imports)];
   }
 
+  private mergeImportedSpecifiers(values: string[]): string[] {
+    const merged = new Set<string>();
+    for (const value of values) {
+      const normalized = value.trim();
+      if (normalized.length === 0) {
+        continue;
+      }
+      merged.add(normalized);
+    }
+
+    return [...merged];
+  }
+
   private normalizeModuleManifest(
     manifest?: RuntimeModuleManifest,
   ): RuntimeModuleManifest | undefined {
@@ -524,14 +561,45 @@ export class DefaultCodeGenerator implements CodeGenerator {
     return manifest;
   }
 
+  private ensureModuleManifestCoverage(
+    manifest: RuntimeModuleManifest | undefined,
+    imports: string[],
+  ): RuntimeModuleManifest | undefined {
+    const normalizedImports = this.mergeImportedSpecifiers(imports);
+    if (normalizedImports.length === 0) {
+      return manifest;
+    }
+
+    const generated = this.createModuleManifestFromImports(normalizedImports);
+    if (!generated) {
+      return manifest;
+    }
+
+    if (!manifest) {
+      return generated;
+    }
+
+    return {
+      ...generated,
+      ...manifest,
+    };
+  }
+
   private normalizeCapabilities(
     capabilities: RuntimeCapabilities | undefined,
     imports: string[],
   ): RuntimeCapabilities {
+    const requestedModules = Array.isArray(capabilities?.allowedModules)
+      ? capabilities.allowedModules
+      : [];
+    const allowedModules = this.mergeImportedSpecifiers([
+      ...imports,
+      ...requestedModules,
+    ]);
     const normalized: RuntimeCapabilities = {
       domWrite: true,
-      allowedModules: imports,
       ...(capabilities ?? {}),
+      allowedModules,
     };
 
     if (!Array.isArray(normalized.allowedModules)) {
