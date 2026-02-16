@@ -747,6 +747,11 @@ test("google interpreter validates structured runtime plan response", async () =
   assert.ok(properties.root);
   assert.ok(properties.capabilities);
   assert.ok(properties.source);
+  const rootSchema = properties.root as Record<string, unknown>;
+  assert.deepEqual(rootSchema.required, ["type"]);
+  const rootProperties = rootSchema.properties as Record<string, unknown>;
+  const rootType = rootProperties.type as Record<string, unknown>;
+  assert.deepEqual(rootType.enum, ["text", "element", "component"]);
 });
 
 test("google interpreter retries structured request without schema when unsupported", async () => {

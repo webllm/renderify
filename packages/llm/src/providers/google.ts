@@ -85,14 +85,25 @@ const RUNTIME_PLAN_JSON_SCHEMA = {
     },
     root: {
       type: "object",
-      required: ["type", "tag"],
+      required: ["type"],
       additionalProperties: true,
       properties: {
         type: {
           type: "string",
-          enum: ["element"],
+          enum: ["text", "element", "component"],
+        },
+        value: {
+          type: "string",
         },
         tag: {
+          type: "string",
+          minLength: 1,
+        },
+        module: {
+          type: "string",
+          minLength: 1,
+        },
+        exportName: {
           type: "string",
           minLength: 1,
         },
