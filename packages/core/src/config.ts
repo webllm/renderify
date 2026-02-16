@@ -148,9 +148,6 @@ function applyDerivedConfig(
   options: {
     hasExplicitLlmModel: boolean;
     hasExplicitLlmBaseUrl: boolean;
-  } = {
-    hasExplicitLlmModel: false,
-    hasExplicitLlmBaseUrl: false,
   },
 ): RenderifyConfigValues {
   const llmDefaults = resolveProviderLlmDefaults(input.llmProvider);
