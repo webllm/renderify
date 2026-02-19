@@ -20,7 +20,10 @@ export interface RenderifyConfigValues {
   llmModel: string;
   llmBaseUrl: string;
   llmRequestTimeoutMs: number;
+  llmMaxRetries: number;
   llmUseStructuredOutput: boolean;
+  llmStructuredRetryOnInvalid: boolean;
+  llmStructuredFallbackToText: boolean;
   jspmCdnUrl: string;
   strictSecurity: boolean;
   securityProfile: SecurityProfileConfig;
@@ -95,9 +98,12 @@ export class DefaultRenderifyConfig implements RenderifyConfig {
       llmModel: DEFAULT_OPENAI_MODEL,
       llmBaseUrl: DEFAULT_OPENAI_BASE_URL,
       llmRequestTimeoutMs: 30000,
+      llmMaxRetries: 2,
       jspmCdnUrl: "https://ga.jspm.io/npm",
       strictSecurity: true,
       llmUseStructuredOutput: true,
+      llmStructuredRetryOnInvalid: true,
+      llmStructuredFallbackToText: true,
       securityProfile: "balanced",
       runtimeJspmOnlyStrictMode: false,
       runtimeEnforceModuleManifest: true,
@@ -224,6 +230,10 @@ function getEnvironmentValues(): Partial<RenderifyConfigValues> {
   const values: Partial<RenderifyConfigValues> = {
     llmUseStructuredOutput:
       process.env.RENDERIFY_LLM_USE_STRUCTURED_OUTPUT !== "false",
+    llmStructuredRetryOnInvalid:
+      process.env.RENDERIFY_LLM_STRUCTURED_RETRY !== "false",
+    llmStructuredFallbackToText:
+      process.env.RENDERIFY_LLM_STRUCTURED_FALLBACK_TEXT !== "false",
     strictSecurity: process.env.RENDERIFY_STRICT_SECURITY !== "false",
     securityProfile: parseSecurityProfile(
       process.env.RENDERIFY_SECURITY_PROFILE,
@@ -281,6 +291,13 @@ function getEnvironmentValues(): Partial<RenderifyConfigValues> {
   const timeoutMs = parsePositiveInt(process.env.RENDERIFY_LLM_TIMEOUT_MS);
   if (timeoutMs !== undefined) {
     values.llmRequestTimeoutMs = timeoutMs;
+  }
+
+  const llmMaxRetries = parseNonNegativeInt(
+    process.env.RENDERIFY_LLM_MAX_RETRIES,
+  );
+  if (llmMaxRetries !== undefined) {
+    values.llmMaxRetries = llmMaxRetries;
   }
 
   if (process.env.RENDERIFY_JSPM_CDN_URL) {

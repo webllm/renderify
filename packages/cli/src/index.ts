@@ -372,6 +372,7 @@ function createLLM(config: DefaultRenderifyConfig): LLMInterpreter {
   const providerOptions: Record<string, unknown> = {
     apiKey: config.get<string>("llmApiKey"),
     timeoutMs: config.get<number>("llmRequestTimeoutMs"),
+    maxRetries: config.get<number>("llmMaxRetries"),
   };
 
   if (

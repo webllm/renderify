@@ -211,6 +211,9 @@ RENDERIFY_LLM_PROVIDER=anthropic RENDERIFY_LLM_MODEL=claude-sonnet-4-5 RENDERIFY
 RENDERIFY_LLM_PROVIDER=google RENDERIFY_LLM_API_KEY=<your_key> pnpm playground
 RENDERIFY_LLM_PROVIDER=google RENDERIFY_LLM_MODEL=gemini-2.5-flash RENDERIFY_LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta pnpm playground
 
+# Single-shot LLM mode (avoid structured retry/text fallback + network retries)
+RENDERIFY_LLM_MAX_RETRIES=0 RENDERIFY_LLM_STRUCTURED_RETRY=false RENDERIFY_LLM_STRUCTURED_FALLBACK_TEXT=false pnpm playground
+
 # Runtime protocol/runtime safety env
 RENDERIFY_RUNTIME_ENFORCE_MANIFEST=true pnpm playground
 RENDERIFY_RUNTIME_ALLOW_ISOLATION_FALLBACK=false pnpm playground

@@ -187,6 +187,10 @@ export class RenderifyApp {
       };
       const llmUseStructuredOutput =
         this.deps.config.get<boolean>("llmUseStructuredOutput") !== false;
+      const llmStructuredRetryOnInvalid =
+        this.deps.config.get<boolean>("llmStructuredRetryOnInvalid") !== false;
+      const llmStructuredFallbackToText =
+        this.deps.config.get<boolean>("llmStructuredFallbackToText") !== false;
 
       let llmStructuredResponse: LLMStructuredResponse<unknown> | undefined;
       let llmResponseRaw: LLMResponse;
@@ -205,7 +209,7 @@ export class RenderifyApp {
           await this.deps.llm.generateStructuredResponse(structuredRequest);
         const structuredErrors = [...(llmStructuredResponse.errors ?? [])];
 
-        if (!llmStructuredResponse.valid) {
+        if (!llmStructuredResponse.valid && llmStructuredRetryOnInvalid) {
           const retryHint =
             structuredErrors.length > 0
               ? structuredErrors.join("; ")
@@ -238,7 +242,7 @@ export class RenderifyApp {
               payload: llmStructuredResponse.raw,
             },
           };
-        } else {
+        } else if (llmStructuredFallbackToText) {
           const fallbackResponse =
             await this.deps.llm.generateResponse(llmRequestBase);
           llmResponseRaw = {
@@ -247,6 +251,17 @@ export class RenderifyApp {
               mode: "fallback-text",
               structuredErrors: llmStructuredResponse.errors ?? [],
               fallbackPayload: fallbackResponse.raw,
+            },
+          };
+        } else {
+          llmResponseRaw = {
+            text: llmStructuredResponse.text,
+            tokensUsed: llmStructuredResponse.tokensUsed,
+            model: llmStructuredResponse.model,
+            raw: {
+              mode: "structured-invalid",
+              errors: llmStructuredResponse.errors ?? [],
+              payload: llmStructuredResponse.raw,
             },
           };
         }
@@ -350,6 +365,10 @@ export class RenderifyApp {
           : undefined;
       const llmUseStructuredOutput =
         this.deps.config.get<boolean>("llmUseStructuredOutput") !== false;
+      const llmStructuredRetryOnInvalid =
+        this.deps.config.get<boolean>("llmStructuredRetryOnInvalid") !== false;
+      const llmStructuredFallbackToText =
+        this.deps.config.get<boolean>("llmStructuredFallbackToText") !== false;
 
       const streamPreviewInterval = Math.max(
         1,
@@ -397,7 +416,7 @@ export class RenderifyApp {
           await this.deps.llm.generateStructuredResponse(structuredRequest);
         const structuredErrors = [...(structuredResponse.errors ?? [])];
 
-        if (!structuredResponse.valid) {
+        if (!structuredResponse.valid && llmStructuredRetryOnInvalid) {
           const retryHint =
             structuredErrors.length > 0
               ? structuredErrors.join("; ")
@@ -455,7 +474,7 @@ export class RenderifyApp {
               payload: structuredResponse.raw,
             },
           };
-        } else {
+        } else if (llmStructuredFallbackToText) {
           let fallbackRaw: LLMResponse;
 
           if (typeof this.deps.llm.generateResponseStream === "function") {
@@ -516,6 +535,27 @@ export class RenderifyApp {
               mode: "fallback-text",
               structuredErrors: structuredResponse.errors ?? [],
               fallbackPayload: fallbackRaw.raw,
+            },
+          };
+        } else {
+          if (structuredResponse.text.trim().length > 0) {
+            yield {
+              type: "llm-delta",
+              traceId,
+              prompt: promptAfterHook,
+              llmText: structuredResponse.text,
+              delta: structuredResponse.text,
+            };
+          }
+
+          llmResponse = {
+            text: structuredResponse.text,
+            tokensUsed: structuredResponse.tokensUsed,
+            model: structuredResponse.model,
+            raw: {
+              mode: "structured-invalid",
+              errors: structuredResponse.errors ?? [],
+              payload: structuredResponse.raw,
             },
           };
         }

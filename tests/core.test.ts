@@ -126,6 +126,80 @@ class InvalidStructuredLLM implements LLMInterpreter {
   }
 }
 
+class StructuredInvalidCountingLLM implements LLMInterpreter {
+  structuredCalls = 0;
+  textCalls = 0;
+
+  configure(_options: Record<string, unknown>): void {}
+
+  async generateResponse(req: LLMRequest): Promise<LLMResponse> {
+    this.textCalls += 1;
+    return {
+      text: `text fallback: ${req.prompt}`,
+      model: "structured-invalid-counting",
+      raw: { mode: "text" },
+    };
+  }
+
+  async generateStructuredResponse<T = unknown>(
+    req: LLMStructuredRequest,
+  ): Promise<LLMStructuredResponse<T>> {
+    this.structuredCalls += 1;
+    const plan = {
+      specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+      id: "structured_invalid_but_parseable_plan",
+      version: 1,
+      capabilities: {
+        domWrite: true,
+      },
+      root: {
+        type: "element",
+        tag: "section",
+        children: [
+          {
+            type: "text",
+            value: `Structured invalid: ${req.prompt}`,
+          },
+        ],
+      },
+    };
+
+    return {
+      text: JSON.stringify(plan),
+      value: plan as T,
+      valid: false,
+      errors: ["forced invalid structured payload"],
+      model: "structured-invalid-counting",
+      raw: { mode: "structured" },
+    };
+  }
+
+  setPromptTemplate(_templateName: string, _templateContent: string): void {}
+
+  getPromptTemplate(_templateName: string): string | undefined {
+    return undefined;
+  }
+}
+
+class LLMStructuredControlConfig extends DefaultRenderifyConfig {
+  constructor(
+    private readonly controls: {
+      retryOnInvalid: boolean;
+      fallbackToText: boolean;
+    },
+  ) {
+    super();
+  }
+
+  override async load(
+    overrides?: Partial<RenderifyConfigValues>,
+  ): Promise<void> {
+    await super.load(overrides);
+    this.set("llmStructuredRetryOnInvalid", this.controls.retryOnInvalid);
+    this.set("llmStructuredFallbackToText", this.controls.fallbackToText);
+  }
+}
+
 class DemoLLMInterpreter implements LLMInterpreter {
   private config: Record<string, unknown> = {};
 
@@ -406,6 +480,54 @@ test("core falls back to text generation when structured output is invalid", asy
   assert.match(result.html, /text fallback: fallback/);
   const raw = result.llm.raw as { mode?: string } | undefined;
   assert.equal(raw?.mode, "fallback-text");
+
+  await app.stop();
+});
+
+test("core can disable structured retry while keeping text fallback", async () => {
+  const llm = new StructuredInvalidCountingLLM();
+  const app = createRenderifyApp(
+    createDependencies({
+      config: new LLMStructuredControlConfig({
+        retryOnInvalid: false,
+        fallbackToText: true,
+      }),
+      llm,
+    }),
+  );
+
+  await app.start();
+
+  const result = await app.renderPrompt("retry-off");
+  assert.match(result.html, /text fallback: retry-off/);
+  const raw = result.llm.raw as { mode?: string } | undefined;
+  assert.equal(raw?.mode, "fallback-text");
+  assert.equal(llm.structuredCalls, 1);
+  assert.equal(llm.textCalls, 1);
+
+  await app.stop();
+});
+
+test("core can disable structured text fallback to keep single llm request", async () => {
+  const llm = new StructuredInvalidCountingLLM();
+  const app = createRenderifyApp(
+    createDependencies({
+      config: new LLMStructuredControlConfig({
+        retryOnInvalid: false,
+        fallbackToText: false,
+      }),
+      llm,
+    }),
+  );
+
+  await app.start();
+
+  const result = await app.renderPrompt("single-shot");
+  assert.match(result.html, /Structured invalid: single-shot/);
+  const raw = result.llm.raw as { mode?: string } | undefined;
+  assert.equal(raw?.mode, "structured-invalid");
+  assert.equal(llm.structuredCalls, 1);
+  assert.equal(llm.textCalls, 0);
 
   await app.stop();
 });

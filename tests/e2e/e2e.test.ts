@@ -522,6 +522,69 @@ test("e2e: playground debug mode exposes inbound/outbound request distribution",
   }
 });
 
+test("e2e: playground prompt supports single-shot llm mode", async () => {
+  const tempDir = await mkdtemp(
+    path.join(os.tmpdir(), "renderify-e2e-playground-single-shot-"),
+  );
+  const port = await allocatePort();
+  const openaiPort = await allocatePort();
+  const { requests, close } =
+    await startFakeOpenAIServerStructuredInvalidResponse(openaiPort);
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  const processHandle = startPlayground(port, {
+    RENDERIFY_PLAYGROUND_DEBUG: "1",
+    RENDERIFY_SESSION_FILE: path.join(tempDir, "session.json"),
+    RENDERIFY_LLM_PROVIDER: "openai",
+    RENDERIFY_LLM_API_KEY: "test-key",
+    RENDERIFY_LLM_BASE_URL: `http://127.0.0.1:${openaiPort}/v1`,
+    RENDERIFY_LLM_MODEL: "gpt-5-mini",
+    RENDERIFY_LLM_USE_STRUCTURED_OUTPUT: "true",
+    RENDERIFY_LLM_STRUCTURED_RETRY: "false",
+    RENDERIFY_LLM_STRUCTURED_FALLBACK_TEXT: "false",
+    RENDERIFY_LLM_MAX_RETRIES: "0",
+  });
+
+  try {
+    await waitForHealth(`${baseUrl}/api/health`, 10000);
+
+    const promptResponse = await fetchJson(`${baseUrl}/api/prompt`, {
+      method: "POST",
+      body: {
+        prompt: "single-shot mode prompt",
+      },
+    });
+    assert.equal(promptResponse.status, 200);
+    assert.equal(requests.length, 1);
+
+    const statsResponse = await fetchJson(`${baseUrl}/api/debug/stats`, {
+      method: "GET",
+    });
+    assert.equal(statsResponse.status, 200);
+    const statsBody = statsResponse.body as {
+      outbound?: {
+        targets?: Array<{
+          key?: unknown;
+          count?: unknown;
+        }>;
+      };
+    };
+
+    const outboundModelRequest = (statsBody.outbound?.targets ?? []).find(
+      (item) =>
+        String(item.key ?? "").includes(
+          `127.0.0.1:${openaiPort}/v1/chat/completions`,
+        ),
+    );
+    assert.equal(outboundModelRequest?.count, 1);
+  } finally {
+    processHandle.kill("SIGTERM");
+    await onceExit(processHandle, 3000);
+    await close();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("e2e: playground api auto-hydrates moduleManifest for bare specifiers", async () => {
   const tempDir = await mkdtemp(
     path.join(os.tmpdir(), "renderify-e2e-playground-manifest-auto-"),
@@ -1202,6 +1265,99 @@ async function startFakeOpenAIServer(port: number): Promise<{
             {
               message: {
                 content: JSON.stringify(plan),
+              },
+            },
+          ],
+        });
+      })().catch((error: unknown) => {
+        sendJson(res, 500, {
+          error: {
+            message: error instanceof Error ? error.message : String(error),
+          },
+        });
+      });
+    },
+  );
+
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+
+  return {
+    requests,
+    close: () => closeServer(server),
+  };
+}
+
+async function startFakeOpenAIServerStructuredInvalidResponse(
+  port: number,
+): Promise<{
+  requests: Record<string, unknown>[];
+  close: () => Promise<void>;
+}> {
+  const requests: Record<string, unknown>[] = [];
+  const fallbackPlan = {
+    id: "fake_openai_fallback_plan",
+    version: 1,
+    capabilities: {
+      domWrite: true,
+    },
+    root: {
+      type: "element",
+      tag: "section",
+      children: [
+        {
+          type: "text",
+          value: "fallback plan response",
+        },
+      ],
+    },
+  };
+
+  const structuredInvalidPayload = {
+    id: "invalid",
+    version: 0,
+    capabilities: {},
+    root: {
+      type: "invalid-node-type",
+    },
+  };
+
+  const server = createServer(
+    (req: IncomingMessage, res: ServerResponse): void => {
+      void (async () => {
+        const method = (req.method ?? "GET").toUpperCase();
+        const pathName = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+
+        if (method !== "POST" || pathName !== "/v1/chat/completions") {
+          sendJson(res, 404, { error: { message: "not found" } });
+          return;
+        }
+
+        const body = await readJsonRequest(req);
+        requests.push(body);
+
+        const isStructured =
+          typeof body.response_format === "object" &&
+          body.response_format !== null;
+        const content = isStructured
+          ? JSON.stringify(structuredInvalidPayload)
+          : JSON.stringify(fallbackPlan);
+
+        sendJson(res, 200, {
+          id: "chatcmpl_e2e_openai_structured_invalid",
+          model: "gpt-5-mini",
+          usage: {
+            total_tokens: 64,
+          },
+          choices: [
+            {
+              message: {
+                content,
               },
             },
           ],

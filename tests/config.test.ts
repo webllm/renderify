@@ -14,6 +14,9 @@ test("config loads default security profile and runtime defaults", async () => {
   assert.equal(config.get("llmModel"), "gpt-5-mini");
   assert.equal(config.get("llmBaseUrl"), "https://api.openai.com/v1");
   assert.equal(config.get("llmRequestTimeoutMs"), 30000);
+  assert.equal(config.get("llmMaxRetries"), 2);
+  assert.equal(config.get("llmStructuredRetryOnInvalid"), true);
+  assert.equal(config.get("llmStructuredFallbackToText"), true);
   assert.equal(config.get("runtimeJspmOnlyStrictMode"), false);
   assert.equal(config.get("runtimeEnforceModuleManifest"), true);
   assert.equal(config.get("runtimeAllowIsolationFallback"), false);
@@ -62,11 +65,18 @@ test("config reads llm provider values from env", async () => {
   const previousModel = process.env.RENDERIFY_LLM_MODEL;
   const previousBaseUrl = process.env.RENDERIFY_LLM_BASE_URL;
   const previousTimeout = process.env.RENDERIFY_LLM_TIMEOUT_MS;
+  const previousMaxRetries = process.env.RENDERIFY_LLM_MAX_RETRIES;
+  const previousStructuredRetry = process.env.RENDERIFY_LLM_STRUCTURED_RETRY;
+  const previousStructuredFallback =
+    process.env.RENDERIFY_LLM_STRUCTURED_FALLBACK_TEXT;
 
   process.env.RENDERIFY_LLM_PROVIDER = "openai";
   process.env.RENDERIFY_LLM_MODEL = "gpt-5-mini";
   process.env.RENDERIFY_LLM_BASE_URL = "https://example.local/v1";
   process.env.RENDERIFY_LLM_TIMEOUT_MS = "12000";
+  process.env.RENDERIFY_LLM_MAX_RETRIES = "0";
+  process.env.RENDERIFY_LLM_STRUCTURED_RETRY = "false";
+  process.env.RENDERIFY_LLM_STRUCTURED_FALLBACK_TEXT = "false";
 
   try {
     const config = new DefaultRenderifyConfig();
@@ -76,11 +86,20 @@ test("config reads llm provider values from env", async () => {
     assert.equal(config.get("llmModel"), "gpt-5-mini");
     assert.equal(config.get("llmBaseUrl"), "https://example.local/v1");
     assert.equal(config.get("llmRequestTimeoutMs"), 12000);
+    assert.equal(config.get("llmMaxRetries"), 0);
+    assert.equal(config.get("llmStructuredRetryOnInvalid"), false);
+    assert.equal(config.get("llmStructuredFallbackToText"), false);
   } finally {
     restoreEnv("RENDERIFY_LLM_PROVIDER", previousProvider);
     restoreEnv("RENDERIFY_LLM_MODEL", previousModel);
     restoreEnv("RENDERIFY_LLM_BASE_URL", previousBaseUrl);
     restoreEnv("RENDERIFY_LLM_TIMEOUT_MS", previousTimeout);
+    restoreEnv("RENDERIFY_LLM_MAX_RETRIES", previousMaxRetries);
+    restoreEnv("RENDERIFY_LLM_STRUCTURED_RETRY", previousStructuredRetry);
+    restoreEnv(
+      "RENDERIFY_LLM_STRUCTURED_FALLBACK_TEXT",
+      previousStructuredFallback,
+    );
   }
 });
 
