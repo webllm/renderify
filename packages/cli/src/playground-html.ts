@@ -268,7 +268,10 @@ export const PLAYGROUND_HTML = `<!doctype html>
 
       const DEFAULT_PREACT_VERSION = "10.28.3";
       const ESM_SH_BASE_URL = "https://esm.sh/";
-      const BABEL_STANDALONE_URL = "https://unpkg.com/@babel/standalone/babel.min.js";
+      const BABEL_STANDALONE_URLS = [
+        "https://unpkg.com/@babel/standalone/babel.min.js",
+        "https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js",
+      ];
 
       let interactiveMountVersion = 0;
       let interactiveBlobModuleUrl = null;
@@ -452,27 +455,56 @@ export const PLAYGROUND_HTML = `<!doctype html>
         }
 
         if (!babelStandalonePromise) {
-          babelStandalonePromise = new Promise((resolve, reject) => {
-            const existing = document.querySelector("script[data-babel-standalone='1']");
-            if (existing) {
-              existing.addEventListener("load", () => resolve(), { once: true });
-              existing.addEventListener(
-                "error",
-                () => reject(new Error("Failed to load Babel standalone.")),
-                { once: true },
-              );
-              return;
+          babelStandalonePromise = (async () => {
+            const loadBabelFromUrl = (url) =>
+              new Promise((resolve, reject) => {
+                const existing = document.querySelector(
+                  "script[data-babel-standalone='1'][src='" + url + "']",
+                );
+                if (existing) {
+                  if (window.Babel && typeof window.Babel.transform === "function") {
+                    resolve();
+                    return;
+                  }
+
+                  existing.addEventListener("load", () => resolve(), { once: true });
+                  existing.addEventListener(
+                    "error",
+                    () =>
+                      reject(
+                        new Error("Failed to load Babel standalone from: " + url),
+                      ),
+                    { once: true },
+                  );
+                  return;
+                }
+
+                const script = document.createElement("script");
+                script.src = url;
+                script.async = true;
+                script.dataset.babelStandalone = "1";
+                script.onload = () => resolve();
+                script.onerror = () =>
+                  reject(new Error("Failed to load Babel standalone from: " + url));
+                document.head.appendChild(script);
+              });
+
+            let lastError = null;
+            for (const url of BABEL_STANDALONE_URLS) {
+              try {
+                await loadBabelFromUrl(url);
+                if (window.Babel && typeof window.Babel.transform === "function") {
+                  return;
+                }
+              } catch (error) {
+                lastError = error;
+              }
             }
 
-            const script = document.createElement("script");
-            script.src = BABEL_STANDALONE_URL;
-            script.async = true;
-            script.dataset.babelStandalone = "1";
-            script.onload = () => resolve();
-            script.onerror = () =>
-              reject(new Error("Failed to load Babel standalone."));
-            document.head.appendChild(script);
-          });
+            const detail =
+              lastError instanceof Error ? lastError.message : String(lastError);
+            throw new Error("Babel standalone is unavailable in playground: " + detail);
+          })();
         }
 
         await babelStandalonePromise;
@@ -922,24 +954,37 @@ export const PLAYGROUND_HTML = `<!doctype html>
         });
 
         const mountVersion = interactiveMountVersion;
+        const mountState = {
+          attempted: false,
+          fallbackToStatic: false,
+          message: undefined,
+        };
+
         try {
           if (shouldMountPreactSource(payload.planDetail)) {
+            mountState.attempted = true;
             await mountPreactSourceInteractively(
               payload.planDetail,
               payload.state ?? {},
               mountVersion,
             );
           } else if (shouldRunRenderifySource(payload.planDetail)) {
+            mountState.attempted = true;
             await runRenderifySourceInteractively(payload.planDetail, mountVersion);
           }
         } catch (error) {
           if (mountVersion !== interactiveMountVersion) {
-            return;
+            return mountState;
           }
           htmlOutputEl.innerHTML = String(payload.html ?? "");
           const message = error instanceof Error ? error.message : String(error);
           appendInteractiveWarning(message);
+          console.warn("[playground] interactive mount failed:", message);
+          mountState.fallbackToStatic = true;
+          mountState.message = message;
         }
+
+        return mountState;
       };
 
       const resetRenderPanels = () => {
@@ -954,8 +999,12 @@ export const PLAYGROUND_HTML = `<!doctype html>
         setStatus(statusText || "Rendering plan...");
         try {
           const payload = await request("/api/plan", "POST", { plan });
-          await applyRenderPayload(payload);
-          setStatus("Plan rendered.");
+          const mountState = await applyRenderPayload(payload);
+          if (mountState && mountState.fallbackToStatic) {
+            setStatus("Plan rendered (static fallback). See diagnostics.");
+          } else {
+            setStatus("Plan rendered.");
+          }
           return payload;
         } catch (error) {
           setStatus("Plan render failed.");
@@ -980,8 +1029,12 @@ export const PLAYGROUND_HTML = `<!doctype html>
         streamOutputEl.textContent = "[]";
         try {
           const payload = await request("/api/prompt", "POST", { prompt });
-          await applyRenderPayload(payload);
-          setStatus("Prompt rendered.");
+          const mountState = await applyRenderPayload(payload);
+          if (mountState && mountState.fallbackToStatic) {
+            setStatus("Prompt rendered (static fallback). See diagnostics.");
+          } else {
+            setStatus("Prompt rendered.");
+          }
         } catch (error) {
           setStatus("Prompt render failed.");
           diagnosticsEl.textContent = String(error);
@@ -1004,6 +1057,7 @@ export const PLAYGROUND_HTML = `<!doctype html>
         const streamEvents = [];
         let streamErrorMessage;
         let streamCompleted = false;
+        let streamInteractiveFallback = false;
 
         try {
           const response = await fetch("/api/prompt-stream", {
@@ -1056,7 +1110,10 @@ export const PLAYGROUND_HTML = `<!doctype html>
                 htmlOutputEl.innerHTML = String(event.html);
               }
               if (event.type === "final" && event.final) {
-                await applyRenderPayload(event.final);
+                const mountState = await applyRenderPayload(event.final);
+                if (mountState && mountState.fallbackToStatic) {
+                  streamInteractiveFallback = true;
+                }
                 streamCompleted = true;
               }
             }
@@ -1067,7 +1124,15 @@ export const PLAYGROUND_HTML = `<!doctype html>
             throw new Error(streamErrorMessage);
           }
 
-          setStatus(streamCompleted ? "Stream completed." : "Stream finished without final result.");
+          if (streamCompleted && streamInteractiveFallback) {
+            setStatus("Stream completed (static fallback). See diagnostics.");
+          } else {
+            setStatus(
+              streamCompleted
+                ? "Stream completed."
+                : "Stream finished without final result.",
+            );
+          }
         } catch (error) {
           setStatus("Stream failed.");
           diagnosticsEl.textContent = String(error);

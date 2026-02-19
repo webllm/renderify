@@ -438,6 +438,78 @@ test("e2e: playground api supports prompt and stream flow", async () => {
   }
 });
 
+test("e2e: playground prompt endpoints auto-hydrate source import module manifest", async () => {
+  const tempDir = await mkdtemp(
+    path.join(os.tmpdir(), "renderify-e2e-playground-prompt-manifest-"),
+  );
+  const port = await allocatePort();
+  const openaiPort = await allocatePort();
+  const { close } = await startFakeOpenAIServerSourceRuntimePlan(openaiPort);
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  const processHandle = startPlayground(port, {
+    RENDERIFY_SESSION_FILE: path.join(tempDir, "session.json"),
+    RENDERIFY_LLM_PROVIDER: "openai",
+    RENDERIFY_LLM_API_KEY: "test-key",
+    RENDERIFY_LLM_BASE_URL: `http://127.0.0.1:${openaiPort}/v1`,
+    RENDERIFY_LLM_MODEL: "gpt-5-mini",
+  });
+
+  try {
+    await waitForHealth(`${baseUrl}/api/health`, 10000);
+
+    const promptResponse = await fetchJson(`${baseUrl}/api/prompt`, {
+      method: "POST",
+      body: {
+        prompt: "source import manifest prompt",
+      },
+    });
+    assert.equal(promptResponse.status, 200);
+    const promptPayload = promptResponse.body as {
+      planDetail?: {
+        moduleManifest?: Record<
+          string,
+          {
+            resolvedUrl?: unknown;
+          }
+        >;
+      };
+    };
+    const promptPreactHooks =
+      promptPayload.planDetail?.moduleManifest?.["preact/hooks"];
+    assert.equal(typeof promptPreactHooks?.resolvedUrl, "string");
+    assert.match(String(promptPreactHooks?.resolvedUrl ?? ""), /preact/i);
+
+    const streamEvents = await fetchNdjson(`${baseUrl}/api/prompt-stream`, {
+      prompt: "source import manifest stream prompt",
+    });
+    const finalEvent = streamEvents.find((item) => item.type === "final") as
+      | {
+          final?: {
+            planDetail?: {
+              moduleManifest?: Record<
+                string,
+                {
+                  resolvedUrl?: unknown;
+                }
+              >;
+            };
+          };
+        }
+      | undefined;
+    assert.ok(finalEvent);
+    const streamPreactHooks =
+      finalEvent?.final?.planDetail?.moduleManifest?.["preact/hooks"];
+    assert.equal(typeof streamPreactHooks?.resolvedUrl, "string");
+    assert.match(String(streamPreactHooks?.resolvedUrl ?? ""), /preact/i);
+  } finally {
+    processHandle.kill("SIGTERM");
+    await onceExit(processHandle, 3000);
+    await close();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("e2e: playground prints llm request/response logs by default", async () => {
   const tempDir = await mkdtemp(
     path.join(os.tmpdir(), "renderify-e2e-playground-llm-log-"),
@@ -1337,6 +1409,97 @@ async function startFakeOpenAIServer(port: number): Promise<{
           model: "gpt-5-mini",
           usage: {
             total_tokens: 64,
+          },
+          choices: [
+            {
+              message: {
+                content: JSON.stringify(plan),
+              },
+            },
+          ],
+        });
+      })().catch((error: unknown) => {
+        sendJson(res, 500, {
+          error: {
+            message: error instanceof Error ? error.message : String(error),
+          },
+        });
+      });
+    },
+  );
+
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+
+  return {
+    requests,
+    close: () => closeServer(server),
+  };
+}
+
+async function startFakeOpenAIServerSourceRuntimePlan(port: number): Promise<{
+  requests: Record<string, unknown>[];
+  close: () => Promise<void>;
+}> {
+  const requests: Record<string, unknown>[] = [];
+  const plan = {
+    specVersion: "runtime-plan/v1",
+    id: "fake_openai_source_runtime_plan",
+    version: 1,
+    capabilities: {
+      domWrite: true,
+    },
+    root: {
+      type: "element",
+      tag: "section",
+      children: [
+        {
+          type: "text",
+          value: "fallback root",
+        },
+      ],
+    },
+    source: {
+      language: "js",
+      runtime: "renderify",
+      exportName: "default",
+      code: [
+        "import { useState } from 'preact/hooks';",
+        "export default function App() {",
+        "  return {",
+        "    type: 'element',",
+        "    tag: 'section',",
+        "    children: [{ type: 'text', value: 'source runtime root' }],",
+        "  };",
+        "}",
+      ].join("\n"),
+    },
+  };
+
+  const server = createServer(
+    (req: IncomingMessage, res: ServerResponse): void => {
+      void (async () => {
+        const method = (req.method ?? "GET").toUpperCase();
+        const pathName = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+
+        if (method !== "POST" || pathName !== "/v1/chat/completions") {
+          sendJson(res, 404, { error: { message: "not found" } });
+          return;
+        }
+
+        const body = await readJsonRequest(req);
+        requests.push(body);
+
+        sendJson(res, 200, {
+          id: "chatcmpl_e2e_openai_source_runtime",
+          model: "gpt-5-mini",
+          usage: {
+            total_tokens: 128,
           },
           choices: [
             {

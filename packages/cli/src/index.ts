@@ -896,7 +896,13 @@ async function handlePlaygroundRequest(
       requestSummary = summarizePromptDebugInput(prompt);
       debugTracer?.logInboundStart(method, pathname, requestSummary);
       const result = await app.renderPrompt(prompt);
-      const payload = serializeRenderResult(result);
+      const hydratedPlan = await hydratePlaygroundPlanManifest(result.plan, {
+        moduleLoader,
+        requireIntegrity: app.getSecurityChecker().getPolicy()
+          .requireModuleIntegrity,
+        integrityTimeoutMs: autoManifestIntegrityTimeoutMs,
+      });
+      const payload = serializeRenderResult(result, hydratedPlan);
       responseSummary = summarizeRenderResultDebugOutput(payload);
       sendJson(res, 200, payload);
       finishDebug(200);
@@ -912,7 +918,12 @@ async function handlePlaygroundRequest(
       requestSummary = summarizePromptDebugInput(prompt);
       debugTracer?.logInboundStart(method, pathname, requestSummary);
 
-      const streamSummary = await sendPromptStream(res, app, prompt);
+      const streamSummary = await sendPromptStream(res, app, prompt, {
+        moduleLoader,
+        requireIntegrity: app.getSecurityChecker().getPolicy()
+          .requireModuleIntegrity,
+        integrityTimeoutMs: autoManifestIntegrityTimeoutMs,
+      });
       responseSummary = streamSummary;
       finishDebug(200, streamSummary.streamErrorMessage);
       return;
@@ -1005,15 +1016,18 @@ async function handlePlaygroundRequest(
 
 function serializeRenderResult(
   result: RenderPlanResult | RenderPromptResult,
+  planOverride?: RuntimePlan,
 ): Record<string, unknown> {
+  const plan = planOverride ?? result.plan;
+
   return {
     traceId: result.traceId,
     html: result.html,
     plan: {
-      id: result.plan.id,
-      version: result.plan.version,
+      id: plan.id,
+      version: plan.version,
     },
-    planDetail: result.plan,
+    planDetail: plan,
     diagnostics: result.execution.diagnostics,
     state: result.execution.state ?? {},
   };
@@ -1078,6 +1092,7 @@ async function sendPromptStream(
   res: ServerResponse,
   app: RenderifyApp,
   prompt: string,
+  hydration: PlaygroundAutoManifestOptions,
 ): Promise<{
   chunkCount: number;
   eventTypeCounts: Record<string, number>;
@@ -1096,7 +1111,7 @@ async function sendPromptStream(
 
   try {
     for await (const chunk of app.renderPromptStream(prompt)) {
-      const serialized = serializePromptStreamChunk(chunk);
+      const serialized = await serializePromptStreamChunk(chunk, hydration);
       chunkCount += 1;
       const type = String(serialized.type ?? "unknown");
       eventTypeCounts[type] = (eventTypeCounts[type] ?? 0) + 1;
@@ -1122,16 +1137,26 @@ async function sendPromptStream(
   };
 }
 
-function serializePromptStreamChunk(
+async function serializePromptStreamChunk(
   chunk: RenderPromptStreamChunk,
-): Record<string, unknown> {
+  hydration: PlaygroundAutoManifestOptions,
+): Promise<Record<string, unknown>> {
   if (chunk.type === "final") {
+    let finalPayload: Record<string, unknown> | undefined;
+    if (chunk.final) {
+      const hydratedPlan = await hydratePlaygroundPlanManifest(
+        chunk.final.plan,
+        hydration,
+      );
+      finalPayload = serializeRenderResult(chunk.final, hydratedPlan);
+    }
+
     return {
       type: chunk.type,
       traceId: chunk.traceId,
       prompt: chunk.prompt,
       llmText: chunk.llmText,
-      final: chunk.final ? serializeRenderResult(chunk.final) : undefined,
+      final: finalPayload,
       html: chunk.html,
       diagnostics: chunk.diagnostics ?? [],
       planId: chunk.planId,
