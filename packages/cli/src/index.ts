@@ -43,6 +43,7 @@ interface CliArgs {
   planFile?: string;
   port?: number;
   debug?: boolean;
+  llmLog?: boolean;
 }
 
 interface PlaygroundServerOptions {
@@ -51,6 +52,7 @@ interface PlaygroundServerOptions {
   moduleLoader: JspmModuleLoader;
   autoManifestIntegrityTimeoutMs: number;
   debug: boolean;
+  llmLog: boolean;
 }
 
 const DEFAULT_PROMPT = "Hello Renderify runtime";
@@ -59,6 +61,10 @@ const JSON_BODY_LIMIT_BYTES = 1_000_000;
 const AUTO_MANIFEST_INTEGRITY_TIMEOUT_MS = 8000;
 const REMOTE_MODULE_INTEGRITY_CACHE = new Map<string, string>();
 const DEBUG_RECENT_LOG_LIMIT = 120;
+const LLM_LOG_INLINE_LIMIT = 10_000;
+const LLM_LOG_TEXT_LIMIT = 4_000;
+const LLM_SENSITIVE_KEY_PATTERN =
+  /(api[-_]?key|authorization|token|secret|password|cookie|session)/i;
 const { readFile } = fs.promises;
 
 interface PlaygroundDebugAggregate {
@@ -530,6 +536,7 @@ async function main() {
           moduleLoader: runtimeModuleLoader,
           autoManifestIntegrityTimeoutMs: AUTO_MANIFEST_INTEGRITY_TIMEOUT_MS,
           debug: args.debug ?? resolvePlaygroundDebugMode(),
+          llmLog: args.llmLog ?? resolvePlaygroundLlmLogMode(),
         });
         break;
       }
@@ -542,6 +549,7 @@ async function main() {
 function parsePlaygroundArgs(args: string[]): CliArgs {
   let port: number | undefined;
   let debug: boolean | undefined;
+  let llmLog: boolean | undefined;
 
   for (const token of args) {
     const normalized = token.trim();
@@ -556,6 +564,16 @@ function parsePlaygroundArgs(args: string[]): CliArgs {
 
     if (normalized === "--no-debug") {
       debug = false;
+      continue;
+    }
+
+    if (normalized === "--llm-log") {
+      llmLog = true;
+      continue;
+    }
+
+    if (normalized === "--no-llm-log") {
+      llmLog = false;
       continue;
     }
 
@@ -574,6 +592,7 @@ function parsePlaygroundArgs(args: string[]): CliArgs {
     command: "playground",
     port,
     debug,
+    llmLog,
   };
 }
 
@@ -581,6 +600,15 @@ function resolvePlaygroundDebugMode(): boolean {
   const candidate = process.env.RENDERIFY_PLAYGROUND_DEBUG;
   if (!candidate) {
     return false;
+  }
+
+  return parseBooleanEnv(candidate);
+}
+
+function resolvePlaygroundLlmLogMode(): boolean {
+  const candidate = process.env.RENDERIFY_PLAYGROUND_LLM_LOG;
+  if (!candidate) {
+    return true;
   }
 
   return parseBooleanEnv(candidate);
@@ -680,7 +708,7 @@ function printHelp(): void {
   renderify plan <prompt>                    Print runtime plan JSON
   renderify probe-plan <file>                Probe RuntimePlan dependencies and policy compatibility
   renderify render-plan <file>               Execute RuntimePlan JSON file
-  renderify playground [port] [--debug]      Start browser runtime playground`);
+  renderify playground [port] [--debug] [--no-llm-log]      Start browser runtime playground`);
 }
 
 async function loadPlanFile(filePath: string): Promise<RuntimePlan> {
@@ -697,12 +725,22 @@ async function loadPlanFile(filePath: string): Promise<RuntimePlan> {
 async function runPlaygroundServer(
   options: PlaygroundServerOptions,
 ): Promise<void> {
-  const { app, port, moduleLoader, autoManifestIntegrityTimeoutMs, debug } =
-    options;
+  const {
+    app,
+    port,
+    moduleLoader,
+    autoManifestIntegrityTimeoutMs,
+    debug,
+    llmLog,
+  } = options;
   const debugTracer = debug ? new PlaygroundDebugTracer() : undefined;
-  const restoreFetch = debugTracer
-    ? installPlaygroundDebugFetchTracer(debugTracer)
-    : undefined;
+  const restoreFetch =
+    debugTracer || llmLog
+      ? installPlaygroundFetchTracer({
+          debugTracer,
+          llmLog,
+        })
+      : undefined;
 
   const server = http.createServer((req, res) => {
     void handlePlaygroundRequest(
@@ -734,6 +772,11 @@ async function runPlaygroundServer(
     if (debugTracer) {
       console.log(
         "Playground debug mode is enabled. Inspect stats at /api/debug/stats.",
+      );
+    }
+    if (llmLog) {
+      console.log(
+        "Playground LLM I/O logging is enabled. Set RENDERIFY_PLAYGROUND_LLM_LOG=false to disable.",
       );
     }
     console.log("Press Ctrl+C to stop.");
@@ -1266,13 +1309,17 @@ async function fetchRemoteModuleIntegrity(
   }
 }
 
-function installPlaygroundDebugFetchTracer(
-  debugTracer: PlaygroundDebugTracer,
-): () => void {
+function installPlaygroundFetchTracer(input: {
+  debugTracer?: PlaygroundDebugTracer;
+  llmLog: boolean;
+}): () => void {
+  const { debugTracer, llmLog } = input;
   const originalFetch = globalThis.fetch;
   if (typeof originalFetch !== "function") {
     return () => {};
   }
+
+  let llmCallId = 1;
 
   const wrappedFetch: typeof fetch = async (
     input: RequestInfo | URL,
@@ -1282,13 +1329,42 @@ function installPlaygroundDebugFetchTracer(
     const rawUrl = resolveFetchUrl(input);
     const target = normalizeFetchTarget(rawUrl);
     const requestSummary = summarizeFetchRequest(init);
+    const llmTarget = isLikelyLlmHttpTarget(rawUrl);
+    const llmRequestId = llmTarget ? llmCallId++ : undefined;
+    const llmRequestPayload =
+      llmLog && llmTarget
+        ? buildLlmRequestLogPayload({
+            method,
+            target,
+            init,
+          })
+        : undefined;
+    const llmStreamingRequest = Boolean(
+      llmLog &&
+        llmTarget &&
+        llmRequestPayload &&
+        detectStreamingLlmRequest(rawUrl, llmRequestPayload.requestBody),
+    );
     const startedAtMs = Date.now();
 
-    debugTracer.logOutboundStart(method, target, requestSummary);
+    debugTracer?.logOutboundStart(method, target, requestSummary);
+    if (
+      llmLog &&
+      llmTarget &&
+      llmRequestId !== undefined &&
+      llmRequestPayload
+    ) {
+      printLlmLog(
+        `request#${llmRequestId}`,
+        method,
+        target,
+        llmRequestPayload.payload,
+      );
+    }
 
     try {
       const response = await originalFetch(input, init);
-      debugTracer.recordOutbound({
+      debugTracer?.recordOutbound({
         method,
         target,
         statusCode: response.status,
@@ -1300,16 +1376,32 @@ function installPlaygroundDebugFetchTracer(
           contentType: response.headers.get("content-type") ?? undefined,
         },
       });
+      if (llmLog && llmTarget && llmRequestId !== undefined) {
+        void logLlmResponsePayload({
+          requestId: llmRequestId,
+          method,
+          target,
+          response,
+          durationMs: Date.now() - startedAtMs,
+          streaming: llmStreamingRequest,
+        });
+      }
       return response;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      debugTracer.recordOutbound({
+      debugTracer?.recordOutbound({
         method,
         target,
         durationMs: Date.now() - startedAtMs,
         request: requestSummary,
         error: message,
       });
+      if (llmLog && llmTarget && llmRequestId !== undefined) {
+        printLlmLog(`response#${llmRequestId}`, method, target, {
+          durationMs: Date.now() - startedAtMs,
+          error: message,
+        });
+      }
       throw error;
     }
   };
@@ -1318,6 +1410,310 @@ function installPlaygroundDebugFetchTracer(
   return () => {
     globalThis.fetch = originalFetch;
   };
+}
+
+function isLikelyLlmHttpTarget(rawUrl: string): boolean {
+  try {
+    const parsed = new URL(rawUrl);
+    const pathname = parsed.pathname.toLowerCase();
+    return (
+      pathname.endsWith("/chat/completions") ||
+      pathname.endsWith("/messages") ||
+      pathname.endsWith("/api/chat") ||
+      pathname.endsWith("/api/generate") ||
+      pathname.includes(":generatecontent") ||
+      pathname.includes(":streamgeneratecontent")
+    );
+  } catch {
+    const normalized = rawUrl.toLowerCase();
+    return (
+      normalized.includes("/chat/completions") ||
+      normalized.includes("/messages") ||
+      normalized.includes("/api/chat") ||
+      normalized.includes("/api/generate") ||
+      normalized.includes(":generatecontent")
+    );
+  }
+}
+
+function buildLlmRequestLogPayload(input: {
+  method: string;
+  target: string;
+  init?: RequestInit;
+}): {
+  payload: Record<string, unknown>;
+  requestBody?: unknown;
+} {
+  const headers = extractHeaderEntries(input.init?.headers);
+  const requestBody = extractLoggableRequestBody(input.init?.body);
+  const payload: Record<string, unknown> = {
+    method: input.method,
+    target: input.target,
+  };
+
+  if (Object.keys(headers).length > 0) {
+    payload.headers = headers;
+  }
+  if (requestBody !== undefined) {
+    payload.body = requestBody;
+  }
+
+  return {
+    payload,
+    requestBody,
+  };
+}
+
+function detectStreamingLlmRequest(
+  rawUrl: string,
+  requestBody: unknown,
+): boolean {
+  if (isRecord(requestBody) && requestBody.stream === true) {
+    return true;
+  }
+
+  try {
+    const parsed = new URL(rawUrl);
+    const pathname = parsed.pathname.toLowerCase();
+    return (
+      pathname.includes(":streamgeneratecontent") ||
+      parsed.searchParams.get("alt")?.toLowerCase() === "sse"
+    );
+  } catch {
+    return rawUrl.toLowerCase().includes(":streamgeneratecontent");
+  }
+}
+
+async function logLlmResponsePayload(input: {
+  requestId: number;
+  method: string;
+  target: string;
+  response: Response;
+  durationMs: number;
+  streaming: boolean;
+}): Promise<void> {
+  const headerSummary = extractResponseHeaderEntries(input.response.headers);
+  const payload: Record<string, unknown> = {
+    statusCode: input.response.status,
+    ok: input.response.ok,
+    durationMs: input.durationMs,
+  };
+
+  if (Object.keys(headerSummary).length > 0) {
+    payload.headers = headerSummary;
+  }
+
+  if (input.streaming) {
+    payload.streaming = true;
+    printLlmLog(
+      `response#${input.requestId}`,
+      input.method,
+      input.target,
+      payload,
+    );
+    return;
+  }
+
+  const responseBody = await extractLoggableResponseBody(input.response);
+  if (responseBody !== undefined) {
+    payload.body = responseBody;
+  }
+
+  printLlmLog(
+    `response#${input.requestId}`,
+    input.method,
+    input.target,
+    payload,
+  );
+}
+
+function printLlmLog(
+  stage: string,
+  method: string,
+  target: string,
+  details: Record<string, unknown>,
+): void {
+  console.log(
+    `[playground-llm] ${new Date().toISOString()} ${stage} ${method} ${target} ${safeInlineJson(details, LLM_LOG_INLINE_LIMIT)}`,
+  );
+}
+
+function extractLoggableRequestBody(body: RequestInit["body"]): unknown {
+  if (body === undefined || body === null) {
+    return undefined;
+  }
+
+  if (typeof body === "string") {
+    const trimmed = body.trim();
+    if (trimmed.length === 0) {
+      return "";
+    }
+
+    if (looksLikeJson(trimmed)) {
+      try {
+        return redactForLlmLog(JSON.parse(trimmed) as unknown);
+      } catch {
+        return clampDebugText(trimmed, LLM_LOG_TEXT_LIMIT);
+      }
+    }
+
+    return clampDebugText(trimmed, LLM_LOG_TEXT_LIMIT);
+  }
+
+  if (body instanceof URLSearchParams) {
+    return redactForLlmLog(Object.fromEntries(body.entries()));
+  }
+
+  if (typeof Buffer !== "undefined" && Buffer.isBuffer(body)) {
+    return {
+      type: "buffer",
+      size: body.byteLength,
+    };
+  }
+
+  if (body instanceof ArrayBuffer) {
+    return {
+      type: "arraybuffer",
+      size: body.byteLength,
+    };
+  }
+
+  if (ArrayBuffer.isView(body)) {
+    return {
+      type: "typedarray",
+      size: body.byteLength,
+    };
+  }
+
+  if (typeof body === "object" && body !== null) {
+    return {
+      type: String(body.constructor?.name ?? "object"),
+    };
+  }
+
+  return {
+    type: typeof body,
+  };
+}
+
+async function extractLoggableResponseBody(
+  response: Response,
+): Promise<unknown> {
+  try {
+    const text = await response.clone().text();
+    const trimmed = text.trim();
+    if (trimmed.length === 0) {
+      return undefined;
+    }
+
+    const contentType = (
+      response.headers.get("content-type") ?? ""
+    ).toLowerCase();
+    if (contentType.includes("application/json") || looksLikeJson(trimmed)) {
+      try {
+        return redactForLlmLog(JSON.parse(trimmed) as unknown);
+      } catch {
+        return clampDebugText(trimmed, LLM_LOG_TEXT_LIMIT);
+      }
+    }
+
+    return clampDebugText(trimmed, LLM_LOG_TEXT_LIMIT);
+  } catch (error) {
+    return {
+      parseError: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function extractHeaderEntries(
+  headers: RequestInit["headers"],
+): Record<string, string> {
+  if (!headers) {
+    return {};
+  }
+
+  const entries: Array<[string, string]> = [];
+  if (headers instanceof Headers) {
+    entries.push(...headers.entries());
+  } else if (Array.isArray(headers)) {
+    for (const [name, value] of headers) {
+      entries.push([String(name), String(value)]);
+    }
+  } else {
+    for (const [name, value] of Object.entries(headers)) {
+      entries.push([name, String(value)]);
+    }
+  }
+
+  const next: Record<string, string> = {};
+  for (const [rawName, rawValue] of entries) {
+    const name = rawName.toLowerCase();
+    next[name] = redactHeaderValue(name, rawValue);
+  }
+  return next;
+}
+
+function extractResponseHeaderEntries(
+  headers: Headers,
+): Record<string, string> {
+  const keys = [
+    "content-type",
+    "content-length",
+    "x-request-id",
+    "openai-request-id",
+    "anthropic-request-id",
+  ];
+  const next: Record<string, string> = {};
+  for (const key of keys) {
+    const value = headers.get(key);
+    if (value) {
+      next[key] = redactHeaderValue(key, value);
+    }
+  }
+  return next;
+}
+
+function redactHeaderValue(name: string, value: string): string {
+  if (LLM_SENSITIVE_KEY_PATTERN.test(name)) {
+    return "[REDACTED]";
+  }
+  return clampDebugText(value, 400);
+}
+
+function redactForLlmLog(value: unknown, keyHint = "", depth = 0): unknown {
+  if (depth > 8) {
+    return "[MaxDepth]";
+  }
+
+  if (typeof value === "string") {
+    if (LLM_SENSITIVE_KEY_PATTERN.test(keyHint)) {
+      return "[REDACTED]";
+    }
+    return clampDebugText(value, LLM_LOG_TEXT_LIMIT);
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => redactForLlmLog(item, keyHint, depth + 1));
+  }
+
+  if (isRecord(value)) {
+    const next: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value)) {
+      if (LLM_SENSITIVE_KEY_PATTERN.test(key)) {
+        next[key] = "[REDACTED]";
+      } else {
+        next[key] = redactForLlmLog(item, key, depth + 1);
+      }
+    }
+    return next;
+  }
+
+  return value;
+}
+
+function looksLikeJson(value: string): boolean {
+  const firstChar = value[0];
+  return firstChar === "{" || firstChar === "[";
 }
 
 function resolveFetchMethod(
@@ -1517,13 +1913,13 @@ function clampDebugText(value: string, maxLength = 180): string {
   return `${normalized.slice(0, maxLength)}…`;
 }
 
-function safeInlineJson(value: unknown): string {
+function safeInlineJson(value: unknown, maxLength = 1_400): string {
   try {
     const json = JSON.stringify(value);
-    if (json.length <= 1400) {
+    if (json.length <= maxLength) {
       return json;
     }
-    return `${json.slice(0, 1400)}…`;
+    return `${json.slice(0, maxLength)}…`;
   } catch (error) {
     return `{"error":"${clampDebugText(String(error))}"}`;
   }

@@ -29,7 +29,7 @@ renderify run <prompt>          # Render prompt and print HTML
 renderify plan <prompt>         # Print RuntimePlan JSON
 renderify probe-plan <file>     # Probe plan dependencies and policy compatibility
 renderify render-plan <file>    # Execute RuntimePlan JSON file and print HTML
-renderify playground [port] [--debug]  # Start browser playground server
+renderify playground [port] [--debug] [--no-llm-log]  # Start browser playground server
 ```
 
 ## Quick Start
@@ -57,8 +57,11 @@ renderify render-plan ./examples/runtime/recharts-dashboard-plan.json
 - `RENDERIFY_LLM_STRUCTURED_FALLBACK_TEXT` (`true`, `false`)
 - `RENDERIFY_SECURITY_PROFILE` (`strict`, `balanced`, `relaxed`)
 - `RENDERIFY_PLAYGROUND_DEBUG` (`1`, `true`, `yes`, `on`)
+- `RENDERIFY_PLAYGROUND_LLM_LOG` (`true`, `false`, default `true`)
 
-When debug mode is enabled, playground prints key inbound/outbound request logs, exposes `/api/debug/stats`, and renders an in-page **Debug Stats** panel with manual/auto refresh.
+Playground prints outbound LLM request/response payload logs to terminal by default (`[playground-llm]`) with sensitive values redacted.
+
+When debug mode is enabled, playground also prints key inbound/outbound request summaries, exposes `/api/debug/stats`, and renders an in-page **Debug Stats** panel with manual/auto refresh.
 
 See `../../docs/getting-started.md` and `../../docs/security.md` for runtime and policy options.
 

@@ -438,6 +438,63 @@ test("e2e: playground api supports prompt and stream flow", async () => {
   }
 });
 
+test("e2e: playground prints llm request/response logs by default", async () => {
+  const tempDir = await mkdtemp(
+    path.join(os.tmpdir(), "renderify-e2e-playground-llm-log-"),
+  );
+  const port = await allocatePort();
+  const openaiPort = await allocatePort();
+  const { close } = await startFakeOpenAIServer(openaiPort);
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  const processHandle = startPlayground(port, {
+    RENDERIFY_SESSION_FILE: path.join(tempDir, "session.json"),
+    RENDERIFY_LLM_PROVIDER: "openai",
+    RENDERIFY_LLM_API_KEY: "test-key",
+    RENDERIFY_LLM_BASE_URL: `http://127.0.0.1:${openaiPort}/v1`,
+    RENDERIFY_LLM_MODEL: "gpt-5-mini",
+  });
+
+  let playgroundStdout = "";
+  processHandle.stdout.on("data", (chunk: Buffer | string) => {
+    playgroundStdout += String(chunk);
+  });
+
+  try {
+    await waitForHealth(`${baseUrl}/api/health`, 10000);
+
+    const promptResponse = await fetchJson(`${baseUrl}/api/prompt`, {
+      method: "POST",
+      body: {
+        prompt: "llm terminal log prompt",
+      },
+    });
+    assert.equal(promptResponse.status, 200);
+
+    await waitForTextInOutput(
+      () =>
+        playgroundStdout.includes("[playground-llm]") &&
+        playgroundStdout.includes("request#") &&
+        playgroundStdout.includes("response#"),
+      5000,
+      "playground llm request/response logs",
+    );
+
+    assert.match(
+      playgroundStdout,
+      /\[playground-llm\].*request#\d+ POST .*chat\/completions/,
+    );
+    assert.match(playgroundStdout, /"authorization":"\[REDACTED\]"/);
+    assert.match(playgroundStdout, /"body":\{"model":"gpt-5-mini"/);
+    assert.match(playgroundStdout, /"statusCode":200/);
+  } finally {
+    processHandle.kill("SIGTERM");
+    await onceExit(processHandle, 3000);
+    await close();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("e2e: playground debug mode exposes inbound/outbound request distribution", async () => {
   const tempDir = await mkdtemp(
     path.join(os.tmpdir(), "renderify-e2e-playground-debug-"),
@@ -1168,6 +1225,26 @@ async function waitForHealth(url: string, timeoutMs: number): Promise<void> {
     }
 
     await sleep(120);
+  }
+}
+
+async function waitForTextInOutput(
+  predicate: () => boolean,
+  timeoutMs: number,
+  label: string,
+): Promise<void> {
+  const started = Date.now();
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    if (predicate()) {
+      return;
+    }
+
+    if (Date.now() - started > timeoutMs) {
+      throw new Error(`timed out waiting for ${label}`);
+    }
+
+    await sleep(80);
   }
 }
 

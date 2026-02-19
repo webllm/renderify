@@ -197,7 +197,9 @@ pnpm cli -- render-plan examples/runtime/counter-plan.json
 # Browser playground
 pnpm playground
 pnpm cli -- playground --debug
+pnpm cli -- playground --no-llm-log
 RENDERIFY_PLAYGROUND_DEBUG=1 pnpm playground
+RENDERIFY_PLAYGROUND_LLM_LOG=false pnpm playground
 
 # Optional security env
 RENDERIFY_SECURITY_PROFILE=strict pnpm playground
@@ -227,6 +229,8 @@ RENDERIFY_RUNTIME_BROWSER_SANDBOX_FAIL_CLOSED=true pnpm playground
 # Force text/TSX generation path instead of structured RuntimePlan
 RENDERIFY_LLM_USE_STRUCTURED_OUTPUT=false pnpm playground
 ```
+
+By default, playground prints outbound LLM request/response payload logs in terminal (`[playground-llm]`) with sensitive fields redacted. Use `--no-llm-log` or `RENDERIFY_PLAYGROUND_LLM_LOG=false` to disable.
 
 When debug mode is enabled, playground logs key inbound/outbound request summaries, exposes `GET /api/debug/stats`, and shows an in-page **Debug Stats** panel with auto-refresh.
 
