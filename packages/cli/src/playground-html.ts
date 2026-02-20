@@ -289,6 +289,14 @@ export const PLAYGROUND_HTML = `<!doctype html>
         pointer-events: none;
       }
 
+      .render-frame {
+        width: 100%;
+        min-height: 180px;
+        border: 0;
+        background: transparent;
+        display: block;
+      }
+
       .render-scope {
         all: initial;
         display: block;
@@ -601,12 +609,272 @@ export const PLAYGROUND_HTML = `<!doctype html>
       const sourceExportBadge = byId("source-export-badge");
       const copySourceEl = byId("copy-source");
       let lastRawSourceCode = "";
+      const renderIsolationModeRaw = String(
+        new URLSearchParams(window.location.search).get("isolation") || "",
+      )
+        .trim()
+        .toLowerCase();
+      const renderIsolationMode =
+        renderIsolationModeRaw === "iframe" ? "iframe" : "scope";
       const renderScopeEl = document.createElement("div");
       renderScopeEl.className = "render-scope";
-      htmlOutputEl.replaceChildren(renderScopeEl);
+      let renderFrameEl = null;
+      let renderFrameRootEl = null;
+      let renderFrameObserver = null;
+      let renderFrameStyleObserver = null;
+      let restoreRenderFrameCssomHook = null;
+      htmlOutputEl.dataset.isolation = renderIsolationMode;
+
+      const updateRenderFrameHeight = () => {
+        if (!renderFrameEl) {
+          return;
+        }
+        const frameDoc = renderFrameEl.contentDocument;
+        if (!frameDoc) {
+          return;
+        }
+        const bodyHeight = frameDoc.body ? frameDoc.body.scrollHeight : 0;
+        const docHeight = frameDoc.documentElement
+          ? frameDoc.documentElement.scrollHeight
+          : 0;
+        const height = Math.max(180, bodyHeight, docHeight);
+        renderFrameEl.style.height = String(height) + "px";
+      };
+
+      const attachRenderFrameObserver = (frameDoc) => {
+        if (renderFrameObserver) {
+          renderFrameObserver.disconnect();
+          renderFrameObserver = null;
+        }
+
+        if (
+          !frameDoc ||
+          !frameDoc.body ||
+          typeof MutationObserver !== "function"
+        ) {
+          return;
+        }
+
+        renderFrameObserver = new MutationObserver(() => {
+          updateRenderFrameHeight();
+        });
+
+        renderFrameObserver.observe(frameDoc.body, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          characterData: true,
+        });
+      };
+
+      const syncRenderFrameStyles = () => {
+        if (renderIsolationMode !== "iframe" || !renderFrameEl) {
+          return;
+        }
+
+        const frameDoc = renderFrameEl.contentDocument;
+        if (!frameDoc || !frameDoc.head) {
+          return;
+        }
+
+        for (const node of Array.from(
+          frameDoc.head.querySelectorAll("[data-renderify-frame-style-mirror='1']"),
+        )) {
+          node.remove();
+        }
+
+        const readStyleCssText = (styleNode) => {
+          const inlineText = String(styleNode.textContent ?? "");
+          if (inlineText.trim().length > 0) {
+            return inlineText;
+          }
+
+          try {
+            const sheet = styleNode.sheet;
+            if (!sheet || !sheet.cssRules || sheet.cssRules.length === 0) {
+              return inlineText;
+            }
+
+            return Array.from(sheet.cssRules)
+              .map((rule) => String(rule.cssText ?? ""))
+              .join("\\n");
+          } catch {
+            return inlineText;
+          }
+        };
+
+        const sourceStyles = Array.from(
+          document.head.querySelectorAll(
+            [
+              "style[data-emotion]",
+              "style[data-mui]",
+              "style[data-jss]",
+              "style[id^='mui-']",
+              "link[rel='stylesheet'][data-emotion]",
+              "link[rel='stylesheet'][data-mui]",
+            ].join(","),
+          ),
+        );
+
+        for (const sourceNode of sourceStyles) {
+          const cloned = sourceNode.cloneNode(true);
+          if (cloned && cloned.nodeType === Node.ELEMENT_NODE) {
+            if (cloned.tagName === "STYLE") {
+              cloned.textContent = readStyleCssText(sourceNode);
+            }
+            cloned.setAttribute("data-renderify-frame-style-mirror", "1");
+            frameDoc.head.appendChild(cloned);
+          }
+        }
+      };
+
+      const scheduleRenderFrameStyleSync = () => {
+        if (typeof queueMicrotask === "function") {
+          queueMicrotask(() => {
+            syncRenderFrameStyles();
+          });
+          return;
+        }
+        Promise.resolve().then(() => {
+          syncRenderFrameStyles();
+        });
+      };
+
+      const installRenderFrameCssomHook = () => {
+        if (
+          renderIsolationMode !== "iframe" ||
+          restoreRenderFrameCssomHook ||
+          typeof CSSStyleSheet === "undefined" ||
+          !CSSStyleSheet.prototype
+        ) {
+          return;
+        }
+
+        const prototype = CSSStyleSheet.prototype;
+        if (typeof prototype.insertRule !== "function") {
+          return;
+        }
+
+        const originalInsertRule = prototype.insertRule;
+        const originalDeleteRule =
+          typeof prototype.deleteRule === "function"
+            ? prototype.deleteRule
+            : null;
+
+        prototype.insertRule = function patchedInsertRule(...args) {
+          const result = originalInsertRule.apply(this, args);
+          scheduleRenderFrameStyleSync();
+          return result;
+        };
+
+        if (originalDeleteRule) {
+          prototype.deleteRule = function patchedDeleteRule(...args) {
+            const result = originalDeleteRule.apply(this, args);
+            scheduleRenderFrameStyleSync();
+            return result;
+          };
+        }
+
+        restoreRenderFrameCssomHook = () => {
+          prototype.insertRule = originalInsertRule;
+          if (originalDeleteRule) {
+            prototype.deleteRule = originalDeleteRule;
+          }
+          restoreRenderFrameCssomHook = null;
+        };
+      };
+
+      const attachRenderFrameStyleObserver = () => {
+        if (renderFrameStyleObserver) {
+          renderFrameStyleObserver.disconnect();
+          renderFrameStyleObserver = null;
+        }
+
+        if (
+          renderIsolationMode !== "iframe" ||
+          typeof MutationObserver !== "function"
+        ) {
+          return;
+        }
+
+        installRenderFrameCssomHook();
+        renderFrameStyleObserver = new MutationObserver(() => {
+          scheduleRenderFrameStyleSync();
+        });
+
+        renderFrameStyleObserver.observe(document.head, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          characterData: true,
+        });
+      };
+
+      const ensureRenderFrameRoot = () => {
+        if (!renderFrameEl) {
+          return null;
+        }
+
+        const frameDoc = renderFrameEl.contentDocument;
+        if (!frameDoc) {
+          return null;
+        }
+
+        let root = frameDoc.getElementById("render-root");
+        if (!root) {
+          frameDoc.open();
+          frameDoc.write(
+            '<!doctype html><html><head><meta charset="utf-8" />' +
+              '<meta name="viewport" content="width=device-width,initial-scale=1" />' +
+              "<style>" +
+              'html,body{margin:0;padding:0;background:#fff;color:#0f172a;font-family:system-ui,-apple-system,BlinkMacSystemFont,\\"Segoe UI\\",sans-serif;line-height:1.5;}' +
+              "*{box-sizing:border-box;}" +
+              "img,svg,canvas,video{max-width:100%;}" +
+              "#render-root{display:block;min-height:1px;}" +
+              "</style>" +
+              '</head><body><div id="render-root"></div></body></html>',
+          );
+          frameDoc.close();
+          root = frameDoc.getElementById("render-root");
+        }
+
+        renderFrameRootEl = root;
+        attachRenderFrameObserver(frameDoc);
+        attachRenderFrameStyleObserver();
+        syncRenderFrameStyles();
+        updateRenderFrameHeight();
+        return renderFrameRootEl;
+      };
+
+      if (renderIsolationMode === "iframe") {
+        renderFrameEl = document.createElement("iframe");
+        renderFrameEl.className = "render-frame";
+        renderFrameEl.title = "Rendered output";
+        renderFrameEl.setAttribute("aria-label", "Rendered output");
+        renderFrameEl.setAttribute("referrerpolicy", "no-referrer");
+        renderFrameEl.src = "about:blank";
+        renderFrameEl.addEventListener("load", () => {
+          ensureRenderFrameRoot();
+          updateRenderFrameHeight();
+        });
+        htmlOutputEl.replaceChildren(renderFrameEl);
+        ensureRenderFrameRoot();
+      } else {
+        htmlOutputEl.replaceChildren(renderScopeEl);
+      }
+
+      const resolveRenderRoot = () =>
+        renderIsolationMode === "iframe"
+          ? ensureRenderFrameRoot()
+          : renderScopeEl;
 
       const hasVisibleRenderContent = () => {
-        for (const node of renderScopeEl.childNodes) {
+        const renderRootEl = resolveRenderRoot();
+        if (!renderRootEl) {
+          return false;
+        }
+
+        for (const node of renderRootEl.childNodes) {
           if (node.nodeType === Node.TEXT_NODE) {
             if (String(node.textContent ?? "").trim().length > 0) {
               return true;
@@ -626,16 +894,33 @@ export const PLAYGROUND_HTML = `<!doctype html>
       };
 
       const setRenderOutputHtml = (html) => {
-        renderScopeEl.innerHTML = String(html ?? "");
+        const renderRootEl = resolveRenderRoot();
+        if (!renderRootEl) {
+          return;
+        }
+        renderRootEl.innerHTML = String(html ?? "");
+        if (renderIsolationMode === "iframe") {
+          updateRenderFrameHeight();
+        }
         syncRenderOutputEmptyState();
       };
 
       const clearRenderOutputHtml = () => {
-        renderScopeEl.innerHTML = "";
+        const renderRootEl = resolveRenderRoot();
+        if (!renderRootEl) {
+          return;
+        }
+        renderRootEl.innerHTML = "";
+        if (renderIsolationMode === "iframe") {
+          updateRenderFrameHeight();
+        }
         syncRenderOutputEmptyState();
       };
 
-      const queryRenderOutput = (selector) => renderScopeEl.querySelector(selector);
+      const queryRenderOutput = (selector) => {
+        const renderRootEl = resolveRenderRoot();
+        return renderRootEl ? renderRootEl.querySelector(selector) : null;
+      };
       syncRenderOutputEmptyState();
 
       const escHtml = (s) =>
@@ -1126,15 +1411,6 @@ export const PLAYGROUND_HTML = `<!doctype html>
           const payload = await requestDebugStats();
           setDebugOutput(payload);
           setDebugStatus(formatDebugSummary(payload));
-          if (
-            payload &&
-            payload.enabled !== true &&
-            typeof payload.error === "string" &&
-            payload.error.toLowerCase().includes("debug mode is disabled")
-          ) {
-            autoRefreshDebugEl.checked = false;
-            restartDebugAutoRefresh();
-          }
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           const snapshot = {
@@ -1365,6 +1641,122 @@ export const PLAYGROUND_HTML = `<!doctype html>
         return ESM_SH_BASE_URL + specifier + separator + aliasQuery;
       };
 
+      const extractNpmSpecifierVersion = (specifier) => {
+        const normalized = String(specifier ?? "")
+          .trim()
+          .split("?")[0];
+        if (!normalized) {
+          return undefined;
+        }
+
+        if (normalized.startsWith("@")) {
+          const segments = normalized.split("/");
+          if (segments.length < 2) {
+            return undefined;
+          }
+          const scopedPackage = segments[1];
+          const versionIndex = scopedPackage.lastIndexOf("@");
+          if (versionIndex <= 0 || versionIndex >= scopedPackage.length - 1) {
+            return undefined;
+          }
+          return scopedPackage.slice(versionIndex + 1);
+        }
+
+        const firstSegment = normalized.split("/")[0];
+        const versionIndex = firstSegment.lastIndexOf("@");
+        if (versionIndex <= 0 || versionIndex >= firstSegment.length - 1) {
+          return undefined;
+        }
+        return firstSegment.slice(versionIndex + 1);
+      };
+
+      const getManifestVersion = (planDetail, specifier) => {
+        if (!isRecord(planDetail) || !isRecord(planDetail.moduleManifest)) {
+          return undefined;
+        }
+
+        const descriptor = planDetail.moduleManifest[specifier];
+        if (!isRecord(descriptor)) {
+          return undefined;
+        }
+
+        if (
+          typeof descriptor.version === "string" &&
+          descriptor.version.trim().length > 0
+        ) {
+          return descriptor.version.trim();
+        }
+
+        const resolvedUrl = descriptor.resolvedUrl;
+        if (typeof resolvedUrl !== "string" || resolvedUrl.trim().length === 0) {
+          return undefined;
+        }
+
+        const jspmSpecifier = extractJspmNpmSpecifier(resolvedUrl);
+        if (!jspmSpecifier) {
+          return undefined;
+        }
+        return extractNpmSpecifierVersion(jspmSpecifier);
+      };
+
+      const withPinnedBareSpecifierVersion = (specifier, version) => {
+        const normalized = String(specifier ?? "").trim();
+        const normalizedVersion = String(version ?? "").trim();
+        if (!normalized || !normalizedVersion || hasExplicitNpmVersion(normalized)) {
+          return normalized;
+        }
+
+        if (normalized.startsWith("@")) {
+          const segments = normalized.split("/");
+          if (segments.length < 2) {
+            return normalized;
+          }
+          const scopedPackage = segments.slice(0, 2).join("/");
+          const subpath = segments.slice(2).join("/");
+          return (
+            scopedPackage +
+            "@" +
+            normalizedVersion +
+            (subpath ? "/" + subpath : "")
+          );
+        }
+
+        const segments = normalized.split("/");
+        const packageName = segments[0];
+        const subpath = segments.slice(1).join("/");
+        return (
+          packageName +
+          "@" +
+          normalizedVersion +
+          (subpath ? "/" + subpath : "")
+        );
+      };
+
+      const toMuiEsmBundleUrl = (specifier, planDetail) => {
+        const normalized = String(specifier ?? "").trim();
+        if (
+          !normalized ||
+          (!normalized.startsWith("@mui/material") &&
+            !normalized.startsWith("@mui/icons-material"))
+        ) {
+          return undefined;
+        }
+
+        const preactVersion = extractPreactVersion(planDetail);
+        const manifestVersion = getManifestVersion(planDetail, normalized);
+        const pinnedSpecifier = withPinnedBareSpecifierVersion(
+          normalized,
+          manifestVersion,
+        );
+        const query = [
+          "alias=react:preact/compat,react-dom:preact/compat,react-dom/client:preact/compat,react/jsx-runtime:preact/jsx-runtime,react/jsx-dev-runtime:preact/jsx-runtime",
+          "target=es2022",
+          "deps=preact@" + preactVersion,
+          "bundle",
+        ].join("&");
+        return ESM_SH_BASE_URL + pinnedSpecifier + "?" + query;
+      };
+
       const toEsmShUrl = (specifier, planDetail) => {
         const normalized = String(specifier ?? "").trim();
         if (!normalized) {
@@ -1383,6 +1775,11 @@ export const PLAYGROUND_HTML = `<!doctype html>
           if (esmPreactUrl) {
             return esmPreactUrl;
           }
+        }
+
+        const muiBundleUrl = toMuiEsmBundleUrl(normalized, planDetail);
+        if (muiBundleUrl) {
+          return muiBundleUrl;
         }
 
         const manifestResolvedUrl = getManifestResolvedUrl(planDetail, normalized);
@@ -1595,10 +1992,17 @@ export const PLAYGROUND_HTML = `<!doctype html>
           event: null,
         };
         clearRenderOutputHtml();
+        const mountRootEl = resolveRenderRoot();
+        if (!mountRootEl) {
+          throw new Error("Render output container is not available for interactive mount.");
+        }
         preactNamespace.render(
           preactNamespace.h(component, runtimeInput),
-          renderScopeEl,
+          mountRootEl,
         );
+        if (renderIsolationMode === "iframe") {
+          updateRenderFrameHeight();
+        }
         syncRenderOutputEmptyState();
       };
 
@@ -1792,6 +2196,20 @@ export const PLAYGROUND_HTML = `<!doctype html>
           fallbackToStatic: false,
           message: undefined,
         };
+
+        const requiresRenderifySourceMount =
+          shouldRunRenderifySource(payload.planDetail);
+
+        if (renderIsolationMode === "iframe" && requiresRenderifySourceMount) {
+          mountState.attempted = true;
+          mountState.fallbackToStatic = true;
+          mountState.message =
+            "Iframe isolation mode renders renderify runtime source as static HTML.";
+          appendInteractiveWarning(
+            "Iframe isolation mode renders renderify runtime source as static HTML. Use default scope isolation for source-level interactivity.",
+          );
+          return mountState;
+        }
 
         try {
           if (shouldMountPreactSource(payload.planDetail)) {
@@ -2056,6 +2474,7 @@ export const PLAYGROUND_HTML = `<!doctype html>
           const shareUrl =
             window.location.origin +
             window.location.pathname +
+            window.location.search +
             "#plan64=" +
             encoded;
 
@@ -2126,6 +2545,17 @@ export const PLAYGROUND_HTML = `<!doctype html>
         if (debugRefreshTimer) {
           clearInterval(debugRefreshTimer);
           debugRefreshTimer = null;
+        }
+        if (renderFrameObserver) {
+          renderFrameObserver.disconnect();
+          renderFrameObserver = null;
+        }
+        if (renderFrameStyleObserver) {
+          renderFrameStyleObserver.disconnect();
+          renderFrameStyleObserver = null;
+        }
+        if (restoreRenderFrameCssomHook) {
+          restoreRenderFrameCssomHook();
         }
       });
     </script>
