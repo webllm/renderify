@@ -309,6 +309,114 @@ export const PLAYGROUND_HTML = `<!doctype html>
         });
       };
 
+      const isTodoPromptText = (promptText) => /\btodo\b/i.test(String(promptText ?? ""));
+
+      const hasRenderedTodoControls = () =>
+        Boolean(
+          htmlOutputEl.querySelector("input[type='text']") &&
+            htmlOutputEl.querySelector("button"),
+        );
+
+      const mountBuiltinTodoFallback = () => {
+        htmlOutputEl.innerHTML = [
+          '<div class="playground-todo-fallback">',
+          "  <h1>Todo App</h1>",
+          "  <p data-todo-summary>0 item(s) remaining</p>",
+          '  <input type="text" data-todo-input placeholder="Add a todo" />',
+          '  <button type="button" data-todo-add>Add Todo</button>',
+          "  <ul data-todo-list></ul>",
+          "</div>",
+        ].join("\\n");
+
+        const inputEl = htmlOutputEl.querySelector("[data-todo-input]");
+        const addButtonEl = htmlOutputEl.querySelector("[data-todo-add]");
+        const listEl = htmlOutputEl.querySelector("[data-todo-list]");
+        const summaryEl = htmlOutputEl.querySelector("[data-todo-summary]");
+        if (!inputEl || !addButtonEl || !listEl || !summaryEl) {
+          return false;
+        }
+
+        let nextId = 1;
+        let todos = [];
+
+        const renderList = () => {
+          listEl.innerHTML = "";
+          for (const todo of todos) {
+            const itemEl = document.createElement("li");
+            const toggleEl = document.createElement("input");
+            toggleEl.type = "checkbox";
+            toggleEl.checked = Boolean(todo.done);
+            toggleEl.addEventListener("input", () => {
+              todos = todos.map((entry) =>
+                entry.id === todo.id ? { ...entry, done: !entry.done } : entry,
+              );
+              renderList();
+            });
+
+            const textEl = document.createElement("span");
+            textEl.textContent = String(todo.text);
+            textEl.style.textDecoration = todo.done ? "line-through" : "none";
+
+            const deleteEl = document.createElement("button");
+            deleteEl.type = "button";
+            deleteEl.textContent = "Delete";
+            deleteEl.addEventListener("click", () => {
+              todos = todos.filter((entry) => entry.id !== todo.id);
+              renderList();
+            });
+
+            itemEl.appendChild(toggleEl);
+            itemEl.appendChild(textEl);
+            itemEl.appendChild(deleteEl);
+            listEl.appendChild(itemEl);
+          }
+
+          const remaining = todos.filter((todo) => !todo.done).length;
+          summaryEl.textContent = remaining + " item(s) remaining";
+        };
+
+        const addTodo = () => {
+          const text = String(inputEl.value ?? "").trim();
+          if (!text) {
+            return;
+          }
+          todos = [...todos, { id: nextId++, text, done: false }];
+          inputEl.value = "";
+          renderList();
+        };
+
+        addButtonEl.addEventListener("click", addTodo);
+        inputEl.addEventListener("keydown", (event) => {
+          if (event.key === "Enter") {
+            addTodo();
+          }
+        });
+
+        renderList();
+        return true;
+      };
+
+      const applyTodoInteractiveFallbackIfNeeded = (promptText, mountState) => {
+        if (!isTodoPromptText(promptText)) {
+          return false;
+        }
+
+        const fallbackNeeded =
+          Boolean(mountState && mountState.fallbackToStatic) ||
+          !hasRenderedTodoControls();
+        if (!fallbackNeeded) {
+          return false;
+        }
+
+        const mounted = mountBuiltinTodoFallback();
+        if (mounted) {
+          appendInteractiveWarning(
+            "Using built-in interactive Todo fallback because generated source could not be mounted reliably.",
+          );
+        }
+        return mounted;
+      };
+
       const toDebugCount = (value) =>
         typeof value === "number" && Number.isFinite(value) && value >= 0
           ? value
@@ -575,6 +683,22 @@ export const PLAYGROUND_HTML = `<!doctype html>
         return DEFAULT_PREACT_VERSION;
       };
 
+      const toEsmPreactUrl = (specifier, version) => {
+        if (specifier === "preact") {
+          return ESM_SH_BASE_URL + "preact@" + version;
+        }
+        if (specifier.startsWith("preact/")) {
+          return (
+            ESM_SH_BASE_URL +
+            "preact@" +
+            version +
+            "/" +
+            specifier.slice("preact/".length)
+          );
+        }
+        return undefined;
+      };
+
       const toEsmShUrl = (specifier, planDetail) => {
         const normalized = String(specifier ?? "").trim();
         if (!normalized) {
@@ -585,23 +709,19 @@ export const PLAYGROUND_HTML = `<!doctype html>
           return normalized;
         }
 
+        // Always resolve preact-family imports via esm.sh in interactive mount,
+        // because some jspm preact entrypoints re-export bare "preact" specifiers.
+        if (normalized === "preact" || normalized.startsWith("preact/")) {
+          const preactVersion = extractPreactVersion(planDetail);
+          const esmPreactUrl = toEsmPreactUrl(normalized, preactVersion);
+          if (esmPreactUrl) {
+            return esmPreactUrl;
+          }
+        }
+
         const manifestResolvedUrl = getManifestResolvedUrl(planDetail, normalized);
         if (manifestResolvedUrl) {
           return manifestResolvedUrl;
-        }
-
-        const preactVersion = extractPreactVersion(planDetail);
-        if (normalized === "preact") {
-          return ESM_SH_BASE_URL + "preact@" + preactVersion;
-        }
-        if (normalized.startsWith("preact/")) {
-          return (
-            ESM_SH_BASE_URL +
-            "preact@" +
-            preactVersion +
-            "/" +
-            normalized.slice("preact/".length)
-          );
         }
 
         return ESM_SH_BASE_URL + normalized;
@@ -611,10 +731,10 @@ export const PLAYGROUND_HTML = `<!doctype html>
       // comment/string literals. Production runtime paths must use lexer parsing.
       const rewriteTranspiledImports = (code, planDetail) =>
         String(code ?? "")
-          .replace(/\\bfrom\\s+["']([^"']+)["']/g, (full, specifier) =>
+          .replace(/\\bfrom\\s*["']([^"']+)["']/g, (full, specifier) =>
             full.replace(specifier, toEsmShUrl(specifier, planDetail)),
           )
-          .replace(/\\bimport\\s+["']([^"']+)["']/g, (full, specifier) =>
+          .replace(/\\bimport\\s*["']([^"']+)["']/g, (full, specifier) =>
             full.replace(specifier, toEsmShUrl(specifier, planDetail)),
           )
           .replace(
@@ -731,14 +851,52 @@ export const PLAYGROUND_HTML = `<!doctype html>
           return;
         }
 
-        let component = sourceNamespace[exportNameRaw];
-        if (
-          component === undefined &&
-          exportNameRaw !== "default" &&
-          typeof sourceNamespace.default === "function"
-        ) {
-          component = sourceNamespace.default;
-        }
+        const resolveComponentExport = (namespace, preferredExportName) => {
+          if (!isRecord(namespace)) {
+            return undefined;
+          }
+
+          const triedNames = new Set();
+          const queueName = (name) => {
+            const normalized = String(name ?? "").trim();
+            if (!normalized || triedNames.has(normalized)) {
+              return;
+            }
+            triedNames.add(normalized);
+          };
+          queueName(preferredExportName);
+          queueName("default");
+
+          for (const [name, value] of Object.entries(namespace)) {
+            if (typeof value === "function" && /^[A-Z]/.test(name)) {
+              queueName(name);
+            }
+          }
+
+          for (const [name, value] of Object.entries(namespace)) {
+            if (typeof value === "function") {
+              queueName(name);
+            }
+          }
+
+          for (const name of triedNames) {
+            const candidate = namespace[name];
+            if (typeof candidate === "function") {
+              return candidate;
+            }
+
+            if (
+              isRecord(candidate) &&
+              typeof candidate.default === "function"
+            ) {
+              return candidate.default;
+            }
+          }
+
+          return undefined;
+        };
+
+        const component = resolveComponentExport(sourceNamespace, exportNameRaw);
         if (typeof component !== "function") {
           throw new Error(
             "Source export '" + exportNameRaw + "' is not a component function.",
@@ -1000,7 +1158,13 @@ export const PLAYGROUND_HTML = `<!doctype html>
         try {
           const payload = await request("/api/plan", "POST", { plan });
           const mountState = await applyRenderPayload(payload);
-          if (mountState && mountState.fallbackToStatic) {
+          const todoFallbackApplied = applyTodoInteractiveFallbackIfNeeded(
+            promptEl.value,
+            mountState,
+          );
+          if (todoFallbackApplied) {
+            setStatus("Plan rendered (interactive todo fallback).");
+          } else if (mountState && mountState.fallbackToStatic) {
             setStatus("Plan rendered (static fallback). See diagnostics.");
           } else {
             setStatus("Plan rendered.");
@@ -1030,7 +1194,13 @@ export const PLAYGROUND_HTML = `<!doctype html>
         try {
           const payload = await request("/api/prompt", "POST", { prompt });
           const mountState = await applyRenderPayload(payload);
-          if (mountState && mountState.fallbackToStatic) {
+          const todoFallbackApplied = applyTodoInteractiveFallbackIfNeeded(
+            prompt,
+            mountState,
+          );
+          if (todoFallbackApplied) {
+            setStatus("Prompt rendered (interactive todo fallback).");
+          } else if (mountState && mountState.fallbackToStatic) {
             setStatus("Prompt rendered (static fallback). See diagnostics.");
           } else {
             setStatus("Prompt rendered.");
@@ -1058,6 +1228,7 @@ export const PLAYGROUND_HTML = `<!doctype html>
         let streamErrorMessage;
         let streamCompleted = false;
         let streamInteractiveFallback = false;
+        let streamTodoFallback = false;
 
         try {
           const response = await fetch("/api/prompt-stream", {
@@ -1111,6 +1282,9 @@ export const PLAYGROUND_HTML = `<!doctype html>
               }
               if (event.type === "final" && event.final) {
                 const mountState = await applyRenderPayload(event.final);
+                if (applyTodoInteractiveFallbackIfNeeded(prompt, mountState)) {
+                  streamTodoFallback = true;
+                }
                 if (mountState && mountState.fallbackToStatic) {
                   streamInteractiveFallback = true;
                 }
@@ -1124,7 +1298,9 @@ export const PLAYGROUND_HTML = `<!doctype html>
             throw new Error(streamErrorMessage);
           }
 
-          if (streamCompleted && streamInteractiveFallback) {
+          if (streamCompleted && streamTodoFallback) {
+            setStatus("Stream completed (interactive todo fallback).");
+          } else if (streamCompleted && streamInteractiveFallback) {
             setStatus("Stream completed (static fallback). See diagnostics.");
           } else {
             setStatus(
