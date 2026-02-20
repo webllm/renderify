@@ -27,7 +27,11 @@ import {
   type RuntimePlan,
 } from "@renderify/ir";
 import { createLLMInterpreter } from "@renderify/llm";
-import { DefaultRuntimeManager, JspmModuleLoader } from "@renderify/runtime";
+import {
+  autoPinRuntimePlanModuleManifest,
+  DefaultRuntimeManager,
+  JspmModuleLoader,
+} from "@renderify/runtime";
 import { DefaultSecurityChecker } from "@renderify/security";
 import { PLAYGROUND_HTML } from "./playground-html";
 
@@ -57,7 +61,7 @@ interface PlaygroundServerOptions {
 
 const DEFAULT_PROMPT = "Hello Renderify runtime";
 const DEFAULT_PORT = 4317;
-const DEFAULT_PLAYGROUND_MAX_EXECUTION_MS = 5000;
+const DEFAULT_PLAYGROUND_MAX_EXECUTION_MS = 15000;
 const JSON_BODY_LIMIT_BYTES = 1_000_000;
 const AUTO_MANIFEST_INTEGRITY_TIMEOUT_MS = 8000;
 const REMOTE_MODULE_INTEGRITY_CACHE = new Map<string, string>();
@@ -415,9 +419,22 @@ async function main() {
   const config = new DefaultRenderifyConfig();
   await config.load();
   const llm = createLLM(config);
+  const runtimeRemoteFallbackCdnBases = config.get<string[]>(
+    "runtimeRemoteFallbackCdnBases",
+  ) ?? ["https://esm.sh"];
+  const runtimeRemoteFetchTimeoutMs =
+    config.get<number>("runtimeRemoteFetchTimeoutMs") ?? 12000;
+  const runtimeRemoteFetchRetries =
+    config.get<number>("runtimeRemoteFetchRetries") ?? 2;
+  const runtimeRemoteFetchBackoffMs =
+    config.get<number>("runtimeRemoteFetchBackoffMs") ?? 150;
 
   const runtimeModuleLoader = new JspmModuleLoader({
     cdnBaseUrl: config.get<string>("jspmCdnUrl"),
+    remoteFallbackCdnBases: runtimeRemoteFallbackCdnBases,
+    remoteFetchTimeoutMs: runtimeRemoteFetchTimeoutMs,
+    remoteFetchRetries: runtimeRemoteFetchRetries,
+    remoteFetchBackoffMs: runtimeRemoteFetchBackoffMs,
   });
 
   const runtime = new DefaultRuntimeManager({
@@ -436,14 +453,10 @@ async function main() {
       config.get<boolean>("runtimeEnableDependencyPreflight") !== false,
     failOnDependencyPreflightError:
       config.get<boolean>("runtimeFailOnDependencyPreflightError") === true,
-    remoteFetchTimeoutMs:
-      config.get<number>("runtimeRemoteFetchTimeoutMs") ?? 12000,
-    remoteFetchRetries: config.get<number>("runtimeRemoteFetchRetries") ?? 2,
-    remoteFetchBackoffMs:
-      config.get<number>("runtimeRemoteFetchBackoffMs") ?? 150,
-    remoteFallbackCdnBases: config.get<string[]>(
-      "runtimeRemoteFallbackCdnBases",
-    ) ?? ["https://esm.sh"],
+    remoteFetchTimeoutMs: runtimeRemoteFetchTimeoutMs,
+    remoteFetchRetries: runtimeRemoteFetchRetries,
+    remoteFetchBackoffMs: runtimeRemoteFetchBackoffMs,
+    remoteFallbackCdnBases: runtimeRemoteFallbackCdnBases,
     browserSourceSandboxMode: config.get<
       "none" | "worker" | "iframe" | "shadowrealm"
     >("runtimeBrowserSourceSandboxMode"),
@@ -452,6 +465,58 @@ async function main() {
     browserSourceSandboxFailClosed:
       config.get<boolean>("runtimeBrowserSourceSandboxFailClosed") !== false,
   });
+  const preloadSecurityChecker = new DefaultSecurityChecker();
+  preloadSecurityChecker.initialize({
+    profile: config.get<"strict" | "balanced" | "relaxed">("securityProfile"),
+    overrides: config.get("securityPolicy"),
+  });
+  const requireIntegrityForHydration =
+    preloadSecurityChecker.getPolicy().requireModuleIntegrity;
+
+  const customization = new DefaultCustomizationEngine();
+  if (args.command === "playground") {
+    customization.registerPlugin({
+      name: "playground-manifest-hydration",
+      hooks: {
+        beforePolicyCheck: async (payload) => {
+          if (!isRuntimePlan(payload)) {
+            return payload;
+          }
+
+          return hydratePlaygroundPlanManifest(payload, {
+            moduleLoader: runtimeModuleLoader,
+            requireIntegrity: requireIntegrityForHydration,
+            integrityTimeoutMs: AUTO_MANIFEST_INTEGRITY_TIMEOUT_MS,
+          });
+        },
+        beforeRuntime: async (payload) => {
+          if (
+            !isRecord(payload) ||
+            !("plan" in payload) ||
+            !isRuntimePlan(payload.plan)
+          ) {
+            return payload;
+          }
+
+          const runtimeInput = payload as {
+            plan: RuntimePlan;
+          };
+          if (
+            !(await shouldSkipPlaygroundServerSourceExecution(
+              runtimeInput.plan,
+            ))
+          ) {
+            return payload;
+          }
+
+          return {
+            ...payload,
+            plan: createPlaygroundClientOnlyExecutionPlan(runtimeInput.plan),
+          };
+        },
+      },
+    });
+  }
 
   const renderifyApp = createRenderifyApp({
     config,
@@ -463,7 +528,7 @@ async function main() {
     performance: new DefaultPerformanceOptimizer(),
     ui: new DefaultUIRenderer(),
     apiIntegration: new DefaultApiIntegration(),
-    customization: new DefaultCustomizationEngine(),
+    customization,
   });
 
   await renderifyApp.start();
@@ -913,13 +978,7 @@ async function handlePlaygroundRequest(
       requestSummary = summarizePromptDebugInput(prompt);
       debugTracer?.logInboundStart(method, pathname, requestSummary);
       const result = await app.renderPrompt(prompt);
-      const hydratedPlan = await hydratePlaygroundPlanManifest(result.plan, {
-        moduleLoader,
-        requireIntegrity: app.getSecurityChecker().getPolicy()
-          .requireModuleIntegrity,
-        integrityTimeoutMs: autoManifestIntegrityTimeoutMs,
-      });
-      const payload = serializeRenderResult(result, hydratedPlan);
+      const payload = serializeRenderResult(result);
       responseSummary = summarizeRenderResultDebugOutput(payload);
       sendJson(res, 200, payload);
       finishDebug(200);
@@ -935,12 +994,7 @@ async function handlePlaygroundRequest(
       requestSummary = summarizePromptDebugInput(prompt);
       debugTracer?.logInboundStart(method, pathname, requestSummary);
 
-      const streamSummary = await sendPromptStream(res, app, prompt, {
-        moduleLoader,
-        requireIntegrity: app.getSecurityChecker().getPolicy()
-          .requireModuleIntegrity,
-        integrityTimeoutMs: autoManifestIntegrityTimeoutMs,
-      });
+      const streamSummary = await sendPromptStream(res, app, prompt);
       responseSummary = streamSummary;
       finishDebug(200, streamSummary.streamErrorMessage);
       return;
@@ -962,14 +1016,7 @@ async function handlePlaygroundRequest(
       const normalizedPlan = await normalizePlaygroundPlanInput(app, plan, {
         promptFallback: "playground:plan",
       });
-      const hydratedPlan = await hydratePlaygroundPlanManifest(normalizedPlan, {
-        moduleLoader,
-        requireIntegrity: app.getSecurityChecker().getPolicy()
-          .requireModuleIntegrity,
-        integrityTimeoutMs: autoManifestIntegrityTimeoutMs,
-      });
-
-      const result = await app.renderPlan(hydratedPlan, {
+      const result = await app.renderPlan(normalizedPlan, {
         prompt: "playground:plan",
       });
       const payload = serializeRenderResult(result);
@@ -1135,7 +1182,6 @@ async function sendPromptStream(
   res: ServerResponse,
   app: RenderifyApp,
   prompt: string,
-  hydration: PlaygroundAutoManifestOptions,
 ): Promise<{
   chunkCount: number;
   eventTypeCounts: Record<string, number>;
@@ -1154,7 +1200,7 @@ async function sendPromptStream(
 
   try {
     for await (const chunk of app.renderPromptStream(prompt)) {
-      const serialized = await serializePromptStreamChunk(chunk, hydration);
+      const serialized = await serializePromptStreamChunk(chunk);
       chunkCount += 1;
       const type = String(serialized.type ?? "unknown");
       eventTypeCounts[type] = (eventTypeCounts[type] ?? 0) + 1;
@@ -1182,24 +1228,14 @@ async function sendPromptStream(
 
 async function serializePromptStreamChunk(
   chunk: RenderPromptStreamChunk,
-  hydration: PlaygroundAutoManifestOptions,
 ): Promise<Record<string, unknown>> {
   if (chunk.type === "final") {
-    let finalPayload: Record<string, unknown> | undefined;
-    if (chunk.final) {
-      const hydratedPlan = await hydratePlaygroundPlanManifest(
-        chunk.final.plan,
-        hydration,
-      );
-      finalPayload = serializeRenderResult(chunk.final, hydratedPlan);
-    }
-
     return {
       type: chunk.type,
       traceId: chunk.traceId,
       prompt: chunk.prompt,
       llmText: chunk.llmText,
-      final: finalPayload,
+      final: chunk.final ? serializeRenderResult(chunk.final) : undefined,
       html: chunk.html,
       diagnostics: chunk.diagnostics ?? [],
       planId: chunk.planId,
@@ -1233,7 +1269,22 @@ async function hydratePlaygroundPlanManifest(
     return plan;
   }
 
-  const nextManifest = { ...(plan.moduleManifest ?? {}) };
+  const strippedManifest = stripBareSpecifierManifestEntries(
+    plan.moduleManifest,
+    bareSpecifiers,
+  );
+  const planForAutoPin =
+    strippedManifest !== plan.moduleManifest
+      ? { ...plan, moduleManifest: strippedManifest }
+      : plan;
+  const autoPinnedPlan = await autoPinRuntimePlanModuleManifest(
+    planForAutoPin,
+    {
+      moduleLoader: options.moduleLoader,
+    },
+  );
+
+  const nextManifest = { ...(autoPinnedPlan.moduleManifest ?? {}) };
   let changed = false;
 
   for (const specifier of bareSpecifiers) {
@@ -1267,11 +1318,11 @@ async function hydratePlaygroundPlanManifest(
   }
 
   if (!changed) {
-    return plan;
+    return autoPinnedPlan;
   }
 
   return {
-    ...plan,
+    ...autoPinnedPlan,
     moduleManifest: nextManifest,
   };
 }
@@ -1332,6 +1383,123 @@ function isBareModuleSpecifier(specifier: string): boolean {
     !trimmed.startsWith("data:") &&
     !trimmed.startsWith("blob:")
   );
+}
+
+function stripBareSpecifierManifestEntries(
+  manifest: RuntimePlan["moduleManifest"],
+  bareSpecifiers: string[],
+): RuntimePlan["moduleManifest"] {
+  if (!manifest) {
+    return manifest;
+  }
+
+  const bareSet = new Set(bareSpecifiers);
+  let removed = false;
+  const nextManifest: RuntimePlan["moduleManifest"] = {};
+
+  for (const [specifier, descriptor] of Object.entries(manifest)) {
+    if (bareSet.has(specifier)) {
+      removed = true;
+      continue;
+    }
+
+    nextManifest[specifier] = descriptor;
+  }
+
+  if (!removed) {
+    return manifest;
+  }
+
+  return Object.keys(nextManifest).length > 0 ? nextManifest : undefined;
+}
+
+const PLAYGROUND_SERVER_SAFE_SOURCE_IMPORTS = new Set([
+  "preact",
+  "preact/hooks",
+  "preact/compat",
+  "preact/jsx-runtime",
+  "react",
+  "react-dom",
+  "react-dom/client",
+  "react/jsx-runtime",
+  "react/jsx-dev-runtime",
+  "renderify",
+]);
+
+async function shouldSkipPlaygroundServerSourceExecution(
+  plan: RuntimePlan,
+): Promise<boolean> {
+  const source = plan.source;
+  if (!source || source.runtime !== "preact") {
+    return false;
+  }
+
+  const imports = await collectRuntimeSourceImports(source.code);
+  if (imports.length === 0) {
+    return false;
+  }
+
+  for (const specifier of imports) {
+    if (!isPlaygroundServerSafeSourceImport(specifier)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function isPlaygroundServerSafeSourceImport(specifier: string): boolean {
+  const trimmed = specifier.trim();
+  if (trimmed.length === 0) {
+    return true;
+  }
+
+  if (
+    trimmed.startsWith("./") ||
+    trimmed.startsWith("../") ||
+    trimmed.startsWith("/") ||
+    trimmed.startsWith("data:") ||
+    trimmed.startsWith("blob:")
+  ) {
+    return true;
+  }
+
+  const lower = trimmed.toLowerCase();
+  if (PLAYGROUND_SERVER_SAFE_SOURCE_IMPORTS.has(lower)) {
+    return true;
+  }
+
+  if (!isHttpUrl(trimmed)) {
+    return false;
+  }
+
+  return (
+    lower.includes("preact") ||
+    lower.includes("react/jsx-runtime") ||
+    lower.includes("react/jsx-dev-runtime")
+  );
+}
+
+function createPlaygroundClientOnlyExecutionPlan(
+  plan: RuntimePlan,
+): RuntimePlan {
+  const { source: _source, ...withoutSource } = plan;
+  const nextCapabilities = plan.capabilities
+    ? {
+        ...plan.capabilities,
+        domWrite: true,
+        allowedModules: [],
+      }
+    : {
+        domWrite: true,
+        allowedModules: [],
+      };
+
+  return {
+    ...withoutSource,
+    imports: [],
+    capabilities: nextCapabilities,
+  };
 }
 
 function isHttpUrl(value: string): boolean {

@@ -82,17 +82,39 @@ export function toEsmFallbackUrl(
 }
 
 export function extractJspmNpmSpecifier(url: string): string | undefined {
-  const prefix = "https://ga.jspm.io/npm:";
-  if (!url.startsWith(prefix)) {
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(url);
+  } catch {
     return undefined;
   }
 
-  const specifier = url.slice(prefix.length).trim();
+  const host = parsedUrl.host.toLowerCase();
+  if (!host.endsWith("jspm.io")) {
+    return undefined;
+  }
+
+  if (!parsedUrl.pathname.startsWith("/npm:")) {
+    return undefined;
+  }
+
+  const specifier = `${parsedUrl.pathname.slice("/npm:".length)}${
+    parsedUrl.search
+  }`.trim();
   if (specifier.length === 0) {
     return undefined;
   }
 
   return specifier;
+}
+
+export function isLikelyUnpinnedJspmNpmUrl(url: string): boolean {
+  const specifier = extractJspmNpmSpecifier(url);
+  if (!specifier) {
+    return false;
+  }
+
+  return !hasExplicitNpmVersion(specifier);
 }
 
 export function isCssModuleResponse(fetched: RemoteModuleFetchResult): boolean {
@@ -243,4 +265,26 @@ function toUrlPathname(url: string): string {
   } catch {
     return url;
   }
+}
+
+function hasExplicitNpmVersion(specifier: string): boolean {
+  const normalized = specifier.trim().split("?")[0] ?? "";
+  if (normalized.length === 0) {
+    return false;
+  }
+
+  if (normalized.startsWith("@")) {
+    const segments = normalized.split("/");
+    if (segments.length < 2) {
+      return false;
+    }
+
+    const scopedPackage = segments[1];
+    const versionIndex = scopedPackage.lastIndexOf("@");
+    return versionIndex > 0 && versionIndex < scopedPackage.length - 1;
+  }
+
+  const firstSegment = normalized.split("/")[0];
+  const versionIndex = firstSegment.lastIndexOf("@");
+  return versionIndex > 0 && versionIndex < firstSegment.length - 1;
 }

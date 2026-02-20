@@ -530,7 +530,7 @@ test("codegen rewrites shadcn alias source imports to portable local components"
   assert.equal(plan.moduleManifest?.["https://esm.sh/*"], undefined);
 });
 
-test("codegen rewrites material ui source imports to portable local components", async () => {
+test("codegen canonicalizes material ui imports to bare npm specifiers", async () => {
   const codegen = new DefaultCodeGenerator();
   const planJson = JSON.stringify({
     id: "source_material_ui_rewrite_plan",
@@ -577,8 +577,8 @@ test("codegen rewrites material ui source imports to portable local components",
       exportName: "default",
       code: [
         "import { useState } from 'preact/hooks';",
-        "import { Box, TextField, Button } from '@mui/material';",
-        "import DeleteIcon from '@mui/icons-material/Delete';",
+        "import { Box, TextField, Button } from 'https://esm.sh/@mui/material@5.15.0';",
+        "import DeleteIcon from 'https://esm.sh/@mui/icons-material@5.15.0/Delete';",
         "export default function TodoApp() {",
         "  const [value, setValue] = useState('');",
         "  return (<Box><TextField value={value} onChange={(e) => setValue(e.target.value)} /><Button><DeleteIcon />Add</Button></Box>);",
@@ -592,24 +592,36 @@ test("codegen rewrites material ui source imports to portable local components",
     llmText: planJson,
   });
 
-  assert.match(plan.source?.code ?? "", /__renderifyMuiCompat/);
-  assert.match(plan.source?.code ?? "", /__renderifyMuiIcons/);
-  assert.doesNotMatch(plan.source?.code ?? "", /@mui\/material/);
-  assert.doesNotMatch(plan.source?.code ?? "", /@mui\/icons-material/);
+  assert.match(plan.source?.code ?? "", /from '@mui\/material@5\.15\.0'/);
+  assert.match(
+    plan.source?.code ?? "",
+    /from '@mui\/icons-material@5\.15\.0\/Delete'/,
+  );
+  assert.doesNotMatch(plan.source?.code ?? "", /https:\/\/esm\.sh\/@mui\//);
   assert.ok((plan.imports ?? []).includes("preact/hooks"));
-  assert.ok(!(plan.imports ?? []).includes("@mui/material"));
-  assert.ok(!(plan.imports ?? []).includes("@mui/icons-material/Delete"));
+  assert.ok((plan.imports ?? []).includes("@mui/material"));
+  assert.ok((plan.imports ?? []).includes("@mui/icons-material/Delete"));
+  assert.ok((plan.imports ?? []).includes("@mui/material@5.15.0"));
+  assert.ok((plan.imports ?? []).includes("@mui/icons-material@5.15.0/Delete"));
   assert.ok(
     !(plan.imports ?? []).includes("https://esm.sh/@mui/material@5.15.0"),
   );
   assert.ok(
-    !(plan.capabilities?.allowedModules ?? []).includes("@mui/material"),
+    !(plan.capabilities?.allowedModules ?? []).includes(
+      "https://esm.sh/@mui/material@5.15.0",
+    ),
   );
-  assert.equal(plan.moduleManifest?.["@mui/material"], undefined);
-  assert.equal(plan.moduleManifest?.["@mui/icons-material/Delete"], undefined);
   assert.equal(
     plan.moduleManifest?.["https://esm.sh/@mui/material@5.15.0"],
     undefined,
+  );
+  assert.equal(
+    plan.moduleManifest?.["@mui/material"]?.resolvedUrl,
+    "@mui/material@5.15.0",
+  );
+  assert.equal(
+    plan.moduleManifest?.["@mui/icons-material/Delete"]?.resolvedUrl,
+    "@mui/icons-material@5.15.0/Delete",
   );
 });
 

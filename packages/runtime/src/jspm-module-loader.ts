@@ -10,6 +10,10 @@ import { rewriteImportsAsync } from "./runtime-source-utils";
 export interface JspmModuleLoaderOptions {
   cdnBaseUrl?: string;
   importMap?: Record<string, string>;
+  remoteFallbackCdnBases?: string[];
+  remoteFetchTimeoutMs?: number;
+  remoteFetchRetries?: number;
+  remoteFetchBackoffMs?: number;
 }
 
 interface SystemLike {
@@ -58,6 +62,10 @@ const NODE_BUILTIN_MODULE_NAMES = new Set([
   "worker_threads",
   "zlib",
 ]);
+const DEFAULT_REMOTE_FALLBACK_CDN_BASES = ["https://esm.sh"];
+const DEFAULT_REMOTE_FETCH_TIMEOUT_MS = 6000;
+const DEFAULT_REMOTE_FETCH_RETRIES = 1;
+const DEFAULT_REMOTE_FETCH_BACKOFF_MS = 120;
 
 function hasSystemImport(value: unknown): value is SystemLike {
   if (typeof value !== "object" || value === null) {
@@ -71,6 +79,10 @@ function hasSystemImport(value: unknown): value is SystemLike {
 export class JspmModuleLoader implements RuntimeModuleLoader {
   private readonly cdnBaseUrl: string;
   private readonly importMap: Record<string, string>;
+  private readonly remoteFallbackCdnBases: string[];
+  private readonly remoteFetchTimeoutMs: number;
+  private readonly remoteFetchRetries: number;
+  private readonly remoteFetchBackoffMs: number;
   private readonly cache = new Map<string, unknown>();
   private readonly inflight = new Map<string, Promise<unknown>>();
   private readonly remoteMaterializationDiagnostics: RuntimeDiagnostic[] = [];
@@ -84,6 +96,23 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
   constructor(options: JspmModuleLoaderOptions = {}) {
     this.cdnBaseUrl = this.normalizeCdnBaseUrl(options.cdnBaseUrl);
     this.importMap = options.importMap ?? {};
+    this.remoteFallbackCdnBases =
+      options.remoteFallbackCdnBases &&
+      options.remoteFallbackCdnBases.length > 0
+        ? [...options.remoteFallbackCdnBases]
+        : [...DEFAULT_REMOTE_FALLBACK_CDN_BASES];
+    this.remoteFetchTimeoutMs = normalizePositiveInteger(
+      options.remoteFetchTimeoutMs,
+      DEFAULT_REMOTE_FETCH_TIMEOUT_MS,
+    );
+    this.remoteFetchRetries = normalizeNonNegativeInteger(
+      options.remoteFetchRetries,
+      DEFAULT_REMOTE_FETCH_RETRIES,
+    );
+    this.remoteFetchBackoffMs = normalizeNonNegativeInteger(
+      options.remoteFetchBackoffMs,
+      DEFAULT_REMOTE_FETCH_BACKOFF_MS,
+    );
   }
 
   async load(specifier: string): Promise<unknown> {
@@ -281,10 +310,10 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
       diagnostics: this.remoteMaterializationDiagnostics,
       materializedModuleUrlCache: this.remoteMaterializedUrlCache,
       materializedModuleInflight: this.remoteMaterializedInflight,
-      remoteFallbackCdnBases: [],
-      remoteFetchTimeoutMs: 12000,
-      remoteFetchRetries: 0,
-      remoteFetchBackoffMs: 120,
+      remoteFallbackCdnBases: this.remoteFallbackCdnBases,
+      remoteFetchTimeoutMs: this.remoteFetchTimeoutMs,
+      remoteFetchRetries: this.remoteFetchRetries,
+      remoteFetchBackoffMs: this.remoteFetchBackoffMs,
       canMaterializeRuntimeModules: () => typeof Buffer !== "undefined",
       rewriteImportsAsync: (code, resolver) =>
         rewriteImportsAsync(code, resolver),
@@ -312,4 +341,36 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
       "Node remote module materialization requires Buffer support",
     );
   }
+}
+
+function normalizePositiveInteger(
+  value: number | undefined,
+  fallback: number,
+): number {
+  if (
+    typeof value !== "number" ||
+    !Number.isInteger(value) ||
+    value <= 0 ||
+    !Number.isFinite(value)
+  ) {
+    return fallback;
+  }
+
+  return value;
+}
+
+function normalizeNonNegativeInteger(
+  value: number | undefined,
+  fallback: number,
+): number {
+  if (
+    typeof value !== "number" ||
+    !Number.isInteger(value) ||
+    value < 0 ||
+    !Number.isFinite(value)
+  ) {
+    return fallback;
+  }
+
+  return value;
 }

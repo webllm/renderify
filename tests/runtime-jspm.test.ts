@@ -218,3 +218,66 @@ test("runtime-jspm materializes remote HTTP modules when System.import is unavai
     globalThis.fetch = previousFetch;
   }
 });
+
+test("runtime-jspm falls back from unpinned jspm endpoints to esm.sh", async () => {
+  const loader = new JspmModuleLoader({
+    remoteFallbackCdnBases: ["https://esm.sh"],
+    remoteFetchRetries: 0,
+    remoteFetchBackoffMs: 10,
+    remoteFetchTimeoutMs: 1200,
+  });
+  const globalState = globalThis as unknown as {
+    System?: { import(url: string): Promise<unknown> };
+    fetch?: typeof fetch;
+  };
+  const previousSystem = globalState.System;
+  const previousFetch = globalThis.fetch;
+  const requestedUrls: string[] = [];
+
+  delete globalState.System;
+  globalState.fetch = (async (input: RequestInfo | URL) => {
+    const requestUrl = String(input);
+    requestedUrls.push(requestUrl);
+
+    if (requestUrl === "https://ga.jspm.io/npm:nanoid") {
+      return new Response("5.1.6", {
+        status: 200,
+        headers: {
+          "content-type": "text/plain; charset=utf-8",
+        },
+      });
+    }
+
+    if (requestUrl.startsWith("https://esm.sh/nanoid")) {
+      return new Response("export default 7;", {
+        status: 200,
+        headers: {
+          "content-type": "text/javascript; charset=utf-8",
+        },
+      });
+    }
+
+    return new Response("not-found", { status: 404 });
+  }) as typeof fetch;
+
+  try {
+    const loaded = (await loader.load("nanoid")) as { default: number };
+    assert.equal(loaded.default, 7);
+    assert.ok(
+      requestedUrls.includes("https://ga.jspm.io/npm:nanoid"),
+      "expected unpinned jspm endpoint to be attempted first",
+    );
+    assert.ok(
+      requestedUrls.some((url) => url.startsWith("https://esm.sh/nanoid")),
+      "expected esm.sh fallback to be attempted",
+    );
+  } finally {
+    if (previousSystem === undefined) {
+      delete globalState.System;
+    } else {
+      globalState.System = previousSystem;
+    }
+
+    globalThis.fetch = previousFetch;
+  }
+});

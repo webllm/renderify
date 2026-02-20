@@ -671,7 +671,7 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
       'Do not include synthetic source module aliases such as "this-plan-source" in imports, capabilities.allowedModules, or moduleManifest.',
       'Do not use local path aliases such as "@/..." in any import or module URL.',
       'Do not emit wildcard module specifiers such as "https://esm.sh/*".',
-      "Avoid importing large UI frameworks (for example @mui/*) in playground plans; prefer plain JSX/HTML components.",
+      "When using third-party UI libraries, prefer bare npm specifiers (for example @mui/material) over direct CDN URLs.",
       "When third-party UI libraries are unavailable, use plain JSX/HTML components instead of fake CDN paths.",
       'If source.language is jsx/tsx and code uses React-like hooks/imports, set source.runtime to "preact".',
       "For preact source modules, import hooks from preact/compat or preact/hooks (not renderify).",

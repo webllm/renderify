@@ -11,6 +11,7 @@ import {
   isCssModuleResponse,
   isJavaScriptModuleResponse,
   isJsonModuleResponse,
+  isLikelyUnpinnedJspmNpmUrl,
   type RemoteModuleFetchResult,
   toConfiguredFallbackUrl,
   toEsmFallbackUrl,
@@ -61,6 +62,29 @@ test("module-fetch extracts jspm npm specifiers", () => {
       "https://example.com/npm:@mui/material@7.3.5/index.js",
     ),
     undefined,
+  );
+  assert.equal(
+    extractJspmNpmSpecifier(
+      "https://cdn.jspm.io/npm:@mui/material@7.3.5/index.js?dev",
+    ),
+    "@mui/material@7.3.5/index.js?dev",
+  );
+});
+
+test("module-fetch detects unpinned jspm npm endpoint urls", () => {
+  assert.equal(
+    isLikelyUnpinnedJspmNpmUrl("https://ga.jspm.io/npm:@mui/material"),
+    true,
+  );
+  assert.equal(
+    isLikelyUnpinnedJspmNpmUrl(
+      "https://ga.jspm.io/npm:@mui/material@7.3.5/esm/index.js",
+    ),
+    false,
+  );
+  assert.equal(
+    isLikelyUnpinnedJspmNpmUrl("https://example.com/npm:@mui/material"),
+    false,
   );
 });
 

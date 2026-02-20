@@ -338,6 +338,10 @@ export class DefaultRuntimeManager implements RuntimeManager {
       }
     }
 
+    // Dependency preflight can involve remote fetches and should not consume
+    // the same execution budget used for actual module import + render.
+    frame.startedAt = nowMs();
+
     await resolveRuntimePlanImports({
       imports,
       maxImports,

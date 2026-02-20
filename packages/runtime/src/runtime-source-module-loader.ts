@@ -11,6 +11,7 @@ import {
   isCssModuleResponse,
   isJavaScriptModuleResponse,
   isJsonModuleResponse,
+  isLikelyUnpinnedJspmNpmUrl,
   type RemoteModuleFetchResult,
 } from "./module-fetch";
 import { isBrowserRuntime, isNodeRuntime } from "./runtime-environment";
@@ -360,6 +361,16 @@ export class RuntimeSourceModuleLoader {
           );
         }
 
+        const effectiveUrl = response.url || attempt;
+        if (
+          isLikelyUnpinnedJspmNpmUrl(attempt) ||
+          isLikelyUnpinnedJspmNpmUrl(effectiveUrl)
+        ) {
+          throw new Error(
+            `Failed to load module ${attempt}: non-executable JSPM package index endpoint`,
+          );
+        }
+
         if (attempt !== originalUrl) {
           this.diagnostics.push({
             level: "warning",
@@ -377,7 +388,7 @@ export class RuntimeSourceModuleLoader {
         }
 
         return {
-          url: response.url || attempt,
+          url: effectiveUrl,
           code: await response.text(),
           contentType:
             response.headers.get("content-type")?.toLowerCase() ?? "",

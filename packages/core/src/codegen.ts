@@ -1706,23 +1706,19 @@ export class DefaultCodeGenerator implements CodeGenerator {
       return undefined;
     }
 
-    if (this.isUnsupportedImportSpecifier(normalized)) {
+    const canonicalMuiSpecifier =
+      this.canonicalizeMaterialUiSpecifier(normalized);
+    const candidateSpecifier = canonicalMuiSpecifier ?? normalized;
+
+    if (this.isUnsupportedImportSpecifier(candidateSpecifier)) {
       return undefined;
     }
 
-    return normalized;
+    return candidateSpecifier;
   }
 
   private isUnsupportedImportSpecifier(specifier: string): boolean {
     if (specifier.includes("*")) {
-      return true;
-    }
-
-    const normalizedLower = specifier.trim().toLowerCase();
-    if (
-      normalizedLower === MUI_MATERIAL_BARE_SPECIFIER ||
-      normalizedLower.startsWith(`${MUI_ICONS_BARE_PREFIX}/`)
-    ) {
       return true;
     }
 
@@ -1737,14 +1733,83 @@ export class DefaultCodeGenerator implements CodeGenerator {
     try {
       const parsed = new URL(specifier);
       const pathname = parsed.pathname.toLowerCase();
-      return (
-        pathname.includes("/@/") ||
-        pathname.startsWith("/@mui/material") ||
-        pathname.startsWith("/@mui/icons-material")
-      );
+      return pathname.includes("/@/");
     } catch {
       return true;
     }
+  }
+
+  private canonicalizeMaterialUiSpecifier(
+    specifier: string,
+  ): string | undefined {
+    const normalized = specifier.trim();
+    if (normalized.length === 0) {
+      return undefined;
+    }
+
+    const fromBareSpecifier = this.canonicalizeMaterialUiPath(normalized);
+    if (fromBareSpecifier) {
+      return fromBareSpecifier;
+    }
+
+    if (
+      !normalized.startsWith("http://") &&
+      !normalized.startsWith("https://")
+    ) {
+      return undefined;
+    }
+
+    try {
+      const parsed = new URL(normalized);
+      const hostname = parsed.hostname.toLowerCase();
+      if (hostname !== "esm.sh" && hostname !== "www.esm.sh") {
+        return undefined;
+      }
+
+      const pathname = parsed.pathname.replace(/^\/+/, "");
+      return this.canonicalizeMaterialUiPath(pathname);
+    } catch {
+      return undefined;
+    }
+  }
+
+  private canonicalizeMaterialUiPath(path: string): string | undefined {
+    const normalized = path.trim();
+    if (normalized.length === 0) {
+      return undefined;
+    }
+
+    const materialMatch = /^@mui\/material(?:@([^/]+))?(?:\/(.+))?$/.exec(
+      normalized,
+    );
+    if (materialMatch) {
+      const version = materialMatch[1]?.trim();
+      const subpath = materialMatch[2]?.trim();
+      const packageSpecifier =
+        version && version.length > 0
+          ? `${MUI_MATERIAL_BARE_SPECIFIER}@${version}`
+          : MUI_MATERIAL_BARE_SPECIFIER;
+      return subpath && subpath.length > 0
+        ? `${packageSpecifier}/${subpath}`
+        : packageSpecifier;
+    }
+
+    const iconsMatch = /^@mui\/icons-material(?:@([^/]+))?(?:\/(.+))?$/.exec(
+      normalized,
+    );
+    if (iconsMatch) {
+      const version = iconsMatch[1]?.trim();
+      const subpath = iconsMatch[2]?.trim();
+      const packageSpecifier =
+        version && version.length > 0
+          ? `${MUI_ICONS_BARE_PREFIX}@${version}`
+          : MUI_ICONS_BARE_PREFIX;
+      return subpath && subpath.length > 0
+        ? `${packageSpecifier}/${subpath}`
+        : packageSpecifier;
+    }
+
+    return undefined;
   }
 
   private async collectUnsupportedSourceImports(
@@ -1916,383 +1981,34 @@ export class DefaultCodeGenerator implements CodeGenerator {
   }
 
   private rewritePortableMaterialUiSourceImports(code: string): string {
-    const materialImportPattern =
-      /^\s*import\s+(type\s+)?([^;]+?)\s+from\s+["'](@mui\/material|https?:\/\/esm\.sh\/@mui\/material[^"']*)["'];\s*$/gm;
-    const iconImportPattern =
-      /^\s*import\s+(type\s+)?([^;]+?)\s+from\s+["'](@mui\/icons-material\/[^"']+|https?:\/\/esm\.sh\/@mui\/icons-material\/[^"']+)["'];\s*$/gm;
-    let rewroteImport = false;
+    let rewritten = code;
 
-    const rewrittenMaterialImports = code.replace(
-      materialImportPattern,
-      (_match: string, typeKeyword: string | undefined, clauseRaw: string) => {
-        rewroteImport = true;
-        if (typeof typeKeyword === "string" && typeKeyword.trim().length > 0) {
-          return "";
-        }
+    const replaceEsmShMaterialSpecifier = (
+      _match: string,
+      specifier: string,
+    ): string => {
+      const canonical = this.canonicalizeMaterialUiSpecifier(specifier);
+      if (!canonical) {
+        return _match;
+      }
 
-        return this.buildPortableMaterialImportBinding(clauseRaw);
-      },
+      return _match.replace(specifier, canonical);
+    };
+
+    rewritten = rewritten.replace(
+      /\bfrom\s+["'](https?:\/\/esm\.sh\/@mui\/[^"']+)["']/g,
+      replaceEsmShMaterialSpecifier,
+    );
+    rewritten = rewritten.replace(
+      /\bimport\s+["'](https?:\/\/esm\.sh\/@mui\/[^"']+)["']/g,
+      replaceEsmShMaterialSpecifier,
+    );
+    rewritten = rewritten.replace(
+      /\bimport\s*\(\s*["'](https?:\/\/esm\.sh\/@mui\/[^"']+)["']\s*\)/g,
+      replaceEsmShMaterialSpecifier,
     );
 
-    const rewrittenImports = rewrittenMaterialImports.replace(
-      iconImportPattern,
-      (
-        _match: string,
-        typeKeyword: string | undefined,
-        clauseRaw: string,
-        specifier: string,
-      ) => {
-        rewroteImport = true;
-        if (typeof typeKeyword === "string" && typeKeyword.trim().length > 0) {
-          return "";
-        }
-
-        return this.buildPortableMaterialIconImportBinding(
-          clauseRaw,
-          specifier,
-        );
-      },
-    );
-
-    if (!rewroteImport) {
-      return code;
-    }
-
-    return `${this.createPortableMaterialUiShim()}\n${rewrittenImports.trimStart()}`;
-  }
-
-  private buildPortableMaterialImportBinding(clauseRaw: string): string {
-    const clause = clauseRaw.replace(/\s+/g, " ").trim();
-    if (clause.length === 0) {
-      return "";
-    }
-
-    if (clause.startsWith("{") && clause.endsWith("}")) {
-      const normalizedNamedClause = clause.replace(/\btype\s+/g, "");
-      return `const ${normalizedNamedClause} = __renderifyMuiCompat;`;
-    }
-
-    if (clause.startsWith("* as ")) {
-      const namespaceName = clause.slice("* as ".length).trim();
-      if (!namespaceName) {
-        return "";
-      }
-      return `const ${namespaceName} = __renderifyMuiCompat;`;
-    }
-
-    const splitIndex = clause.indexOf(",");
-    if (splitIndex > 0) {
-      const defaultImport = clause.slice(0, splitIndex).trim();
-      const namedImport = clause.slice(splitIndex + 1).trim();
-      const statements: string[] = [];
-
-      if (defaultImport.length > 0) {
-        statements.push(`const ${defaultImport} = __renderifyMuiCompat;`);
-      }
-
-      if (namedImport.startsWith("{") && namedImport.endsWith("}")) {
-        statements.push(
-          `const ${namedImport.replace(/\btype\s+/g, "")} = __renderifyMuiCompat;`,
-        );
-      }
-
-      return statements.join("\n");
-    }
-
-    return `const ${clause} = __renderifyMuiCompat;`;
-  }
-
-  private buildPortableMaterialIconImportBinding(
-    clauseRaw: string,
-    specifier: string,
-  ): string {
-    const clause = clauseRaw.replace(/\s+/g, " ").trim();
-    if (clause.length === 0) {
-      return "";
-    }
-
-    const iconName = this.resolvePortableMaterialIconName(specifier);
-
-    if (clause.startsWith("{") && clause.endsWith("}")) {
-      const normalizedNamedClause = clause.replace(/\btype\s+/g, "");
-      return `const ${normalizedNamedClause} = __renderifyMuiIcons;`;
-    }
-
-    if (clause.startsWith("* as ")) {
-      const namespaceName = clause.slice("* as ".length).trim();
-      if (!namespaceName) {
-        return "";
-      }
-      return `const ${namespaceName} = __renderifyMuiIcons;`;
-    }
-
-    const splitIndex = clause.indexOf(",");
-    if (splitIndex > 0) {
-      const defaultImport = clause.slice(0, splitIndex).trim();
-      const namedImport = clause.slice(splitIndex + 1).trim();
-      const statements: string[] = [];
-
-      if (defaultImport.length > 0) {
-        statements.push(
-          `const ${defaultImport} = __renderifyMuiIcons.${iconName};`,
-        );
-      }
-
-      if (namedImport.startsWith("{") && namedImport.endsWith("}")) {
-        statements.push(
-          `const ${namedImport.replace(/\btype\s+/g, "")} = __renderifyMuiIcons;`,
-        );
-      }
-
-      return statements.join("\n");
-    }
-
-    return `const ${clause} = __renderifyMuiIcons.${iconName};`;
-  }
-
-  private resolvePortableMaterialIconName(specifier: string): string {
-    const normalized = specifier.trim();
-    if (normalized.length === 0) {
-      return "Dot";
-    }
-
-    const lastPathSegment = normalized.split("/").filter(Boolean).pop();
-    if (!lastPathSegment) {
-      return "Dot";
-    }
-
-    const cleaned = lastPathSegment.split("?")[0].split("#")[0].trim();
-    const iconName = this.toPascalCaseIdentifier(cleaned);
-    return iconName.length > 0 ? iconName : "Dot";
-  }
-
-  private createPortableMaterialUiShim(): string {
-    return [
-      "const __renderifyMuiCompat = (() => {",
-      "  const toPx = (value) => {",
-      "    if (value === undefined || value === null) {",
-      "      return undefined;",
-      "    }",
-      "    if (typeof value === 'number' && Number.isFinite(value)) {",
-      "      return String(value * 8) + 'px';",
-      "    }",
-      "    return String(value);",
-      "  };",
-      "  const mergeStyle = (...candidates) => {",
-      "    const merged = {};",
-      "    for (const candidate of candidates) {",
-      "      if (candidate && typeof candidate === 'object') {",
-      "        Object.assign(merged, candidate);",
-      "      }",
-      "    }",
-      "    return merged;",
-      "  };",
-      "  const Box = (props) => {",
-      "    const { children, display, gap, marginBottom, marginTop, margin, style, ...rest } = props ?? {};",
-      "    return (",
-      "      <div",
-      "        {...rest}",
-      "        style={mergeStyle(style, {",
-      "          ...(display !== undefined ? { display } : {}),",
-      "          ...(gap !== undefined ? { gap: toPx(gap) } : {}),",
-      "          ...(marginBottom !== undefined ? { marginBottom: toPx(marginBottom) } : {}),",
-      "          ...(marginTop !== undefined ? { marginTop: toPx(marginTop) } : {}),",
-      "          ...(margin !== undefined ? { margin: toPx(margin) } : {}),",
-      "        })}",
-      "      >",
-      "        {children}",
-      "      </div>",
-      "    );",
-      "  };",
-      "  const Container = (props) => {",
-      "    const { children, maxWidth, style, ...rest } = props ?? {};",
-      "    const maxWidthMap = { xs: 480, sm: 640, md: 768, lg: 1024, xl: 1280 };",
-      "    const resolvedMaxWidth = typeof maxWidth === 'string' ? maxWidthMap[maxWidth] : undefined;",
-      "    return (",
-      "      <div",
-      "        {...rest}",
-      "        style={mergeStyle(",
-      "          { margin: '0 auto', width: '100%' },",
-      "          resolvedMaxWidth ? { maxWidth: String(resolvedMaxWidth) + 'px' } : {},",
-      "          style,",
-      "        )}",
-      "      >",
-      "        {children}",
-      "      </div>",
-      "    );",
-      "  };",
-      "  const Paper = (props) => {",
-      "    const { children, elevation, style, ...rest } = props ?? {};",
-      "    const shadow = typeof elevation === 'number' && elevation > 0",
-      "      ? '0 ' + String(Math.min(24, elevation * 2)) + 'px ' + String(Math.min(48, elevation * 4)) + 'px rgba(0,0,0,0.12)'",
-      "      : 'none';",
-      "    return (",
-      "      <div",
-      "        {...rest}",
-      "        style={mergeStyle(",
-      "          { border: '1px solid #e5e7eb', borderRadius: '12px', background: '#fff', boxShadow: shadow },",
-      "          style,",
-      "        )}",
-      "      >",
-      "        {children}",
-      "      </div>",
-      "    );",
-      "  };",
-      "  const Typography = (props) => {",
-      "    const { children, variant, component, align, color, style, ...rest } = props ?? {};",
-      "    const resolvedTag = component || (variant === 'h4' ? 'h4' : variant === 'h5' ? 'h5' : 'p');",
-      "    const Tag = resolvedTag;",
-      "    return (",
-      "      <Tag",
-      "        {...rest}",
-      "        style={mergeStyle(",
-      "          {",
-      "            ...(align ? { textAlign: align } : {}),",
-      "            ...(color === 'textSecondary' ? { color: '#6b7280' } : {}),",
-      "          },",
-      "          style,",
-      "        )}",
-      "      >",
-      "        {children}",
-      "      </Tag>",
-      "    );",
-      "  };",
-      "  const TextField = (props) => {",
-      "    const {",
-      "      onChange,",
-      "      onInput,",
-      "      value,",
-      "      label,",
-      "      placeholder,",
-      "      fullWidth,",
-      "      type,",
-      "      style,",
-      "      ...rest",
-      "    } = props ?? {};",
-      "    return (",
-      "      <input",
-      "        {...rest}",
-      "        type={type ?? 'text'}",
-      "        value={value ?? ''}",
-      "        placeholder={placeholder ?? label ?? ''}",
-      "        onInput={(event) => {",
-      "          if (typeof onInput === 'function') {",
-      "            onInput(event);",
-      "          }",
-      "          if (typeof onChange === 'function') {",
-      "            onChange(event);",
-      "          }",
-      "        }}",
-      "        style={mergeStyle(",
-      "          {",
-      "            padding: '10px 12px',",
-      "            borderRadius: '8px',",
-      "            border: '1px solid #d1d5db',",
-      "            ...(fullWidth ? { width: '100%' } : {}),",
-      "          },",
-      "          style,",
-      "        )}",
-      "      />",
-      "    );",
-      "  };",
-      "  const Button = (props) => {",
-      "    const { children, type, style, ...rest } = props ?? {};",
-      "    return (",
-      "      <button",
-      "        {...rest}",
-      "        type={type ?? 'button'}",
-      "        style={mergeStyle(",
-      "          {",
-      "            padding: '10px 14px',",
-      "            borderRadius: '8px',",
-      "            border: '1px solid transparent',",
-      "            background: '#2563eb',",
-      "            color: '#fff',",
-      "            cursor: 'pointer',",
-      "          },",
-      "          style,",
-      "        )}",
-      "      >",
-      "        {children}",
-      "      </button>",
-      "    );",
-      "  };",
-      "  const IconButton = (props) => {",
-      "    const { children, type, style, ...rest } = props ?? {};",
-      "    return (",
-      "      <button",
-      "        {...rest}",
-      "        type={type ?? 'button'}",
-      "        style={mergeStyle(",
-      "          {",
-      "            border: 'none',",
-      "            background: 'transparent',",
-      "            padding: '6px',",
-      "            borderRadius: '6px',",
-      "            cursor: 'pointer',",
-      "          },",
-      "          style,",
-      "        )}",
-      "      >",
-      "        {children}",
-      "      </button>",
-      "    );",
-      "  };",
-      "  const Checkbox = (props) => {",
-      "    const { checked, onChange, onInput, style, ...rest } = props ?? {};",
-      "    return (",
-      "      <input",
-      "        {...rest}",
-      "        type='checkbox'",
-      "        checked={Boolean(checked)}",
-      "        onInput={(event) => {",
-      "          if (typeof onInput === 'function') {",
-      "            onInput(event);",
-      "          }",
-      "          if (typeof onChange === 'function') {",
-      "            onChange(event);",
-      "          }",
-      "        }}",
-      "        style={mergeStyle({ cursor: 'pointer' }, style)}",
-      "      />",
-      "    );",
-      "  };",
-      "  const List = (props) => <div {...(props ?? {})}>{props?.children}</div>;",
-      "  const ListItem = (props) => <div {...(props ?? {})}>{props?.children}</div>;",
-      "  const ListItemText = (props) => {",
-      "    const { primary, secondary, style, ...rest } = props ?? {};",
-      "    return (",
-      "      <div {...rest} style={style}>",
-      "        {primary ?? props?.children}",
-      "        {secondary ? <small>{secondary}</small> : null}",
-      "      </div>",
-      "    );",
-      "  };",
-      "  return {",
-      "    Box,",
-      "    TextField,",
-      "    Button,",
-      "    List,",
-      "    ListItem,",
-      "    ListItemText,",
-      "    IconButton,",
-      "    Checkbox,",
-      "    Typography,",
-      "    Paper,",
-      "    Container,",
-      "  };",
-      "})();",
-      "const __renderifyMuiIcons = new Proxy(",
-      "  {},",
-      "  {",
-      "    get: (_target, key) => {",
-      "      const iconName = String(key ?? '');",
-      "      const glyph = /delete/i.test(iconName) ? '[x]' : '*';",
-      "      return (props) => <span aria-hidden='true' {...(props ?? {})}>{glyph}</span>;",
-      "    },",
-      "  },",
-      ");",
-    ].join("\n");
+    return rewritten;
   }
 
   private isSyntheticSourceModuleSpecifier(

@@ -1251,6 +1251,64 @@ export const PLAYGROUND_HTML = `<!doctype html>
         return undefined;
       };
 
+      const extractJspmNpmSpecifier = (url) => {
+        try {
+          const parsed = new URL(String(url ?? ""));
+          const host = String(parsed.host ?? "").toLowerCase();
+          if (!host.endsWith("jspm.io")) {
+            return undefined;
+          }
+
+          const pathname = String(parsed.pathname ?? "");
+          if (!pathname.startsWith("/npm:")) {
+            return undefined;
+          }
+
+          const specifier = pathname.slice("/npm:".length).trim();
+          return specifier.length > 0 ? specifier : undefined;
+        } catch {
+          return undefined;
+        }
+      };
+
+      const hasExplicitNpmVersion = (specifier) => {
+        const normalized = String(specifier ?? "")
+          .trim()
+          .split("?")[0];
+        if (!normalized) {
+          return false;
+        }
+
+        if (normalized.startsWith("@")) {
+          const segments = normalized.split("/");
+          if (segments.length < 2) {
+            return false;
+          }
+
+          const scopedPackage = segments[1];
+          const versionIndex = scopedPackage.lastIndexOf("@");
+          return versionIndex > 0 && versionIndex < scopedPackage.length - 1;
+        }
+
+        const firstSegment = normalized.split("/")[0];
+        const versionIndex = firstSegment.lastIndexOf("@");
+        return versionIndex > 0 && versionIndex < firstSegment.length - 1;
+      };
+
+      const toEsmFallbackForUnpinnedJspmUrl = (url) => {
+        const specifier = extractJspmNpmSpecifier(url);
+        if (!specifier || hasExplicitNpmVersion(specifier)) {
+          return undefined;
+        }
+
+        const aliasQuery = [
+          "alias=react:preact/compat,react-dom:preact/compat,react-dom/client:preact/compat,react/jsx-runtime:preact/jsx-runtime,react/jsx-dev-runtime:preact/jsx-runtime",
+          "target=es2022",
+        ].join("&");
+        const separator = specifier.includes("?") ? "&" : "?";
+        return ESM_SH_BASE_URL + specifier + separator + aliasQuery;
+      };
+
       const toEsmShUrl = (specifier, planDetail) => {
         const normalized = String(specifier ?? "").trim();
         if (!normalized) {
@@ -1273,6 +1331,12 @@ export const PLAYGROUND_HTML = `<!doctype html>
 
         const manifestResolvedUrl = getManifestResolvedUrl(planDetail, normalized);
         if (manifestResolvedUrl) {
+          const fallbackUnpinned = toEsmFallbackForUnpinnedJspmUrl(
+            manifestResolvedUrl,
+          );
+          if (fallbackUnpinned) {
+            return fallbackUnpinned;
+          }
           return manifestResolvedUrl;
         }
 
