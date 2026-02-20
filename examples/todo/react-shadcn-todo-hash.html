@@ -268,12 +268,11 @@
   <body>
     <div id="app"></div>
 
-    <script type="module">
-      import React, { useEffect, useMemo, useState } from "https://esm.sh/react@18.3.1";
-      import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
-      import htm from "https://esm.sh/htm@3.1.1";
-
-      const html = htm.bind(React.createElement);
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script type="text/babel">
+      const { useEffect, useMemo, useState } = React;
       const STORAGE_KEY = "renderify-react-shadcn-todo-hash-demo";
       const HASH_KEY = "state64";
 
@@ -443,7 +442,7 @@
           }
         };
 
-        return html`
+        return (
           <main className="app-shell">
             <section className="card">
               <header className="card-header">
@@ -458,90 +457,90 @@
                   <input
                     className="input"
                     placeholder="Add a task, e.g. design runtime streaming API"
-                    value=${value}
-                    onChange=${(event) => setValue(event.target.value)}
-                    onKeyDown=${onInputKeyDown}
+                    value={value}
+                    onChange={(event) => setValue(event.target.value)}
+                    onKeyDown={onInputKeyDown}
                   />
-                  <button className="btn btn-primary" onClick=${addTodo} disabled=${!value.trim()}>
+                  <button className="btn btn-primary" onClick={addTodo} disabled={!value.trim()}>
                     Add
                   </button>
                 </div>
 
-                ${filtered.length === 0
-                  ? html`<div className="todo-empty">No tasks under the current filter.</div>`
-                  : html`
-                      <ul className="todo-list">
-                        ${filtered.map(
-                          (todo) => html`
-                            <li className="todo-item" key=${todo.id}>
-                              <input
-                                className="todo-check"
-                                type="checkbox"
-                                checked=${todo.done}
-                                onChange=${() => toggleTodo(todo.id)}
-                              />
-                              <span className=${`todo-text ${todo.done ? "done" : ""}`}>
-                                ${todo.text}
-                              </span>
-                              <button
-                                className="btn btn-ghost"
-                                onClick=${() => removeTodo(todo.id)}
-                                aria-label="Delete"
-                                title="Delete"
-                              >
-                                Delete
-                              </button>
-                            </li>
-                          `,
-                        )}
-                      </ul>
-                    `}
+                {filtered.length === 0 ? (
+                  <div className="todo-empty">No tasks under the current filter.</div>
+                ) : (
+                  <ul className="todo-list">
+                    {filtered.map((todo) => (
+                      <li className="todo-item" key={todo.id}>
+                        <input
+                          className="todo-check"
+                          type="checkbox"
+                          checked={todo.done}
+                          onChange={() => toggleTodo(todo.id)}
+                        />
+                        <span className={`todo-text ${todo.done ? "done" : ""}`}>
+                          {todo.text}
+                        </span>
+                        <button
+                          className="btn btn-ghost"
+                          onClick={() => removeTodo(todo.id)}
+                          aria-label="Delete"
+                          title="Delete"
+                        >
+                          Delete
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
 
                 <div className="footer">
                   <div className="row">
                     <button
-                      className=${`btn btn-outline ${filter === "all" ? "active" : ""}`}
-                      onClick=${() => setFilter("all")}
+                      className={`btn btn-outline ${filter === "all" ? "active" : ""}`}
+                      onClick={() => setFilter("all")}
                     >
                       All
                     </button>
                     <button
-                      className=${`btn btn-outline ${filter === "active" ? "active" : ""}`}
-                      onClick=${() => setFilter("active")}
+                      className={`btn btn-outline ${filter === "active" ? "active" : ""}`}
+                      onClick={() => setFilter("active")}
                     >
                       Active
                     </button>
                     <button
-                      className=${`btn btn-outline ${filter === "done" ? "active" : ""}`}
-                      onClick=${() => setFilter("done")}
+                      className={`btn btn-outline ${filter === "done" ? "active" : ""}`}
+                      onClick={() => setFilter("done")}
                     >
                       Completed
                     </button>
                   </div>
 
                   <div className="row">
-                    <span className="badge">${leftCount} remaining</span>
-                    <button className="btn btn-danger" onClick=${clearDone}>Clear completed</button>
-                    <button className="btn btn-ghost" onClick=${resetDemo}>Reset demo</button>
-                    <button className="btn btn-outline" onClick=${copyShareLink}>Copy share link</button>
+                    <span className="badge">{leftCount} remaining</span>
+                    <button className="btn btn-danger" onClick={clearDone}>Clear completed</button>
+                    <button className="btn btn-ghost" onClick={resetDemo}>Reset demo</button>
+                    <button className="btn btn-outline" onClick={copyShareLink}>Copy share link</button>
                   </div>
                 </div>
 
                 <div className="hash-hint">
                   Hash field: <code>#state64=&lt;base64url(json)&gt;</code>
-                  ${flash ? html`<div style=${{ marginTop: 6, color: "#0f766e", fontWeight: 600 }}>${flash}</div>` : null}
+                  {flash ? (
+                    <div style={{ marginTop: 6, color: "#0f766e", fontWeight: 600 }}>{flash}</div>
+                  ) : null}
                 </div>
 
-                <p className="muted" style=${{ marginTop: 12, fontSize: 12 }}>
+                <p className="muted" style={{ marginTop: 12, fontSize: 12 }}>
                   Tip: state is also saved to LocalStorage. Manually editing the hash auto-reloads state.
                 </p>
               </div>
             </section>
           </main>
-        `;
+        );
       }
 
-      createRoot(document.getElementById("app")).render(html`<${App} />`);
+      ReactDOM.createRoot(document.getElementById("app")).render(<App />);
     </script>
   </body>
 </html>
