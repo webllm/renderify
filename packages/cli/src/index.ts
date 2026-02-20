@@ -950,12 +950,29 @@ async function handlePlaygroundRequest(
 
     if (method === "GET" && pathname === "/api/debug/stats") {
       if (!debugTracer) {
-        responseSummary = { enabled: false };
-        sendJson(res, 400, {
+        const disabledSnapshot = {
+          enabled: false,
+          startedAt: undefined,
+          uptimeMs: 0,
+          inbound: {
+            totalRequests: 0,
+            routes: [],
+          },
+          outbound: {
+            totalRequests: 0,
+            targets: [],
+          },
+          recent: [],
           error:
             "Playground debug mode is disabled. Start with --debug or set RENDERIFY_PLAYGROUND_DEBUG=1.",
-        });
-        finishDebug(400);
+        };
+        responseSummary = {
+          enabled: false,
+          inboundTotal: 0,
+          outboundTotal: 0,
+        };
+        sendJson(res, 200, disabledSnapshot);
+        finishDebug(200);
         return;
       }
 

@@ -567,6 +567,49 @@ test("e2e: playground prints llm request/response logs by default", async () => 
   }
 });
 
+test("e2e: playground debug stats endpoint returns disabled snapshot when debug is off", async () => {
+  const tempDir = await mkdtemp(
+    path.join(os.tmpdir(), "renderify-e2e-playground-debug-disabled-"),
+  );
+  const port = await allocatePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const processHandle = startPlayground(port, {
+    RENDERIFY_SESSION_FILE: path.join(tempDir, "session.json"),
+  });
+
+  try {
+    await waitForHealth(`${baseUrl}/api/health`, 10000);
+
+    const statsResponse = await fetchJson(`${baseUrl}/api/debug/stats`, {
+      method: "GET",
+    });
+    assert.equal(statsResponse.status, 200);
+
+    const statsBody = statsResponse.body as {
+      enabled?: unknown;
+      inbound?: {
+        totalRequests?: unknown;
+      };
+      outbound?: {
+        totalRequests?: unknown;
+      };
+      error?: unknown;
+    };
+
+    assert.equal(statsBody.enabled, false);
+    assert.equal(statsBody.inbound?.totalRequests, 0);
+    assert.equal(statsBody.outbound?.totalRequests, 0);
+    assert.match(
+      String(statsBody.error ?? ""),
+      /Playground debug mode is disabled/i,
+    );
+  } finally {
+    processHandle.kill("SIGTERM");
+    await onceExit(processHandle, 3000);
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("e2e: playground debug mode exposes inbound/outbound request distribution", async () => {
   const tempDir = await mkdtemp(
     path.join(os.tmpdir(), "renderify-e2e-playground-debug-"),
