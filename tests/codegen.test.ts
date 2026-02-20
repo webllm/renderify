@@ -530,6 +530,89 @@ test("codegen rewrites shadcn alias source imports to portable local components"
   assert.equal(plan.moduleManifest?.["https://esm.sh/*"], undefined);
 });
 
+test("codegen rewrites material ui source imports to portable local components", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const planJson = JSON.stringify({
+    id: "source_material_ui_rewrite_plan",
+    version: 1,
+    imports: [
+      "preact/hooks",
+      "@mui/material",
+      "@mui/icons-material/Delete",
+      "https://esm.sh/@mui/material@5.15.0",
+      "https://esm.sh/@mui/icons-material@5.15.0",
+    ],
+    capabilities: {
+      domWrite: true,
+      allowedModules: [
+        "preact/hooks",
+        "@mui/material",
+        "@mui/icons-material/Delete",
+        "https://esm.sh/@mui/material@5.15.0",
+      ],
+    },
+    moduleManifest: {
+      "preact/hooks": {
+        resolvedUrl:
+          "https://ga.jspm.io/npm:preact@10.28.3/hooks/dist/hooks.module.js",
+      },
+      "@mui/material": {
+        resolvedUrl: "https://esm.sh/@mui/material@5.15.0",
+      },
+      "@mui/icons-material/Delete": {
+        resolvedUrl: "https://esm.sh/@mui/icons-material@5.15.0/Delete",
+      },
+      "https://esm.sh/@mui/material@5.15.0": {
+        resolvedUrl: "https://esm.sh/@mui/material@5.15.0",
+      },
+    },
+    root: {
+      type: "element",
+      tag: "section",
+      children: [{ type: "text", value: "material ui rewrite" }],
+    },
+    source: {
+      language: "jsx",
+      runtime: "preact",
+      exportName: "default",
+      code: [
+        "import { useState } from 'preact/hooks';",
+        "import { Box, TextField, Button } from '@mui/material';",
+        "import DeleteIcon from '@mui/icons-material/Delete';",
+        "export default function TodoApp() {",
+        "  const [value, setValue] = useState('');",
+        "  return (<Box><TextField value={value} onChange={(e) => setValue(e.target.value)} /><Button><DeleteIcon />Add</Button></Box>);",
+        "}",
+      ].join("\n"),
+    },
+  });
+
+  const plan = await codegen.generatePlan({
+    prompt: "create todo app with material ui",
+    llmText: planJson,
+  });
+
+  assert.match(plan.source?.code ?? "", /__renderifyMuiCompat/);
+  assert.match(plan.source?.code ?? "", /__renderifyMuiIcons/);
+  assert.doesNotMatch(plan.source?.code ?? "", /@mui\/material/);
+  assert.doesNotMatch(plan.source?.code ?? "", /@mui\/icons-material/);
+  assert.ok((plan.imports ?? []).includes("preact/hooks"));
+  assert.ok(!(plan.imports ?? []).includes("@mui/material"));
+  assert.ok(!(plan.imports ?? []).includes("@mui/icons-material/Delete"));
+  assert.ok(
+    !(plan.imports ?? []).includes("https://esm.sh/@mui/material@5.15.0"),
+  );
+  assert.ok(
+    !(plan.capabilities?.allowedModules ?? []).includes("@mui/material"),
+  );
+  assert.equal(plan.moduleManifest?.["@mui/material"], undefined);
+  assert.equal(plan.moduleManifest?.["@mui/icons-material/Delete"], undefined);
+  assert.equal(
+    plan.moduleManifest?.["https://esm.sh/@mui/material@5.15.0"],
+    undefined,
+  );
+});
+
 test("codegen falls back to todo template when todo source imports unsupported wildcard module specifier", async () => {
   const codegen = new DefaultCodeGenerator();
   const planJson = JSON.stringify({
@@ -768,6 +851,69 @@ test("codegen treats source component module alias as synthetic source reference
     plan.moduleManifest?.["preact/hooks"]?.resolvedUrl,
     "https://ga.jspm.io/npm:preact@10.28.3/hooks/dist/hooks.mjs",
   );
+});
+
+test("codegen recovers todo fallback when source alias component is missing source module", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const planJson = JSON.stringify({
+    specVersion: "runtime-plan/v1",
+    id: "todo_alias_missing_source",
+    version: 1,
+    root: {
+      type: "component",
+      module: "source",
+      exportName: "default",
+    },
+    imports: ["source", "preact/hooks"],
+    capabilities: {
+      domWrite: true,
+      allowedModules: ["source", "preact/hooks"],
+    },
+  });
+
+  const plan = await codegen.generatePlan({
+    prompt: "create todo app with material ui",
+    llmText: planJson,
+  });
+
+  assert.equal(plan.root.type, "element");
+  assert.equal(plan.source?.runtime, "preact");
+  assert.match(plan.source?.code ?? "", /export default function TodoApp/);
+  assert.ok(!(plan.imports ?? []).includes("source"));
+  assert.ok(!(plan.capabilities?.allowedModules ?? []).includes("source"));
+  assert.equal(plan.moduleManifest?.source, undefined);
+  assert.equal(plan.metadata?.sourceFallback, "todo-template");
+});
+
+test("codegen recovers text fallback when source alias component is missing source module for non-todo prompts", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const planJson = JSON.stringify({
+    specVersion: "runtime-plan/v1",
+    id: "alias_missing_source_non_todo",
+    version: 1,
+    root: {
+      type: "component",
+      module: "source",
+      exportName: "default",
+    },
+    imports: ["source"],
+    capabilities: {
+      domWrite: true,
+      allowedModules: ["source"],
+    },
+  });
+
+  const plan = await codegen.generatePlan({
+    prompt: "build analytics dashboard",
+    llmText: planJson,
+  });
+
+  assert.equal(plan.root.type, "element");
+  assert.equal(plan.source, undefined);
+  assert.ok(!(plan.imports ?? []).includes("source"));
+  assert.ok(!(plan.capabilities?.allowedModules ?? []).includes("source"));
+  assert.equal(plan.moduleManifest?.source, undefined);
+  assert.equal(plan.metadata?.sourceFallback, "missing-source-module");
 });
 
 test("codegen backfills moduleManifest and allowedModules when payload metadata is incomplete", async () => {
