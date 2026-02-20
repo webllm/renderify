@@ -31,6 +31,7 @@ const INLINE_SOURCE_MODULE_ALIASES = new Set([
   "this-plan-source",
 ]);
 const SYNTHETIC_SOURCE_MODULE_SPECIFIER_ALIASES = new Set(["this-plan-source"]);
+const SHADCN_ALIAS_IMPORT_PREFIX = "https://esm.sh/@/components/ui/";
 const JSX_INTRINSIC_TAG_NAMES = [
   "a",
   "article",
@@ -791,19 +792,46 @@ export class DefaultCodeGenerator implements CodeGenerator {
       return undefined;
     }
 
-    const nextEntries = Object.entries(manifest).filter(
-      ([specifier]) =>
-        !this.isSyntheticSourceModuleSpecifier(
+    const nextManifest: RuntimeModuleManifest = {};
+    for (const [rawSpecifier, descriptor] of Object.entries(manifest)) {
+      const specifier = this.normalizeImportSpecifier(rawSpecifier);
+      if (!specifier) {
+        continue;
+      }
+      if (
+        this.isSyntheticSourceModuleSpecifier(
           specifier,
           source,
           syntheticSourceSpecifiers,
-        ),
-    );
-    if (nextEntries.length === 0) {
+        )
+      ) {
+        continue;
+      }
+
+      if (
+        !descriptor ||
+        typeof descriptor !== "object" ||
+        typeof descriptor.resolvedUrl !== "string"
+      ) {
+        continue;
+      }
+
+      const resolvedUrl = this.normalizeImportSpecifier(descriptor.resolvedUrl);
+      if (!resolvedUrl) {
+        continue;
+      }
+
+      nextManifest[specifier] = {
+        ...descriptor,
+        resolvedUrl,
+      };
+    }
+
+    if (Object.keys(nextManifest).length === 0) {
       return undefined;
     }
 
-    return Object.fromEntries(nextEntries);
+    return nextManifest;
   }
 
   private ensureModuleManifestCoverage(
@@ -1045,6 +1073,13 @@ export class DefaultCodeGenerator implements CodeGenerator {
       return plan;
     }
 
+    const unsupportedImports = await this.collectUnsupportedSourceImports(
+      source.code,
+    );
+    if (unsupportedImports.length > 0 && this.shouldUseTodoFallback(prompt)) {
+      return await this.createTodoFallbackPlan(plan, prompt);
+    }
+
     const syntaxValid = await this.isSourceSyntaxValid(source);
     if (syntaxValid) {
       return plan;
@@ -1054,6 +1089,13 @@ export class DefaultCodeGenerator implements CodeGenerator {
       return plan;
     }
 
+    return await this.createTodoFallbackPlan(plan, prompt);
+  }
+
+  private async createTodoFallbackPlan(
+    plan: RuntimePlan,
+    prompt: string,
+  ): Promise<RuntimePlan> {
     const fallbackSource = this.createTodoTemplateSourceModule();
     const fallbackImports = await this.parseImportsFromSource(
       fallbackSource.code,
@@ -1261,8 +1303,12 @@ export class DefaultCodeGenerator implements CodeGenerator {
       runtime === "preact"
         ? this.rewriteRenderifyImportsForPreactSource(source.code)
         : source.code;
+    const portableCode =
+      runtime === "preact"
+        ? this.rewritePortableShadcnSourceImports(runtimeAdaptedCode)
+        : runtimeAdaptedCode;
     const code = this.repairCompactJsxAttributeSpacing(
-      runtimeAdaptedCode,
+      portableCode,
       source.language,
     );
     const balancedCode = this.stripUnmatchedClosingBraces(code);
@@ -1557,18 +1603,224 @@ export class DefaultCodeGenerator implements CodeGenerator {
   ): string[] {
     const sanitized: string[] = [];
     for (const specifier of specifiers) {
+      const normalizedSpecifier = this.normalizeImportSpecifier(specifier);
+      if (!normalizedSpecifier) {
+        continue;
+      }
       if (
         this.isSyntheticSourceModuleSpecifier(
-          specifier,
+          normalizedSpecifier,
           source,
           syntheticSourceSpecifiers,
         )
       ) {
         continue;
       }
-      sanitized.push(specifier);
+      sanitized.push(normalizedSpecifier);
     }
     return this.mergeImportedSpecifiers(sanitized);
+  }
+
+  private normalizeImportSpecifier(specifier: string): string | undefined {
+    const normalized = specifier.trim();
+    if (normalized.length === 0) {
+      return undefined;
+    }
+
+    if (this.isUnsupportedImportSpecifier(normalized)) {
+      return undefined;
+    }
+
+    return normalized;
+  }
+
+  private isUnsupportedImportSpecifier(specifier: string): boolean {
+    if (specifier.includes("*")) {
+      return true;
+    }
+
+    if (!specifier.startsWith("http://") && !specifier.startsWith("https://")) {
+      return false;
+    }
+
+    if (!this.isHttpUrl(specifier)) {
+      return true;
+    }
+
+    try {
+      const parsed = new URL(specifier);
+      return parsed.pathname.includes("/@/");
+    } catch {
+      return true;
+    }
+  }
+
+  private async collectUnsupportedSourceImports(
+    code: string,
+  ): Promise<string[]> {
+    const imports = await this.parseImportsFromSource(code);
+    const unsupported: string[] = [];
+
+    for (const specifier of imports) {
+      if (this.isUnsupportedImportSpecifier(specifier)) {
+        unsupported.push(specifier);
+      }
+    }
+
+    return this.mergeImportedSpecifiers(unsupported);
+  }
+
+  private rewritePortableShadcnSourceImports(code: string): string {
+    const shadcnImportPattern =
+      /^\s*import\s+(type\s+)?([^;]+?)\s+from\s+["'](https?:\/\/esm\.sh\/@\/components\/ui\/[^"']+)["'];\s*$/gm;
+    let rewroteImport = false;
+
+    const rewrittenImports = code.replace(
+      shadcnImportPattern,
+      (
+        _match: string,
+        typeKeyword: string | undefined,
+        clauseRaw: string,
+        specifier: string,
+      ) => {
+        rewroteImport = true;
+        if (typeof typeKeyword === "string" && typeKeyword.trim().length > 0) {
+          return "";
+        }
+
+        return this.buildPortableShadcnImportBinding(clauseRaw, specifier);
+      },
+    );
+
+    if (!rewroteImport) {
+      return code;
+    }
+
+    const wildcardImportPattern =
+      /^\s*import\s+[^;]+?\s+from\s+["'][^"']*\*[^"']*["'];\s*$/gm;
+    const withoutWildcardImports = rewrittenImports.replace(
+      wildcardImportPattern,
+      "",
+    );
+
+    return `${this.createPortableShadcnComponentShim()}\n${withoutWildcardImports.trimStart()}`;
+  }
+
+  private buildPortableShadcnImportBinding(
+    clauseRaw: string,
+    specifier: string,
+  ): string {
+    const clause = clauseRaw.replace(/\s+/g, " ").trim();
+    if (clause.length === 0) {
+      return "";
+    }
+
+    if (clause.startsWith("{") && clause.endsWith("}")) {
+      const normalizedNamedClause = clause.replace(/\btype\s+/g, "");
+      return `const ${normalizedNamedClause} = __renderifyShadcnCompat;`;
+    }
+
+    if (clause.startsWith("* as ")) {
+      const namespaceName = clause.slice("* as ".length).trim();
+      if (!namespaceName) {
+        return "";
+      }
+      return `const ${namespaceName} = __renderifyShadcnCompat;`;
+    }
+
+    const splitIndex = clause.indexOf(",");
+    if (splitIndex > 0) {
+      const defaultImport = clause.slice(0, splitIndex).trim();
+      const namedImport = clause.slice(splitIndex + 1).trim();
+      const statements: string[] = [];
+
+      if (defaultImport.length > 0) {
+        const defaultBinding = this.resolveShadcnDefaultBindingName(specifier);
+        statements.push(
+          `const ${defaultImport} = __renderifyShadcnCompat.${defaultBinding};`,
+        );
+      }
+
+      if (namedImport.startsWith("{") && namedImport.endsWith("}")) {
+        statements.push(
+          `const ${namedImport.replace(/\btype\s+/g, "")} = __renderifyShadcnCompat;`,
+        );
+      }
+
+      return statements.join("\n");
+    }
+
+    const defaultBinding = this.resolveShadcnDefaultBindingName(specifier);
+    return `const ${clause} = __renderifyShadcnCompat.${defaultBinding};`;
+  }
+
+  private resolveShadcnDefaultBindingName(specifier: string): string {
+    if (!specifier.startsWith(SHADCN_ALIAS_IMPORT_PREFIX)) {
+      return "Card";
+    }
+
+    const tail = specifier.slice(SHADCN_ALIAS_IMPORT_PREFIX.length);
+    const segment = tail.split("/").filter((part) => part.length > 0)[0];
+    const normalized = this.toPascalCaseIdentifier(segment);
+    return normalized.length > 0 ? normalized : "Card";
+  }
+
+  private toPascalCaseIdentifier(value: string | undefined): string {
+    const input = typeof value === "string" ? value.trim() : "";
+    if (input.length === 0) {
+      return "";
+    }
+
+    return input
+      .split(/[^A-Za-z0-9]+/)
+      .filter((entry) => entry.length > 0)
+      .map((entry) => entry[0].toUpperCase() + entry.slice(1))
+      .join("");
+  }
+
+  private createPortableShadcnComponentShim(): string {
+    return [
+      "const __renderifyShadcnCompat = (() => {",
+      "  const Button = (props) => {",
+      "    const { children, type, ...rest } = props ?? {};",
+      '    return <button type={type ?? "button"} {...rest}>{children}</button>;',
+      "  };",
+      "  const Input = (props) => <input {...(props ?? {})} />;",
+      "  const Checkbox = (props) => {",
+      "    const { checked, onCheckedChange, onInput, ...rest } = props ?? {};",
+      "    return (",
+      '      <input type="checkbox" {...rest} checked={Boolean(checked)} onInput={(event) => {',
+      '        if (typeof onInput === "function") {',
+      "          onInput(event);",
+      "        }",
+      '        if (typeof onCheckedChange === "function") {',
+      "          const target = event && typeof event === 'object' ? event.target : undefined;",
+      "          const nextChecked =",
+      "            target && typeof target === 'object' && 'checked' in target",
+      "              ? Boolean(target.checked)",
+      "              : Boolean(!checked);",
+      "          onCheckedChange(nextChecked);",
+      "        }",
+      "      }} />",
+      "    );",
+      "  };",
+      "  const Card = (props) => <div {...(props ?? {})}>{props?.children}</div>;",
+      "  const CardHeader = (props) => <div {...(props ?? {})}>{props?.children}</div>;",
+      "  const CardContent = (props) => <div {...(props ?? {})}>{props?.children}</div>;",
+      "  const CardTitle = (props) => <h3 {...(props ?? {})}>{props?.children}</h3>;",
+      "  const CardDescription = (props) => <p {...(props ?? {})}>{props?.children}</p>;",
+      "  return {",
+      "    Button,",
+      "    Input,",
+      "    Checkbox,",
+      "    Card,",
+      "    CardHeader,",
+      "    CardContent,",
+      "    CardTitle,",
+      "    CardDescription,",
+      "  };",
+      "})();",
+    ].join("\n");
   }
 
   private isSyntheticSourceModuleSpecifier(

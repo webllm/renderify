@@ -448,6 +448,126 @@ test("codegen falls back to builtin todo source template when todo source is syn
   assert.equal(plan.metadata?.sourceFallback, "todo-template");
 });
 
+test("codegen rewrites shadcn alias source imports to portable local components", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const planJson = JSON.stringify({
+    id: "source_shadcn_alias_rewrite_plan",
+    version: 1,
+    imports: [
+      "preact/hooks",
+      "https://esm.sh/@/components/ui/button",
+      "https://esm.sh/@/components/ui/input",
+      "https://esm.sh/*",
+    ],
+    capabilities: {
+      domWrite: true,
+      allowedModules: [
+        "preact/hooks",
+        "https://esm.sh/@/components/ui/button",
+        "https://esm.sh/*",
+      ],
+    },
+    moduleManifest: {
+      "preact/hooks": {
+        resolvedUrl:
+          "https://ga.jspm.io/npm:preact@10.28.3/hooks/dist/hooks.module.js",
+      },
+      "https://esm.sh/@/components/ui/button": {
+        resolvedUrl: "https://esm.sh/@/components/ui/button",
+      },
+      "https://esm.sh/*": {
+        resolvedUrl: "https://esm.sh/*",
+      },
+    },
+    root: {
+      type: "element",
+      tag: "section",
+      children: [{ type: "text", value: "shadcn alias rewrite" }],
+    },
+    source: {
+      language: "tsx",
+      runtime: "preact",
+      exportName: "default",
+      code: [
+        "import { useState } from 'preact/hooks';",
+        "import { Button } from 'https://esm.sh/@/components/ui/button';",
+        "import { Input } from 'https://esm.sh/@/components/ui/input';",
+        "export default function TodoApp() {",
+        "  const [value, setValue] = useState('');",
+        "  return (<div><Input value={value} onInput={(e) => setValue((e.target as HTMLInputElement).value)} /><Button>Add</Button></div>);",
+        "}",
+      ].join("\n"),
+    },
+  });
+
+  const plan = await codegen.generatePlan({
+    prompt: "create todo app with shadcn",
+    llmText: planJson,
+  });
+
+  assert.match(plan.source?.code ?? "", /__renderifyShadcnCompat/);
+  assert.doesNotMatch(
+    plan.source?.code ?? "",
+    /https:\/\/esm\.sh\/@\/components\/ui\//,
+  );
+  assert.ok((plan.imports ?? []).includes("preact/hooks"));
+  assert.ok(
+    !(plan.imports ?? []).includes("https://esm.sh/@/components/ui/button"),
+  );
+  assert.ok(!(plan.imports ?? []).includes("https://esm.sh/*"));
+  assert.ok(
+    !(plan.capabilities?.allowedModules ?? []).includes(
+      "https://esm.sh/@/components/ui/button",
+    ),
+  );
+  assert.ok(
+    !(plan.capabilities?.allowedModules ?? []).includes("https://esm.sh/*"),
+  );
+  assert.equal(
+    plan.moduleManifest?.["https://esm.sh/@/components/ui/button"],
+    undefined,
+  );
+  assert.equal(plan.moduleManifest?.["https://esm.sh/*"], undefined);
+});
+
+test("codegen falls back to todo template when todo source imports unsupported wildcard module specifier", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const planJson = JSON.stringify({
+    id: "source_unsupported_wildcard_import_plan",
+    version: 1,
+    capabilities: {
+      domWrite: true,
+    },
+    root: {
+      type: "element",
+      tag: "section",
+      children: [{ type: "text", value: "unsupported wildcard import" }],
+    },
+    source: {
+      language: "tsx",
+      runtime: "preact",
+      exportName: "default",
+      code: [
+        "import { useState } from 'preact/hooks';",
+        "import ghost from 'https://esm.sh/*';",
+        "export default function TodoApp() {",
+        "  const [todos] = useState<string[]>([]);",
+        "  return <section>{todos.length}</section>;",
+        "}",
+      ].join("\n"),
+    },
+  });
+
+  const plan = await codegen.generatePlan({
+    prompt: "create todo app",
+    llmText: planJson,
+  });
+
+  assert.equal(plan.metadata?.sourceFallback, "todo-template");
+  assert.match(plan.source?.code ?? "", /Add Todo/);
+  assert.ok(!(plan.imports ?? []).includes("https://esm.sh/*"));
+});
+
 test("codegen merges imports from source and capabilities when payload imports are incomplete", async () => {
   const codegen = new DefaultCodeGenerator();
   const planJson = JSON.stringify({

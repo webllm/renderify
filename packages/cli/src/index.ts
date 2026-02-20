@@ -959,7 +959,10 @@ async function handlePlaygroundRequest(
       requestSummary = summarizePlanDebugInput(plan);
       debugTracer?.logInboundStart(method, pathname, requestSummary);
 
-      const hydratedPlan = await hydratePlaygroundPlanManifest(plan, {
+      const normalizedPlan = await normalizePlaygroundPlanInput(app, plan, {
+        promptFallback: "playground:plan",
+      });
+      const hydratedPlan = await hydratePlaygroundPlanManifest(normalizedPlan, {
         moduleLoader,
         requireIntegrity: app.getSecurityChecker().getPolicy()
           .requireModuleIntegrity,
@@ -989,7 +992,10 @@ async function handlePlaygroundRequest(
       requestSummary = summarizePlanDebugInput(plan);
       debugTracer?.logInboundStart(method, pathname, requestSummary);
 
-      const hydratedPlan = await hydratePlaygroundPlanManifest(plan, {
+      const normalizedPlan = await normalizePlaygroundPlanInput(app, plan, {
+        promptFallback: "playground:probe-plan",
+      });
+      const hydratedPlan = await hydratePlaygroundPlanManifest(normalizedPlan, {
         moduleLoader,
         requireIntegrity: app.getSecurityChecker().getPolicy()
           .requireModuleIntegrity,
@@ -1080,6 +1086,26 @@ async function readJsonBody(
   }
 
   return parsed;
+}
+
+async function normalizePlaygroundPlanInput(
+  app: RenderifyApp,
+  plan: RuntimePlan,
+  options?: {
+    promptFallback?: string;
+  },
+): Promise<RuntimePlan> {
+  const promptFromMetadata =
+    typeof plan.metadata?.sourcePrompt === "string" &&
+    plan.metadata.sourcePrompt.trim().length > 0
+      ? plan.metadata.sourcePrompt.trim()
+      : undefined;
+  const prompt = promptFromMetadata ?? options?.promptFallback ?? "playground";
+
+  return await app.getCodeGenerator().generatePlan({
+    prompt,
+    llmText: JSON.stringify(plan),
+  });
 }
 
 function sendJson(
