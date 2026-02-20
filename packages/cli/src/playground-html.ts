@@ -321,6 +321,126 @@ export const PLAYGROUND_HTML = `<!doctype html>
         background: rgba(255, 255, 255, 0.25);
       }
 
+      /* ── Source Code card ── */
+
+      .source-header-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+      }
+
+      .source-header-row h2 {
+        flex-shrink: 0;
+      }
+
+      .source-meta {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+
+      .source-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.03em;
+        border-radius: 6px;
+        background: linear-gradient(135deg, rgba(15,118,110,0.10), rgba(3,105,161,0.10));
+        color: var(--brand);
+        border: 1px solid rgba(15,118,110,0.15);
+        text-transform: uppercase;
+      }
+
+      .source-copy-btn {
+        padding: 4px 10px;
+        font-size: 11px;
+        font-weight: 600;
+        border-radius: 6px;
+        cursor: pointer;
+        background: #fff;
+        color: var(--subtle);
+        border: 1px solid var(--line-strong);
+        transition: all var(--transition);
+        margin-left: auto;
+      }
+
+      .source-copy-btn:hover {
+        color: var(--brand);
+        border-color: var(--brand);
+        background: var(--brand-light);
+        transform: translateY(-1px);
+      }
+
+      .source-pre {
+        margin: 0;
+        max-height: 520px;
+        overflow: auto;
+        padding: 0;
+        font-size: 13px;
+        line-height: 1.75;
+        font-family: "IBM Plex Mono", "SF Mono", "Fira Code", monospace;
+        border-radius: var(--radius);
+        background: #0f172a;
+        color: #e2e8f0;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        counter-reset: srcline;
+        line-height: 0px;
+        padding-top: 20px;
+      }
+
+      .source-line {
+        display: block;
+        padding: 0 16px 0 0;
+        counter-increment: srcline;
+        min-height: 1.75em;
+      }
+
+      .source-line:hover {
+        background: rgba(255, 255, 255, 0.04);
+      }
+
+      .source-line::before {
+        content: counter(srcline);
+        display: inline-block;
+        width: 44px;
+        padding-right: 14px;
+        text-align: right;
+        color: #475569;
+        user-select: none;
+        -webkit-user-select: none;
+        border-right: 1px solid rgba(255, 255, 255, 0.06);
+        margin-right: 14px;
+        font-size: 12px;
+      }
+
+      .source-empty {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 120px;
+        color: #475569;
+        font-size: 13px;
+        font-family: "IBM Plex Mono", "SF Mono", "Fira Code", monospace;
+        background: #0f172a;
+        border-radius: var(--radius);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+      }
+
+      .tok-keyword { color: #c084fc; }
+      .tok-type { color: #67e8f9; }
+      .tok-string { color: #86efac; }
+      .tok-comment { color: #64748b; font-style: italic; }
+      .tok-number { color: #fbbf24; }
+      .tok-literal { color: #fb923c; }
+      .tok-function { color: #60a5fa; }
+      .tok-tag { color: #f472b6; }
+      .tok-attr { color: #fbbf24; }
+      .tok-operator { color: #94a3b8; }
+      .tok-regex { color: #f87171; }
+
       .debug-section {
         opacity: 0.75;
         transition: opacity var(--transition);
@@ -398,6 +518,24 @@ export const PLAYGROUND_HTML = `<!doctype html>
           </div>
         </section>
 
+        <section class="card span-12" id="source-section">
+          <div class="card-header">
+            <div class="source-header-row">
+              <h2>Source Code</h2>
+              <div class="source-meta" id="source-meta" style="display:none">
+                <span class="source-badge" id="source-lang-badge"></span>
+                <span class="source-badge" id="source-runtime-badge"></span>
+                <span class="source-badge" id="source-export-badge"></span>
+                <button class="source-copy-btn" id="copy-source" type="button">Copy</button>
+              </div>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="source-empty" id="source-empty">No source code in the current plan. Render a prompt that generates interactive components to see source here.</div>
+            <pre class="source-pre" id="source-pre" style="display:none"><code id="source-code"></code></pre>
+          </div>
+        </section>
+
         <section class="card span-12">
           <div class="card-header"><h2>Streaming Feed</h2></div>
           <div class="card-body">
@@ -435,6 +573,216 @@ export const PLAYGROUND_HTML = `<!doctype html>
       const autoRefreshDebugEl = byId("auto-refresh-debug");
       const debugStatusEl = byId("debug-status");
       const debugOutputEl = byId("debug-output");
+      const sourceSectionEl = byId("source-section");
+      const sourceCodeEl = byId("source-code");
+      const sourcePreEl = byId("source-pre");
+      const sourceEmptyEl = byId("source-empty");
+      const sourceMetaEl = byId("source-meta");
+      const sourceLangBadge = byId("source-lang-badge");
+      const sourceRuntimeBadge = byId("source-runtime-badge");
+      const sourceExportBadge = byId("source-export-badge");
+      const copySourceEl = byId("copy-source");
+      let lastRawSourceCode = "";
+
+      const escHtml = (s) =>
+        s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+      const highlightSource = (code) => {
+        var result = "";
+        var i = 0;
+        var len = code.length;
+        var kw = "import,export,from,default,const,let,var,function,return,if,else,for,while,do,switch,case,break,continue,new,this,class,extends,super,typeof,instanceof,in,of,try,catch,finally,throw,async,await,yield,void,delete".split(",");
+        var tp = "interface,type,enum,implements,namespace,declare,as,is,keyof,readonly,abstract,static,public,private,protected".split(",");
+        var lt = "true,false,null,undefined,NaN,Infinity".split(",");
+        var kwSet = {};
+        var tpSet = {};
+        var ltSet = {};
+        kw.forEach(function(w) { kwSet[w] = 1; });
+        tp.forEach(function(w) { tpSet[w] = 1; });
+        lt.forEach(function(w) { ltSet[w] = 1; });
+
+        while (i < len) {
+          // line comments
+          if (code[i] === "/" && i + 1 < len && code[i + 1] === "/") {
+            var end = code.indexOf("\\n", i);
+            if (end === -1) end = len;
+            result += '<span class="tok-comment">' + escHtml(code.slice(i, end)) + "</span>";
+            i = end;
+            continue;
+          }
+          // block comments
+          if (code[i] === "/" && i + 1 < len && code[i + 1] === "*") {
+            var end2 = code.indexOf("*/", i + 2);
+            end2 = end2 === -1 ? len : end2 + 2;
+            result += '<span class="tok-comment">' + escHtml(code.slice(i, end2)) + "</span>";
+            i = end2;
+            continue;
+          }
+          // regex (heuristic: after = ( , ; ! & | ? : [ { ~ ^)
+          if (code[i] === "/" && i + 1 < len && code[i + 1] !== "/" && code[i + 1] !== "*") {
+            var prevChar = "";
+            for (var pi = i - 1; pi >= 0; pi--) {
+              if (code[pi] !== " " && code[pi] !== "\\t") { prevChar = code[pi]; break; }
+            }
+            if ("=({[,;!&|?:~^".indexOf(prevChar) !== -1 || i === 0) {
+              var j = i + 1;
+              var inClass = false;
+              while (j < len && (code[j] !== "/" || inClass)) {
+                if (code[j] === "\\\\") { j++; }
+                else if (code[j] === "[") { inClass = true; }
+                else if (code[j] === "]") { inClass = false; }
+                j++;
+              }
+              if (j < len) { j++; while (j < len && /[gimsuy]/.test(code[j])) j++; }
+              result += '<span class="tok-regex">' + escHtml(code.slice(i, j)) + "</span>";
+              i = j;
+              continue;
+            }
+          }
+          // template literal (simplified - no nesting)
+          if (code[i] === "\`") {
+            var j2 = i + 1;
+            while (j2 < len && code[j2] !== "\`") {
+              if (code[j2] === "\\\\") j2++;
+              j2++;
+            }
+            if (j2 < len) j2++;
+            result += '<span class="tok-string">' + escHtml(code.slice(i, j2)) + "</span>";
+            i = j2;
+            continue;
+          }
+          // strings
+          if (code[i] === '"' || code[i] === "'") {
+            var q = code[i];
+            var j3 = i + 1;
+            while (j3 < len && code[j3] !== q && code[j3] !== "\\n") {
+              if (code[j3] === "\\\\") j3++;
+              j3++;
+            }
+            if (j3 < len && code[j3] === q) j3++;
+            result += '<span class="tok-string">' + escHtml(code.slice(i, j3)) + "</span>";
+            i = j3;
+            continue;
+          }
+          // numbers
+          if (/[0-9]/.test(code[i]) || (code[i] === "." && i + 1 < len && /[0-9]/.test(code[i + 1]))) {
+            var j4 = i;
+            if (code[j4] === "0" && j4 + 1 < len && (code[j4 + 1] === "x" || code[j4 + 1] === "X")) {
+              j4 += 2;
+              while (j4 < len && /[0-9a-fA-F_]/.test(code[j4])) j4++;
+            } else {
+              while (j4 < len && /[0-9_]/.test(code[j4])) j4++;
+              if (j4 < len && code[j4] === ".") { j4++; while (j4 < len && /[0-9_]/.test(code[j4])) j4++; }
+              if (j4 < len && (code[j4] === "e" || code[j4] === "E")) {
+                j4++;
+                if (j4 < len && (code[j4] === "+" || code[j4] === "-")) j4++;
+                while (j4 < len && /[0-9]/.test(code[j4])) j4++;
+              }
+            }
+            if (j4 < len && code[j4] === "n") j4++;
+            result += '<span class="tok-number">' + escHtml(code.slice(i, j4)) + "</span>";
+            i = j4;
+            continue;
+          }
+          // identifiers & keywords
+          if (/[a-zA-Z_$]/.test(code[i])) {
+            var j5 = i;
+            while (j5 < len && /[a-zA-Z0-9_$]/.test(code[j5])) j5++;
+            var word = code.slice(i, j5);
+            if (kwSet[word]) {
+              result += '<span class="tok-keyword">' + escHtml(word) + "</span>";
+            } else if (tpSet[word]) {
+              result += '<span class="tok-type">' + escHtml(word) + "</span>";
+            } else if (ltSet[word]) {
+              result += '<span class="tok-literal">' + escHtml(word) + "</span>";
+            } else if (j5 < len && code[j5] === "(") {
+              result += '<span class="tok-function">' + escHtml(word) + "</span>";
+            } else if (/^[A-Z]/.test(word)) {
+              result += '<span class="tok-type">' + escHtml(word) + "</span>";
+            } else {
+              result += escHtml(word);
+            }
+            i = j5;
+            continue;
+          }
+          // JSX tags
+          if (code[i] === "<" && i + 1 < len && (/[A-Za-z]/.test(code[i + 1]) || code[i + 1] === "/")) {
+            result += '<span class="tok-tag">' + escHtml(code[i]);
+            i++;
+            if (i < len && code[i] === "/") { result += escHtml(code[i]); i++; }
+            var j6 = i;
+            while (j6 < len && /[a-zA-Z0-9._]/.test(code[j6])) j6++;
+            result += escHtml(code.slice(i, j6)) + "</span>";
+            i = j6;
+            continue;
+          }
+          // arrow =>
+          if (code[i] === "=" && i + 1 < len && code[i + 1] === ">") {
+            result += '<span class="tok-operator">=&gt;</span>';
+            i += 2;
+            continue;
+          }
+          // everything else
+          result += escHtml(code[i]);
+          i++;
+        }
+        return result;
+      };
+
+      const displaySourceCode = (planDetail) => {
+        if (!isRecord(planDetail) || !isRecord(planDetail.source)) {
+          sourcePreEl.style.display = "none";
+          sourceMetaEl.style.display = "none";
+          sourceEmptyEl.style.display = "";
+          lastRawSourceCode = "";
+          return;
+        }
+        var src = planDetail.source;
+        var code = typeof src.code === "string" ? src.code : "";
+        if (!code.trim()) {
+          sourcePreEl.style.display = "none";
+          sourceMetaEl.style.display = "none";
+          sourceEmptyEl.style.display = "";
+          lastRawSourceCode = "";
+          return;
+        }
+        lastRawSourceCode = code;
+        var lang = String(src.language || "jsx").trim().toLowerCase();
+        var runtime = String(src.runtime || "").trim().toLowerCase();
+        var exportName = String(src.exportName || "default").trim();
+
+        sourceLangBadge.textContent = lang;
+        sourceRuntimeBadge.textContent = runtime || "unknown";
+        sourceExportBadge.textContent = "export: " + exportName;
+        sourceEmptyEl.style.display = "none";
+        sourcePreEl.style.display = "";
+        sourceMetaEl.style.display = "";
+
+        var lines = code.split("\\n");
+        var highlighted = lines.map(function(line) {
+          return '<span class="source-line">' + (line.length > 0 ? highlightSource(line) : " ") + "</span>";
+        }).join("\\n");
+
+        sourceCodeEl.innerHTML = highlighted;
+      };
+
+      const hideSourceCode = () => {
+        sourcePreEl.style.display = "none";
+        sourceMetaEl.style.display = "none";
+        sourceEmptyEl.style.display = "";
+        sourceCodeEl.innerHTML = "";
+        lastRawSourceCode = "";
+      };
+
+      copySourceEl.addEventListener("click", function() {
+        if (!lastRawSourceCode) return;
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+          navigator.clipboard.writeText(lastRawSourceCode).then(function() {
+            copySourceEl.textContent = "Copied!";
+            setTimeout(function() { copySourceEl.textContent = "Copy"; }, 1500);
+          });
+        }
+      });
 
       const controls = [
         byId("run-prompt"),
@@ -1309,6 +1657,7 @@ export const PLAYGROUND_HTML = `<!doctype html>
         resetInteractiveMount();
         htmlOutputEl.innerHTML = String(payload.html ?? "");
         planEditorEl.value = safeJson(payload.planDetail ?? {});
+        displaySourceCode(payload.planDetail);
         writeDiagnostics({
           traceId: payload.traceId,
           state: payload.state ?? {},
@@ -1354,6 +1703,7 @@ export const PLAYGROUND_HTML = `<!doctype html>
         htmlOutputEl.innerHTML = "";
         planEditorEl.value = "{}";
         writeDiagnostics({});
+        hideSourceCode();
       };
 
       async function renderPlanObject(plan, statusText) {
@@ -1565,6 +1915,7 @@ export const PLAYGROUND_HTML = `<!doctype html>
         resetInteractiveMount();
         htmlOutputEl.innerHTML = "";
         writeDiagnostics({});
+        hideSourceCode();
         streamOutputEl.textContent = "[]";
         void refreshDebugStats({ silent: true });
         setStatus("Cleared.");
