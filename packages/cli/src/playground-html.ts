@@ -1295,15 +1295,17 @@ export const PLAYGROUND_HTML = `<!doctype html>
         return versionIndex > 0 && versionIndex < firstSegment.length - 1;
       };
 
-      const toEsmFallbackForUnpinnedJspmUrl = (url) => {
+      const toEsmFallbackForUnpinnedJspmUrl = (url, planDetail) => {
         const specifier = extractJspmNpmSpecifier(url);
         if (!specifier || hasExplicitNpmVersion(specifier)) {
           return undefined;
         }
 
+        const preactVersion = extractPreactVersion(planDetail);
         const aliasQuery = [
           "alias=react:preact/compat,react-dom:preact/compat,react-dom/client:preact/compat,react/jsx-runtime:preact/jsx-runtime,react/jsx-dev-runtime:preact/jsx-runtime",
           "target=es2022",
+          "deps=preact@" + preactVersion,
         ].join("&");
         const separator = specifier.includes("?") ? "&" : "?";
         return ESM_SH_BASE_URL + specifier + separator + aliasQuery;
@@ -1333,6 +1335,7 @@ export const PLAYGROUND_HTML = `<!doctype html>
         if (manifestResolvedUrl) {
           const fallbackUnpinned = toEsmFallbackForUnpinnedJspmUrl(
             manifestResolvedUrl,
+            planDetail,
           );
           if (fallbackUnpinned) {
             return fallbackUnpinned;
