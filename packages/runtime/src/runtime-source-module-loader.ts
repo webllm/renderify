@@ -523,16 +523,32 @@ export class RuntimeSourceModuleLoader {
       return undefined;
     }
 
-    if (lower.includes("/hooks/")) {
+    if (
+      lower.includes("/hooks/") ||
+      lower.endsWith("/hooks") ||
+      lower.endsWith("/hooks.mjs") ||
+      lower.includes("/hooks?")
+    ) {
       return "preact/hooks";
     }
-    if (lower.includes("/jsx-runtime/") || lower.includes("jsxruntime")) {
+    if (
+      lower.includes("/jsx-runtime/") ||
+      lower.includes("/jsx-runtime.mjs") ||
+      lower.includes("jsxruntime")
+    ) {
       return "preact/jsx-runtime";
     }
-    if (lower.includes("/compat/")) {
+    if (
+      lower.includes("/compat/") ||
+      lower.endsWith("/compat") ||
+      lower.endsWith("/compat.mjs")
+    ) {
       return "preact/compat";
     }
-    if (lower.includes("/dist/preact")) {
+    if (
+      lower.includes("/dist/preact") ||
+      /\/preact@[^/?#]+(?:[?#]|$)/.test(lower)
+    ) {
       return "preact";
     }
     return undefined;

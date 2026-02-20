@@ -57,6 +57,7 @@ interface PlaygroundServerOptions {
 
 const DEFAULT_PROMPT = "Hello Renderify runtime";
 const DEFAULT_PORT = 4317;
+const DEFAULT_PLAYGROUND_MAX_EXECUTION_MS = 5000;
 const JSON_BODY_LIMIT_BYTES = 1_000_000;
 const AUTO_MANIFEST_INTEGRITY_TIMEOUT_MS = 8000;
 const REMOTE_MODULE_INTEGRITY_CACHE = new Map<string, string>();
@@ -421,6 +422,9 @@ async function main() {
 
   const runtime = new DefaultRuntimeManager({
     moduleLoader: runtimeModuleLoader,
+    defaultMaxExecutionMs:
+      parsePositiveIntFromEnv(process.env.RENDERIFY_RUNTIME_MAX_EXECUTION_MS) ??
+      DEFAULT_PLAYGROUND_MAX_EXECUTION_MS,
     enforceModuleManifest:
       config.get<boolean>("runtimeEnforceModuleManifest") !== false,
     allowIsolationFallback:
@@ -544,6 +548,19 @@ async function main() {
   } finally {
     await renderifyApp.stop();
   }
+}
+
+function parsePositiveIntFromEnv(rawValue?: string): number | undefined {
+  if (!rawValue) {
+    return undefined;
+  }
+
+  const parsed = Number(rawValue);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return undefined;
+  }
+
+  return parsed;
 }
 
 function parsePlaygroundArgs(args: string[]): CliArgs {

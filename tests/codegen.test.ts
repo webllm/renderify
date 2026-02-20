@@ -65,6 +65,29 @@ test("codegen normalizes unsupported specVersion to runtime-plan/v1", async () =
   assert.equal(plan.specVersion, "runtime-plan/v1");
 });
 
+test("codegen extracts RuntimePlan JSON from prose-wrapped output", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const llmText = [
+    "Sure, here is the RuntimePlan JSON:",
+    "",
+    '{"id":"wrapped_json_plan","version":1,"capabilities":{"domWrite":true},"root":{"type":"element","tag":"section","children":[{"type":"text","value":"wrapped"}]}}',
+    "",
+    "Use it directly.",
+  ].join("\n");
+
+  const plan = await codegen.generatePlan({
+    prompt: "wrapped json",
+    llmText,
+  });
+
+  assert.equal(plan.id, "wrapped_json_plan");
+  assert.equal(plan.root.type, "element");
+  if (plan.root.type !== "element") {
+    throw new Error("expected wrapped_json_plan root to be element");
+  }
+  assert.equal(plan.root.tag, "section");
+});
+
 test("codegen falls back to section root when no JSON payload exists", async () => {
   const codegen = new DefaultCodeGenerator();
 
@@ -167,6 +190,262 @@ test("codegen preserves source module when RuntimePlan JSON contains source", as
     plan.moduleManifest?.["npm:nanoid@5"]?.resolvedUrl,
     "https://ga.jspm.io/npm:nanoid@5",
   );
+});
+
+test("codegen keeps source plan when RuntimePlan root is invalid but source exists", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const planJson = JSON.stringify({
+    id: "source_invalid_root_plan",
+    version: 1,
+    capabilities: {
+      domWrite: true,
+    },
+    root: {
+      type: "component",
+      exportName: "TodoApp",
+    },
+    source: {
+      language: "tsx",
+      runtime: "preact",
+      exportName: "TodoApp",
+      code: [
+        "import { useState } from 'preact/hooks';",
+        "export function TodoApp() {",
+        "  const [todos] = useState<string[]>([]);",
+        "  return <section>{todos.length}</section>;",
+        "}",
+      ].join("\n"),
+    },
+  });
+
+  const plan = await codegen.generatePlan({
+    prompt: "create todo app",
+    llmText: planJson,
+  });
+
+  assert.equal(plan.root.type, "element");
+  if (plan.root.type !== "element") {
+    throw new Error("expected source fallback root to be element");
+  }
+  assert.equal(plan.root.props?.class, "renderify-runtime-source-plan");
+  assert.equal(plan.source?.language, "tsx");
+  assert.ok((plan.imports ?? []).includes("preact/hooks"));
+});
+
+test("codegen repairs compact JSX attribute spacing in source code", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const planJson = JSON.stringify({
+    id: "source_compact_jsx_spacing_plan",
+    version: 1,
+    capabilities: {
+      domWrite: true,
+    },
+    root: {
+      type: "element",
+      tag: "section",
+      children: [{ type: "text", value: "compact spacing" }],
+    },
+    source: {
+      language: "tsx",
+      runtime: "preact",
+      exportName: "default",
+      code: [
+        "import { useState } from 'preact/hooks';",
+        "export default function TodoApp() {",
+        "  const [value, setValue] = useState('');",
+        "  const [checked, setChecked] = useState(false);",
+        '  return (<div><inputtype="text"value={value}onInput={(e) => setValue((e.target as HTMLInputElement).value)}/><inputtype="checkbox"checked={checked}onInput={() => setChecked(!checked)}/></div>);',
+        "}",
+      ].join(""),
+    },
+  });
+
+  const plan = await codegen.generatePlan({
+    prompt: "create todo app",
+    llmText: planJson,
+  });
+
+  assert.match(
+    plan.source?.code ?? "",
+    /<input type="text" value=\{value\} onInput=/,
+  );
+  assert.match(
+    plan.source?.code ?? "",
+    /<input type="checkbox" checked=\{checked\} onInput=/,
+  );
+});
+
+test("codegen infers source exportName from named exports when default export is absent", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const planJson = JSON.stringify({
+    id: "source_named_export_infer_plan",
+    version: 1,
+    capabilities: {
+      domWrite: true,
+    },
+    root: {
+      type: "element",
+      tag: "section",
+      children: [{ type: "text", value: "named export infer" }],
+    },
+    source: {
+      language: "jsx",
+      runtime: "preact",
+      code: [
+        "import { useState } from 'preact/hooks';",
+        "export function TodoApp() {",
+        "  const [todos] = useState([]);",
+        "  return <section>{todos.length}</section>;",
+        "}",
+      ].join("\n"),
+    },
+  });
+
+  const plan = await codegen.generatePlan({
+    prompt: "create todo app",
+    llmText: planJson,
+  });
+
+  assert.equal(plan.source?.exportName, "TodoApp");
+});
+
+test("codegen rewrites invalid source exportName to default when default export exists", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const planJson = JSON.stringify({
+    id: "source_export_default_rewrite_plan",
+    version: 1,
+    capabilities: {
+      domWrite: true,
+    },
+    root: {
+      type: "element",
+      tag: "section",
+      children: [{ type: "text", value: "default export rewrite" }],
+    },
+    source: {
+      language: "jsx",
+      runtime: "preact",
+      exportName: "TodoApp",
+      code: [
+        "import { useState } from 'preact/hooks';",
+        "export default function App() {",
+        "  const [todos] = useState([]);",
+        "  return <section>{todos.length}</section>;",
+        "}",
+      ].join("\n"),
+    },
+  });
+
+  const plan = await codegen.generatePlan({
+    prompt: "create todo app",
+    llmText: planJson,
+  });
+
+  assert.equal(plan.source?.exportName, "default");
+});
+
+test("codegen adds default export when source has no exports but defines a component", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const planJson = JSON.stringify({
+    id: "source_missing_export_plan",
+    version: 1,
+    capabilities: {
+      domWrite: true,
+    },
+    root: {
+      type: "element",
+      tag: "section",
+      children: [{ type: "text", value: "missing export" }],
+    },
+    source: {
+      language: "jsx",
+      runtime: "preact",
+      code: [
+        "function TodoApp() {",
+        "  return <section>ok</section>;",
+        "}",
+      ].join("\n"),
+    },
+  });
+
+  const plan = await codegen.generatePlan({
+    prompt: "create todo app",
+    llmText: planJson,
+  });
+
+  assert.equal(plan.source?.exportName, "default");
+  assert.match(plan.source?.code ?? "", /\bexport default TodoApp;/);
+});
+
+test("codegen strips unmatched closing braces from source code", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const planJson = JSON.stringify({
+    id: "source_unmatched_brace_plan",
+    version: 1,
+    capabilities: {
+      domWrite: true,
+    },
+    root: {
+      type: "element",
+      tag: "section",
+      children: [{ type: "text", value: "brace cleanup" }],
+    },
+    source: {
+      language: "tsx",
+      runtime: "preact",
+      exportName: "TodoApp",
+      code: [
+        "export function TodoApp() {",
+        "  return <section>ok</section>;",
+        "}}",
+      ].join("\n"),
+    },
+  });
+
+  const plan = await codegen.generatePlan({
+    prompt: "create todo app",
+    llmText: planJson,
+  });
+
+  assert.doesNotMatch(plan.source?.code ?? "", /\}\}$/);
+});
+
+test("codegen falls back to builtin todo source template when todo source is syntactically invalid", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const planJson = JSON.stringify({
+    id: "source_invalid_todo_template_fallback_plan",
+    version: 1,
+    capabilities: {
+      domWrite: true,
+    },
+    root: {
+      type: "component",
+      module: "this-plan-source",
+      exportName: "TodoApp",
+      props: {},
+    },
+    source: {
+      language: "tsx",
+      runtime: "preact",
+      exportName: "TodoApp",
+      code: [
+        "import { useState } from 'preact/hooks';",
+        "export function TodoApp() {",
+        "  const [todos, setTodos] = useState([]);",
+        '  return (<div><input type="text" value={"x"} /></div>;',
+        "}",
+      ].join("\n"),
+    },
+  });
+
+  const plan = await codegen.generatePlan({
+    prompt: "create todo app",
+    llmText: planJson,
+  });
+
+  assert.equal(plan.source?.exportName, "default");
+  assert.match(plan.source?.code ?? "", /Add Todo/);
+  assert.equal(plan.metadata?.sourceFallback, "todo-template");
 });
 
 test("codegen merges imports from source and capabilities when payload imports are incomplete", async () => {
@@ -308,6 +587,66 @@ test("codegen sanitizes synthetic source aliases and normalizes preact-style sou
   assert.equal(
     plan.moduleManifest?.["preact/compat"]?.resolvedUrl,
     "https://ga.jspm.io/npm:preact@10.28.3/compat/dist/compat.module.js",
+  );
+});
+
+test("codegen treats source component module alias as synthetic source reference", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const planJson = JSON.stringify({
+    specVersion: "runtime-plan/v1",
+    id: "source_component_alias_plan",
+    version: 1,
+    root: {
+      type: "component",
+      module: "todo-app-module",
+      exportName: "TodoApp",
+      props: {},
+    },
+    imports: ["todo-app-module", "preact/hooks"],
+    moduleManifest: {
+      "todo-app-module": {
+        resolvedUrl: "https://ga.jspm.io/npm:todo-app-module",
+        signer: "renderify-codegen",
+      },
+      "preact/hooks": {
+        resolvedUrl:
+          "https://ga.jspm.io/npm:preact@10.28.3/hooks/dist/hooks.mjs",
+        signer: "renderify-codegen",
+      },
+    },
+    capabilities: {
+      domWrite: true,
+      allowedModules: ["todo-app-module", "preact/hooks"],
+    },
+    source: {
+      language: "tsx",
+      runtime: "preact",
+      exportName: "TodoApp",
+      code: [
+        "import { useState } from 'preact/hooks';",
+        "export function TodoApp() {",
+        "  const [todos, setTodos] = useState<string[]>([]);",
+        "  return <section>{todos.length}</section>;",
+        "}",
+      ].join("\n"),
+    },
+  });
+
+  const plan = await codegen.generatePlan({
+    prompt: "create todo app",
+    llmText: planJson,
+  });
+
+  assert.equal(plan.root.type, "element");
+  assert.ok(!(plan.imports ?? []).includes("todo-app-module"));
+  assert.ok(
+    !(plan.capabilities?.allowedModules ?? []).includes("todo-app-module"),
+  );
+  assert.equal(plan.moduleManifest?.["todo-app-module"], undefined);
+  assert.ok((plan.imports ?? []).includes("preact/hooks"));
+  assert.equal(
+    plan.moduleManifest?.["preact/hooks"]?.resolvedUrl,
+    "https://ga.jspm.io/npm:preact@10.28.3/hooks/dist/hooks.mjs",
   );
 });
 

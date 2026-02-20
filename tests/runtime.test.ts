@@ -2201,6 +2201,56 @@ test("runtime source loader maps remote preact imports to local node file URLs",
   }
 });
 
+test("runtime source loader maps esm.sh preact imports to local node file URLs", async () => {
+  const runtime = new DefaultRuntimeManager({
+    remoteFallbackCdnBases: [],
+    remoteFetchRetries: 0,
+    remoteFetchBackoffMs: 10,
+    remoteFetchTimeoutMs: 500,
+  });
+
+  const internals = runtime as unknown as {
+    createSourceModuleLoader: (
+      moduleManifest: RuntimeModuleManifest | undefined,
+      diagnostics: Array<{ code?: string; message?: string }>,
+    ) => {
+      importSourceModuleFromCode(code: string): Promise<unknown>;
+    };
+  };
+
+  const diagnostics: Array<{ code?: string; message?: string }> = [];
+  const loader = internals.createSourceModuleLoader(undefined, diagnostics);
+
+  let fetchCount = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: RequestInfo | URL) => {
+    fetchCount += 1;
+    return new Response("export default 1;", {
+      status: 200,
+      headers: {
+        "content-type": "text/javascript; charset=utf-8",
+      },
+    });
+  }) as typeof fetch;
+
+  try {
+    const namespace = (await loader.importSourceModuleFromCode(
+      [
+        'import { useState } from "https://esm.sh/preact@10.19.6/hooks";',
+        "export default function Counter() {",
+        "  return typeof useState;",
+        "}",
+      ].join("\n"),
+    )) as { default?: unknown };
+
+    assert.equal(typeof namespace.default, "function");
+    assert.equal((namespace.default as () => unknown)(), "function");
+    assert.equal(fetchCount, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("runtime source loader honors explicit manifest mappings before local preact shortcuts", async () => {
   const runtime = new DefaultRuntimeManager({
     remoteFallbackCdnBases: [],
