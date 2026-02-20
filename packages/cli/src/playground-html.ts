@@ -277,7 +277,7 @@ export const PLAYGROUND_HTML = `<!doctype html>
         transition: border-color var(--transition);
       }
 
-      .render-output:empty::after {
+      .render-output[data-empty="true"]::after {
         content: "Preview will appear here";
         position: absolute;
         top: 50%;
@@ -287,6 +287,24 @@ export const PLAYGROUND_HTML = `<!doctype html>
         font-size: 14px;
         font-weight: 500;
         pointer-events: none;
+      }
+
+      .render-scope {
+        all: initial;
+        display: block;
+        min-height: 1px;
+        color: #0f172a;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.5;
+      }
+
+      .render-scope :where(*) {
+        all: revert;
+        box-sizing: border-box;
+      }
+
+      .render-scope :where(img, svg, canvas, video) {
+        max-width: 100%;
       }
 
       pre {
@@ -495,7 +513,7 @@ export const PLAYGROUND_HTML = `<!doctype html>
         <section class="card span-8">
           <div class="card-header"><h2>Rendered HTML</h2></div>
           <div class="card-body">
-            <div class="render-output" id="html-output"></div>
+            <div class="render-output" id="html-output" data-empty="true"></div>
           </div>
         </section>
 
@@ -583,6 +601,42 @@ export const PLAYGROUND_HTML = `<!doctype html>
       const sourceExportBadge = byId("source-export-badge");
       const copySourceEl = byId("copy-source");
       let lastRawSourceCode = "";
+      const renderScopeEl = document.createElement("div");
+      renderScopeEl.className = "render-scope";
+      htmlOutputEl.replaceChildren(renderScopeEl);
+
+      const hasVisibleRenderContent = () => {
+        for (const node of renderScopeEl.childNodes) {
+          if (node.nodeType === Node.TEXT_NODE) {
+            if (String(node.textContent ?? "").trim().length > 0) {
+              return true;
+            }
+            continue;
+          }
+          if (node.nodeType === Node.COMMENT_NODE) {
+            continue;
+          }
+          return true;
+        }
+        return false;
+      };
+
+      const syncRenderOutputEmptyState = () => {
+        htmlOutputEl.dataset.empty = hasVisibleRenderContent() ? "false" : "true";
+      };
+
+      const setRenderOutputHtml = (html) => {
+        renderScopeEl.innerHTML = String(html ?? "");
+        syncRenderOutputEmptyState();
+      };
+
+      const clearRenderOutputHtml = () => {
+        renderScopeEl.innerHTML = "";
+        syncRenderOutputEmptyState();
+      };
+
+      const queryRenderOutput = (selector) => renderScopeEl.querySelector(selector);
+      syncRenderOutputEmptyState();
 
       const escHtml = (s) =>
         s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -865,12 +919,12 @@ export const PLAYGROUND_HTML = `<!doctype html>
 
       const hasRenderedTodoControls = () =>
         Boolean(
-          htmlOutputEl.querySelector("input[type='text']") &&
-            htmlOutputEl.querySelector("button"),
+          queryRenderOutput("input[type='text']") &&
+            queryRenderOutput("button"),
         );
 
       const mountBuiltinTodoFallback = () => {
-        htmlOutputEl.innerHTML = [
+        setRenderOutputHtml([
           '<div class="playground-todo-fallback">',
           "  <h1>Todo App</h1>",
           "  <p data-todo-summary>0 item(s) remaining</p>",
@@ -878,12 +932,12 @@ export const PLAYGROUND_HTML = `<!doctype html>
           '  <button type="button" data-todo-add>Add Todo</button>',
           "  <ul data-todo-list></ul>",
           "</div>",
-        ].join("\\n");
+        ].join("\\n"));
 
-        const inputEl = htmlOutputEl.querySelector("[data-todo-input]");
-        const addButtonEl = htmlOutputEl.querySelector("[data-todo-add]");
-        const listEl = htmlOutputEl.querySelector("[data-todo-list]");
-        const summaryEl = htmlOutputEl.querySelector("[data-todo-summary]");
+        const inputEl = queryRenderOutput("[data-todo-input]");
+        const addButtonEl = queryRenderOutput("[data-todo-add]");
+        const listEl = queryRenderOutput("[data-todo-list]");
+        const summaryEl = queryRenderOutput("[data-todo-summary]");
         if (!inputEl || !addButtonEl || !listEl || !summaryEl) {
           return false;
         }
@@ -1540,11 +1594,12 @@ export const PLAYGROUND_HTML = `<!doctype html>
           state: isRecord(runtimeState) ? runtimeState : {},
           event: null,
         };
-        htmlOutputEl.innerHTML = "";
+        clearRenderOutputHtml();
         preactNamespace.render(
           preactNamespace.h(component, runtimeInput),
-          htmlOutputEl,
+          renderScopeEl,
         );
+        syncRenderOutputEmptyState();
       };
 
       const runRenderifySourceInteractively = async (planDetail, mountVersion) => {
@@ -1722,7 +1777,7 @@ export const PLAYGROUND_HTML = `<!doctype html>
 
       const applyRenderPayload = async (payload) => {
         resetInteractiveMount();
-        htmlOutputEl.innerHTML = String(payload.html ?? "");
+        setRenderOutputHtml(payload.html ?? "");
         planEditorEl.value = safeJson(payload.planDetail ?? {});
         displaySourceCode(payload.planDetail);
         writeDiagnostics({
@@ -1754,7 +1809,7 @@ export const PLAYGROUND_HTML = `<!doctype html>
           if (mountVersion !== interactiveMountVersion) {
             return mountState;
           }
-          htmlOutputEl.innerHTML = String(payload.html ?? "");
+          setRenderOutputHtml(payload.html ?? "");
           const message = error instanceof Error ? error.message : String(error);
           appendInteractiveWarning(message);
           console.warn("[playground] interactive mount failed:", message);
@@ -1767,7 +1822,7 @@ export const PLAYGROUND_HTML = `<!doctype html>
 
       const resetRenderPanels = () => {
         resetInteractiveMount();
-        htmlOutputEl.innerHTML = "";
+        clearRenderOutputHtml();
         planEditorEl.value = "{}";
         writeDiagnostics({});
         hideSourceCode();
@@ -1899,7 +1954,7 @@ export const PLAYGROUND_HTML = `<!doctype html>
               }
 
               if (event.html) {
-                htmlOutputEl.innerHTML = String(event.html);
+                setRenderOutputHtml(event.html);
               }
               if (event.type === "final" && event.final) {
                 const mountState = await applyRenderPayload(event.final);
@@ -1980,7 +2035,7 @@ export const PLAYGROUND_HTML = `<!doctype html>
 
       function clearAll() {
         resetInteractiveMount();
-        htmlOutputEl.innerHTML = "";
+        clearRenderOutputHtml();
         writeDiagnostics({});
         hideSourceCode();
         streamOutputEl.textContent = "[]";
