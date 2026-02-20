@@ -8,13 +8,23 @@ export const PLAYGROUND_HTML = `<!doctype html>
       :root {
         --bg-top: #e7f3ff;
         --bg-bottom: #fff9f0;
-        --panel: rgba(255, 255, 255, 0.86);
-        --line: rgba(17, 24, 39, 0.12);
+        --panel: rgba(255, 255, 255, 0.88);
+        --panel-hover: rgba(255, 255, 255, 0.95);
+        --line: rgba(17, 24, 39, 0.08);
+        --line-strong: rgba(17, 24, 39, 0.14);
         --ink: #0f172a;
-        --subtle: #475569;
+        --subtle: #64748b;
         --brand: #0f766e;
         --brand-2: #0369a1;
-        --danger: #b91c1c;
+        --brand-light: rgba(15, 118, 110, 0.08);
+        --danger: #dc2626;
+        --danger-light: rgba(220, 38, 38, 0.06);
+        --radius: 12px;
+        --radius-lg: 16px;
+        --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+        --shadow: 0 2px 8px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+        --shadow-lg: 0 8px 24px rgba(0,0,0,0.08), 0 2px 6px rgba(0,0,0,0.04);
+        --transition: 0.18s ease;
       }
 
       * {
@@ -24,41 +34,87 @@ export const PLAYGROUND_HTML = `<!doctype html>
       body {
         margin: 0;
         color: var(--ink);
-        font-family: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
-        background: radial-gradient(circle at 10% 0%, var(--bg-top), var(--bg-bottom));
+        font-family: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+        background: radial-gradient(ellipse at 10% 0%, var(--bg-top) 0%, var(--bg-bottom) 70%);
+        min-height: 100vh;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
       }
 
       .shell {
-        min-height: 100vh;
-        padding: 20px;
+        max-width: 1440px;
+        margin: 0 auto;
+        padding: 32px 28px 48px;
+      }
+
+      header {
+        margin-bottom: 28px;
+        padding-bottom: 24px;
+        border-bottom: 1px solid var(--line);
       }
 
       .title {
-        margin: 0 0 8px;
-        font-size: 28px;
+        margin: 0 0 6px;
+        font-size: 32px;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        background: linear-gradient(135deg, var(--brand), var(--brand-2));
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
       }
 
       .sub {
-        margin: 0 0 16px;
+        margin: 0;
         color: var(--subtle);
+        font-size: 15px;
+        letter-spacing: 0.01em;
+      }
+
+      .sub span {
+        display: inline-block;
+        padding: 0 6px;
+        color: rgba(15, 118, 110, 0.4);
+        font-weight: 500;
       }
 
       .grid {
         display: grid;
         grid-template-columns: repeat(12, minmax(0, 1fr));
-        gap: 14px;
+        gap: 20px;
       }
 
       .card {
         background: var(--panel);
         border: 1px solid var(--line);
-        border-radius: 14px;
-        padding: 14px;
-        backdrop-filter: blur(8px);
+        border-radius: var(--radius-lg);
+        padding: 0;
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        box-shadow: var(--shadow);
+        transition: box-shadow var(--transition), transform var(--transition);
+        overflow: hidden;
+      }
+
+      .card:hover {
+        box-shadow: var(--shadow-lg);
+      }
+
+      .card-header {
+        padding: 16px 20px 12px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .card-body {
+        padding: 16px 20px 20px;
       }
 
       .span-4 {
         grid-column: span 4;
+      }
+
+      .span-6 {
+        grid-column: span 6;
       }
 
       .span-8 {
@@ -70,59 +126,131 @@ export const PLAYGROUND_HTML = `<!doctype html>
       }
 
       h2 {
-        margin: 0 0 10px;
-        font-size: 16px;
+        margin: 0;
+        font-size: 13px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--subtle);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      h2::before {
+        content: "";
+        display: inline-block;
+        width: 3px;
+        height: 14px;
+        border-radius: 2px;
+        background: linear-gradient(180deg, var(--brand), var(--brand-2));
+        flex-shrink: 0;
       }
 
       textarea {
         width: 100%;
-        min-height: 118px;
-        border: 1px solid var(--line);
-        border-radius: 10px;
-        padding: 10px 11px;
+        min-height: 132px;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius);
+        padding: 12px 14px;
         font: inherit;
+        font-size: 14px;
+        line-height: 1.6;
         resize: vertical;
         background: #fff;
+        color: var(--ink);
+        transition: border-color var(--transition), box-shadow var(--transition);
+      }
+
+      textarea::placeholder {
+        color: #94a3b8;
+      }
+
+      textarea:focus {
+        outline: none;
+        border-color: var(--brand);
+        box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.1);
       }
 
       .actions {
         display: flex;
         flex-wrap: wrap;
         gap: 8px;
-        margin-top: 10px;
+        margin-top: 12px;
       }
 
       button {
         border: 1px solid transparent;
-        border-radius: 10px;
-        padding: 8px 12px;
+        border-radius: var(--radius);
+        padding: 9px 16px;
         font: inherit;
+        font-size: 13px;
         font-weight: 600;
         cursor: pointer;
         background: linear-gradient(160deg, var(--brand), var(--brand-2));
         color: #fff;
+        box-shadow: var(--shadow-sm);
+        transition: all var(--transition);
+        white-space: nowrap;
+      }
+
+      button:hover:not(:disabled) {
+        filter: brightness(1.08);
+        box-shadow: var(--shadow);
+        transform: translateY(-1px);
+      }
+
+      button:active:not(:disabled) {
+        transform: translateY(0) scale(0.98);
+        filter: brightness(0.95);
       }
 
       button.secondary {
         background: #fff;
         color: var(--ink);
-        border-color: var(--line);
+        border-color: var(--line-strong);
+      }
+
+      button.secondary:hover:not(:disabled) {
+        background: #f8fafc;
+        border-color: var(--brand);
+        color: var(--brand);
       }
 
       button.danger {
         background: var(--danger);
       }
 
+      button.danger:hover:not(:disabled) {
+        background: #b91c1c;
+      }
+
       button:disabled {
-        opacity: 0.45;
+        opacity: 0.4;
         cursor: not-allowed;
+        transform: none;
+        filter: none;
       }
 
       .status {
         min-height: 20px;
-        margin-top: 10px;
+        margin-top: 12px;
         color: var(--subtle);
         font-size: 13px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .status::before {
+        content: "";
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--brand);
+        opacity: 0.5;
+        flex-shrink: 0;
       }
 
       .toggle {
@@ -132,29 +260,91 @@ export const PLAYGROUND_HTML = `<!doctype html>
         font-size: 13px;
         color: var(--subtle);
         user-select: none;
+        cursor: pointer;
+      }
+
+      .toggle input[type="checkbox"] {
+        accent-color: var(--brand);
       }
 
       .render-output {
-        min-height: 130px;
-        border: 1px dashed rgba(15, 118, 110, 0.35);
-        border-radius: 10px;
-        padding: 10px;
-        background: rgba(255, 255, 255, 0.9);
+        min-height: 180px;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius);
+        padding: 16px;
+        background: #fff;
+        position: relative;
+        transition: border-color var(--transition);
+      }
+
+      .render-output:empty::after {
+        content: "Preview will appear here";
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: #cbd5e1;
+        font-size: 14px;
+        font-weight: 500;
+        pointer-events: none;
       }
 
       pre {
         margin: 0;
-        max-height: 360px;
+        max-height: 400px;
         overflow: auto;
-        padding: 10px;
+        padding: 14px 16px;
         font-size: 12px;
-        border-radius: 10px;
-        background: #0f172a;
-        color: #dbeafe;
+        line-height: 1.7;
+        font-family: "IBM Plex Mono", "SF Mono", "Fira Code", monospace;
+        border-radius: var(--radius);
+        background: #1e293b;
+        color: #e2e8f0;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+      }
+
+      pre::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+
+      pre::-webkit-scrollbar-track {
+        background: transparent;
+      }
+
+      pre::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.15);
+        border-radius: 3px;
+      }
+
+      pre::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.25);
+      }
+
+      .debug-section {
+        opacity: 0.75;
+        transition: opacity var(--transition);
+      }
+
+      .debug-section:hover {
+        opacity: 1;
       }
 
       @media (max-width: 980px) {
+        .shell {
+          padding: 20px 16px 32px;
+        }
+
+        .title {
+          font-size: 26px;
+        }
+
+        .grid {
+          gap: 14px;
+        }
+
         .span-4,
+        .span-6,
         .span-8 {
           grid-column: span 12;
         }
@@ -163,57 +353,71 @@ export const PLAYGROUND_HTML = `<!doctype html>
   </head>
   <body>
     <div class="shell">
-      <h1 class="title">Renderify Playground</h1>
-      <p class="sub">Prompt -> RuntimePlan -> Runtime execution -> Browser render</p>
+      <header>
+        <h1 class="title">Renderify Playground</h1>
+        <p class="sub">Prompt <span>&rarr;</span> RuntimePlan <span>&rarr;</span> Runtime <span>&rarr;</span> Browser</p>
+      </header>
 
       <div class="grid">
         <section class="card span-4">
-          <h2>Prompt</h2>
-          <textarea id="prompt">Build an analytics dashboard with a chart and KPI cards</textarea>
-          <div class="actions">
-            <button id="run-prompt">Render Prompt</button>
-            <button id="stream-prompt" class="secondary">Stream Prompt</button>
-            <button id="clear" class="danger">Clear</button>
+          <div class="card-header"><h2>Prompt</h2></div>
+          <div class="card-body">
+            <textarea id="prompt" placeholder="Describe what to render...">Build an analytics dashboard with a chart and KPI cards</textarea>
+            <div class="actions">
+              <button id="run-prompt">Render</button>
+              <button id="stream-prompt" class="secondary">Stream</button>
+              <button id="clear" class="danger">Clear</button>
+            </div>
+            <div class="status" id="status">Ready.</div>
           </div>
-          <div class="status" id="status">Ready.</div>
         </section>
 
         <section class="card span-8">
-          <h2>Rendered HTML</h2>
-          <div class="render-output" id="html-output"></div>
-        </section>
-
-        <section class="card span-6">
-          <h2>Plan JSON</h2>
-          <textarea id="plan-editor">{}</textarea>
-          <div class="actions">
-            <button id="run-plan">Render Plan</button>
-            <button id="probe-plan" class="secondary">Probe Plan</button>
-            <button id="copy-plan-link" class="secondary">Copy Plan Link</button>
+          <div class="card-header"><h2>Rendered HTML</h2></div>
+          <div class="card-body">
+            <div class="render-output" id="html-output"></div>
           </div>
         </section>
 
         <section class="card span-6">
-          <h2>Diagnostics</h2>
-          <pre id="diagnostics">{}</pre>
-        </section>
-
-        <section class="card span-12">
-          <h2>Streaming Feed</h2>
-          <pre id="stream-output">[]</pre>
-        </section>
-
-        <section class="card span-12">
-          <h2>Debug Stats</h2>
-          <div class="actions">
-            <button id="refresh-debug" class="secondary">Refresh Debug Stats</button>
-            <label class="toggle">
-              <input id="auto-refresh-debug" type="checkbox" checked />
-              Auto refresh (2s)
-            </label>
+          <div class="card-header"><h2>Plan JSON</h2></div>
+          <div class="card-body">
+            <textarea id="plan-editor">{}</textarea>
+            <div class="actions">
+              <button id="run-plan">Render Plan</button>
+              <button id="probe-plan" class="secondary">Probe</button>
+              <button id="copy-plan-link" class="secondary">Copy Link</button>
+            </div>
           </div>
-          <div class="status" id="debug-status">Waiting for debug stats...</div>
-          <pre id="debug-output">{}</pre>
+        </section>
+
+        <section class="card span-6">
+          <div class="card-header"><h2>Diagnostics</h2></div>
+          <div class="card-body">
+            <pre id="diagnostics">{}</pre>
+          </div>
+        </section>
+
+        <section class="card span-12">
+          <div class="card-header"><h2>Streaming Feed</h2></div>
+          <div class="card-body">
+            <pre id="stream-output">[]</pre>
+          </div>
+        </section>
+
+        <section class="card span-12 debug-section">
+          <div class="card-header"><h2>Debug Stats</h2></div>
+          <div class="card-body">
+            <div class="actions">
+              <button id="refresh-debug" class="secondary">Refresh</button>
+              <label class="toggle">
+                <input id="auto-refresh-debug" type="checkbox" checked />
+                Auto refresh (2s)
+              </label>
+            </div>
+            <div class="status" id="debug-status">Waiting for debug stats...</div>
+            <pre id="debug-output">{}</pre>
+          </div>
         </section>
       </div>
     </div>
