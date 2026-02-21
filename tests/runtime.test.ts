@@ -1820,6 +1820,80 @@ test("runtime source loader hedges fallback CDN requests", async () => {
   }
 });
 
+test("runtime source loader aborts losing hedged requests after first success", async () => {
+  const runtime = new DefaultRuntimeManager({
+    remoteFallbackCdnBases: ["https://esm.sh"],
+    remoteFetchRetries: 0,
+    remoteFetchBackoffMs: 10,
+    remoteFetchTimeoutMs: 5000,
+  });
+
+  const diagnostics: Array<{ code?: string }> = [];
+  const loader = (
+    runtime as unknown as {
+      createSourceModuleLoader: (
+        moduleManifest: RuntimeModuleManifest | undefined,
+        diagnostics: Array<{ code?: string }>,
+      ) => {
+        fetchRemoteModuleCodeWithFallback(
+          url: string,
+        ): Promise<{ requestUrl: string }>;
+      };
+    }
+  ).createSourceModuleLoader(undefined, diagnostics);
+
+  let primaryAbortCount = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const requestUrl = String(input);
+
+    if (requestUrl.startsWith("https://ga.jspm.io/")) {
+      return await new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        const rejectAbort = () => {
+          primaryAbortCount += 1;
+          const error = new Error("aborted");
+          error.name = "AbortError";
+          reject(error);
+        };
+
+        if (signal?.aborted) {
+          rejectAbort();
+          return;
+        }
+
+        signal?.addEventListener("abort", rejectAbort, { once: true });
+      });
+    }
+
+    if (requestUrl.startsWith("https://esm.sh/")) {
+      return new Response("export default 1;", {
+        status: 200,
+        headers: {
+          "content-type": "text/javascript; charset=utf-8",
+        },
+      });
+    }
+
+    return new Response("not-found", { status: 404 });
+  }) as typeof fetch;
+
+  try {
+    const fetched = await loader.fetchRemoteModuleCodeWithFallback(
+      "https://ga.jspm.io/npm:lit@3.3.0/index.js",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.match(fetched.requestUrl, /^https:\/\/esm\.sh\//);
+    assert.ok(
+      primaryAbortCount >= 1,
+      "expected primary hedged request to be aborted after fallback succeeded",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("runtime source loader skips fallback URLs blocked by network policy", async () => {
   const runtime = new DefaultRuntimeManager({
     remoteFallbackCdnBases: ["https://esm.sh"],

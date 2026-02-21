@@ -230,12 +230,25 @@ export function createUrlProxyModuleSource(url: string): string {
 export async function fetchWithTimeout(
   url: string,
   timeoutMs: number,
+  options: { signal?: AbortSignal } = {},
 ): Promise<Response> {
+  const externalSignal = options.signal;
+  if (externalSignal?.aborted) {
+    throw createAbortError();
+  }
+
   if (typeof AbortController === "undefined") {
     return fetch(url);
   }
 
   const controller = new AbortController();
+  const handleExternalAbort = () => {
+    controller.abort();
+  };
+  externalSignal?.addEventListener("abort", handleExternalAbort, {
+    once: true,
+  });
+
   const timer = setTimeout(() => {
     controller.abort();
   }, timeoutMs);
@@ -246,6 +259,7 @@ export async function fetchWithTimeout(
     });
   } finally {
     clearTimeout(timer);
+    externalSignal?.removeEventListener("abort", handleExternalAbort);
   }
 }
 
@@ -257,6 +271,12 @@ export async function delay(ms: number): Promise<void> {
   await new Promise<void>((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function createAbortError(): Error {
+  const error = new Error("The operation was aborted");
+  error.name = "AbortError";
+  return error;
 }
 
 function toUrlPathname(url: string): string {

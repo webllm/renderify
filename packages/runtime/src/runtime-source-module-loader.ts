@@ -344,11 +344,15 @@ export class RuntimeSourceModuleLoader {
       50,
       Math.min(300, this.remoteFetchBackoffMs || 100),
     );
+    const attemptControllers = filteredAttempts.map(() =>
+      this.createAbortController(),
+    );
     const fetchTasks = filteredAttempts.map((attempt, index) =>
       this.fetchRemoteModuleAttemptWithRetries(
         attempt,
         url,
         index === 0 ? 0 : hedgeDelayMs * index,
+        attemptControllers[index]?.signal,
       ),
     );
 
@@ -360,6 +364,10 @@ export class RuntimeSourceModuleLoader {
       }
 
       throw error;
+    } finally {
+      for (const controller of attemptControllers) {
+        controller?.abort();
+      }
     }
   }
 
@@ -367,9 +375,10 @@ export class RuntimeSourceModuleLoader {
     attempt: string,
     originalUrl: string,
     startDelayMs: number,
+    signal?: AbortSignal,
   ): Promise<RemoteModuleFetchResult> {
     if (startDelayMs > 0) {
-      await delay(startDelayMs);
+      await this.delayWithSignal(startDelayMs, signal);
     }
 
     let lastError: unknown;
@@ -378,6 +387,9 @@ export class RuntimeSourceModuleLoader {
         const response = await fetchWithTimeout(
           attempt,
           this.remoteFetchTimeoutMs,
+          {
+            signal,
+          },
         );
         if (!response.ok) {
           throw new Error(
@@ -419,11 +431,17 @@ export class RuntimeSourceModuleLoader {
           requestUrl: attempt,
         };
       } catch (error) {
+        if (this.isAbortError(error, signal)) {
+          throw error;
+        }
         lastError = error;
         if (retry >= this.remoteFetchRetries) {
           break;
         }
-        await delay(this.remoteFetchBackoffMs * Math.max(1, retry + 1));
+        await this.delayWithSignal(
+          this.remoteFetchBackoffMs * Math.max(1, retry + 1),
+          signal,
+        );
       }
     }
 
@@ -476,6 +494,55 @@ export class RuntimeSourceModuleLoader {
     }
 
     return String(error);
+  }
+
+  private createAbortController(): AbortController | undefined {
+    if (typeof AbortController === "undefined") {
+      return undefined;
+    }
+
+    return new AbortController();
+  }
+
+  private isAbortError(error: unknown, signal?: AbortSignal): boolean {
+    if (signal?.aborted) {
+      return true;
+    }
+
+    return error instanceof Error && error.name === "AbortError";
+  }
+
+  private async delayWithSignal(
+    ms: number,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (ms <= 0) {
+      return;
+    }
+
+    if (!signal) {
+      await delay(ms);
+      return;
+    }
+
+    if (signal.aborted) {
+      throw createAbortError();
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        signal.removeEventListener("abort", onAbort);
+        resolve();
+      }, ms);
+
+      const onAbort = () => {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", onAbort);
+        reject(createAbortError());
+      };
+
+      signal.addEventListener("abort", onAbort, { once: true });
+    });
   }
 
   private shouldPreserveRemoteImport(url: string): boolean {
@@ -832,4 +899,10 @@ function setMapEntryWithLimit<Key, Value>(
     }
     map.delete(oldestKey);
   }
+}
+
+function createAbortError(): Error {
+  const error = new Error("The operation was aborted");
+  error.name = "AbortError";
+  return error;
 }
