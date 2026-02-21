@@ -10,6 +10,8 @@
 
 A modern runtime renderer that lets LLMs generate JSX/TSX and render interactive UI instantly in the browser — no build step, no backend compiler.
 
+![Renderify demo](docs/assets/renderify-demo.gif)
+
 ## 30-Second JSX Example
 
 ```tsx
