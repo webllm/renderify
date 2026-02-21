@@ -242,6 +242,17 @@
         color: var(--muted-foreground);
       }
 
+      .runtime-status {
+        width: min(760px, calc(100% - 32px));
+        margin: 14px auto 0;
+        padding: 8px 12px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: color-mix(in srgb, var(--card) 94%, #ffffff 6%);
+        color: var(--muted-foreground);
+        font-size: 12px;
+      }
+
       @media (max-width: 640px) {
         .card-content,
         .card-header {
@@ -266,18 +277,38 @@
     </style>
   </head>
   <body>
+    <div id="runtime-status" class="runtime-status">Booting Renderify runtime...</div>
     <div id="app"></div>
 
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script type="text/babel">
-      const { useEffect, useMemo, useState } = React;
-      const STORAGE_KEY = "renderify-react-shadcn-todo-hash-demo";
+    <script type="importmap">
+      {
+        "imports": {
+          "@renderify/ir": "../../packages/ir/dist/ir.esm.js",
+          "@renderify/security": "../../packages/security/dist/security.esm.js",
+          "preact": "/node_modules/preact/dist/preact.module.js",
+          "preact/hooks": "/node_modules/preact/hooks/dist/hooks.module.js",
+          "preact/jsx-runtime": "/node_modules/preact/jsx-runtime/dist/jsxRuntime.module.js",
+          "preact/jsx-dev-runtime": "/node_modules/preact/jsx-runtime/dist/jsxRuntime.module.js",
+          "es-module-lexer": "/node_modules/.pnpm/es-module-lexer@1.7.0/node_modules/es-module-lexer/dist/lexer.js"
+        }
+      }
+    </script>
+    <script type="text/plain" id="todo-source">
+      import { useEffect, useMemo, useState } from "preact/hooks";
+
       const HASH_KEY = "state64";
+      const DEFAULT_TODOS = [
+        { id: "seed-priority", text: "List the top 3 priorities for today", done: false },
+        { id: "seed-pr", text: "Review PR #142", done: true },
+        { id: "seed-share", text: "Share demo progress with the team", done: false },
+      ];
 
       function uid() {
         return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+      }
+
+      function joinClasses(...parts) {
+        return parts.filter(Boolean).join(" ");
       }
 
       function encodeBase64Url(input) {
@@ -324,7 +355,6 @@
 
           const parsed = JSON.parse(decodeBase64Url(payload));
           if (!parsed || typeof parsed !== "object") return null;
-
           return {
             todos: normalizeTodos(parsed.todos),
             filter: normalizeFilter(parsed.filter),
@@ -344,34 +374,21 @@
         }
       }
 
-      function loadTodos() {
-        try {
-          const raw = localStorage.getItem(STORAGE_KEY);
-          if (!raw) return [];
-          return normalizeTodos(JSON.parse(raw));
-        } catch {
-          return [];
-        }
-      }
-
       const initialHashState = readHashState();
 
-      function App() {
-        const [todos, setTodos] = useState(initialHashState?.todos ?? loadTodos());
+      export default function App() {
+        const [todos, setTodos] = useState(initialHashState?.todos ?? DEFAULT_TODOS);
         const [value, setValue] = useState("");
         const [filter, setFilter] = useState(initialHashState?.filter ?? "all");
         const [flash, setFlash] = useState(initialHashState ? "State restored from hash" : "");
-
-        useEffect(() => {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(todos));
-        }, [todos]);
 
         useEffect(() => {
           writeHashState({ todos, filter });
         }, [todos, filter]);
 
         useEffect(() => {
-          const timer = setTimeout(() => setFlash(""), flash ? 1800 : 0);
+          if (!flash) return undefined;
+          const timer = setTimeout(() => setFlash(""), 1800);
           return () => clearTimeout(timer);
         }, [flash]);
 
@@ -446,9 +463,9 @@
           <main className="app-shell">
             <section className="card">
               <header className="card-header">
-                <h1 className="card-title">React + shadcn Todo (Hash Share)</h1>
+                <h1 className="card-title">React + shadcn Todo (Hash Share RuntimePlan + JSX)</h1>
                 <p className="card-description">
-                  State syncs automatically to the URL hash, so sharing the link reproduces this view.
+                  State syncs to URL hash and is rendered through Renderify runtime JSX source execution.
                 </p>
               </header>
 
@@ -458,7 +475,7 @@
                     className="input"
                     placeholder="Add a task, e.g. design runtime streaming API"
                     value={value}
-                    onChange={(event) => setValue(event.target.value)}
+                    onInput={(event) => setValue(event.target.value)}
                     onKeyDown={onInputKeyDown}
                   />
                   <button className="btn btn-primary" onClick={addTodo} disabled={!value.trim()}>
@@ -476,9 +493,9 @@
                           className="todo-check"
                           type="checkbox"
                           checked={todo.done}
-                          onChange={() => toggleTodo(todo.id)}
+                          onInput={() => toggleTodo(todo.id)}
                         />
-                        <span className={`todo-text ${todo.done ? "done" : ""}`}>
+                        <span className={joinClasses("todo-text", todo.done ? "done" : "")}>
                           {todo.text}
                         </span>
                         <button
@@ -497,50 +514,160 @@
                 <div className="footer">
                   <div className="row">
                     <button
-                      className={`btn btn-outline ${filter === "all" ? "active" : ""}`}
+                      className={joinClasses("btn btn-outline", filter === "all" ? "active" : "")}
                       onClick={() => setFilter("all")}
                     >
                       All
                     </button>
                     <button
-                      className={`btn btn-outline ${filter === "active" ? "active" : ""}`}
+                      className={joinClasses("btn btn-outline", filter === "active" ? "active" : "")}
                       onClick={() => setFilter("active")}
                     >
                       Active
                     </button>
                     <button
-                      className={`btn btn-outline ${filter === "done" ? "active" : ""}`}
+                      className={joinClasses("btn btn-outline", filter === "done" ? "active" : "")}
                       onClick={() => setFilter("done")}
                     >
                       Completed
                     </button>
                   </div>
-
                   <div className="row">
                     <span className="badge">{leftCount} remaining</span>
-                    <button className="btn btn-danger" onClick={clearDone}>Clear completed</button>
-                    <button className="btn btn-ghost" onClick={resetDemo}>Reset demo</button>
-                    <button className="btn btn-outline" onClick={copyShareLink}>Copy share link</button>
+                    <button className="btn btn-danger" onClick={clearDone}>
+                      Clear completed
+                    </button>
+                    <button className="btn btn-ghost" onClick={resetDemo}>
+                      Reset demo
+                    </button>
+                    <button className="btn btn-outline" onClick={copyShareLink}>
+                      Copy share link
+                    </button>
                   </div>
                 </div>
 
                 <div className="hash-hint">
-                  Hash field: <code>#state64=&lt;base64url(json)&gt;</code>
+                  <span>Hash field: </span>
+                  <code>#state64=&lt;base64url(json)&gt;</code>
                   {flash ? (
-                    <div style={{ marginTop: 6, color: "#0f766e", fontWeight: 600 }}>{flash}</div>
+                    <div
+                      style={{
+                        marginTop: "6px",
+                        color: "#0f766e",
+                        fontWeight: "600",
+                      }}
+                    >
+                      {flash}
+                    </div>
                   ) : null}
                 </div>
 
-                <p className="muted" style={{ marginTop: 12, fontSize: 12 }}>
-                  Tip: state is also saved to LocalStorage. Manually editing the hash auto-reloads state.
+                <p className="muted" style={{ marginTop: "12px", fontSize: "12px" }}>
+                  Tip: manually editing the hash updates state after hashchange.
                 </p>
               </div>
             </section>
           </main>
         );
       }
+    </script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script type="module">
+      import { renderPlanInBrowser } from "../../packages/runtime/dist/runtime.esm.js";
 
-      ReactDOM.createRoot(document.getElementById("app")).render(<App />);
+      const appElement = document.getElementById("app");
+      const statusElement = document.getElementById("runtime-status");
+      const sourceElement = document.getElementById("todo-source");
+
+      function setStatus(message) {
+        statusElement.textContent = message;
+      }
+
+      function toErrorMessage(error) {
+        if (error instanceof Error) {
+          return error.message;
+        }
+        return String(error);
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      const sourceCode = sourceElement?.textContent?.trim();
+      if (!sourceCode) {
+        throw new Error("todo-source payload is empty");
+      }
+      const localOrigin = window.location.origin;
+      const moduleManifest = {
+        preact: {
+          resolvedUrl: `${localOrigin}/node_modules/preact/dist/preact.module.js`,
+        },
+        "preact/hooks": {
+          resolvedUrl: `${localOrigin}/node_modules/preact/hooks/dist/hooks.module.js`,
+        },
+        "preact/jsx-runtime": {
+          resolvedUrl: `${localOrigin}/node_modules/preact/jsx-runtime/dist/jsxRuntime.module.js`,
+        },
+        "preact/jsx-dev-runtime": {
+          resolvedUrl: `${localOrigin}/node_modules/preact/jsx-runtime/dist/jsxRuntime.module.js`,
+        },
+      };
+
+      const plan = {
+        specVersion: "runtime-plan/v1",
+        id: "todo_runtimeplan_hash_demo",
+        version: 1,
+        root: {
+          type: "element",
+          tag: "section",
+          children: [{ type: "text", value: "Preparing hash todo demo..." }],
+        },
+        imports: ["preact", "preact/hooks", "preact/jsx-runtime", "preact/jsx-dev-runtime"],
+        moduleManifest,
+        capabilities: {
+          domWrite: true,
+        },
+        source: {
+          language: "jsx",
+          runtime: "preact",
+          exportName: "default",
+          code: sourceCode,
+        },
+      };
+
+      async function boot() {
+        setStatus("Rendering RuntimePlan...");
+        try {
+          const result = await renderPlanInBrowser(plan, {
+            target: "#app",
+            autoPinLatestModuleManifest: false,
+            securityInitialization: {
+              profile: "balanced",
+              overrides: {
+                allowedNetworkHosts: ["ga.jspm.io", "cdn.jspm.io", window.location.host],
+              },
+            },
+          });
+          setStatus(`RuntimePlan rendered: ${result.execution.planId}`);
+          window.__RENDERIFY_TODO_HASH_DEMO__ = {
+            planId: result.execution.planId,
+            diagnostics: result.execution.diagnostics,
+          };
+        } catch (error) {
+          const message = toErrorMessage(error);
+          setStatus(`RuntimePlan failed: ${message}`);
+          appElement.innerHTML = `<div class="todo-empty">${escapeHtml(message)}</div>`;
+          console.error(error);
+        }
+      }
+
+      void boot();
     </script>
   </body>
 </html>

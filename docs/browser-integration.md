@@ -289,4 +289,5 @@ The repository includes several browser examples:
 | Chat form      | `examples/killer/one-line-chat-form.html`        | Form generation with date-fns                  |
 | Sandbox worker | `examples/killer/one-line-sandbox-worker.html`   | Worker-sandboxed source execution              |
 | Hash runner    | `examples/killer/hash-code-runner.html`          | Execute plans from URL hashes                  |
-| Todo app       | `examples/todo/react-shadcn-todo.html`           | React + shadcn UI todo application             |
+| Todo app       | `examples/todo/react-shadcn-todo.html`           | RuntimePlan-driven todo app with source module |
+| Todo hash app  | `examples/todo/react-shadcn-todo-hash.html`      | RuntimePlan todo app with URL hash sync        |

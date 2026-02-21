@@ -465,7 +465,9 @@ export class RuntimeSourceModuleLoader {
     const path = parsed.pathname.toLowerCase();
     return (
       path.includes("/npm:preact@") ||
-      path.includes("/npm:preact-render-to-string@")
+      path.includes("/npm:preact-render-to-string@") ||
+      path.includes("/node_modules/preact/") ||
+      path.includes("/node_modules/.pnpm/preact@")
     );
   }
 
