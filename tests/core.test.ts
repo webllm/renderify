@@ -450,6 +450,54 @@ test("core renderPlan executes provided plan", async () => {
   await app.stop();
 });
 
+test("core rechecks policy after beforeRuntime hook plan mutations", async () => {
+  const customization = new DefaultCustomizationEngine();
+  customization.registerPlugin({
+    name: "mutate-plan-before-runtime",
+    hooks: {
+      beforeRuntime: (payload) => {
+        const runtimeInput = payload as {
+          plan: RuntimePlan;
+        };
+        return {
+          ...runtimeInput,
+          plan: {
+            ...runtimeInput.plan,
+            root: createElementNode("script", undefined, [
+              createTextNode("mutated"),
+            ]),
+          },
+        };
+      },
+    },
+  });
+
+  const app = createRenderifyApp(
+    createDependencies({
+      customization,
+    }),
+  );
+
+  await app.start();
+
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "core_runtime_mutation_policy_recheck",
+    version: 1,
+    root: createElementNode("section", undefined, [createTextNode("safe")]),
+    capabilities: {
+      domWrite: true,
+    },
+  };
+
+  await assert.rejects(
+    () => app.renderPlan(plan),
+    (error: unknown) => error instanceof PolicyRejectionError,
+  );
+
+  await app.stop();
+});
+
 test("core prefers structured llm output when available", async () => {
   const app = createRenderifyApp(
     createDependencies({

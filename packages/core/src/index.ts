@@ -811,6 +811,13 @@ export class RenderifyApp {
         runtimeInputRaw,
         pluginContextFactory("beforeRuntime"),
       );
+      const runtimeSecurityResult = await this.deps.security.checkPlan(
+        runtimeInput.plan,
+      );
+      if (!runtimeSecurityResult.safe) {
+        this.emit("policyRejected", runtimeSecurityResult);
+        throw new PolicyRejectionError(runtimeSecurityResult);
+      }
 
       const runtimeExecutionRaw = await this.deps.runtime.execute(runtimeInput);
 
