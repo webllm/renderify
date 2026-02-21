@@ -14,6 +14,8 @@ export interface JspmModuleLoaderOptions {
   remoteFetchTimeoutMs?: number;
   remoteFetchRetries?: number;
   remoteFetchBackoffMs?: number;
+  moduleCacheMaxEntries?: number;
+  remoteMaterializedUrlCacheMaxEntries?: number;
 }
 
 interface SystemLike {
@@ -66,6 +68,8 @@ const DEFAULT_REMOTE_FALLBACK_CDN_BASES = ["https://esm.sh"];
 const DEFAULT_REMOTE_FETCH_TIMEOUT_MS = 6000;
 const DEFAULT_REMOTE_FETCH_RETRIES = 1;
 const DEFAULT_REMOTE_FETCH_BACKOFF_MS = 120;
+const DEFAULT_MODULE_CACHE_MAX_ENTRIES = 1024;
+const DEFAULT_REMOTE_MATERIALIZED_URL_CACHE_MAX_ENTRIES = 1024;
 
 function hasSystemImport(value: unknown): value is SystemLike {
   if (typeof value !== "object" || value === null) {
@@ -83,6 +87,8 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
   private readonly remoteFetchTimeoutMs: number;
   private readonly remoteFetchRetries: number;
   private readonly remoteFetchBackoffMs: number;
+  private readonly moduleCacheMaxEntries: number;
+  private readonly remoteMaterializedUrlCacheMaxEntries: number;
   private readonly cache = new Map<string, unknown>();
   private readonly inflight = new Map<string, Promise<unknown>>();
   private readonly remoteMaterializationDiagnostics: RuntimeDiagnostic[] = [];
@@ -113,6 +119,14 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
       options.remoteFetchBackoffMs,
       DEFAULT_REMOTE_FETCH_BACKOFF_MS,
     );
+    this.moduleCacheMaxEntries = normalizePositiveInteger(
+      options.moduleCacheMaxEntries,
+      DEFAULT_MODULE_CACHE_MAX_ENTRIES,
+    );
+    this.remoteMaterializedUrlCacheMaxEntries = normalizePositiveInteger(
+      options.remoteMaterializedUrlCacheMaxEntries,
+      DEFAULT_REMOTE_MATERIALIZED_URL_CACHE_MAX_ENTRIES,
+    );
   }
 
   async load(specifier: string): Promise<unknown> {
@@ -129,7 +143,12 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
 
     const loading = (async () => {
       const loaded = await this.importWithBestEffort(resolved);
-      this.cache.set(resolved, loaded);
+      setMapEntryWithLimit(
+        this.cache,
+        resolved,
+        loaded,
+        this.moduleCacheMaxEntries,
+      );
       return loaded;
     })();
 
@@ -314,6 +333,8 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
       remoteFetchTimeoutMs: this.remoteFetchTimeoutMs,
       remoteFetchRetries: this.remoteFetchRetries,
       remoteFetchBackoffMs: this.remoteFetchBackoffMs,
+      materializedModuleUrlCacheMaxEntries:
+        this.remoteMaterializedUrlCacheMaxEntries,
       canMaterializeRuntimeModules: () => typeof Buffer !== "undefined",
       rewriteImportsAsync: (code, resolver) =>
         rewriteImportsAsync(code, resolver),
@@ -373,4 +394,24 @@ function normalizeNonNegativeInteger(
   }
 
   return value;
+}
+
+function setMapEntryWithLimit<Key, Value>(
+  map: Map<Key, Value>,
+  key: Key,
+  value: Value,
+  maxEntries: number,
+): void {
+  if (map.has(key)) {
+    map.delete(key);
+  }
+
+  map.set(key, value);
+  while (map.size > maxEntries) {
+    const oldestKey = map.keys().next().value;
+    if (oldestKey === undefined) {
+      break;
+    }
+    map.delete(oldestKey);
+  }
 }

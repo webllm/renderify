@@ -39,6 +39,8 @@ export interface RuntimeSourceModuleLoaderOptions {
     requireManifest?: boolean,
   ) => string;
   isRemoteUrlAllowed?: (url: string) => boolean;
+  materializedModuleUrlCacheMaxEntries?: number;
+  localNodeSpecifierUrlCacheMaxEntries?: number;
 }
 
 type NodeModuleResolver = {
@@ -57,6 +59,8 @@ const PREACT_LOCAL_ESM_ENTRYPOINTS = new Map<string, string>([
   ["preact/jsx-runtime", "jsx-runtime/dist/jsxRuntime.mjs"],
   ["preact/compat", "compat/dist/compat.mjs"],
 ]);
+const DEFAULT_MATERIALIZED_MODULE_URL_CACHE_MAX_ENTRIES = 1024;
+const DEFAULT_LOCAL_NODE_SPECIFIER_CACHE_MAX_ENTRIES = 512;
 
 export class RuntimeSourceModuleLoader {
   private readonly moduleManifest: RuntimeModuleManifest | undefined;
@@ -80,6 +84,8 @@ export class RuntimeSourceModuleLoader {
     requireManifest?: boolean,
   ) => string;
   private readonly isRemoteUrlAllowedFn: (url: string) => boolean;
+  private readonly materializedModuleUrlCacheMaxEntries: number;
+  private readonly localNodeSpecifierUrlCacheMaxEntries: number;
   private readonly localNodeSpecifierUrlCache = new Map<
     string,
     string | null
@@ -104,6 +110,14 @@ export class RuntimeSourceModuleLoader {
     this.resolveRuntimeSourceSpecifierFn =
       options.resolveRuntimeSourceSpecifier;
     this.isRemoteUrlAllowedFn = options.isRemoteUrlAllowed ?? (() => true);
+    this.materializedModuleUrlCacheMaxEntries = normalizeCacheMaxEntries(
+      options.materializedModuleUrlCacheMaxEntries,
+      DEFAULT_MATERIALIZED_MODULE_URL_CACHE_MAX_ENTRIES,
+    );
+    this.localNodeSpecifierUrlCacheMaxEntries = normalizeCacheMaxEntries(
+      options.localNodeSpecifierUrlCacheMaxEntries,
+      DEFAULT_LOCAL_NODE_SPECIFIER_CACHE_MAX_ENTRIES,
+    );
   }
 
   async importSourceModuleFromCode(code: string): Promise<unknown> {
@@ -252,8 +266,18 @@ export class RuntimeSourceModuleLoader {
       const rewritten = await this.materializeFetchedModuleSource(fetched);
 
       const inlineUrl = this.createInlineModuleUrlFn(rewritten);
-      this.materializedModuleUrlCache.set(normalizedUrl, inlineUrl);
-      this.materializedModuleUrlCache.set(fetched.url, inlineUrl);
+      setMapEntryWithLimit(
+        this.materializedModuleUrlCache,
+        normalizedUrl,
+        inlineUrl,
+        this.materializedModuleUrlCacheMaxEntries,
+      );
+      setMapEntryWithLimit(
+        this.materializedModuleUrlCache,
+        fetched.url,
+        inlineUrl,
+        this.materializedModuleUrlCacheMaxEntries,
+      );
       return inlineUrl;
     })();
 
@@ -577,7 +601,12 @@ export class RuntimeSourceModuleLoader {
 
     const pathToFileUrl = await this.getNodePathToFileUrl();
     if (!pathToFileUrl) {
-      this.localNodeSpecifierUrlCache.set(specifier, null);
+      setMapEntryWithLimit(
+        this.localNodeSpecifierUrlCache,
+        specifier,
+        null,
+        this.localNodeSpecifierUrlCacheMaxEntries,
+      );
       return undefined;
     }
 
@@ -585,23 +614,43 @@ export class RuntimeSourceModuleLoader {
       await this.resolvePreferredLocalPreactEsmPath(specifier);
     if (preferredPreactPath) {
       const resolvedUrl = pathToFileUrl(preferredPreactPath).toString();
-      this.localNodeSpecifierUrlCache.set(specifier, resolvedUrl);
+      setMapEntryWithLimit(
+        this.localNodeSpecifierUrlCache,
+        specifier,
+        resolvedUrl,
+        this.localNodeSpecifierUrlCacheMaxEntries,
+      );
       return resolvedUrl;
     }
 
     const moduleResolver = await this.getNodeModuleResolver();
     if (!moduleResolver) {
-      this.localNodeSpecifierUrlCache.set(specifier, null);
+      setMapEntryWithLimit(
+        this.localNodeSpecifierUrlCache,
+        specifier,
+        null,
+        this.localNodeSpecifierUrlCacheMaxEntries,
+      );
       return undefined;
     }
 
     try {
       const resolvedPath = moduleResolver.resolve(specifier);
       const resolvedUrl = pathToFileUrl(resolvedPath).toString();
-      this.localNodeSpecifierUrlCache.set(specifier, resolvedUrl);
+      setMapEntryWithLimit(
+        this.localNodeSpecifierUrlCache,
+        specifier,
+        resolvedUrl,
+        this.localNodeSpecifierUrlCacheMaxEntries,
+      );
       return resolvedUrl;
     } catch {
-      this.localNodeSpecifierUrlCache.set(specifier, null);
+      setMapEntryWithLimit(
+        this.localNodeSpecifierUrlCache,
+        specifier,
+        null,
+        this.localNodeSpecifierUrlCacheMaxEntries,
+      );
       return undefined;
     }
   }
@@ -749,5 +798,38 @@ export class RuntimeSourceModuleLoader {
       /\/\*[#@]\s*sourceMappingURL=[^*]*\*\//g,
       "",
     );
+  }
+}
+
+function normalizeCacheMaxEntries(value: number | undefined, fallback: number) {
+  if (
+    typeof value !== "number" ||
+    !Number.isInteger(value) ||
+    !Number.isFinite(value) ||
+    value <= 0
+  ) {
+    return fallback;
+  }
+
+  return value;
+}
+
+function setMapEntryWithLimit<Key, Value>(
+  map: Map<Key, Value>,
+  key: Key,
+  value: Value,
+  maxEntries: number,
+): void {
+  if (map.has(key)) {
+    map.delete(key);
+  }
+
+  map.set(key, value);
+  while (map.size > maxEntries) {
+    const oldestKey = map.keys().next().value;
+    if (oldestKey === undefined) {
+      break;
+    }
+    map.delete(oldestKey);
   }
 }

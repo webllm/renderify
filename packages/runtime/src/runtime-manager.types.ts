@@ -88,6 +88,8 @@ export interface RuntimeManagerOptions {
   remoteFetchRetries?: number;
   remoteFetchBackoffMs?: number;
   remoteFallbackCdnBases?: string[];
+  browserModuleUrlCacheMaxEntries?: number;
+  runtimeSourceLocalSpecifierCacheMaxEntries?: number;
   allowArbitraryNetwork?: boolean;
   allowedNetworkHosts?: string[];
 }

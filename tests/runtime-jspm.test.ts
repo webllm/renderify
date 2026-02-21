@@ -158,6 +158,43 @@ test("runtime-jspm de-duplicates concurrent in-flight loads", async () => {
   }
 });
 
+test("runtime-jspm evicts stale module cache entries beyond capacity", async () => {
+  const loader = new JspmModuleLoader({
+    moduleCacheMaxEntries: 2,
+  });
+  const globalState = globalThis as unknown as {
+    System?: { import(url: string): Promise<unknown> };
+  };
+  const previousSystem = globalState.System;
+
+  globalState.System = {
+    import: async (url: string): Promise<unknown> => ({ url }),
+  };
+
+  try {
+    await loader.load("lodash-es");
+    await loader.load("date-fns");
+    await loader.load("nanoid");
+
+    const cache = (
+      loader as unknown as {
+        cache: Map<string, unknown>;
+      }
+    ).cache;
+    assert.equal(cache.size, 2);
+    assert.equal(
+      [...cache.keys()].some((key) => key.includes("lodash-es")),
+      false,
+    );
+  } finally {
+    if (previousSystem === undefined) {
+      delete globalState.System;
+    } else {
+      globalState.System = previousSystem;
+    }
+  }
+});
+
 test("runtime-jspm materializes remote HTTP modules when System.import is unavailable", async () => {
   const loader = new JspmModuleLoader({
     importMap: {

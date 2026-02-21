@@ -2386,6 +2386,60 @@ test("runtime source loader honors explicit manifest mappings before local preac
   }
 });
 
+test("runtime evicts stale browser module URL cache entries beyond capacity", async () => {
+  const runtime = new DefaultRuntimeManager({
+    browserModuleUrlCacheMaxEntries: 2,
+    remoteFallbackCdnBases: [],
+    remoteFetchRetries: 0,
+    remoteFetchBackoffMs: 10,
+    remoteFetchTimeoutMs: 600,
+  });
+
+  const internals = runtime as unknown as {
+    createSourceModuleLoader: (
+      moduleManifest: RuntimeModuleManifest | undefined,
+      diagnostics: Array<{ code?: string; message?: string }>,
+    ) => {
+      materializeRemoteModule(url: string): Promise<string>;
+    };
+    browserModuleUrlCache: Map<string, string>;
+  };
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    return new Response(`export default ${JSON.stringify(String(input))};`, {
+      status: 200,
+      headers: {
+        "content-type": "text/javascript; charset=utf-8",
+      },
+    });
+  }) as typeof fetch;
+
+  try {
+    const diagnostics: Array<{ code?: string; message?: string }> = [];
+    const loader = internals.createSourceModuleLoader(undefined, diagnostics);
+    await loader.materializeRemoteModule(
+      "https://ga.jspm.io/npm:lit@3.3.0/index.js?cache=0",
+    );
+    await loader.materializeRemoteModule(
+      "https://ga.jspm.io/npm:lit@3.3.0/index.js?cache=1",
+    );
+    await loader.materializeRemoteModule(
+      "https://ga.jspm.io/npm:lit@3.3.0/index.js?cache=2",
+    );
+
+    assert.equal(internals.browserModuleUrlCache.size, 2);
+    assert.equal(
+      [...internals.browserModuleUrlCache.keys()].some((key) =>
+        key.includes("cache=0"),
+      ),
+      false,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("runtime module caches are released across lifecycle cycles", async () => {
   const runtime = new DefaultRuntimeManager({
     remoteFallbackCdnBases: [],

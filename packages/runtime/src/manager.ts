@@ -32,6 +32,7 @@ import {
 import { createPreactRenderArtifact as createPreactRenderArtifactFromComponentRuntime } from "./runtime-component-runtime";
 import {
   FALLBACK_ALLOW_ISOLATION_FALLBACK,
+  FALLBACK_BROWSER_MODULE_URL_CACHE_MAX_ENTRIES,
   FALLBACK_BROWSER_SOURCE_SANDBOX_FAIL_CLOSED,
   FALLBACK_BROWSER_SOURCE_SANDBOX_TIMEOUT_MS,
   FALLBACK_ENABLE_DEPENDENCY_PREFLIGHT,
@@ -48,6 +49,7 @@ import {
   FALLBACK_REMOTE_FETCH_RETRIES,
   FALLBACK_REMOTE_FETCH_TIMEOUT_MS,
   FALLBACK_RUNTIME_SOURCE_JSX_HELPER_MODE,
+  FALLBACK_RUNTIME_SOURCE_LOCAL_SPECIFIER_CACHE_MAX_ENTRIES,
   normalizeFallbackCdnBases,
   normalizeNonNegativeInteger,
   normalizePositiveInteger,
@@ -135,6 +137,8 @@ export class DefaultRuntimeManager implements RuntimeManager {
   private remoteFetchRetries: number;
   private remoteFetchBackoffMs: number;
   private remoteFallbackCdnBases: string[];
+  private browserModuleUrlCacheMaxEntries: number;
+  private runtimeSourceLocalSpecifierCacheMaxEntries: number;
   private allowArbitraryNetwork: boolean;
   private allowedNetworkHosts: Set<string>;
   private allowedNetworkHostMatchers: ParsedNetworkHostPattern[];
@@ -174,6 +178,10 @@ export class DefaultRuntimeManager implements RuntimeManager {
     this.remoteFetchRetries = FALLBACK_REMOTE_FETCH_RETRIES;
     this.remoteFetchBackoffMs = FALLBACK_REMOTE_FETCH_BACKOFF_MS;
     this.remoteFallbackCdnBases = [...FALLBACK_REMOTE_FALLBACK_CDN_BASES];
+    this.browserModuleUrlCacheMaxEntries =
+      FALLBACK_BROWSER_MODULE_URL_CACHE_MAX_ENTRIES;
+    this.runtimeSourceLocalSpecifierCacheMaxEntries =
+      FALLBACK_RUNTIME_SOURCE_LOCAL_SPECIFIER_CACHE_MAX_ENTRIES;
     this.allowArbitraryNetwork = true;
     this.allowedNetworkHosts = new Set<string>();
     this.allowedNetworkHostMatchers = [];
@@ -275,6 +283,27 @@ export class DefaultRuntimeManager implements RuntimeManager {
       this.remoteFallbackCdnBases = normalizeFallbackCdnBases(
         options.remoteFallbackCdnBases,
       );
+    }
+
+    if (
+      applyDefaults ||
+      options.browserModuleUrlCacheMaxEntries !== undefined
+    ) {
+      this.browserModuleUrlCacheMaxEntries = normalizePositiveInteger(
+        options.browserModuleUrlCacheMaxEntries,
+        FALLBACK_BROWSER_MODULE_URL_CACHE_MAX_ENTRIES,
+      );
+    }
+
+    if (
+      applyDefaults ||
+      options.runtimeSourceLocalSpecifierCacheMaxEntries !== undefined
+    ) {
+      this.runtimeSourceLocalSpecifierCacheMaxEntries =
+        normalizePositiveInteger(
+          options.runtimeSourceLocalSpecifierCacheMaxEntries,
+          FALLBACK_RUNTIME_SOURCE_LOCAL_SPECIFIER_CACHE_MAX_ENTRIES,
+        );
     }
 
     if (applyDefaults || options.allowArbitraryNetwork !== undefined) {
@@ -738,6 +767,10 @@ export class DefaultRuntimeManager implements RuntimeManager {
       remoteFetchTimeoutMs: this.remoteFetchTimeoutMs,
       remoteFetchRetries: this.remoteFetchRetries,
       remoteFetchBackoffMs: this.remoteFetchBackoffMs,
+      materializedModuleUrlCacheMaxEntries:
+        this.browserModuleUrlCacheMaxEntries,
+      localNodeSpecifierUrlCacheMaxEntries:
+        this.runtimeSourceLocalSpecifierCacheMaxEntries,
       canMaterializeRuntimeModules: () =>
         canMaterializeBrowserModules() || typeof Buffer !== "undefined",
       rewriteImportsAsync: (code, resolver) =>
