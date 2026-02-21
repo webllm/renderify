@@ -1,6 +1,6 @@
 {
   "name": "@renderify/ir",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "main": "dist/ir.cjs.js",
   "types": "dist/ir.d.ts",
   "module": "dist/ir.esm.js",

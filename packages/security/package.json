@@ -1,6 +1,6 @@
 {
   "name": "@renderify/security",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "main": "dist/security.cjs.js",
   "types": "dist/security.d.ts",
   "module": "dist/security.esm.js",
