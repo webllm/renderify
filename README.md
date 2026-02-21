@@ -6,9 +6,13 @@
 
 > LLM generates JSX/TSX → browser renders it directly at runtime — no backend build server, no deploy step, JSPM package support with an explicit compatibility contract.
 
-> Renderify is a runtime-first dynamic renderer that lets LLMs produce real, interactive UI on the fly. It bridges the gap between "LLM can generate code" and "users can see and interact with that UI instantly" — with inline transpilation via `@babel/standalone`, and no backend compiler/deploy pipeline in the loop.
+> Renderify is a runtime-first, bundleless dynamic renderer that lets LLMs produce real, interactive UI on the fly. It bridges the gap between "LLM can generate code" and "users can see and interact with that UI instantly" — with inline transpilation via `@babel/standalone`, and no backend compiler/deploy pipeline in the loop.
 
 A modern runtime renderer that lets LLMs generate JSX/TSX and render interactive UI instantly in the browser — no build step, no backend compiler.
+
+<a id="bundleless-contract"></a>
+Renderify is **bundleless by design**: it does not rely on a traditional bundling pipeline to run generated UI. Instead, it resolves and rewrites module imports at runtime (JSPM/CDN + `moduleManifest` pinning) and executes under explicit security policy and sandbox controls.
+In other words, bundleless runtime execution does **not** mean full npm bundler compatibility; Renderify intentionally targets a browser-ESM-compatible subset with explicit guarantees. See [JSPM package support (tiered contract)](#jspm-package-support-tiered-contract) for the exact compatibility boundary.
 
 ![Renderify demo](docs/assets/renderify-demo.gif)
 
@@ -67,7 +71,7 @@ LLM output (JSX/TSX or structured plan)
 ```
 
 - **Zero-build rendering**: LLM-generated JSX/TSX runs directly in the browser via `@babel/standalone` + JSPM CDN. No backend build server, no deploy step, no server round-trip.
-- **JSPM package support (tiered contract)**: Compatibility aliases (`preact`/`react` bridge, `recharts`) are guaranteed; pure browser ESM packages (for example `lodash-es`, `date-fns`, `@mui/material`) are best-effort. Node.js builtins and unsupported schemes are rejected deterministically.
+- **JSPM package support (tiered contract)**: Compatibility aliases (`preact`/`react` bridge, `recharts`) are guaranteed; pure browser ESM packages (for example `lodash-es`, `date-fns`, `@mui/material`) are best-effort. Node.js builtins and unsupported schemes are rejected deterministically. This is the concrete scope of the [bundleless contract](#bundleless-contract).
 - **Default auto-pin-latest for bare imports**: `renderPlanInBrowser` automatically resolves bare source imports (for example `import { format } from "date-fns"`) through JSPM latest and injects pinned `moduleManifest` entries before policy check and execution.
 - **Security-first execution**: Every plan passes through a policy checker (blocked tags, module allowlists, tree depth limits, execution budgets) _before_ any code runs. Three built-in profiles: `strict`, `balanced`, `relaxed`.
 - **JSPM-only strict preset**: Set `RENDERIFY_RUNTIME_JSPM_ONLY_STRICT_MODE=true` to force strict profile + manifest/integrity enforcement + preflight fail-fast + no fallback CDNs.
