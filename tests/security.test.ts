@@ -59,6 +59,46 @@ test("security checker blocks non-allowlisted network hosts", async () => {
   );
 });
 
+test("security checker supports wildcard network host allowlists", () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize({
+    overrides: {
+      allowArbitraryNetwork: false,
+      allowedNetworkHosts: ["*.jspm.io"],
+    },
+  });
+
+  const allowedSubdomain = checker.checkModuleSpecifier(
+    "https://ga.jspm.io/npm:lit@3.3.0/index.js",
+  );
+  const blockedRootDomain = checker.checkModuleSpecifier(
+    "https://jspm.io/npm:lit@3.3.0/index.js",
+  );
+
+  assert.equal(allowedSubdomain.safe, true);
+  assert.equal(blockedRootDomain.safe, false);
+});
+
+test("security checker normalizes default ports for allowed network hosts", () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize({
+    overrides: {
+      allowArbitraryNetwork: false,
+      allowedNetworkHosts: ["ga.jspm.io"],
+    },
+  });
+
+  const defaultPortAllowed = checker.checkModuleSpecifier(
+    "https://ga.jspm.io:443/npm:lit@3.3.0/index.js",
+  );
+  const nonDefaultPortBlocked = checker.checkModuleSpecifier(
+    "https://ga.jspm.io:444/npm:lit@3.3.0/index.js",
+  );
+
+  assert.equal(defaultPortAllowed.safe, true);
+  assert.equal(nonDefaultPortBlocked.safe, false);
+});
+
 test("security checker allows allowed JSPM module specifiers", async () => {
   const checker = new DefaultSecurityChecker();
   checker.initialize();

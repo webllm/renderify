@@ -106,6 +106,12 @@ interface ExecutionFrame {
   signal?: AbortSignal;
 }
 
+interface ParsedNetworkHostPattern {
+  hostname: string;
+  wildcard: boolean;
+  port?: number;
+}
+
 export type { RuntimeComponentFactory } from "./runtime-component-runtime";
 
 export class DefaultRuntimeManager implements RuntimeManager {
@@ -131,6 +137,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
   private remoteFallbackCdnBases: string[];
   private allowArbitraryNetwork: boolean;
   private allowedNetworkHosts: Set<string>;
+  private allowedNetworkHostMatchers: ParsedNetworkHostPattern[];
   private readonly browserModuleUrlCache = new Map<string, string>();
   private readonly browserModuleInflight = new Map<string, Promise<string>>();
   private readonly browserBlobUrls = new Set<string>();
@@ -169,6 +176,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
     this.remoteFallbackCdnBases = [...FALLBACK_REMOTE_FALLBACK_CDN_BASES];
     this.allowArbitraryNetwork = true;
     this.allowedNetworkHosts = new Set<string>();
+    this.allowedNetworkHostMatchers = [];
     this.applyRuntimeOptions(options, true);
   }
 
@@ -274,21 +282,41 @@ export class DefaultRuntimeManager implements RuntimeManager {
     }
 
     if (applyDefaults || options.allowedNetworkHosts !== undefined) {
-      this.allowedNetworkHosts = this.normalizeAllowedNetworkHosts(
+      const normalizedHosts = this.normalizeAllowedNetworkHosts(
         options.allowedNetworkHosts,
       );
+      this.allowedNetworkHosts = normalizedHosts.hosts;
+      this.allowedNetworkHostMatchers = normalizedHosts.matchers;
     }
   }
 
-  private normalizeAllowedNetworkHosts(
-    hosts: string[] | undefined,
-  ): Set<string> {
-    return new Set(
-      (hosts ?? [])
-        .filter((entry): entry is string => typeof entry === "string")
-        .map((entry) => entry.trim().toLowerCase())
-        .filter((entry) => entry.length > 0),
-    );
+  private normalizeAllowedNetworkHosts(hosts: string[] | undefined): {
+    hosts: Set<string>;
+    matchers: ParsedNetworkHostPattern[];
+  } {
+    const normalizedHosts = new Set<string>();
+    const matchers: ParsedNetworkHostPattern[] = [];
+
+    for (const entry of hosts ?? []) {
+      if (typeof entry !== "string") {
+        continue;
+      }
+      const normalized = entry.trim().toLowerCase();
+      if (normalized.length === 0) {
+        continue;
+      }
+
+      normalizedHosts.add(normalized);
+      const pattern = parseNetworkHostPattern(normalized);
+      if (pattern) {
+        matchers.push(pattern);
+      }
+    }
+
+    return {
+      hosts: normalizedHosts,
+      matchers,
+    };
   }
 
   async execute(input: RuntimeExecutionInput): Promise<RuntimeExecutionResult> {
@@ -808,7 +836,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
       return false;
     }
 
-    return this.allowedNetworkHosts.has(parsedUrl.host.toLowerCase());
+    return matchesAllowedNetworkUrl(parsedUrl, this.allowedNetworkHostMatchers);
   }
 
   private async resolveNode(
@@ -886,4 +914,143 @@ export class DefaultRuntimeManager implements RuntimeManager {
 
     return String(error);
   }
+}
+
+function parseNetworkHostPattern(
+  value: string,
+): ParsedNetworkHostPattern | undefined {
+  const normalized = value.trim().toLowerCase();
+  if (normalized.length === 0) {
+    return undefined;
+  }
+
+  const wildcard = normalized.startsWith("*.");
+  const hostPort = wildcard ? normalized.slice(2) : normalized;
+  if (hostPort.length === 0) {
+    return undefined;
+  }
+
+  const parsed = parseHostnameAndPort(hostPort);
+  if (!parsed) {
+    return undefined;
+  }
+
+  return {
+    hostname: parsed.hostname,
+    wildcard,
+    port: parsed.port,
+  };
+}
+
+function parseHostnameAndPort(
+  hostPort: string,
+): { hostname: string; port?: number } | undefined {
+  const bracketMatch = hostPort.match(/^\[(.+)\](?::(\d+))?$/);
+  if (bracketMatch) {
+    const hostname = bracketMatch[1]?.trim();
+    if (!hostname) {
+      return undefined;
+    }
+    const port = parsePortNumber(bracketMatch[2]);
+    return port === undefined && bracketMatch[2]
+      ? undefined
+      : { hostname, port };
+  }
+
+  const segments = hostPort.split(":");
+  if (segments.length === 1) {
+    return {
+      hostname: hostPort,
+    };
+  }
+
+  if (segments.length === 2) {
+    const hostname = segments[0]?.trim();
+    const port = parsePortNumber(segments[1]);
+    if (!hostname || port === undefined) {
+      return undefined;
+    }
+    return {
+      hostname,
+      port,
+    };
+  }
+
+  return undefined;
+}
+
+function parsePortNumber(value: string | undefined): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
+    return undefined;
+  }
+
+  return parsed;
+}
+
+function matchesPatternHostname(
+  hostname: string,
+  pattern: ParsedNetworkHostPattern,
+): boolean {
+  if (!pattern.wildcard) {
+    return hostname === pattern.hostname;
+  }
+
+  return (
+    hostname.length > pattern.hostname.length &&
+    hostname.endsWith(`.${pattern.hostname}`)
+  );
+}
+
+function toEffectivePort(url: URL): number | undefined {
+  if (url.port.length > 0) {
+    const parsedPort = Number(url.port);
+    if (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535) {
+      return undefined;
+    }
+    return parsedPort;
+  }
+
+  if (url.protocol === "https:") {
+    return 443;
+  }
+  if (url.protocol === "http:") {
+    return 80;
+  }
+
+  return undefined;
+}
+
+function matchesAllowedNetworkUrl(
+  url: URL,
+  patterns: ParsedNetworkHostPattern[],
+): boolean {
+  const hostname = url.hostname.toLowerCase();
+  const effectivePort = toEffectivePort(url);
+  if (!effectivePort) {
+    return false;
+  }
+
+  for (const pattern of patterns) {
+    if (!matchesPatternHostname(hostname, pattern)) {
+      continue;
+    }
+
+    if (pattern.port !== undefined) {
+      if (pattern.port === effectivePort) {
+        return true;
+      }
+      continue;
+    }
+
+    if (effectivePort === 80 || effectivePort === 443) {
+      return true;
+    }
+  }
+
+  return false;
 }

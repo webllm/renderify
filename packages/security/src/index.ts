@@ -411,7 +411,7 @@ export class DefaultSecurityChecker implements SecurityChecker {
       const parsedUrl = new URL(specifier);
       if (
         !this.policy.allowArbitraryNetwork &&
-        !this.policy.allowedNetworkHosts.includes(parsedUrl.host)
+        !isAllowedNetworkUrl(parsedUrl, this.policy.allowedNetworkHosts)
       ) {
         issues.push(`Network host is not in allowlist: ${parsedUrl.host}`);
       }
@@ -452,7 +452,9 @@ export class DefaultSecurityChecker implements SecurityChecker {
     const requestedHosts = capabilities.networkHosts ?? [];
     if (!this.policy.allowArbitraryNetwork) {
       for (const host of requestedHosts) {
-        if (!this.policy.allowedNetworkHosts.includes(host)) {
+        if (
+          !isAllowedRequestedNetworkHost(host, this.policy.allowedNetworkHosts)
+        ) {
           issues.push(`Requested network host is not allowed: ${host}`);
         }
       }
@@ -902,4 +904,190 @@ function isSecurityInitializationOptions(
   }
 
   return "profile" in value || "overrides" in value;
+}
+
+interface ParsedNetworkHostPattern {
+  hostname: string;
+  wildcard: boolean;
+  port?: number;
+}
+
+function isAllowedNetworkUrl(url: URL, allowedHosts: string[]): boolean {
+  const urlHostname = url.hostname.toLowerCase();
+  const effectivePort = toEffectivePort(url);
+
+  if (!effectivePort) {
+    return false;
+  }
+
+  for (const allowed of allowedHosts) {
+    const pattern = parseNetworkHostPattern(allowed);
+    if (!pattern) {
+      continue;
+    }
+
+    if (!matchesPatternHostname(urlHostname, pattern)) {
+      continue;
+    }
+
+    if (pattern.port !== undefined) {
+      if (pattern.port === effectivePort) {
+        return true;
+      }
+      continue;
+    }
+
+    if (effectivePort === 80 || effectivePort === 443) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function isAllowedRequestedNetworkHost(
+  requestedHost: string,
+  allowedHosts: string[],
+): boolean {
+  const requested = parseNetworkHostPattern(requestedHost);
+  if (!requested) {
+    return false;
+  }
+
+  for (const allowed of allowedHosts) {
+    const pattern = parseNetworkHostPattern(allowed);
+    if (!pattern) {
+      continue;
+    }
+
+    if (!matchesPatternHostname(requested.hostname, pattern)) {
+      continue;
+    }
+
+    if (pattern.port !== undefined) {
+      if (requested.port === pattern.port) {
+        return true;
+      }
+      continue;
+    }
+
+    if (
+      requested.port === undefined ||
+      requested.port === 80 ||
+      requested.port === 443
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function parseNetworkHostPattern(
+  value: string,
+): ParsedNetworkHostPattern | undefined {
+  const normalized = value.trim().toLowerCase();
+  if (normalized.length === 0) {
+    return undefined;
+  }
+
+  const wildcard = normalized.startsWith("*.");
+  const hostPort = wildcard ? normalized.slice(2) : normalized;
+  if (hostPort.length === 0) {
+    return undefined;
+  }
+
+  const parsed = parseHostnameAndPort(hostPort);
+  if (!parsed) {
+    return undefined;
+  }
+
+  return {
+    hostname: parsed.hostname,
+    wildcard,
+    port: parsed.port,
+  };
+}
+
+function parseHostnameAndPort(
+  hostPort: string,
+): { hostname: string; port?: number } | undefined {
+  const bracketMatch = hostPort.match(/^\[(.+)\](?::(\d+))?$/);
+  if (bracketMatch) {
+    const hostname = bracketMatch[1]?.trim();
+    if (!hostname) {
+      return undefined;
+    }
+    const port = parsePortNumber(bracketMatch[2]);
+    return port === undefined && bracketMatch[2]
+      ? undefined
+      : { hostname, port };
+  }
+
+  const segments = hostPort.split(":");
+  if (segments.length === 1) {
+    return {
+      hostname: hostPort,
+    };
+  }
+
+  if (segments.length === 2) {
+    const hostname = segments[0]?.trim();
+    const port = parsePortNumber(segments[1]);
+    if (!hostname || port === undefined) {
+      return undefined;
+    }
+    return {
+      hostname,
+      port,
+    };
+  }
+
+  return undefined;
+}
+
+function parsePortNumber(value: string | undefined): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
+    return undefined;
+  }
+
+  return parsed;
+}
+
+function matchesPatternHostname(
+  hostname: string,
+  pattern: ParsedNetworkHostPattern,
+): boolean {
+  if (!pattern.wildcard) {
+    return hostname === pattern.hostname;
+  }
+
+  return (
+    hostname.length > pattern.hostname.length &&
+    hostname.endsWith(`.${pattern.hostname}`)
+  );
+}
+
+function toEffectivePort(url: URL): number | undefined {
+  if (url.port.length > 0) {
+    const parsedPort = Number(url.port);
+    if (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535) {
+      return undefined;
+    }
+    return parsedPort;
+  }
+
+  if (url.protocol === "https:") {
+    return 443;
+  }
+  if (url.protocol === "http:") {
+    return 80;
+  }
+
+  return undefined;
 }

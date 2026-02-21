@@ -1894,6 +1894,34 @@ test("runtime source loader skips fallback URLs blocked by network policy", asyn
   }
 });
 
+test("runtime network policy supports wildcard hosts and default port normalization", () => {
+  const runtime = new DefaultRuntimeManager({
+    allowArbitraryNetwork: false,
+    allowedNetworkHosts: ["*.jspm.io"],
+  });
+
+  const internals = runtime as unknown as {
+    isRemoteUrlAllowed(url: string): boolean;
+  };
+
+  assert.equal(
+    internals.isRemoteUrlAllowed(
+      "https://ga.jspm.io:443/npm:lit@3.3.0/index.js",
+    ),
+    true,
+  );
+  assert.equal(
+    internals.isRemoteUrlAllowed("https://jspm.io/npm:lit@3.3.0/index.js"),
+    false,
+  );
+  assert.equal(
+    internals.isRemoteUrlAllowed(
+      "https://ga.jspm.io:444/npm:lit@3.3.0/index.js",
+    ),
+    false,
+  );
+});
+
 test("runtime source loader supports disabling fallback cdn attempts", async () => {
   const runtime = new DefaultRuntimeManager({
     remoteFallbackCdnBases: [],
