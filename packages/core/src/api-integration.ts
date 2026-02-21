@@ -85,16 +85,48 @@ export class DefaultApiIntegration implements ApiIntegration {
       return api.endpoint;
     }
 
-    const url = new URL(api.endpoint);
+    const query = new URLSearchParams();
     for (const [key, value] of Object.entries(params)) {
       if (value === undefined || value === null) {
         continue;
       }
 
-      url.searchParams.set(key, String(value));
+      query.set(key, String(value));
     }
 
-    return url.toString();
+    if (query.size === 0) {
+      return api.endpoint;
+    }
+
+    if (this.isAbsoluteUrl(api.endpoint)) {
+      const url = new URL(api.endpoint);
+      for (const [key, value] of query.entries()) {
+        url.searchParams.set(key, value);
+      }
+      return url.toString();
+    }
+
+    return this.appendQueryToRelativeEndpoint(api.endpoint, query.toString());
+  }
+
+  private isAbsoluteUrl(endpoint: string): boolean {
+    try {
+      const parsed = new URL(endpoint);
+      return parsed.protocol === "http:" || parsed.protocol === "https:";
+    } catch {
+      return false;
+    }
+  }
+
+  private appendQueryToRelativeEndpoint(
+    endpoint: string,
+    query: string,
+  ): string {
+    const hashIndex = endpoint.indexOf("#");
+    const base = hashIndex >= 0 ? endpoint.slice(0, hashIndex) : endpoint;
+    const hash = hashIndex >= 0 ? endpoint.slice(hashIndex) : "";
+    const separator = base.includes("?") ? "&" : "?";
+    return `${base}${separator}${query}${hash}`;
   }
 
   private createTimeout(

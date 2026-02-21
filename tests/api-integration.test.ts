@@ -104,6 +104,37 @@ test("api integration builds GET query params and skips null/undefined values", 
   }
 });
 
+test("api integration supports relative GET endpoints when appending params", async () => {
+  const integration = new DefaultApiIntegration();
+  registerDefaultApi(integration, {
+    endpoint: "/api/users?existing=1#pane",
+  });
+
+  const seenUrls: string[] = [];
+  const restoreFetch = installMockFetch(async (input) => {
+    seenUrls.push(String(input));
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+      },
+    });
+  });
+
+  try {
+    await integration.callApi("users", {
+      page: 2,
+      keyword: "Ada",
+    });
+
+    assert.deepEqual(seenUrls, [
+      "/api/users?existing=1&page=2&keyword=Ada#pane",
+    ]);
+  } finally {
+    restoreFetch();
+  }
+});
+
 test("api integration sends non-GET params as JSON body", async () => {
   const integration = new DefaultApiIntegration();
   registerDefaultApi(integration, {
