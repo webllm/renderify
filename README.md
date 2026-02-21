@@ -12,7 +12,7 @@ A modern runtime renderer that lets LLMs generate JSX/TSX and render interactive
 
 <a id="bundleless-contract"></a>
 Renderify is **bundleless by design**: it does not rely on a traditional bundling pipeline to run generated UI. Instead, it resolves and rewrites module imports at runtime (JSPM/CDN + `moduleManifest` pinning) and executes under explicit security policy and sandbox controls.
-In other words, bundleless runtime execution does **not** mean full npm bundler compatibility; Renderify intentionally targets a browser-ESM-compatible subset with explicit guarantees. See [JSPM package support (tiered contract)](#jspm-package-support-tiered-contract) for the exact compatibility boundary.
+In other words, bundleless runtime execution does **not** mean full npm bundler compatibility; Renderify intentionally targets a browser-ESM-compatible subset with explicit guarantees. See [JSPM package support (tiered contract)](#what-renderify-does) for the exact compatibility boundary.
 
 ![Renderify demo](docs/assets/renderify-demo.gif)
 
