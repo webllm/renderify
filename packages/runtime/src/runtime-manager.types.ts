@@ -50,6 +50,7 @@ export interface RuntimePlanProbeResult {
 }
 
 export interface RuntimeManager {
+  configure?(options: RuntimeManagerOptions): void;
   initialize(): Promise<void>;
   terminate(): Promise<void>;
   probePlan(plan: RuntimePlan): Promise<RuntimePlanProbeResult>;

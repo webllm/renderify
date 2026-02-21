@@ -43,6 +43,7 @@ import {
   FALLBACK_MAX_COMPONENT_INVOCATIONS,
   FALLBACK_MAX_EXECUTION_MS,
   FALLBACK_MAX_IMPORTS,
+  FALLBACK_REMOTE_FALLBACK_CDN_BASES,
   FALLBACK_REMOTE_FETCH_BACKOFF_MS,
   FALLBACK_REMOTE_FETCH_RETRIES,
   FALLBACK_REMOTE_FETCH_TIMEOUT_MS,
@@ -115,21 +116,21 @@ export class DefaultRuntimeManager implements RuntimeManager {
   private readonly defaultMaxComponentInvocations: number;
   private readonly defaultMaxExecutionMs: number;
   private readonly defaultExecutionProfile: RuntimeExecutionProfile;
-  private readonly supportedPlanSpecVersions: Set<string>;
-  private readonly enforceModuleManifest: boolean;
-  private readonly allowIsolationFallback: boolean;
-  private readonly browserSourceSandboxMode: RuntimeSourceSandboxMode;
+  private supportedPlanSpecVersions: Set<string>;
+  private enforceModuleManifest: boolean;
+  private allowIsolationFallback: boolean;
+  private browserSourceSandboxMode: RuntimeSourceSandboxMode;
   private readonly runtimeSourceJsxHelperMode: "auto" | "always" | "never";
-  private readonly browserSourceSandboxTimeoutMs: number;
-  private readonly browserSourceSandboxFailClosed: boolean;
-  private readonly enableDependencyPreflight: boolean;
-  private readonly failOnDependencyPreflightError: boolean;
-  private readonly remoteFetchTimeoutMs: number;
-  private readonly remoteFetchRetries: number;
-  private readonly remoteFetchBackoffMs: number;
-  private readonly remoteFallbackCdnBases: string[];
-  private readonly allowArbitraryNetwork: boolean;
-  private readonly allowedNetworkHosts: Set<string>;
+  private browserSourceSandboxTimeoutMs: number;
+  private browserSourceSandboxFailClosed: boolean;
+  private enableDependencyPreflight: boolean;
+  private failOnDependencyPreflightError: boolean;
+  private remoteFetchTimeoutMs: number;
+  private remoteFetchRetries: number;
+  private remoteFetchBackoffMs: number;
+  private remoteFallbackCdnBases: string[];
+  private allowArbitraryNetwork: boolean;
+  private allowedNetworkHosts: Set<string>;
   private readonly browserModuleUrlCache = new Map<string, string>();
   private readonly browserModuleInflight = new Map<string, Promise<string>>();
   private readonly browserBlobUrls = new Set<string>();
@@ -147,54 +148,32 @@ export class DefaultRuntimeManager implements RuntimeManager {
       options.defaultMaxExecutionMs ?? FALLBACK_MAX_EXECUTION_MS;
     this.defaultExecutionProfile =
       options.defaultExecutionProfile ?? FALLBACK_EXECUTION_PROFILE;
-    this.supportedPlanSpecVersions = normalizeSupportedSpecVersions(
-      options.supportedPlanSpecVersions,
-    );
-    this.enforceModuleManifest =
-      options.enforceModuleManifest ?? FALLBACK_ENFORCE_MODULE_MANIFEST;
-    this.allowIsolationFallback =
-      options.allowIsolationFallback ?? FALLBACK_ALLOW_ISOLATION_FALLBACK;
-    this.browserSourceSandboxMode = normalizeSourceSandboxMode(
-      options.browserSourceSandboxMode,
-    );
     this.runtimeSourceJsxHelperMode = normalizeRuntimeSourceJsxHelperMode(
       options.runtimeSourceJsxHelperMode ??
         FALLBACK_RUNTIME_SOURCE_JSX_HELPER_MODE,
     );
-    this.browserSourceSandboxTimeoutMs = normalizePositiveInteger(
-      options.browserSourceSandboxTimeoutMs,
-      FALLBACK_BROWSER_SOURCE_SANDBOX_TIMEOUT_MS,
-    );
+    this.supportedPlanSpecVersions = new Set<string>();
+    this.enforceModuleManifest = FALLBACK_ENFORCE_MODULE_MANIFEST;
+    this.allowIsolationFallback = FALLBACK_ALLOW_ISOLATION_FALLBACK;
+    this.browserSourceSandboxMode = normalizeSourceSandboxMode(undefined);
+    this.browserSourceSandboxTimeoutMs =
+      FALLBACK_BROWSER_SOURCE_SANDBOX_TIMEOUT_MS;
     this.browserSourceSandboxFailClosed =
-      options.browserSourceSandboxFailClosed ??
       FALLBACK_BROWSER_SOURCE_SANDBOX_FAIL_CLOSED;
-    this.enableDependencyPreflight =
-      options.enableDependencyPreflight ?? FALLBACK_ENABLE_DEPENDENCY_PREFLIGHT;
+    this.enableDependencyPreflight = FALLBACK_ENABLE_DEPENDENCY_PREFLIGHT;
     this.failOnDependencyPreflightError =
-      options.failOnDependencyPreflightError ??
       FALLBACK_FAIL_ON_DEPENDENCY_PREFLIGHT_ERROR;
-    this.remoteFetchTimeoutMs = normalizePositiveInteger(
-      options.remoteFetchTimeoutMs,
-      FALLBACK_REMOTE_FETCH_TIMEOUT_MS,
-    );
-    this.remoteFetchRetries = normalizeNonNegativeInteger(
-      options.remoteFetchRetries,
-      FALLBACK_REMOTE_FETCH_RETRIES,
-    );
-    this.remoteFetchBackoffMs = normalizeNonNegativeInteger(
-      options.remoteFetchBackoffMs,
-      FALLBACK_REMOTE_FETCH_BACKOFF_MS,
-    );
-    this.remoteFallbackCdnBases = normalizeFallbackCdnBases(
-      options.remoteFallbackCdnBases,
-    );
-    this.allowArbitraryNetwork = options.allowArbitraryNetwork ?? true;
-    this.allowedNetworkHosts = new Set(
-      (options.allowedNetworkHosts ?? [])
-        .filter((entry): entry is string => typeof entry === "string")
-        .map((entry) => entry.trim().toLowerCase())
-        .filter((entry) => entry.length > 0),
-    );
+    this.remoteFetchTimeoutMs = FALLBACK_REMOTE_FETCH_TIMEOUT_MS;
+    this.remoteFetchRetries = FALLBACK_REMOTE_FETCH_RETRIES;
+    this.remoteFetchBackoffMs = FALLBACK_REMOTE_FETCH_BACKOFF_MS;
+    this.remoteFallbackCdnBases = [...FALLBACK_REMOTE_FALLBACK_CDN_BASES];
+    this.allowArbitraryNetwork = true;
+    this.allowedNetworkHosts = new Set<string>();
+    this.applyRuntimeOptions(options, true);
+  }
+
+  configure(options: RuntimeManagerOptions): void {
+    this.applyRuntimeOptions(options, false);
   }
 
   async initialize(): Promise<void> {
@@ -210,6 +189,106 @@ export class DefaultRuntimeManager implements RuntimeManager {
     this.browserModuleUrlCache.clear();
     this.browserModuleInflight.clear();
     this.revokeBrowserBlobUrls();
+  }
+
+  private applyRuntimeOptions(
+    options: RuntimeManagerOptions,
+    applyDefaults: boolean,
+  ): void {
+    if (applyDefaults || options.supportedPlanSpecVersions !== undefined) {
+      this.supportedPlanSpecVersions = normalizeSupportedSpecVersions(
+        options.supportedPlanSpecVersions,
+      );
+    }
+
+    if (applyDefaults || options.enforceModuleManifest !== undefined) {
+      this.enforceModuleManifest =
+        options.enforceModuleManifest ?? FALLBACK_ENFORCE_MODULE_MANIFEST;
+    }
+
+    if (applyDefaults || options.allowIsolationFallback !== undefined) {
+      this.allowIsolationFallback =
+        options.allowIsolationFallback ?? FALLBACK_ALLOW_ISOLATION_FALLBACK;
+    }
+
+    if (applyDefaults || options.browserSourceSandboxMode !== undefined) {
+      this.browserSourceSandboxMode = normalizeSourceSandboxMode(
+        options.browserSourceSandboxMode,
+      );
+    }
+
+    if (applyDefaults || options.browserSourceSandboxTimeoutMs !== undefined) {
+      this.browserSourceSandboxTimeoutMs = normalizePositiveInteger(
+        options.browserSourceSandboxTimeoutMs,
+        FALLBACK_BROWSER_SOURCE_SANDBOX_TIMEOUT_MS,
+      );
+    }
+
+    if (applyDefaults || options.browserSourceSandboxFailClosed !== undefined) {
+      this.browserSourceSandboxFailClosed =
+        options.browserSourceSandboxFailClosed ??
+        FALLBACK_BROWSER_SOURCE_SANDBOX_FAIL_CLOSED;
+    }
+
+    if (applyDefaults || options.enableDependencyPreflight !== undefined) {
+      this.enableDependencyPreflight =
+        options.enableDependencyPreflight ??
+        FALLBACK_ENABLE_DEPENDENCY_PREFLIGHT;
+    }
+
+    if (applyDefaults || options.failOnDependencyPreflightError !== undefined) {
+      this.failOnDependencyPreflightError =
+        options.failOnDependencyPreflightError ??
+        FALLBACK_FAIL_ON_DEPENDENCY_PREFLIGHT_ERROR;
+    }
+
+    if (applyDefaults || options.remoteFetchTimeoutMs !== undefined) {
+      this.remoteFetchTimeoutMs = normalizePositiveInteger(
+        options.remoteFetchTimeoutMs,
+        FALLBACK_REMOTE_FETCH_TIMEOUT_MS,
+      );
+    }
+
+    if (applyDefaults || options.remoteFetchRetries !== undefined) {
+      this.remoteFetchRetries = normalizeNonNegativeInteger(
+        options.remoteFetchRetries,
+        FALLBACK_REMOTE_FETCH_RETRIES,
+      );
+    }
+
+    if (applyDefaults || options.remoteFetchBackoffMs !== undefined) {
+      this.remoteFetchBackoffMs = normalizeNonNegativeInteger(
+        options.remoteFetchBackoffMs,
+        FALLBACK_REMOTE_FETCH_BACKOFF_MS,
+      );
+    }
+
+    if (applyDefaults || options.remoteFallbackCdnBases !== undefined) {
+      this.remoteFallbackCdnBases = normalizeFallbackCdnBases(
+        options.remoteFallbackCdnBases,
+      );
+    }
+
+    if (applyDefaults || options.allowArbitraryNetwork !== undefined) {
+      this.allowArbitraryNetwork = options.allowArbitraryNetwork ?? true;
+    }
+
+    if (applyDefaults || options.allowedNetworkHosts !== undefined) {
+      this.allowedNetworkHosts = this.normalizeAllowedNetworkHosts(
+        options.allowedNetworkHosts,
+      );
+    }
+  }
+
+  private normalizeAllowedNetworkHosts(
+    hosts: string[] | undefined,
+  ): Set<string> {
+    return new Set(
+      (hosts ?? [])
+        .filter((entry): entry is string => typeof entry === "string")
+        .map((entry) => entry.trim().toLowerCase())
+        .filter((entry) => entry.length > 0),
+    );
   }
 
   async execute(input: RuntimeExecutionInput): Promise<RuntimeExecutionResult> {

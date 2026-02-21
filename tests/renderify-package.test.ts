@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import {
+  DefaultRenderifyConfig,
+  type RenderifyConfigValues,
+} from "../packages/core/src/config";
 import type {
   LLMInterpreter,
   LLMRequest,
@@ -39,6 +43,21 @@ class StaticPlanLLM implements LLMInterpreter {
 
   getPromptTemplate(name: string): string | undefined {
     return this.templates.get(name);
+  }
+}
+
+class RuntimeBoundConfig extends DefaultRenderifyConfig {
+  override async load(
+    overrides?: Partial<RenderifyConfigValues>,
+  ): Promise<void> {
+    await super.load(overrides);
+    this.set("securityProfile", "strict");
+    this.set("runtimeRemoteFetchTimeoutMs", 4321);
+    this.set("runtimeBrowserSourceSandboxMode", "none");
+    this.set("securityPolicy", {
+      allowArbitraryNetwork: false,
+      allowedNetworkHosts: ["ga.jspm.io"],
+    });
   }
 }
 
@@ -87,4 +106,31 @@ test("renderify facade one-shot helpers renderPromptOnce and renderPlanOnce", as
 
   assert.equal(planResult.plan.id, "manual-plan");
   assert.match(planResult.html, /Manual plan/);
+});
+
+test("renderify facade binds app runtime options from config and security policy", async () => {
+  const { app, dependencies } = createRenderify({
+    llm: new StaticPlanLLM(),
+    config: new RuntimeBoundConfig(),
+  });
+
+  await app.start();
+  try {
+    const runtime = dependencies.runtime as unknown as {
+      allowArbitraryNetwork?: boolean;
+      allowedNetworkHosts?: Set<string>;
+      remoteFetchTimeoutMs?: number;
+      browserSourceSandboxMode?: string;
+    };
+
+    assert.equal(runtime.allowArbitraryNetwork, false);
+    assert.deepEqual(
+      [...(runtime.allowedNetworkHosts ?? new Set<string>())],
+      ["ga.jspm.io"],
+    );
+    assert.equal(runtime.remoteFetchTimeoutMs, 4321);
+    assert.equal(runtime.browserSourceSandboxMode, "none");
+  } finally {
+    await app.stop();
+  }
 });

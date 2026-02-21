@@ -1,5 +1,9 @@
 import type { RuntimeExecutionResult, RuntimePlan } from "@renderify/ir";
-import type { RuntimeExecutionInput, RuntimeManager } from "@renderify/runtime";
+import type {
+  RuntimeExecutionInput,
+  RuntimeManager,
+  RuntimeManagerOptions,
+} from "@renderify/runtime";
 import type { ApiIntegration } from "./api-integration";
 import type {
   CodeGenerationInput,
@@ -135,6 +139,9 @@ export class RenderifyApp {
       profile: securityProfile,
       overrides: policyOverrides,
     });
+    this.deps.runtime.configure?.(
+      this.resolveRuntimeManagerOptions(this.deps.security.getPolicy()),
+    );
 
     await this.deps.runtime.initialize();
 
@@ -874,6 +881,101 @@ export class RenderifyApp {
     }
 
     return value as Record<string, unknown>;
+  }
+
+  private resolveRuntimeManagerOptions(
+    policy: RuntimeSecurityPolicy,
+  ): RuntimeManagerOptions {
+    const options: RuntimeManagerOptions = {
+      allowArbitraryNetwork: policy.allowArbitraryNetwork,
+      allowedNetworkHosts: [...policy.allowedNetworkHosts],
+    };
+
+    const enforceModuleManifest = this.deps.config.get<boolean>(
+      "runtimeEnforceModuleManifest",
+    );
+    if (typeof enforceModuleManifest === "boolean") {
+      options.enforceModuleManifest = enforceModuleManifest;
+    }
+
+    const allowIsolationFallback = this.deps.config.get<boolean>(
+      "runtimeAllowIsolationFallback",
+    );
+    if (typeof allowIsolationFallback === "boolean") {
+      options.allowIsolationFallback = allowIsolationFallback;
+    }
+
+    const supportedPlanSpecVersions = this.deps.config.get<string[]>(
+      "runtimeSupportedSpecVersions",
+    );
+    if (Array.isArray(supportedPlanSpecVersions)) {
+      options.supportedPlanSpecVersions = supportedPlanSpecVersions;
+    }
+
+    const enableDependencyPreflight = this.deps.config.get<boolean>(
+      "runtimeEnableDependencyPreflight",
+    );
+    if (typeof enableDependencyPreflight === "boolean") {
+      options.enableDependencyPreflight = enableDependencyPreflight;
+    }
+
+    const failOnDependencyPreflightError = this.deps.config.get<boolean>(
+      "runtimeFailOnDependencyPreflightError",
+    );
+    if (typeof failOnDependencyPreflightError === "boolean") {
+      options.failOnDependencyPreflightError = failOnDependencyPreflightError;
+    }
+
+    const remoteFetchTimeoutMs = this.deps.config.get<number>(
+      "runtimeRemoteFetchTimeoutMs",
+    );
+    if (typeof remoteFetchTimeoutMs === "number") {
+      options.remoteFetchTimeoutMs = remoteFetchTimeoutMs;
+    }
+
+    const remoteFetchRetries = this.deps.config.get<number>(
+      "runtimeRemoteFetchRetries",
+    );
+    if (typeof remoteFetchRetries === "number") {
+      options.remoteFetchRetries = remoteFetchRetries;
+    }
+
+    const remoteFetchBackoffMs = this.deps.config.get<number>(
+      "runtimeRemoteFetchBackoffMs",
+    );
+    if (typeof remoteFetchBackoffMs === "number") {
+      options.remoteFetchBackoffMs = remoteFetchBackoffMs;
+    }
+
+    const remoteFallbackCdnBases = this.deps.config.get<string[]>(
+      "runtimeRemoteFallbackCdnBases",
+    );
+    if (Array.isArray(remoteFallbackCdnBases)) {
+      options.remoteFallbackCdnBases = remoteFallbackCdnBases;
+    }
+
+    const browserSourceSandboxMode = this.deps.config.get<
+      "none" | "worker" | "iframe" | "shadowrealm"
+    >("runtimeBrowserSourceSandboxMode");
+    if (typeof browserSourceSandboxMode === "string") {
+      options.browserSourceSandboxMode = browserSourceSandboxMode;
+    }
+
+    const browserSourceSandboxTimeoutMs = this.deps.config.get<number>(
+      "runtimeBrowserSourceSandboxTimeoutMs",
+    );
+    if (typeof browserSourceSandboxTimeoutMs === "number") {
+      options.browserSourceSandboxTimeoutMs = browserSourceSandboxTimeoutMs;
+    }
+
+    const browserSourceSandboxFailClosed = this.deps.config.get<boolean>(
+      "runtimeBrowserSourceSandboxFailClosed",
+    );
+    if (typeof browserSourceSandboxFailClosed === "boolean") {
+      options.browserSourceSandboxFailClosed = browserSourceSandboxFailClosed;
+    }
+
+    return options;
   }
 
   private createTraceId(): string {
