@@ -2135,6 +2135,18 @@ test("runtime network policy supports wildcard hosts and default port normalizat
     true,
   );
   assert.equal(
+    internals.isRemoteUrlAllowed(
+      "https://ga.jspm.io:80/npm:lit@3.3.0/index.js",
+    ),
+    false,
+  );
+  assert.equal(
+    internals.isRemoteUrlAllowed(
+      "http://ga.jspm.io:443/npm:lit@3.3.0/index.js",
+    ),
+    false,
+  );
+  assert.equal(
     internals.isRemoteUrlAllowed("https://jspm.io/npm:lit@3.3.0/index.js"),
     false,
   );

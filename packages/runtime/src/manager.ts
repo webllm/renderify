@@ -1122,9 +1122,21 @@ function matchesAllowedNetworkUrl(
       continue;
     }
 
-    if (effectivePort === 80 || effectivePort === 443) {
+    if (matchesImplicitDefaultPort(url.protocol, effectivePort)) {
       return true;
     }
+  }
+
+  return false;
+}
+
+function matchesImplicitDefaultPort(protocol: string, port: number): boolean {
+  if (protocol === "https:") {
+    return port === 443;
+  }
+
+  if (protocol === "http:") {
+    return port === 80;
   }
 
   return false;

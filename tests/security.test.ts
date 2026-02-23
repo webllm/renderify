@@ -94,9 +94,17 @@ test("security checker normalizes default ports for allowed network hosts", () =
   const nonDefaultPortBlocked = checker.checkModuleSpecifier(
     "https://ga.jspm.io:444/npm:lit@3.3.0/index.js",
   );
+  const protocolMismatchedPortBlocked = checker.checkModuleSpecifier(
+    "https://ga.jspm.io:80/npm:lit@3.3.0/index.js",
+  );
+  const reverseProtocolMismatchedPortBlocked = checker.checkModuleSpecifier(
+    "http://ga.jspm.io:443/npm:lit@3.3.0/index.js",
+  );
 
   assert.equal(defaultPortAllowed.safe, true);
   assert.equal(nonDefaultPortBlocked.safe, false);
+  assert.equal(protocolMismatchedPortBlocked.safe, false);
+  assert.equal(reverseProtocolMismatchedPortBlocked.safe, false);
 });
 
 test("security checker allows allowed JSPM module specifiers", async () => {
