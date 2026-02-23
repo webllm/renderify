@@ -253,6 +253,6 @@ function clearMountPoint(mountPoint: HTMLDivElement | null): void {
   mountPoint.innerHTML = "";
 }
 
-const dynamicImport = new Function("specifier", "return import(specifier)") as (
-  specifier: string,
-) => Promise<unknown>;
+async function dynamicImport(specifier: string): Promise<unknown> {
+  return import(specifier);
+}
