@@ -134,3 +134,36 @@ test("renderify facade binds app runtime options from config and security policy
     await app.stop();
   }
 });
+
+test("renderify facade keeps explicit runtime options over config defaults", async () => {
+  const { app, dependencies } = createRenderify({
+    llm: new StaticPlanLLM(),
+    config: new RuntimeBoundConfig(),
+    runtimeOptions: {
+      remoteFetchTimeoutMs: 9876,
+      browserSourceSandboxMode: "iframe",
+      allowArbitraryNetwork: true,
+      allowedNetworkHosts: ["example.com"],
+    },
+  });
+
+  await app.start();
+  try {
+    const runtime = dependencies.runtime as unknown as {
+      allowArbitraryNetwork?: boolean;
+      allowedNetworkHosts?: Set<string>;
+      remoteFetchTimeoutMs?: number;
+      browserSourceSandboxMode?: string;
+    };
+
+    assert.equal(runtime.remoteFetchTimeoutMs, 9876);
+    assert.equal(runtime.browserSourceSandboxMode, "iframe");
+    assert.equal(runtime.allowArbitraryNetwork, false);
+    assert.deepEqual(
+      [...(runtime.allowedNetworkHosts ?? new Set<string>())],
+      ["ga.jspm.io"],
+    );
+  } finally {
+    await app.stop();
+  }
+});

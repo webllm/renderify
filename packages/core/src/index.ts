@@ -39,6 +39,7 @@ export interface RenderifyCoreDependencies {
   llm: LLMInterpreter;
   codegen: CodeGenerator;
   runtime: RuntimeManager;
+  runtimeOptionOverrides?: RuntimeManagerOptions;
   security: SecurityChecker;
   performance: PerformanceOptimizer;
   ui: UIRenderer;
@@ -140,7 +141,7 @@ export class RenderifyApp {
       overrides: policyOverrides,
     });
     this.deps.runtime.configure?.(
-      this.resolveRuntimeManagerOptions(this.deps.security.getPolicy()),
+      this.resolveRuntimeConfigureOptions(this.deps.security.getPolicy()),
     );
 
     await this.deps.runtime.initialize();
@@ -983,6 +984,24 @@ export class RenderifyApp {
     }
 
     return options;
+  }
+
+  private resolveRuntimeConfigureOptions(
+    policy: RuntimeSecurityPolicy,
+  ): RuntimeManagerOptions {
+    const options = this.resolveRuntimeManagerOptions(policy);
+    const overrides = this.deps.runtimeOptionOverrides;
+    if (!overrides) {
+      return options;
+    }
+
+    return {
+      ...options,
+      ...overrides,
+      // Security policy remains authoritative for runtime network guards.
+      allowArbitraryNetwork: options.allowArbitraryNetwork,
+      allowedNetworkHosts: options.allowedNetworkHosts,
+    };
   }
 
   private createTraceId(): string {

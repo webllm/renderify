@@ -127,6 +127,9 @@ export function createRenderify(
           new JspmModuleLoader(options.moduleLoaderOptions),
         ...(options.runtimeOptions ?? {}),
       }),
+    runtimeOptionOverrides: options.runtime
+      ? undefined
+      : options.runtimeOptions,
     security: options.security ?? new DefaultSecurityChecker(),
     performance: options.performance ?? new DefaultPerformanceOptimizer(),
     ui: options.ui ?? new DefaultUIRenderer(),
