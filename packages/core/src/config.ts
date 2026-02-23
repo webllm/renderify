@@ -93,6 +93,12 @@ export class DefaultRenderifyConfig implements RenderifyConfig {
     const hasExplicitLlmBaseUrl =
       typeof env.llmBaseUrl === "string" ||
       typeof overrides?.llmBaseUrl === "string";
+    const hasExplicitSecurityProfile =
+      Object.hasOwn(env, "securityProfile") ||
+      typeof overrides?.securityProfile === "string";
+    const hasExplicitStrictSecurity =
+      Object.hasOwn(env, "strictSecurity") ||
+      typeof overrides?.strictSecurity === "boolean";
     const defaultValues: RenderifyConfigValues = {
       llmProvider: "openai",
       llmModel: DEFAULT_OPENAI_MODEL,
@@ -129,6 +135,8 @@ export class DefaultRenderifyConfig implements RenderifyConfig {
     this.config = applyDerivedConfig(merged, {
       hasExplicitLlmModel,
       hasExplicitLlmBaseUrl,
+      hasExplicitSecurityProfile,
+      hasExplicitStrictSecurity,
     });
   }
 
@@ -154,6 +162,8 @@ function applyDerivedConfig(
   options: {
     hasExplicitLlmModel: boolean;
     hasExplicitLlmBaseUrl: boolean;
+    hasExplicitSecurityProfile: boolean;
+    hasExplicitStrictSecurity: boolean;
   },
 ): RenderifyConfigValues {
   const llmDefaults = resolveProviderLlmDefaults(input.llmProvider);
@@ -167,12 +177,24 @@ function applyDerivedConfig(
       : {}),
   };
 
-  if (withProviderDefaults.runtimeJspmOnlyStrictMode !== true) {
-    return withProviderDefaults;
+  const withSecurityProfileAlias: RenderifyConfigValues = {
+    ...withProviderDefaults,
+    ...(!options.hasExplicitSecurityProfile && options.hasExplicitStrictSecurity
+      ? {
+          securityProfile:
+            withProviderDefaults.strictSecurity === false
+              ? "relaxed"
+              : "strict",
+        }
+      : {}),
+  };
+
+  if (withSecurityProfileAlias.runtimeJspmOnlyStrictMode !== true) {
+    return withSecurityProfileAlias;
   }
 
   const existingPolicy = toSecurityPolicyOverrides(
-    withProviderDefaults.securityPolicy,
+    withSecurityProfileAlias.securityPolicy,
   );
   const strictPreset = createJspmOnlyStrictModeConfig({
     allowedNetworkHosts: normalizeJspmAllowedNetworkHosts(
@@ -181,7 +203,7 @@ function applyDerivedConfig(
   });
 
   return {
-    ...withProviderDefaults,
+    ...withSecurityProfileAlias,
     ...strictPreset,
     securityPolicy: {
       ...existingPolicy,
@@ -234,10 +256,6 @@ function getEnvironmentValues(): Partial<RenderifyConfigValues> {
       process.env.RENDERIFY_LLM_STRUCTURED_RETRY !== "false",
     llmStructuredFallbackToText:
       process.env.RENDERIFY_LLM_STRUCTURED_FALLBACK_TEXT !== "false",
-    strictSecurity: process.env.RENDERIFY_STRICT_SECURITY !== "false",
-    securityProfile: parseSecurityProfile(
-      process.env.RENDERIFY_SECURITY_PROFILE,
-    ),
     runtimeJspmOnlyStrictMode:
       process.env.RENDERIFY_RUNTIME_JSPM_ONLY_STRICT_MODE === "true",
     runtimeEnforceModuleManifest:
@@ -278,6 +296,17 @@ function getEnvironmentValues(): Partial<RenderifyConfigValues> {
 
   if (process.env.RENDERIFY_LLM_PROVIDER) {
     values.llmProvider = parseLlmProvider(process.env.RENDERIFY_LLM_PROVIDER);
+  }
+
+  if (process.env.RENDERIFY_STRICT_SECURITY) {
+    values.strictSecurity = process.env.RENDERIFY_STRICT_SECURITY !== "false";
+  }
+
+  const securityProfile = parseOptionalSecurityProfile(
+    process.env.RENDERIFY_SECURITY_PROFILE,
+  );
+  if (securityProfile) {
+    values.securityProfile = securityProfile;
   }
 
   if (process.env.RENDERIFY_LLM_MODEL) {
@@ -340,14 +369,14 @@ function parseNonNegativeInt(value: string | undefined): number | undefined {
   return parsed;
 }
 
-function parseSecurityProfile(
+function parseOptionalSecurityProfile(
   value: string | undefined,
-): SecurityProfileConfig {
+): SecurityProfileConfig | undefined {
   if (value === "strict" || value === "balanced" || value === "relaxed") {
     return value;
   }
 
-  return "balanced";
+  return undefined;
 }
 
 function parseLlmProvider(value: string | undefined): LLMProviderConfig {

@@ -51,6 +51,42 @@ test("config reads security profile from env", async () => {
   }
 });
 
+test("config maps explicit strictSecurity=false to relaxed profile when profile is unset", async () => {
+  const previousStrictSecurity = process.env.RENDERIFY_STRICT_SECURITY;
+  const previousProfile = process.env.RENDERIFY_SECURITY_PROFILE;
+
+  process.env.RENDERIFY_STRICT_SECURITY = "false";
+  delete process.env.RENDERIFY_SECURITY_PROFILE;
+
+  try {
+    const config = new DefaultRenderifyConfig();
+    await config.load();
+
+    assert.equal(config.get("securityProfile"), "relaxed");
+  } finally {
+    restoreEnv("RENDERIFY_STRICT_SECURITY", previousStrictSecurity);
+    restoreEnv("RENDERIFY_SECURITY_PROFILE", previousProfile);
+  }
+});
+
+test("config lets explicit securityProfile override strictSecurity alias", async () => {
+  const previousStrictSecurity = process.env.RENDERIFY_STRICT_SECURITY;
+  const previousProfile = process.env.RENDERIFY_SECURITY_PROFILE;
+
+  process.env.RENDERIFY_STRICT_SECURITY = "false";
+  process.env.RENDERIFY_SECURITY_PROFILE = "strict";
+
+  try {
+    const config = new DefaultRenderifyConfig();
+    await config.load();
+
+    assert.equal(config.get("securityProfile"), "strict");
+  } finally {
+    restoreEnv("RENDERIFY_STRICT_SECURITY", previousStrictSecurity);
+    restoreEnv("RENDERIFY_SECURITY_PROFILE", previousProfile);
+  }
+});
+
 function restoreEnv(key: string, value: string | undefined): void {
   if (value === undefined) {
     delete process.env[key];
