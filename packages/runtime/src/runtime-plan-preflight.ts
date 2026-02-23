@@ -42,6 +42,11 @@ export interface RuntimePlanPreflightInput {
     diagnostics: RuntimeDiagnostic[],
     usage: RuntimeDependencyUsage,
   ): string | undefined;
+  isResolvedSpecifierAllowed?(
+    specifier: string,
+    usage: RuntimeDependencyUsage,
+    diagnostics: RuntimeDiagnostic[],
+  ): boolean;
   materializeBrowserRemoteModule(
     url: string,
     moduleManifest: RuntimeModuleManifest | undefined,
@@ -98,6 +103,8 @@ export async function preflightRuntimePlanDependencies(
               diagnostics,
               usage,
             ),
+          isResolvedSpecifierAllowed: (specifier, usage, diagnostics) =>
+            input.isResolvedSpecifierAllowed?.(specifier, usage, diagnostics),
           isHttpUrl,
           canMaterializeBrowserModules: () => canMaterializeBrowserModules(),
           materializeBrowserRemoteModule: (url, manifest, diagnostics) =>

@@ -122,6 +122,11 @@ export interface RuntimeDependencyProbeExecutor {
   moduleLoader?: {
     load(specifier: string): Promise<unknown>;
   };
+  isResolvedSpecifierAllowed?(
+    specifier: string,
+    usage: RuntimeDependencyUsage,
+    diagnostics: RuntimeDiagnostic[],
+  ): boolean;
   withRemainingBudget<T>(
     operation: () => Promise<T>,
     timeoutMessage: string,
@@ -198,6 +203,23 @@ export async function executeDependencyProbe(
 
     try {
       if (executor.moduleLoader && loaderCandidate) {
+        if (
+          executor.isResolvedSpecifierAllowed &&
+          !executor.isResolvedSpecifierAllowed(
+            loaderCandidate,
+            probe.usage,
+            diagnostics,
+          )
+        ) {
+          return {
+            usage: probe.usage,
+            specifier: probe.specifier,
+            resolvedSpecifier: loaderCandidate,
+            ok: false,
+            message: "Blocked by runtime network policy",
+          };
+        }
+
         await executor.withRemainingBudget(
           () => executor.moduleLoader!.load(loaderCandidate),
           timeoutMessage,
@@ -211,6 +233,23 @@ export async function executeDependencyProbe(
       }
 
       if (executor.isHttpUrl(resolved)) {
+        if (
+          executor.isResolvedSpecifierAllowed &&
+          !executor.isResolvedSpecifierAllowed(
+            resolved,
+            probe.usage,
+            diagnostics,
+          )
+        ) {
+          return {
+            usage: probe.usage,
+            specifier: probe.specifier,
+            resolvedSpecifier: resolved,
+            ok: false,
+            message: "Blocked by runtime network policy",
+          };
+        }
+
         await executor.withRemainingBudget(async () => {
           if (executor.canMaterializeBrowserModules()) {
             await executor.materializeBrowserRemoteModule(
@@ -246,6 +285,19 @@ export async function executeDependencyProbe(
           ok: false,
           message:
             "Dependency preflight skipped because source import is not loadable without module loader",
+        };
+      }
+
+      if (
+        executor.isResolvedSpecifierAllowed &&
+        !executor.isResolvedSpecifierAllowed(resolved, probe.usage, diagnostics)
+      ) {
+        return {
+          usage: probe.usage,
+          specifier: probe.specifier,
+          resolvedSpecifier: resolved,
+          ok: false,
+          message: "Blocked by runtime network policy",
         };
       }
 
@@ -316,6 +368,19 @@ export async function executeDependencyProbe(
       resolvedSpecifier: resolved,
       ok: false,
       message: "Dependency preflight skipped because module loader is missing",
+    };
+  }
+
+  if (
+    executor.isResolvedSpecifierAllowed &&
+    !executor.isResolvedSpecifierAllowed(resolved, probe.usage, diagnostics)
+  ) {
+    return {
+      usage: probe.usage,
+      specifier: probe.specifier,
+      resolvedSpecifier: resolved,
+      ok: false,
+      message: "Blocked by runtime network policy",
     };
   }
 

@@ -495,6 +495,12 @@ export class DefaultRuntimeManager implements RuntimeManager {
           runtimeDiagnostics,
           "import",
         ),
+      isResolvedSpecifierAllowed: (specifier, runtimeDiagnostics) =>
+        this.isResolvedSpecifierAllowed(
+          specifier,
+          "import",
+          runtimeDiagnostics,
+        ),
       isAborted: () => isRuntimeAborted(frame.signal),
       hasExceededBudget: () => hasRuntimeExceededBudget(frame),
       withRemainingBudget: (operation, timeoutMessage) =>
@@ -625,6 +631,8 @@ export class DefaultRuntimeManager implements RuntimeManager {
           runtimeDiagnostics,
           usage,
         ),
+      isResolvedSpecifierAllowed: (specifier, usage, runtimeDiagnostics) =>
+        this.isResolvedSpecifierAllowed(specifier, usage, runtimeDiagnostics),
       materializeBrowserRemoteModule: (url, manifest, runtimeDiagnostics) =>
         this.createSourceModuleLoader(
           manifest,
@@ -849,6 +857,34 @@ export class DefaultRuntimeManager implements RuntimeManager {
     return normalizeRuntimeSourceOutput(output);
   }
 
+  private isResolvedSpecifierAllowed(
+    specifier: string,
+    usage: "import" | "component" | "source-import",
+    diagnostics: RuntimeDiagnostic[],
+  ): boolean {
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(specifier);
+    } catch {
+      return true;
+    }
+
+    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+      return true;
+    }
+
+    if (this.isRemoteUrlAllowed(specifier)) {
+      return true;
+    }
+
+    diagnostics.push({
+      level: "error",
+      code: "RUNTIME_NETWORK_POLICY_BLOCKED",
+      message: `Blocked remote ${usage} specifier by runtime network policy: ${specifier}`,
+    });
+    return false;
+  }
+
   private isRemoteUrlAllowed(url: string): boolean {
     if (this.allowArbitraryNetwork) {
       return true;
@@ -904,6 +940,12 @@ export class DefaultRuntimeManager implements RuntimeManager {
       frame,
       resolver: {
         moduleLoader: this.moduleLoader,
+        isResolvedSpecifierAllowed: (specifier, runtimeDiagnostics) =>
+          this.isResolvedSpecifierAllowed(
+            specifier,
+            "component",
+            runtimeDiagnostics,
+          ),
         allowIsolationFallback: this.allowIsolationFallback,
         resolveRuntimeSpecifier: (
           specifier,

@@ -1968,6 +1968,156 @@ test("runtime source loader skips fallback URLs blocked by network policy", asyn
   }
 });
 
+test("runtime blocks remote import specifiers by runtime network policy during execution", async () => {
+  let loadCalls = 0;
+  const runtime = new DefaultRuntimeManager({
+    allowArbitraryNetwork: false,
+    allowedNetworkHosts: ["ga.jspm.io"],
+    moduleLoader: {
+      load: async () => {
+        loadCalls += 1;
+        return {};
+      },
+    },
+  });
+  await runtime.initialize();
+
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "runtime_network_policy_block_import",
+    version: 1,
+    root: createElementNode("section", undefined, [createTextNode("blocked")]),
+    imports: ["npm:lit@3.3.0"],
+    moduleManifest: {
+      "npm:lit@3.3.0": {
+        resolvedUrl: "https://evil.example.com/npm:lit@3.3.0/index.js",
+        signer: "tests",
+      },
+    },
+    capabilities: {
+      domWrite: true,
+    },
+  };
+
+  try {
+    const execution = await runtime.execute({
+      plan,
+    });
+
+    assert.equal(loadCalls, 0);
+    assert.ok(
+      execution.diagnostics.some(
+        (item) => item.code === "RUNTIME_NETWORK_POLICY_BLOCKED",
+      ),
+    );
+  } finally {
+    await runtime.terminate();
+  }
+});
+
+test("runtime blocks remote component modules by runtime network policy during execution", async () => {
+  let loadCalls = 0;
+  const runtime = new DefaultRuntimeManager({
+    allowArbitraryNetwork: false,
+    allowedNetworkHosts: ["ga.jspm.io"],
+    moduleLoader: {
+      load: async () => {
+        loadCalls += 1;
+        return {
+          default: () => createTextNode("should not render"),
+        };
+      },
+    },
+  });
+  await runtime.initialize();
+
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "runtime_network_policy_block_component",
+    version: 1,
+    root: createComponentNode("npm:danger/widget"),
+    moduleManifest: {
+      "npm:danger/widget": {
+        resolvedUrl: "https://evil.example.com/npm:danger/widget/index.js",
+        signer: "tests",
+      },
+    },
+    capabilities: {
+      domWrite: true,
+    },
+  };
+
+  try {
+    const execution = await runtime.execute({
+      plan,
+    });
+
+    assert.equal(loadCalls, 0);
+    assert.ok(
+      execution.diagnostics.some(
+        (item) => item.code === "RUNTIME_NETWORK_POLICY_BLOCKED",
+      ),
+    );
+  } finally {
+    await runtime.terminate();
+  }
+});
+
+test("runtime preflight blocks remote dependencies by runtime network policy", async () => {
+  let loadCalls = 0;
+  const runtime = new DefaultRuntimeManager({
+    allowArbitraryNetwork: false,
+    allowedNetworkHosts: ["ga.jspm.io"],
+    moduleLoader: {
+      load: async () => {
+        loadCalls += 1;
+        return {};
+      },
+    },
+  });
+  await runtime.initialize();
+
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "runtime_network_policy_preflight_block",
+    version: 1,
+    root: createElementNode("section", undefined, [
+      createTextNode("preflight"),
+    ]),
+    imports: ["npm:lit@3.3.0"],
+    moduleManifest: {
+      "npm:lit@3.3.0": {
+        resolvedUrl: "https://evil.example.com/npm:lit@3.3.0/index.js",
+        signer: "tests",
+      },
+    },
+    capabilities: {
+      domWrite: true,
+    },
+  };
+
+  try {
+    const probe = await runtime.probePlan(plan);
+    assert.equal(loadCalls, 0);
+    assert.ok(
+      probe.diagnostics.some(
+        (item) => item.code === "RUNTIME_NETWORK_POLICY_BLOCKED",
+      ),
+    );
+    assert.equal(
+      probe.dependencies.some(
+        (item) =>
+          item.specifier === "npm:lit@3.3.0" &&
+          item.ok === false &&
+          item.message === "Blocked by runtime network policy",
+      ),
+      true,
+    );
+  } finally {
+    await runtime.terminate();
+  }
+});
+
 test("runtime network policy supports wildcard hosts and default port normalization", () => {
   const runtime = new DefaultRuntimeManager({
     allowArbitraryNetwork: false,

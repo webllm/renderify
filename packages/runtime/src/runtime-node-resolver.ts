@@ -30,6 +30,10 @@ export interface RuntimeNodeResolver {
   moduleLoader?: {
     load(specifier: string): Promise<unknown>;
   };
+  isResolvedSpecifierAllowed?(
+    specifier: string,
+    diagnostics: RuntimeDiagnostic[],
+  ): boolean;
   allowIsolationFallback: boolean;
   resolveRuntimeSpecifier(
     specifier: string,
@@ -135,6 +139,20 @@ export async function resolveRuntimeNode(input: {
       "div",
       { "data-renderify-missing-module": node.module },
       resolvedChildren,
+    );
+  }
+
+  if (
+    resolver.isResolvedSpecifierAllowed &&
+    !resolver.isResolvedSpecifierAllowed(
+      resolvedComponentSpecifier,
+      diagnostics,
+    )
+  ) {
+    return createElementNode(
+      "div",
+      { "data-renderify-component-error": node.module },
+      [createTextNode("Component module is blocked by runtime network policy")],
     );
   }
 

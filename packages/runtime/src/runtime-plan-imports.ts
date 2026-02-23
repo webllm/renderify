@@ -13,6 +13,10 @@ export interface RuntimePlanImportResolutionInput {
     moduleManifest: RuntimeModuleManifest | undefined,
     diagnostics: RuntimeDiagnostic[],
   ): string | undefined;
+  isResolvedSpecifierAllowed?(
+    specifier: string,
+    diagnostics: RuntimeDiagnostic[],
+  ): boolean;
   isAborted(): boolean;
   hasExceededBudget(): boolean;
   withRemainingBudget<T>(
@@ -63,6 +67,13 @@ export async function resolveRuntimePlanImports(
         code: "RUNTIME_LOADER_MISSING",
         message: `Import skipped because no module loader is configured: ${resolvedSpecifier}`,
       });
+      continue;
+    }
+
+    if (
+      input.isResolvedSpecifierAllowed &&
+      !input.isResolvedSpecifierAllowed(resolvedSpecifier, diagnostics)
+    ) {
       continue;
     }
 
