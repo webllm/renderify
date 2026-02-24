@@ -1,5 +1,17 @@
 # @renderify/runtime
 
+## 0.5.0
+
+### Minor Changes
+
+- fix renderify
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @renderify/ir@0.5.0
+  - @renderify/security@0.5.0
+
 ## 0.4.0
 
 ### Minor Changes
