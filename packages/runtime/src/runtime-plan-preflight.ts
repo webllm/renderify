@@ -104,7 +104,8 @@ export async function preflightRuntimePlanDependencies(
               usage,
             ),
           isResolvedSpecifierAllowed: (specifier, usage, diagnostics) =>
-            input.isResolvedSpecifierAllowed?.(specifier, usage, diagnostics),
+            input.isResolvedSpecifierAllowed?.(specifier, usage, diagnostics) ??
+            true,
           isHttpUrl,
           canMaterializeBrowserModules: () => canMaterializeBrowserModules(),
           materializeBrowserRemoteModule: (url, manifest, diagnostics) =>
