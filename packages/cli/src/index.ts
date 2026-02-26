@@ -1033,7 +1033,9 @@ async function handlePlaygroundRequest(
       const normalizedPlan = await normalizePlaygroundPlanInput(app, plan, {
         promptFallback: "playground:plan",
       });
-      const result = await app.renderPlan(normalizedPlan, {
+      const executionPlan =
+        await createPlaygroundRuntimeExecutionPlan(normalizedPlan);
+      const result = await app.renderPlan(executionPlan, {
         prompt: "playground:plan",
       });
       const payload = serializeRenderResult(result);
@@ -1170,6 +1172,71 @@ async function normalizePlaygroundPlanInput(
     prompt,
     llmText: JSON.stringify(plan),
   });
+}
+
+async function createPlaygroundRuntimeExecutionPlan(
+  plan: RuntimePlan,
+): Promise<RuntimePlan> {
+  const imports = plan.imports ?? [];
+  if (imports.length === 0) {
+    return plan;
+  }
+
+  const capabilityModules = new Set<string>();
+  for (const specifier of plan.capabilities?.allowedModules ?? []) {
+    const normalized = specifier.trim();
+    if (normalized.length > 0) {
+      capabilityModules.add(normalized);
+    }
+  }
+
+  if (capabilityModules.size === 0) {
+    return plan;
+  }
+
+  const runtimeNeededModules = new Set<string>();
+  for (const specifier of collectComponentModules(plan.root)) {
+    const normalized = specifier.trim();
+    if (normalized.length > 0) {
+      runtimeNeededModules.add(normalized);
+    }
+  }
+
+  if (plan.source?.code) {
+    for (const specifier of await collectRuntimeSourceImports(
+      plan.source.code,
+    )) {
+      const normalized = specifier.trim();
+      if (normalized.length > 0) {
+        runtimeNeededModules.add(normalized);
+      }
+    }
+  }
+
+  const executionImports = imports.filter((specifier) => {
+    const normalized = specifier.trim();
+    if (normalized.length === 0) {
+      return false;
+    }
+
+    if (runtimeNeededModules.has(normalized)) {
+      return true;
+    }
+
+    return !capabilityModules.has(normalized);
+  });
+
+  if (
+    executionImports.length === imports.length &&
+    executionImports.every((specifier, index) => specifier === imports[index])
+  ) {
+    return plan;
+  }
+
+  return {
+    ...plan,
+    imports: executionImports,
+  };
 }
 
 function sendJson(
