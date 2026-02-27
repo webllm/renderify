@@ -3,8 +3,13 @@ import {
   cloneJsonValue,
   createElementNode,
   createTextNode,
+  getValueByPath,
   isRuntimeNode,
+  isRuntimeValueFromPath,
+  isSafePath,
+  type JsonValue,
   type RuntimeAction,
+  type RuntimeActionValue,
   type RuntimeDiagnostic,
   type RuntimeEvent,
   type RuntimeExecutionContext,
@@ -16,6 +21,7 @@ import {
   type RuntimeSourceModule,
   type RuntimeStateSnapshot,
   resolveRuntimePlanSpecVersion,
+  setValueByPath,
 } from "@renderify/ir";
 import {
   fetchWithTimeout,
@@ -438,6 +444,14 @@ export class DefaultRuntimeManager implements RuntimeManager {
 
     const state = this.resolveState(plan, stateOverride);
     const appliedActions: RuntimeAction[] = [];
+    this.applyEventTransitions({
+      plan,
+      state,
+      context,
+      event,
+      appliedActions,
+      diagnostics,
+    });
     const capabilities = plan.capabilities ?? {};
 
     const frame: ExecutionFrame = {
@@ -467,6 +481,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
             item.code === "RUNTIME_INTEGRITY_CHECK_FAILED"),
       )
     ) {
+      this.persistResolvedState(plan.id, state, stateOverride);
       return {
         planId: plan.id,
         root: plan.root,
@@ -487,6 +502,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
             item.code.startsWith("RUNTIME_PREFLIGHT_"),
         )
       ) {
+        this.persistResolvedState(plan.id, state, stateOverride);
         return {
           planId: plan.id,
           root: plan.root,
@@ -567,6 +583,8 @@ export class DefaultRuntimeManager implements RuntimeManager {
           frame,
         );
 
+    this.persistResolvedState(plan.id, state, stateOverride);
+
     return {
       planId: plan.id,
       root: resolvedRoot,
@@ -611,11 +629,158 @@ export class DefaultRuntimeManager implements RuntimeManager {
       return cloneJsonValue(stateOverride);
     }
 
+    const persistedState = this.states.get(plan.id);
+    if (persistedState) {
+      return cloneJsonValue(persistedState);
+    }
+
     if (plan.state?.initial) {
       return cloneJsonValue(plan.state.initial);
     }
 
     return {};
+  }
+
+  private applyEventTransitions(input: {
+    plan: RuntimePlan;
+    state: RuntimeStateSnapshot;
+    context: RuntimeExecutionContext;
+    event: RuntimeEvent | undefined;
+    appliedActions: RuntimeAction[];
+    diagnostics: RuntimeDiagnostic[];
+  }): void {
+    if (!input.event || !input.plan.state?.transitions) {
+      return;
+    }
+
+    const transitionActions = input.plan.state.transitions[input.event.type];
+    if (!transitionActions || transitionActions.length === 0) {
+      return;
+    }
+
+    for (const action of transitionActions) {
+      if (!isSafePath(action.path)) {
+        input.diagnostics.push({
+          level: "error",
+          code: "RUNTIME_ACTION_PATH_UNSAFE",
+          message: `Unsafe action path: ${action.path}`,
+        });
+        continue;
+      }
+
+      if (action.type === "set") {
+        const resolvedValue = this.resolveActionValue(
+          action.value,
+          input.state,
+          input.context,
+          input.event,
+        );
+        setValueByPath(input.state, action.path, resolvedValue);
+        input.appliedActions.push({
+          type: "set",
+          path: action.path,
+          value: cloneJsonValue(resolvedValue),
+        });
+        continue;
+      }
+
+      if (action.type === "increment") {
+        const by = action.by ?? 1;
+        if (!Number.isFinite(by)) {
+          input.diagnostics.push({
+            level: "error",
+            code: "RUNTIME_ACTION_INVALID",
+            message: `Invalid increment delta for ${action.path}: ${String(action.by)}`,
+          });
+          continue;
+        }
+
+        const current = getValueByPath(input.state, action.path);
+        const numericCurrent =
+          typeof current === "number" && Number.isFinite(current) ? current : 0;
+        setValueByPath(input.state, action.path, numericCurrent + by);
+        input.appliedActions.push({
+          type: "increment",
+          path: action.path,
+          by,
+        });
+        continue;
+      }
+
+      if (action.type === "toggle") {
+        const current = getValueByPath(input.state, action.path);
+        setValueByPath(input.state, action.path, !current);
+        input.appliedActions.push({
+          type: "toggle",
+          path: action.path,
+        });
+        continue;
+      }
+
+      const resolvedValue = this.resolveActionValue(
+        action.value,
+        input.state,
+        input.context,
+        input.event,
+      );
+      const existing = getValueByPath(input.state, action.path);
+      const nextArray: JsonValue[] = Array.isArray(existing)
+        ? [...(existing as JsonValue[]), resolvedValue]
+        : [resolvedValue];
+      setValueByPath(input.state, action.path, nextArray);
+      input.appliedActions.push({
+        type: "push",
+        path: action.path,
+        value: cloneJsonValue(resolvedValue),
+      });
+    }
+  }
+
+  private resolveActionValue(
+    value: RuntimeActionValue,
+    state: RuntimeStateSnapshot,
+    context: RuntimeExecutionContext,
+    event: RuntimeEvent | undefined,
+  ): JsonValue {
+    const resolved = isRuntimeValueFromPath(value)
+      ? this.resolveValueFromPath(value.$from, state, context, event)
+      : value;
+    return asJsonValue(resolved);
+  }
+
+  private resolveValueFromPath(
+    sourcePath: string,
+    state: RuntimeStateSnapshot,
+    context: RuntimeExecutionContext,
+    event: RuntimeEvent | undefined,
+  ): unknown {
+    const source = sourcePath.trim();
+    if (source.startsWith("state.")) {
+      return getValueByPath(state, source.slice(6));
+    }
+    if (source.startsWith("event.")) {
+      return getValueByPath(event, source.slice(6));
+    }
+    if (source.startsWith("context.")) {
+      return getValueByPath(context, source.slice(8));
+    }
+    if (source.startsWith("vars.")) {
+      return getValueByPath(context.variables, source.slice(5));
+    }
+
+    return getValueByPath(state, source);
+  }
+
+  private persistResolvedState(
+    planId: string,
+    state: RuntimeStateSnapshot,
+    stateOverride?: RuntimeStateSnapshot,
+  ): void {
+    if (stateOverride) {
+      return;
+    }
+
+    this.states.set(planId, cloneJsonValue(state));
   }
 
   private async preflightPlanDependencies(

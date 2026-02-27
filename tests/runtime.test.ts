@@ -900,7 +900,7 @@ test("runtime reports warning when no loader is configured", async () => {
   await runtime.terminate();
 });
 
-test("runtime keeps initial state and ignores declarative transitions", async () => {
+test("runtime applies declarative transitions and persists plan state", async () => {
   const runtime = new DefaultRuntimeManager();
   await runtime.initialize();
 
@@ -952,11 +952,11 @@ test("runtime keeps initial state and ignores declarative transitions", async ()
 
   assert.deepEqual(
     result.appliedActions?.map((item) => item.type),
-    [],
+    ["increment", "set", "set"],
   );
-  assert.equal(result.state?.count, 0);
-  assert.equal(result.state?.last, 0);
-  assert.equal(result.state?.actor, "");
+  assert.equal(result.state?.count, 1);
+  assert.equal(result.state?.last, 3);
+  assert.equal(result.state?.actor, "user_42");
   assert.equal(result.root.type, "element");
   if (result.root.type !== "element") {
     throw new Error("expected element root");
@@ -966,7 +966,17 @@ test("runtime keeps initial state and ignores declarative transitions", async ()
   if (!textNode || textNode.type !== "text") {
     throw new Error("expected text child");
   }
-  assert.equal(textNode.value, "Count=0 Last=0 Actor=");
+  assert.equal(textNode.value, "Count=1 Last=3 Actor=user_42");
+
+  const persisted = runtime.getPlanState(plan.id);
+  assert.equal(persisted?.count, 1);
+  assert.equal(persisted?.last, 3);
+  assert.equal(persisted?.actor, "user_42");
+
+  const secondResult = await runtime.executePlan(plan);
+  assert.equal(secondResult.state?.count, 1);
+  assert.equal(secondResult.state?.last, 3);
+  assert.equal(secondResult.state?.actor, "user_42");
 
   await runtime.terminate();
 });
