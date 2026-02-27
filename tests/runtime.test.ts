@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
 import {
   createComponentNode,
@@ -2790,6 +2791,107 @@ test("runtime enforces moduleManifest for bare component specifiers by default",
   );
 
   await runtime.terminate();
+});
+
+test("runtime blocks execution when module integrity verification fails", async () => {
+  const runtime = new DefaultRuntimeManager({
+    remoteFetchTimeoutMs: 500,
+    enableDependencyPreflight: false,
+  });
+  await runtime.initialize();
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    return new Response("export default 1;", {
+      status: 200,
+      headers: {
+        "content-type": "text/javascript; charset=utf-8",
+      },
+    });
+  }) as typeof fetch;
+
+  try {
+    const plan: RuntimePlan = {
+      specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+      id: "runtime_integrity_mismatch_plan",
+      version: 1,
+      root: createElementNode("div", undefined, [createTextNode("fallback")]),
+      capabilities: {
+        domWrite: true,
+      },
+      moduleManifest: {
+        "npm:demo": {
+          resolvedUrl: "https://ga.jspm.io/npm:demo@1/index.js",
+          integrity: "sha384-invalid",
+          signer: "tests",
+        },
+      },
+    };
+
+    const result = await runtime.executePlan(plan);
+    assert.ok(
+      result.diagnostics.some(
+        (item) => item.code === "RUNTIME_INTEGRITY_MISMATCH",
+      ),
+    );
+    assert.equal(result.root.type, "element");
+  } finally {
+    globalThis.fetch = originalFetch;
+    await runtime.terminate();
+  }
+});
+
+test("runtime accepts module manifest entry when integrity verification succeeds", async () => {
+  const runtime = new DefaultRuntimeManager({
+    remoteFetchTimeoutMs: 500,
+    enableDependencyPreflight: false,
+  });
+  await runtime.initialize();
+
+  const moduleCode = "export default 1;";
+  const integrity = `sha384-${createHash("sha384").update(moduleCode).digest("base64")}`;
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    return new Response(moduleCode, {
+      status: 200,
+      headers: {
+        "content-type": "text/javascript; charset=utf-8",
+      },
+    });
+  }) as typeof fetch;
+
+  try {
+    const plan: RuntimePlan = {
+      specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+      id: "runtime_integrity_ok_plan",
+      version: 1,
+      root: createElementNode("div", undefined, [createTextNode("ok")]),
+      capabilities: {
+        domWrite: true,
+      },
+      moduleManifest: {
+        "npm:demo": {
+          resolvedUrl: "https://ga.jspm.io/npm:demo@1/index.js",
+          integrity,
+          signer: "tests",
+        },
+      },
+    };
+
+    const result = await runtime.executePlan(plan);
+    assert.equal(
+      result.diagnostics.some(
+        (item) =>
+          item.code === "RUNTIME_INTEGRITY_MISMATCH" ||
+          item.code === "RUNTIME_INTEGRITY_CHECK_FAILED",
+      ),
+      false,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    await runtime.terminate();
+  }
 });
 
 test("runtime emits preact render artifact for source.runtime=preact modules", async () => {

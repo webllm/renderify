@@ -14,6 +14,7 @@ import {
   isLikelyUnpinnedJspmNpmUrl,
   type RemoteModuleFetchResult,
 } from "./module-fetch";
+import { verifyModuleIntegrity } from "./module-integrity";
 import { isBrowserRuntime, isNodeRuntime } from "./runtime-environment";
 import { isHttpUrl } from "./runtime-specifier";
 
@@ -86,6 +87,7 @@ export class RuntimeSourceModuleLoader {
   private readonly isRemoteUrlAllowedFn: (url: string) => boolean;
   private readonly materializedModuleUrlCacheMaxEntries: number;
   private readonly localNodeSpecifierUrlCacheMaxEntries: number;
+  private readonly integrityByResolvedUrl: Map<string, string>;
   private readonly localNodeSpecifierUrlCache = new Map<
     string,
     string | null
@@ -117,6 +119,9 @@ export class RuntimeSourceModuleLoader {
     this.localNodeSpecifierUrlCacheMaxEntries = normalizeCacheMaxEntries(
       options.localNodeSpecifierUrlCacheMaxEntries,
       DEFAULT_LOCAL_NODE_SPECIFIER_CACHE_MAX_ENTRIES,
+    );
+    this.integrityByResolvedUrl = collectIntegrityByResolvedUrl(
+      this.moduleManifest,
     );
   }
 
@@ -292,6 +297,8 @@ export class RuntimeSourceModuleLoader {
   async materializeFetchedModuleSource(
     fetched: RemoteModuleFetchResult,
   ): Promise<string> {
+    await this.verifyFetchedModuleIntegrity(fetched);
+
     if (isCssModuleResponse(fetched)) {
       return createCssProxyModuleSource(fetched.code, fetched.url);
     }
@@ -866,6 +873,32 @@ export class RuntimeSourceModuleLoader {
       "",
     );
   }
+
+  private async verifyFetchedModuleIntegrity(
+    fetched: RemoteModuleFetchResult,
+  ): Promise<void> {
+    const expectedIntegrity =
+      this.integrityByResolvedUrl.get(fetched.requestUrl) ??
+      this.integrityByResolvedUrl.get(fetched.url);
+    if (!expectedIntegrity) {
+      return;
+    }
+
+    const verified = await verifyModuleIntegrity({
+      content: fetched.code,
+      integrity: expectedIntegrity,
+    });
+    if (verified) {
+      return;
+    }
+
+    this.diagnostics.push({
+      level: "error",
+      code: "RUNTIME_SOURCE_INTEGRITY_FAILED",
+      message: `Runtime source module integrity mismatch: ${fetched.url}`,
+    });
+    throw new Error(`Integrity mismatch for module: ${fetched.url}`);
+  }
 }
 
 function normalizeCacheMaxEntries(value: number | undefined, fallback: number) {
@@ -899,6 +932,34 @@ function setMapEntryWithLimit<Key, Value>(
     }
     map.delete(oldestKey);
   }
+}
+
+function collectIntegrityByResolvedUrl(
+  moduleManifest: RuntimeModuleManifest | undefined,
+): Map<string, string> {
+  const mapped = new Map<string, string>();
+  if (!moduleManifest) {
+    return mapped;
+  }
+
+  for (const descriptor of Object.values(moduleManifest)) {
+    if (
+      typeof descriptor.resolvedUrl !== "string" ||
+      typeof descriptor.integrity !== "string"
+    ) {
+      continue;
+    }
+
+    const resolvedUrl = descriptor.resolvedUrl.trim();
+    const integrity = descriptor.integrity.trim();
+    if (resolvedUrl.length === 0 || integrity.length === 0) {
+      continue;
+    }
+
+    mapped.set(resolvedUrl, integrity);
+  }
+
+  return mapped;
 }
 
 function createAbortError(): Error {

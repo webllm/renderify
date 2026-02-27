@@ -18,10 +18,12 @@ import {
   resolveRuntimePlanSpecVersion,
 } from "@renderify/ir";
 import {
+  fetchWithTimeout,
   type RemoteModuleFetchResult,
   toConfiguredFallbackUrl,
   toEsmFallbackUrl,
 } from "./module-fetch";
+import { verifyModuleIntegrity } from "./module-integrity";
 import {
   hasExceededBudget as hasRuntimeExceededBudget,
   isAbortError as isRuntimeAbortError,
@@ -453,6 +455,28 @@ export class DefaultRuntimeManager implements RuntimeManager {
     const maxImports = capabilities.maxImports ?? this.defaultMaxImports;
     const imports = plan.imports ?? [];
 
+    await this.verifyModuleManifestIntegrities(
+      plan.moduleManifest,
+      diagnostics,
+    );
+    if (
+      diagnostics.some(
+        (item) =>
+          item.level === "error" &&
+          (item.code === "RUNTIME_INTEGRITY_MISMATCH" ||
+            item.code === "RUNTIME_INTEGRITY_CHECK_FAILED"),
+      )
+    ) {
+      return {
+        planId: plan.id,
+        root: plan.root,
+        diagnostics,
+        state: cloneJsonValue(state),
+        handledEvent: event,
+        appliedActions,
+      };
+    }
+
     if (this.enableDependencyPreflight) {
       await this.preflightPlanDependencies(plan, diagnostics, frame);
       if (
@@ -648,6 +672,71 @@ export class DefaultRuntimeManager implements RuntimeManager {
       isAborted: () => isRuntimeAborted(frame.signal),
       hasExceededBudget: () => hasRuntimeExceededBudget(frame),
     });
+  }
+
+  private async verifyModuleManifestIntegrities(
+    moduleManifest: RuntimeModuleManifest | undefined,
+    diagnostics: RuntimeDiagnostic[],
+  ): Promise<void> {
+    if (!moduleManifest) {
+      return;
+    }
+
+    for (const [specifier, descriptor] of Object.entries(moduleManifest)) {
+      const expectedIntegrity = descriptor.integrity?.trim();
+      const resolvedUrl = descriptor.resolvedUrl?.trim();
+      if (
+        !expectedIntegrity ||
+        !resolvedUrl ||
+        (!resolvedUrl.startsWith("http://") &&
+          !resolvedUrl.startsWith("https://"))
+      ) {
+        continue;
+      }
+
+      if (!this.isRemoteUrlAllowed(resolvedUrl)) {
+        diagnostics.push({
+          level: "error",
+          code: "RUNTIME_NETWORK_POLICY_BLOCKED",
+          message: `Blocked remote manifest module by runtime network policy: ${resolvedUrl}`,
+        });
+        continue;
+      }
+
+      try {
+        const response = await fetchWithTimeout(
+          resolvedUrl,
+          this.remoteFetchTimeoutMs,
+        );
+        if (!response.ok) {
+          diagnostics.push({
+            level: "error",
+            code: "RUNTIME_INTEGRITY_CHECK_FAILED",
+            message: `Failed to fetch module for integrity check: ${specifier} (${response.status})`,
+          });
+          continue;
+        }
+
+        const content = await response.text();
+        const verified = await verifyModuleIntegrity({
+          content,
+          integrity: expectedIntegrity,
+        });
+        if (!verified) {
+          diagnostics.push({
+            level: "error",
+            code: "RUNTIME_INTEGRITY_MISMATCH",
+            message: `Module integrity mismatch: ${specifier} -> ${resolvedUrl}`,
+          });
+        }
+      } catch (error) {
+        diagnostics.push({
+          level: "error",
+          code: "RUNTIME_INTEGRITY_CHECK_FAILED",
+          message: `${specifier}: ${this.errorToMessage(error)}`,
+        });
+      }
+    }
   }
 
   private async resolveSourceRoot(

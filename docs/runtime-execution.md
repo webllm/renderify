@@ -325,8 +325,9 @@ Renderify validates third-party TSX/JSX dependencies through a layered runtime m
 1. **Lexical import extraction** — source imports are parsed via `es-module-lexer` (with fallback parser), not plain regex string scanning.
 2. **Specifier normalization + rejection** — `JspmModuleLoader` resolves bare specifiers to JSPM URLs and rejects Node.js builtins and unsupported schemes.
 3. **Policy gate** — security policy checks module hosts, bare-specifier manifest coverage, and (in strict mode) integrity requirements for remote modules.
-4. **Dependency preflight** — runtime can probe all dependency edges before execution; with fail-fast enabled, render aborts on preflight errors.
-5. **Executable ESM validation** — dependencies are fetched, rewritten, and dynamically imported in the real runtime path; failures are surfaced as runtime diagnostics.
+4. **Integrity verification** — when `moduleManifest[*].integrity` is provided, runtime fetches module content and verifies the digest before execution.
+5. **Dependency preflight** — runtime can probe all dependency edges before execution; with fail-fast enabled, render aborts on preflight errors.
+6. **Executable ESM validation** — dependencies are fetched, rewritten, and dynamically imported in the real runtime path; failures are surfaced as runtime diagnostics.
 
 This design intentionally treats dependency validity as **runtime-verifiable evidence** instead of compile-time assumption.
 
