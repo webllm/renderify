@@ -11,6 +11,7 @@ import {
   type RuntimePlan,
 } from "../packages/ir/src/index";
 import {
+  createInteractiveSession,
   DefaultRuntimeManager,
   JspmModuleLoader,
   type RuntimeComponentFactory,
@@ -794,6 +795,72 @@ test("renderPlanInBrowser serializes concurrent renders for the same target", as
     "start:embed_runtime_serial_b",
     "end:embed_runtime_serial_b",
   ]);
+});
+
+test("createInteractiveSession auto-dispatches runtime events into transitions", async () => {
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "interactive_session_plan",
+    version: 1,
+    root: createElementNode("p", undefined, [
+      createTextNode("Count={{state.count}} Last={{state.last}}"),
+    ]),
+    capabilities: {
+      domWrite: true,
+    },
+    state: {
+      initial: {
+        count: 0,
+        last: 0,
+      },
+      transitions: {
+        increment: [
+          { type: "increment", path: "count", by: 1 },
+          {
+            type: "set",
+            path: "last",
+            value: { $from: "event.payload.delta" },
+          },
+        ],
+      },
+    },
+  };
+
+  const session = await createInteractiveSession(plan, {
+    runtimeOptions: {
+      browserSourceSandboxMode: "none",
+      enableDependencyPreflight: false,
+    },
+  });
+
+  try {
+    const initial = session.getLastResult();
+    assert.match(initial.html, /Count=0 Last=0/);
+    assert.equal(initial.execution.state.count, 0);
+
+    const dispatched = await session.dispatch({
+      type: "increment",
+      payload: { delta: 5 },
+    });
+    assert.match(dispatched.html, /Count=1 Last=5/);
+    assert.equal(dispatched.execution.state.count, 1);
+    assert.deepEqual(
+      dispatched.execution.appliedActions?.map((action) => action.type),
+      ["increment", "set"],
+    );
+    assert.equal(session.getState()?.count, 1);
+
+    const manuallySet = await session.setState({
+      count: 9,
+      last: 9,
+    });
+    assert.match(manuallySet.html, /Count=9 Last=9/);
+
+    const cleared = await session.clearState();
+    assert.match(cleared.html, /Count=0 Last=0/);
+  } finally {
+    await session.terminate();
+  }
 });
 
 test("runtime resolves component nodes through module loader", async () => {

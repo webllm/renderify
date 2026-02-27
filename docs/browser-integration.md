@@ -92,6 +92,21 @@ container.addEventListener("renderify:runtime-event", (event) => {
 });
 ```
 
+For built-in event->state->rerender orchestration, use `createInteractiveSession`:
+
+```ts
+import { createInteractiveSession } from "@renderify/runtime";
+
+const session = await createInteractiveSession(plan, {
+  target: "#app",
+});
+
+await session.dispatch({
+  type: "increment",
+  payload: { delta: 1 },
+});
+```
+
 ## Concurrent Render Safety
 
 Multiple renders to the same DOM target are automatically serialized:

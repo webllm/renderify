@@ -151,6 +151,7 @@ flowchart TD
 - Security profiles: `strict | balanced | relaxed`
 - RuntimePlan structural guards for safer plan ingestion
 - One-line embed API: `renderPlanInBrowser(plan, { target })`
+- Interactive session API: `createInteractiveSession(plan, { target })` with event->state->rerender loop
 - Browser runtime playground (`renderify playground`) for live prompt/plan/stream/probe flows
 - Unit tests for `ir/core/runtime`
 - CI matrix (`Node 22 + Node 24`) for typecheck/unit + quality gates
