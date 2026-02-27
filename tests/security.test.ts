@@ -61,11 +61,7 @@ test("security checker fail-closed rejects malformed module manifests", async ()
   checker.initialize();
 
   const plan = createPlan("section");
-  (
-    plan as RuntimePlan & {
-      moduleManifest?: Record<string, unknown>;
-    }
-  ).moduleManifest = {
+  (plan as unknown as { moduleManifest?: unknown }).moduleManifest = {
     "npm:demo": {},
   };
 

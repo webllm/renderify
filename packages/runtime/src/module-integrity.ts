@@ -77,9 +77,10 @@ async function computeBase64Digest(
     if (!webAlgorithm) {
       throw new Error(`Unsupported integrity algorithm: ${algorithm}`);
     }
+    const digestInput = normalizeDigestInput(content);
     const digestBuffer = await globalThis.crypto.subtle.digest(
       webAlgorithm,
-      content,
+      digestInput,
     );
     return toBase64(new Uint8Array(digestBuffer));
   }
@@ -90,6 +91,19 @@ async function computeBase64Digest(
   }
 
   return createHash(algorithm).update(content).digest("base64");
+}
+
+function normalizeDigestInput(content: Uint8Array): ArrayBuffer {
+  const originalBuffer = content.buffer;
+  if (
+    originalBuffer instanceof ArrayBuffer &&
+    content.byteOffset === 0 &&
+    content.byteLength === originalBuffer.byteLength
+  ) {
+    return originalBuffer;
+  }
+
+  return new Uint8Array(content).buffer;
 }
 
 async function loadNodeCreateHash(): Promise<

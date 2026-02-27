@@ -125,6 +125,7 @@ class MockSecurityChecker implements SecurityChecker {
       requireSpecVersion: true,
       requireModuleManifestForBareSpecifiers: false,
       requireModuleIntegrity: false,
+      allowPreactSourceRuntime: true,
       allowDynamicSourceImports: true,
       sourceBannedPatternStrings: [],
       maxSourceImportSpecifiers: 1000,

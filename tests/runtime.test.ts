@@ -836,14 +836,18 @@ test("createInteractiveSession auto-dispatches runtime events into transitions",
   try {
     const initial = session.getLastResult();
     assert.match(initial.html, /Count=0 Last=0/);
-    assert.equal(initial.execution.state.count, 0);
+    const initialState = initial.execution.state;
+    assert.ok(initialState);
+    assert.equal(initialState.count, 0);
 
     const dispatched = await session.dispatch({
       type: "increment",
       payload: { delta: 5 },
     });
     assert.match(dispatched.html, /Count=1 Last=5/);
-    assert.equal(dispatched.execution.state.count, 1);
+    const dispatchedState = dispatched.execution.state;
+    assert.ok(dispatchedState);
+    assert.equal(dispatchedState.count, 1);
     assert.deepEqual(
       dispatched.execution.appliedActions?.map((action) => action.type),
       ["increment", "set"],
