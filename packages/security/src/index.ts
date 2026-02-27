@@ -1,6 +1,7 @@
 import {
   collectRuntimeSourceImports,
   DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+  isRuntimePlan,
   isRuntimeValueFromPath,
   isSafePath,
   type RuntimeAction,
@@ -263,113 +264,144 @@ export class DefaultSecurityChecker implements SecurityChecker {
   }
 
   async checkPlan(plan: RuntimePlan): Promise<SecurityCheckResult> {
+    if (!isRuntimePlan(plan)) {
+      return {
+        safe: false,
+        issues: ["Runtime plan payload is not a valid RuntimePlan object"],
+        diagnostics: [
+          {
+            level: "error",
+            code: "SECURITY_PLAN_INVALID",
+            message: "Runtime plan payload is not a valid RuntimePlan object",
+          },
+        ],
+      };
+    }
+
     const issues: string[] = [];
     const diagnostics: RuntimeDiagnostic[] = [];
-    const planSpecVersion = resolveRuntimePlanSpecVersion(plan.specVersion);
-    const moduleManifest = plan.moduleManifest;
+    try {
+      const planSpecVersion = resolveRuntimePlanSpecVersion(plan.specVersion);
+      const moduleManifest = plan.moduleManifest;
 
-    if (
-      this.policy.requireSpecVersion &&
-      (typeof plan.specVersion !== "string" ||
-        plan.specVersion.trim().length === 0)
-    ) {
-      issues.push("Runtime plan specVersion is required by policy");
-    }
+      if (
+        this.policy.requireSpecVersion &&
+        (typeof plan.specVersion !== "string" ||
+          plan.specVersion.trim().length === 0)
+      ) {
+        issues.push("Runtime plan specVersion is required by policy");
+      }
 
-    if (!this.policy.supportedSpecVersions.includes(planSpecVersion)) {
-      issues.push(
-        `Runtime plan specVersion ${planSpecVersion} is not supported by policy`,
-      );
-    }
-
-    if (moduleManifest) {
-      issues.push(...this.checkModuleManifest(moduleManifest));
-    }
-
-    if (this.policy.requireModuleManifestForBareSpecifiers) {
-      issues.push(...(await this.checkManifestCoverage(plan, moduleManifest)));
-    }
-
-    const capabilityResult = this.checkCapabilities(
-      plan.capabilities ?? {},
-      moduleManifest,
-    );
-    issues.push(...capabilityResult.issues);
-    diagnostics.push(...capabilityResult.diagnostics);
-
-    let nodeCount = 0;
-
-    const walk = (node: RuntimeNode, depth: number) => {
-      nodeCount += 1;
-
-      if (depth > this.policy.maxTreeDepth) {
+      if (!this.policy.supportedSpecVersions.includes(planSpecVersion)) {
         issues.push(
-          `Node depth ${depth} exceeds maximum ${this.policy.maxTreeDepth}`,
+          `Runtime plan specVersion ${planSpecVersion} is not supported by policy`,
         );
       }
 
-      if (node.type === "element") {
-        const normalizedTag = node.tag.toLowerCase();
-        if (this.policy.blockedTags.includes(normalizedTag)) {
-          issues.push(`Blocked tag detected: <${normalizedTag}>`);
+      if (moduleManifest) {
+        issues.push(...this.checkModuleManifest(moduleManifest));
+      }
+
+      if (this.policy.requireModuleManifestForBareSpecifiers) {
+        issues.push(
+          ...(await this.checkManifestCoverage(plan, moduleManifest)),
+        );
+      }
+
+      const capabilityResult = this.checkCapabilities(
+        plan.capabilities ?? {},
+        moduleManifest,
+      );
+      issues.push(...capabilityResult.issues);
+      diagnostics.push(...capabilityResult.diagnostics);
+
+      let nodeCount = 0;
+
+      const walk = (node: RuntimeNode, depth: number) => {
+        nodeCount += 1;
+
+        if (depth > this.policy.maxTreeDepth) {
+          issues.push(
+            `Node depth ${depth} exceeds maximum ${this.policy.maxTreeDepth}`,
+          );
         }
 
-        if (node.props) {
-          for (const key of Object.keys(node.props)) {
-            if (
-              !this.policy.allowInlineEventHandlers &&
-              /^on[A-Z]|^on[a-z]/.test(key)
-            ) {
-              issues.push(`Inline event handler is not allowed: ${key}`);
+        if (node.type === "element") {
+          const normalizedTag = node.tag.toLowerCase();
+          if (this.policy.blockedTags.includes(normalizedTag)) {
+            issues.push(`Blocked tag detected: <${normalizedTag}>`);
+          }
+
+          if (node.props) {
+            for (const key of Object.keys(node.props)) {
+              if (
+                !this.policy.allowInlineEventHandlers &&
+                /^on[A-Z]|^on[a-z]/.test(key)
+              ) {
+                issues.push(`Inline event handler is not allowed: ${key}`);
+              }
             }
           }
         }
+
+        if (node.type === "component") {
+          const componentSpecifier = this.resolveManifestSpecifier(
+            node.module,
+            moduleManifest,
+          );
+          const componentResult = this.checkModuleSpecifier(componentSpecifier);
+          issues.push(...componentResult.issues);
+        }
+
+        if (node.type === "text") {
+          return;
+        }
+
+        for (const child of node.children ?? []) {
+          walk(child, depth + 1);
+        }
+      };
+
+      walk(plan.root, 0);
+
+      if (nodeCount > this.policy.maxNodeCount) {
+        issues.push(
+          `Node count ${nodeCount} exceeds maximum ${this.policy.maxNodeCount}`,
+        );
       }
 
-      if (node.type === "component") {
-        const componentSpecifier = this.resolveManifestSpecifier(
-          node.module,
+      const importSpecifiers = plan.imports ?? [];
+      for (const specifier of importSpecifiers) {
+        const effectiveSpecifier = this.resolveManifestSpecifier(
+          specifier,
           moduleManifest,
         );
-        const componentResult = this.checkModuleSpecifier(componentSpecifier);
-        issues.push(...componentResult.issues);
+        const importCheck = this.checkModuleSpecifier(effectiveSpecifier);
+        issues.push(...importCheck.issues);
       }
 
-      if (node.type === "text") {
-        return;
+      if (plan.state) {
+        issues.push(...this.checkStateModel(plan.state));
       }
 
-      for (const child of node.children ?? []) {
-        walk(child, depth + 1);
+      if (plan.source) {
+        issues.push(
+          ...(await this.checkRuntimeSource(plan.source, moduleManifest)),
+        );
       }
-    };
-
-    walk(plan.root, 0);
-
-    if (nodeCount > this.policy.maxNodeCount) {
-      issues.push(
-        `Node count ${nodeCount} exceeds maximum ${this.policy.maxNodeCount}`,
-      );
-    }
-
-    const importSpecifiers = plan.imports ?? [];
-    for (const specifier of importSpecifiers) {
-      const effectiveSpecifier = this.resolveManifestSpecifier(
-        specifier,
-        moduleManifest,
-      );
-      const importCheck = this.checkModuleSpecifier(effectiveSpecifier);
-      issues.push(...importCheck.issues);
-    }
-
-    if (plan.state) {
-      issues.push(...this.checkStateModel(plan.state));
-    }
-
-    if (plan.source) {
-      issues.push(
-        ...(await this.checkRuntimeSource(plan.source, moduleManifest)),
-      );
+    } catch (error) {
+      const message = this.errorToMessage(error);
+      return {
+        safe: false,
+        issues: [`Security checker failed to evaluate plan: ${message}`],
+        diagnostics: [
+          {
+            level: "error",
+            code: "SECURITY_CHECK_FAILED",
+            message,
+          },
+        ],
+      };
     }
 
     for (const issue of issues) {
@@ -718,6 +750,14 @@ export class DefaultSecurityChecker implements SecurityChecker {
     }
 
     return collectRuntimeSourceImports(code);
+  }
+
+  private errorToMessage(error: unknown): string {
+    if (error instanceof Error) {
+      return error.message;
+    }
+
+    return String(error);
   }
 
   private isBareSpecifier(specifier: string): boolean {

@@ -42,6 +42,40 @@ test("security checker blocks disallowed tags", async () => {
   assert.ok(result.diagnostics.length > 0);
 });
 
+test("security checker fail-closed rejects malformed plan payloads", async () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize();
+
+  const result = await checker.checkPlan({} as RuntimePlan);
+  assert.equal(result.safe, false);
+  assert.ok(
+    result.issues.some((issue) => issue.includes("not a valid RuntimePlan")),
+  );
+  assert.ok(
+    result.diagnostics.some((item) => item.code === "SECURITY_PLAN_INVALID"),
+  );
+});
+
+test("security checker fail-closed rejects malformed module manifests", async () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize();
+
+  const plan = createPlan("section");
+  (
+    plan as RuntimePlan & {
+      moduleManifest?: Record<string, unknown>;
+    }
+  ).moduleManifest = {
+    "npm:demo": {},
+  };
+
+  const result = await checker.checkPlan(plan);
+  assert.equal(result.safe, false);
+  assert.ok(
+    result.diagnostics.some((item) => item.code === "SECURITY_PLAN_INVALID"),
+  );
+});
+
 test("security checker blocks non-allowlisted network hosts", async () => {
   const checker = new DefaultSecurityChecker();
   checker.initialize();
