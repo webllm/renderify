@@ -650,6 +650,115 @@ export function resolveRuntimePlanSpecVersion(specVersion?: string): string {
   return DEFAULT_RUNTIME_PLAN_SPEC_VERSION;
 }
 
+export interface ParsedNetworkHostPattern {
+  hostname: string;
+  wildcard: boolean;
+  port?: number;
+}
+
+export function parseNetworkHostPattern(
+  value: string,
+): ParsedNetworkHostPattern | undefined {
+  const normalized = value.trim().toLowerCase();
+  if (normalized.length === 0) {
+    return undefined;
+  }
+
+  const wildcard = normalized.startsWith("*.");
+  const hostPort = wildcard ? normalized.slice(2) : normalized;
+  if (hostPort.length === 0) {
+    return undefined;
+  }
+
+  const parsed = parseHostnameAndPort(hostPort);
+  if (!parsed) {
+    return undefined;
+  }
+
+  return {
+    hostname: parsed.hostname,
+    wildcard,
+    port: parsed.port,
+  };
+}
+
+export function matchesAllowedNetworkUrl(
+  url: URL,
+  patterns: readonly ParsedNetworkHostPattern[],
+): boolean {
+  const hostname = url.hostname.toLowerCase();
+  const effectivePort = toEffectivePort(url);
+  if (!effectivePort) {
+    return false;
+  }
+
+  for (const pattern of patterns) {
+    if (!matchesPatternHostname(hostname, pattern)) {
+      continue;
+    }
+
+    if (pattern.port !== undefined) {
+      if (pattern.port === effectivePort) {
+        return true;
+      }
+      continue;
+    }
+
+    if (matchesImplicitDefaultPort(url.protocol, effectivePort)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function isAllowedNetworkUrl(url: URL, allowedHosts: string[]): boolean {
+  const parsedPatterns = allowedHosts
+    .map((entry) => parseNetworkHostPattern(entry))
+    .filter(
+      (pattern): pattern is ParsedNetworkHostPattern => pattern !== undefined,
+    );
+  return matchesAllowedNetworkUrl(url, parsedPatterns);
+}
+
+export function isAllowedRequestedNetworkHost(
+  requestedHost: string,
+  allowedHosts: string[],
+): boolean {
+  const requested = parseNetworkHostPattern(requestedHost);
+  if (!requested) {
+    return false;
+  }
+
+  for (const allowed of allowedHosts) {
+    const pattern = parseNetworkHostPattern(allowed);
+    if (!pattern) {
+      continue;
+    }
+
+    if (!matchesPatternHostname(requested.hostname, pattern)) {
+      continue;
+    }
+
+    if (pattern.port !== undefined) {
+      if (requested.port === pattern.port) {
+        return true;
+      }
+      continue;
+    }
+
+    if (
+      requested.port === undefined ||
+      requested.port === 80 ||
+      requested.port === 443
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 export function walkRuntimeNode(
   node: RuntimeNode,
   visitor: (node: RuntimeNode, depth: number) => void,
@@ -669,6 +778,101 @@ export function walkRuntimeNode(
   for (const child of children) {
     walkRuntimeNode(child, visitor, depth + 1);
   }
+}
+
+function parseHostnameAndPort(
+  hostPort: string,
+): { hostname: string; port?: number } | undefined {
+  const bracketMatch = hostPort.match(/^\[(.+)\](?::(\d+))?$/);
+  if (bracketMatch) {
+    const hostname = bracketMatch[1]?.trim();
+    if (!hostname) {
+      return undefined;
+    }
+    const port = parsePortNumber(bracketMatch[2]);
+    return port === undefined && bracketMatch[2]
+      ? undefined
+      : { hostname, port };
+  }
+
+  const segments = hostPort.split(":");
+  if (segments.length === 1) {
+    return {
+      hostname: hostPort,
+    };
+  }
+
+  if (segments.length === 2) {
+    const hostname = segments[0]?.trim();
+    const port = parsePortNumber(segments[1]);
+    if (!hostname || port === undefined) {
+      return undefined;
+    }
+    return {
+      hostname,
+      port,
+    };
+  }
+
+  return undefined;
+}
+
+function parsePortNumber(value: string | undefined): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
+    return undefined;
+  }
+
+  return parsed;
+}
+
+function matchesPatternHostname(
+  hostname: string,
+  pattern: ParsedNetworkHostPattern,
+): boolean {
+  if (!pattern.wildcard) {
+    return hostname === pattern.hostname;
+  }
+
+  return (
+    hostname.length > pattern.hostname.length &&
+    hostname.endsWith(`.${pattern.hostname}`)
+  );
+}
+
+function toEffectivePort(url: URL): number | undefined {
+  if (url.port.length > 0) {
+    const parsedPort = Number(url.port);
+    if (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535) {
+      return undefined;
+    }
+    return parsedPort;
+  }
+
+  if (url.protocol === "https:") {
+    return 443;
+  }
+  if (url.protocol === "http:") {
+    return 80;
+  }
+
+  return undefined;
+}
+
+function matchesImplicitDefaultPort(protocol: string, port: number): boolean {
+  if (protocol === "https:") {
+    return port === 443;
+  }
+
+  if (protocol === "http:") {
+    return port === 80;
+  }
+
+  return false;
 }
 
 export function collectComponentModules(root: RuntimeNode): string[] {
