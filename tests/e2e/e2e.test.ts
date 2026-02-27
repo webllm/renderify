@@ -110,6 +110,7 @@ test("e2e: cli render-plan executes runtime source module", async () => {
     );
 
     const result = await runCli(["render-plan", sourcePlanPath], {
+      RENDERIFY_SECURITY_PROFILE: "relaxed",
       RENDERIFY_SESSION_FILE: path.join(tempDir, "session.json"),
     });
 
@@ -453,6 +454,7 @@ test("e2e: playground prompt endpoints auto-hydrate source import module manifes
     RENDERIFY_LLM_API_KEY: "test-key",
     RENDERIFY_LLM_BASE_URL: `http://127.0.0.1:${openaiPort}/v1`,
     RENDERIFY_LLM_MODEL: "gpt-5-mini",
+    RENDERIFY_SECURITY_PROFILE: "relaxed",
   });
 
   try {
