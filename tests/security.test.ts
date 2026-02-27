@@ -321,6 +321,39 @@ test("security checker can disable runtime source modules via policy", async () 
   );
 });
 
+test("security checker blocks source.runtime=preact in balanced profile", async () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize({ profile: "balanced" });
+
+  const plan = createPlan("section");
+  plan.source = {
+    language: "js",
+    runtime: "preact",
+    code: "export default function View(){ return null; }",
+  };
+
+  const result = await checker.checkPlan(plan);
+  assert.equal(result.safe, false);
+  assert.ok(
+    result.issues.some((issue) => issue.includes("source.runtime=preact")),
+  );
+});
+
+test("security checker allows source.runtime=preact in relaxed profile", async () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize({ profile: "relaxed" });
+
+  const plan = createPlan("section");
+  plan.source = {
+    language: "js",
+    runtime: "preact",
+    code: "export default function View(){ return null; }",
+  };
+
+  const result = await checker.checkPlan(plan);
+  assert.equal(result.safe, true, result.issues.join("; "));
+});
+
 test("security checker requires moduleManifest for bare imports", async () => {
   const checker = new DefaultSecurityChecker();
   checker.initialize();

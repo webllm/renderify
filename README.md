@@ -120,7 +120,7 @@ flowchart TD
   - `moduleManifest` for deterministic module resolution
 - JSX runtime modes:
   - `source.runtime: "renderify"` for RuntimeNode-oriented execution
-  - `source.runtime: "preact"` for hooks + React-compatible component rendering
+  - `source.runtime: "preact"` for hooks + React-compatible component rendering (trusted/relaxed policy mode)
 - Runtime sandbox profile:
   - `executionProfile: "isolated-vm"` for VM-isolated sync component execution
   - fail-closed by default when isolation runtime is unavailable

@@ -42,6 +42,7 @@ export interface RuntimeSecurityPolicy {
   maxAllowedExecutionMs: number;
   maxAllowedComponentInvocations: number;
   allowRuntimeSourceModules: boolean;
+  allowPreactSourceRuntime: boolean;
   maxRuntimeSourceBytes: number;
   supportedSpecVersions: string[];
   requireSpecVersion: boolean;
@@ -101,6 +102,7 @@ const SECURITY_PROFILE_POLICIES: Record<
     maxAllowedExecutionMs: 5000,
     maxAllowedComponentInvocations: 120,
     allowRuntimeSourceModules: true,
+    allowPreactSourceRuntime: false,
     maxRuntimeSourceBytes: 20000,
     supportedSpecVersions: [DEFAULT_RUNTIME_PLAN_SPEC_VERSION],
     requireSpecVersion: true,
@@ -145,6 +147,7 @@ const SECURITY_PROFILE_POLICIES: Record<
     maxAllowedExecutionMs: 15000,
     maxAllowedComponentInvocations: 500,
     allowRuntimeSourceModules: true,
+    allowPreactSourceRuntime: false,
     maxRuntimeSourceBytes: 80000,
     supportedSpecVersions: [DEFAULT_RUNTIME_PLAN_SPEC_VERSION],
     requireSpecVersion: true,
@@ -191,6 +194,7 @@ const SECURITY_PROFILE_POLICIES: Record<
     maxAllowedExecutionMs: 60000,
     maxAllowedComponentInvocations: 4000,
     allowRuntimeSourceModules: true,
+    allowPreactSourceRuntime: true,
     maxRuntimeSourceBytes: 200000,
     supportedSpecVersions: [DEFAULT_RUNTIME_PLAN_SPEC_VERSION],
     requireSpecVersion: false,
@@ -602,6 +606,12 @@ export class DefaultSecurityChecker implements SecurityChecker {
     if (!this.policy.allowRuntimeSourceModules) {
       issues.push("Runtime source modules are disabled by policy");
       return issues;
+    }
+
+    if (source.runtime === "preact" && !this.policy.allowPreactSourceRuntime) {
+      issues.push(
+        "source.runtime=preact is disabled by policy; use relaxed profile or explicit override",
+      );
     }
 
     const sourceBytes =
