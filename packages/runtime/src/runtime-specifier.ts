@@ -64,12 +64,9 @@ export function resolveRuntimeSourceSpecifier(
     return loaderResolved;
   }
 
-  const jspmBase = (input.jspmCdnBase ?? FALLBACK_JSPM_CDN_BASE).replace(
-    /\/$/,
-    "",
-  );
+  const jspmBase = normalizeJspmCdnBase(input.jspmCdnBase);
   if (resolvedFromPolicy.startsWith("npm:")) {
-    return `${jspmBase}/${resolvedFromPolicy.slice(4)}`;
+    return `${jspmBase}/npm:${resolvedFromPolicy.slice(4)}`;
   }
 
   if (isDirectSpecifier(resolvedFromPolicy)) {
@@ -257,4 +254,13 @@ function isRuntimeSourceIntrinsicSpecifier(
     specifier === "react/jsx-runtime" ||
     specifier === "react/jsx-dev-runtime"
   );
+}
+
+function normalizeJspmCdnBase(input?: string): string {
+  const raw = (input ?? FALLBACK_JSPM_CDN_BASE).trim();
+  const withoutTrailingSlash = raw.replace(/\/$/, "");
+  if (withoutTrailingSlash.endsWith("/npm")) {
+    return withoutTrailingSlash.slice(0, withoutTrailingSlash.length - 4);
+  }
+  return withoutTrailingSlash;
 }

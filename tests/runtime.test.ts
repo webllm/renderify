@@ -1702,6 +1702,41 @@ test("runtime resolves preact jsx-runtime source imports without manifest entrie
   );
 });
 
+test("runtime source specifier fallback rewrites JSPM URLs without resolver hook", () => {
+  const runtime = new DefaultRuntimeManager({
+    moduleLoader: new MockLoader({}),
+  });
+
+  const diagnostics: Array<{ code?: string; message: string }> = [];
+  const internals = runtime as unknown as {
+    resolveRuntimeSourceSpecifier: (
+      specifier: string,
+      moduleManifest: RuntimeModuleManifest | undefined,
+      diagnostics: Array<{ code?: string; message: string }>,
+      requireManifest: boolean,
+    ) => string;
+  };
+
+  assert.equal(
+    internals.resolveRuntimeSourceSpecifier(
+      "nanoid",
+      undefined,
+      diagnostics,
+      false,
+    ),
+    "https://ga.jspm.io/npm:nanoid",
+  );
+  assert.equal(
+    internals.resolveRuntimeSourceSpecifier(
+      "npm:nanoid@5",
+      undefined,
+      diagnostics,
+      false,
+    ),
+    "https://ga.jspm.io/npm:nanoid@5",
+  );
+});
+
 test("runtime computes esm fallback url for jspm modules", () => {
   const runtime = new DefaultRuntimeManager();
   const fallback = (
