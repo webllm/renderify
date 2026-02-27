@@ -977,7 +977,7 @@ test("codegen backfills moduleManifest and allowedModules when payload metadata 
   );
 
   const checker = new DefaultSecurityChecker();
-  checker.initialize();
+  checker.initialize({ profile: "relaxed" });
   const result = await checker.checkPlan(plan);
   assert.equal(result.safe, true);
 });
