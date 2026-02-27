@@ -2674,6 +2674,42 @@ test("runtime source loader maps esm.sh preact imports to local node file URLs",
   }
 });
 
+test("runtime source loader falls back when preferred local preact entry is missing", async () => {
+  const runtime = new DefaultRuntimeManager({
+    remoteFallbackCdnBases: [],
+  });
+
+  const internals = runtime as unknown as {
+    createSourceModuleLoader: (
+      moduleManifest: RuntimeModuleManifest | undefined,
+      diagnostics: Array<{ code?: string; message?: string }>,
+    ) => {
+      resolveRuntimeImportSpecifier(
+        specifier: string,
+        parentUrl: string | undefined,
+      ): Promise<string>;
+      preactPackageRootPromise?: Promise<string | undefined>;
+    };
+  };
+
+  const diagnostics: Array<{ code?: string; message?: string }> = [];
+  const loader = internals.createSourceModuleLoader(undefined, diagnostics);
+  loader.preactPackageRootPromise = Promise.resolve(
+    "/tmp/renderify-missing-preact-root",
+  );
+
+  const resolved = await loader.resolveRuntimeImportSpecifier(
+    "preact",
+    undefined,
+  );
+  assert.match(resolved, /^file:\/\//);
+  assert.equal(
+    resolved.includes("renderify-missing-preact-root"),
+    false,
+    resolved,
+  );
+});
+
 test("runtime source loader honors explicit manifest mappings before local preact shortcuts", async () => {
   const runtime = new DefaultRuntimeManager({
     remoteFallbackCdnBases: [],

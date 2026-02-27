@@ -53,6 +53,9 @@ type NodePathModule = {
   dirname(path: string): string;
   join(...segments: string[]): string;
 };
+type NodeFsModule = {
+  existsSync(path: string): boolean;
+};
 
 const PREACT_LOCAL_ESM_ENTRYPOINTS = new Map<string, string>([
   ["preact", "dist/preact.mjs"],
@@ -95,6 +98,7 @@ export class RuntimeSourceModuleLoader {
   private nodeModuleResolverPromise?: Promise<NodeModuleResolver | undefined>;
   private nodePathToFileUrlPromise?: Promise<NodePathToFileUrl | undefined>;
   private nodePathModulePromise?: Promise<NodePathModule | undefined>;
+  private nodeFsModulePromise?: Promise<NodeFsModule | undefined>;
   private preactPackageRootPromise?: Promise<string | undefined>;
 
   constructor(options: RuntimeSourceModuleLoaderOptions) {
@@ -739,11 +743,17 @@ export class RuntimeSourceModuleLoader {
 
     const preactRoot = await this.getPreactPackageRoot();
     const pathModule = await this.getNodePathModule();
-    if (!preactRoot || !pathModule) {
+    const fsModule = await this.getNodeFsModule();
+    if (!preactRoot || !pathModule || !fsModule) {
       return undefined;
     }
 
-    return pathModule.join(preactRoot, relativeEntry);
+    const candidatePath = pathModule.join(preactRoot, relativeEntry);
+    if (!fsModule.existsSync(candidatePath)) {
+      return undefined;
+    }
+
+    return candidatePath;
   }
 
   private async getNodeModuleResolver(): Promise<
@@ -836,6 +846,34 @@ export class RuntimeSourceModuleLoader {
     })();
 
     return this.nodePathModulePromise;
+  }
+
+  private async getNodeFsModule(): Promise<NodeFsModule | undefined> {
+    if (this.nodeFsModulePromise) {
+      return this.nodeFsModulePromise;
+    }
+
+    this.nodeFsModulePromise = (async () => {
+      if (!isNodeRuntime()) {
+        return undefined;
+      }
+
+      try {
+        const fsNamespace = (await import("node:fs")) as {
+          existsSync?: NodeFsModule["existsSync"];
+        };
+        if (typeof fsNamespace.existsSync !== "function") {
+          return undefined;
+        }
+        return {
+          existsSync: fsNamespace.existsSync,
+        };
+      } catch {
+        return undefined;
+      }
+    })();
+
+    return this.nodeFsModulePromise;
   }
 
   private async getPreactPackageRoot(): Promise<string | undefined> {
