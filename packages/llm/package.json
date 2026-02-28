@@ -1,6 +1,6 @@
 {
   "name": "@renderify/llm",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "LLM providers for Renderify",
   "main": "dist/llm.cjs.js",
   "types": "dist/llm.d.ts",

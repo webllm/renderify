@@ -1,5 +1,11 @@
 # @renderify/ir
 
+## 0.6.0
+
+### Minor Changes
+
+- fix renderify
+
 ## 0.5.0
 
 ### Minor Changes
