@@ -52,6 +52,6 @@
   },
   "sideEffects": false,
   "dependencies": {
-    "es-module-lexer": "^1.7.0"
+    "es-module-lexer": "^2.0.0"
   }
 }

@@ -55,7 +55,7 @@
     "@renderify/ir": "workspace:^",
     "@renderify/security": "workspace:^",
     "@renderify/runtime": "workspace:^",
-    "preact": "^10.28.3",
-    "preact-render-to-string": "^6.6.5"
+    "preact": "^10.28.4",
+    "preact-render-to-string": "^6.6.6"
   }
 }
