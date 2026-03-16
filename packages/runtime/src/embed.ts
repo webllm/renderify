@@ -3,7 +3,11 @@ import type {
   RuntimePlan,
   RuntimeStateSnapshot,
 } from "@renderify/ir";
-import { DefaultSecurityChecker } from "@renderify/security";
+import {
+  DefaultSecurityChecker,
+  type RuntimeSecurityProfile,
+  type SecurityInitializationOptions,
+} from "@renderify/security";
 import { JspmModuleLoader } from "./jspm-module-loader";
 import { DefaultRuntimeManager } from "./manager";
 import { autoPinRuntimePlanModuleManifest } from "./module-manifest-autopin";
@@ -20,6 +24,14 @@ import {
 } from "./ui-renderer";
 
 const EMBED_TARGET_RENDER_LOCKS = new WeakMap<HTMLElement, Promise<void>>();
+const TRUSTED_EMBED_PROFILE: RuntimeSecurityProfile = "trusted";
+
+export async function renderTrustedPlanInBrowser(
+  plan: RuntimePlan,
+  options: RuntimeEmbedRenderOptions = {},
+): Promise<RuntimeEmbedRenderResult> {
+  return renderPlanInBrowser(plan, withTrustedEmbedDefaults(options));
+}
 
 export async function renderPlanInBrowser(
   plan: RuntimePlan,
@@ -98,6 +110,13 @@ export interface RuntimeInteractiveSession {
   clearState(): Promise<RuntimeEmbedRenderResult>;
   getLastResult(): RuntimeEmbedRenderResult;
   terminate(): Promise<void>;
+}
+
+export async function createTrustedInteractiveSession(
+  plan: RuntimePlan,
+  options: RuntimeEmbedRenderOptions = {},
+): Promise<RuntimeInteractiveSession> {
+  return createInteractiveSession(plan, withTrustedEmbedDefaults(options));
 }
 
 export async function createInteractiveSession(
@@ -249,6 +268,32 @@ function resolveEmbedSecurity(
   return security;
 }
 
+function withTrustedEmbedDefaults(
+  options: RuntimeEmbedRenderOptions,
+): RuntimeEmbedRenderOptions {
+  const runtimeOptions =
+    options.runtimeOptions?.remoteFallbackCdnBases === undefined
+      ? {
+          ...(options.runtimeOptions ?? {}),
+          remoteFallbackCdnBases: [],
+        }
+      : options.runtimeOptions;
+  const shouldApplyTrustedInitialization =
+    options.security === undefined ||
+    options.securityInitialization !== undefined;
+
+  return {
+    ...options,
+    runtimeOptions,
+    securityInitialization: shouldApplyTrustedInitialization
+      ? mergeSecurityInitializationProfile(
+          options.securityInitialization,
+          TRUSTED_EMBED_PROFILE,
+        )
+      : options.securityInitialization,
+  };
+}
+
 async function preparePlanForExecution(
   plan: RuntimePlan,
   options: RuntimeEmbedRenderOptions,
@@ -317,6 +362,39 @@ async function precheckPlanBeforeAutoPin(
   });
 
   return precheckSecurity.checkPlan(plan);
+}
+
+function mergeSecurityInitializationProfile(
+  input: RuntimeEmbedRenderOptions["securityInitialization"],
+  profile: RuntimeSecurityProfile,
+): RuntimeEmbedRenderOptions["securityInitialization"] {
+  if (input === undefined) {
+    return { profile };
+  }
+
+  if (isSecurityInitializationOptions(input)) {
+    return {
+      ...input,
+      profile: input.profile ?? profile,
+    };
+  }
+
+  return {
+    profile,
+    overrides: {
+      ...input,
+    },
+  };
+}
+
+function isSecurityInitializationOptions(
+  value: RuntimeEmbedRenderOptions["securityInitialization"],
+): value is SecurityInitializationOptions {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      ("profile" in value || "overrides" in value),
+  );
 }
 
 async function withEmbedTargetRenderLock<T>(

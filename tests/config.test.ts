@@ -51,6 +51,21 @@ test("config reads security profile from env", async () => {
   }
 });
 
+test("config accepts trusted security profile from env", async () => {
+  const previousProfile = process.env.RENDERIFY_SECURITY_PROFILE;
+
+  process.env.RENDERIFY_SECURITY_PROFILE = "trusted";
+
+  try {
+    const config = new DefaultRenderifyConfig();
+    await config.load();
+
+    assert.equal(config.get("securityProfile"), "trusted");
+  } finally {
+    restoreEnv("RENDERIFY_SECURITY_PROFILE", previousProfile);
+  }
+});
+
 test("config maps explicit strictSecurity=false to relaxed profile when profile is unset", async () => {
   const previousStrictSecurity = process.env.RENDERIFY_STRICT_SECURITY;
   const previousProfile = process.env.RENDERIFY_SECURITY_PROFILE;

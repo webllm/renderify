@@ -467,7 +467,9 @@ async function main() {
   });
   const preloadSecurityChecker = new DefaultSecurityChecker();
   preloadSecurityChecker.initialize({
-    profile: config.get<"strict" | "balanced" | "relaxed">("securityProfile"),
+    profile: config.get<"strict" | "balanced" | "trusted" | "relaxed">(
+      "securityProfile",
+    ),
     overrides: config.get("securityPolicy"),
   });
   const requireIntegrityForHydration =

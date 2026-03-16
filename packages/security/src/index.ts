@@ -55,7 +55,11 @@ export interface RuntimeSecurityPolicy {
   maxSourceImportSpecifiers: number;
 }
 
-export type RuntimeSecurityProfile = "strict" | "balanced" | "relaxed";
+export type RuntimeSecurityProfile =
+  | "strict"
+  | "balanced"
+  | "trusted"
+  | "relaxed";
 
 export interface SecurityInitializationOptions {
   profile?: RuntimeSecurityProfile;
@@ -169,6 +173,48 @@ const SECURITY_PROFILE_POLICIES: Record<
       "\\bchild_process\\b",
     ],
     maxSourceImportSpecifiers: 120,
+  },
+  trusted: {
+    blockedTags: ["script", "iframe", "object", "embed", "link", "meta"],
+    maxTreeDepth: 16,
+    maxNodeCount: 1000,
+    allowInlineEventHandlers: false,
+    allowedModules: ["/", "npm:"],
+    allowedNetworkHosts: ["ga.jspm.io", "cdn.jspm.io"],
+    allowArbitraryNetwork: false,
+    allowedExecutionProfiles: [
+      "standard",
+      "isolated-vm",
+      "sandbox-worker",
+      "sandbox-iframe",
+      "sandbox-shadowrealm",
+    ],
+    maxTransitionsPerPlan: 150,
+    maxActionsPerTransition: 75,
+    maxAllowedImports: 400,
+    maxAllowedExecutionMs: 30000,
+    maxAllowedComponentInvocations: 1000,
+    allowRuntimeSourceModules: true,
+    allowPreactSourceRuntime: true,
+    maxRuntimeSourceBytes: 120000,
+    supportedSpecVersions: [DEFAULT_RUNTIME_PLAN_SPEC_VERSION],
+    requireSpecVersion: true,
+    requireModuleManifestForBareSpecifiers: true,
+    requireModuleIntegrity: false,
+    allowDynamicSourceImports: false,
+    sourceBannedPatternStrings: [
+      "\\beval\\s*\\(",
+      "\\bnew\\s+Function\\b",
+      "\\bfetch\\s*\\(",
+      "\\bXMLHttpRequest\\b",
+      "\\bWebSocket\\b",
+      "\\bimportScripts\\b",
+      "\\bdocument\\s*\\.\\s*cookie\\b",
+      "\\blocalStorage\\b",
+      "\\bsessionStorage\\b",
+      "\\bchild_process\\b",
+    ],
+    maxSourceImportSpecifiers: 180,
   },
   relaxed: {
     blockedTags: ["script", "iframe", "object", "embed"],

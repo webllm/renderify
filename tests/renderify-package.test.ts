@@ -12,8 +12,10 @@ import type {
 import type { RuntimePlan } from "../packages/ir/src/index";
 import {
   createRenderify,
+  createTrustedInteractiveSession,
   renderPlanOnce,
   renderPromptOnce,
+  renderTrustedPlanInBrowser,
 } from "../packages/renderify/src/index";
 
 class StaticPlanLLM implements LLMInterpreter {
@@ -106,6 +108,11 @@ test("renderify facade one-shot helpers renderPromptOnce and renderPlanOnce", as
 
   assert.equal(planResult.plan.id, "manual-plan");
   assert.match(planResult.html, /Manual plan/);
+});
+
+test("renderify facade re-exports trusted browser helpers", () => {
+  assert.equal(typeof renderTrustedPlanInBrowser, "function");
+  assert.equal(typeof createTrustedInteractiveSession, "function");
 });
 
 test("renderify facade binds app runtime options from config and security policy", async () => {

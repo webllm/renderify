@@ -12,6 +12,7 @@ import {
 } from "../packages/ir/src/index";
 import {
   createInteractiveSession,
+  createTrustedInteractiveSession,
   DefaultRuntimeManager,
   JspmModuleLoader,
   type RuntimeComponentFactory,
@@ -21,6 +22,7 @@ import {
   type RuntimeSourceTranspileInput,
   type RuntimeSourceTranspiler,
   renderPlanInBrowser,
+  renderTrustedPlanInBrowser,
 } from "../packages/runtime/src/index";
 import { DefaultSecurityChecker } from "../packages/security/src/index";
 
@@ -788,6 +790,68 @@ test("renderPlanInBrowser binds default runtime network policy to security polic
     [...(runtime.allowedNetworkHosts ?? new Set<string>())].sort(),
     ["cdn.jspm.io", "ga.jspm.io"],
   );
+});
+
+test("renderTrustedPlanInBrowser defaults to trusted security for preact source plans", async () => {
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "embed_runtime_trusted_plan",
+    version: 1,
+    root: createTextNode(""),
+    capabilities: {
+      domWrite: true,
+    },
+    source: {
+      language: "js",
+      runtime: "preact",
+      code: "export default function View(){ return null; }",
+    },
+  };
+
+  const result = await renderTrustedPlanInBrowser(plan, {
+    runtime: createEmbedRuntimeStub(),
+    ui: createEmbedUiStub(),
+    autoInitializeRuntime: false,
+    autoTerminateRuntime: false,
+    autoPinLatestModuleManifest: false,
+  });
+
+  assert.equal(result.security.safe, true, result.security.issues.join("; "));
+});
+
+test("createTrustedInteractiveSession defaults to trusted security for preact source plans", async () => {
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "interactive_session_trusted_plan",
+    version: 1,
+    root: createTextNode(""),
+    capabilities: {
+      domWrite: true,
+    },
+    source: {
+      language: "js",
+      runtime: "preact",
+      code: "export default function View(){ return null; }",
+    },
+  };
+
+  const session = await createTrustedInteractiveSession(plan, {
+    runtime: createEmbedRuntimeStub(),
+    ui: createEmbedUiStub(),
+    autoInitializeRuntime: false,
+    autoTerminateRuntime: false,
+    autoPinLatestModuleManifest: false,
+  });
+
+  try {
+    assert.equal(
+      session.security.safe,
+      true,
+      session.security.issues.join("; "),
+    );
+  } finally {
+    await session.terminate();
+  }
 });
 
 test("renderPlanInBrowser serializes concurrent renders for the same target", async () => {

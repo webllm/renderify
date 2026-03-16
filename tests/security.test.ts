@@ -275,9 +275,22 @@ test("security checker precompiles source banned patterns on initialize", async 
   );
 });
 
-test("security profiles list includes strict balanced relaxed", async () => {
+test("security profiles list includes strict balanced trusted relaxed", async () => {
   const profiles = listSecurityProfiles();
-  assert.deepEqual(profiles.sort(), ["balanced", "relaxed", "strict"]);
+  assert.deepEqual(profiles.sort(), [
+    "balanced",
+    "relaxed",
+    "strict",
+    "trusted",
+  ]);
+});
+
+test("trusted profile enables preact without relaxed network permissions", async () => {
+  const trustedPolicy = getSecurityProfilePolicy("trusted");
+  assert.equal(trustedPolicy.allowPreactSourceRuntime, true);
+  assert.equal(trustedPolicy.allowArbitraryNetwork, false);
+  assert.equal(trustedPolicy.allowDynamicSourceImports, false);
+  assert.equal(trustedPolicy.requireModuleManifestForBareSpecifiers, true);
 });
 
 test("security checker validates requested execution profile", async () => {
@@ -338,6 +351,21 @@ test("security checker blocks source.runtime=preact in balanced profile", async 
 test("security checker allows source.runtime=preact in relaxed profile", async () => {
   const checker = new DefaultSecurityChecker();
   checker.initialize({ profile: "relaxed" });
+
+  const plan = createPlan("section");
+  plan.source = {
+    language: "js",
+    runtime: "preact",
+    code: "export default function View(){ return null; }",
+  };
+
+  const result = await checker.checkPlan(plan);
+  assert.equal(result.safe, true, result.issues.join("; "));
+});
+
+test("security checker allows source.runtime=preact in trusted profile", async () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize({ profile: "trusted" });
 
   const plan = createPlan("section");
   plan.source = {

@@ -1,6 +1,10 @@
 import type { RuntimeSecurityPolicy } from "./security";
 
-export type SecurityProfileConfig = "strict" | "balanced" | "relaxed";
+export type SecurityProfileConfig =
+  | "strict"
+  | "balanced"
+  | "trusted"
+  | "relaxed";
 export type LLMProviderConfig = string;
 
 const DEFAULT_RUNTIME_SPEC_VERSIONS = ["runtime-plan/v1"];
@@ -372,7 +376,12 @@ function parseNonNegativeInt(value: string | undefined): number | undefined {
 function parseOptionalSecurityProfile(
   value: string | undefined,
 ): SecurityProfileConfig | undefined {
-  if (value === "strict" || value === "balanced" || value === "relaxed") {
+  if (
+    value === "strict" ||
+    value === "balanced" ||
+    value === "trusted" ||
+    value === "relaxed"
+  ) {
     return value;
   }
 

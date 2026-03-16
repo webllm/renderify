@@ -41,12 +41,14 @@ import {
   openaiLLMProvider,
 } from "@renderify/llm";
 import {
+  createTrustedInteractiveSession,
   DefaultRuntimeManager,
   JspmModuleLoader,
   type JspmModuleLoaderOptions,
   type RuntimeManager,
   type RuntimeManagerOptions,
   renderPlanInBrowser,
+  renderTrustedPlanInBrowser,
 } from "@renderify/runtime";
 import {
   DefaultSecurityChecker,
@@ -61,11 +63,13 @@ export {
   anthropicLLMProvider,
   createDefaultLLMProviderRegistry,
   createLLMInterpreter,
+  createTrustedInteractiveSession,
   defaultLLMProviderRegistry,
   googleLLMProvider,
   LLMProviderRegistry,
   openaiLLMProvider,
   renderPlanInBrowser,
+  renderTrustedPlanInBrowser,
 };
 export type {
   AnthropicLLMInterpreterOptions,
