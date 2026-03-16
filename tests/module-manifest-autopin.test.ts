@@ -17,6 +17,7 @@ import type {
   RuntimeExecutionInput,
   RuntimeModuleLoader,
 } from "../packages/runtime/src/runtime-manager.types";
+import { DefaultSecurityChecker } from "../packages/security/src/index";
 
 class ResolveOnlyJspmLoader implements RuntimeModuleLoader {
   async load(_specifier: string): Promise<unknown> {
@@ -273,6 +274,100 @@ test("renderPlanInBrowser blocks invalid plans before auto-pin network side effe
   }
 });
 
+test("renderPlanInBrowser honors custom security rejection before auto-pin fetch", async () => {
+  const baseChecker = new DefaultSecurityChecker();
+  baseChecker.initialize({ profile: "balanced" });
+
+  const customChecker = {
+    initialize(): void {},
+    getPolicy() {
+      return baseChecker.getPolicy();
+    },
+    getProfile() {
+      return baseChecker.getProfile();
+    },
+    checkCapabilities(
+      ...args: Parameters<DefaultSecurityChecker["checkCapabilities"]>
+    ) {
+      return baseChecker.checkCapabilities(...args);
+    },
+    checkModuleSpecifier(specifier: string) {
+      return baseChecker.checkModuleSpecifier(specifier);
+    },
+    async checkPlan() {
+      return {
+        safe: false,
+        issues: ["blocked by custom checker"],
+        diagnostics: [],
+      };
+    },
+  };
+
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "autopin_embed_custom_checker_plan",
+    version: 1,
+    root: createElementNode("section", undefined, [createTextNode("fallback")]),
+    capabilities: {
+      domWrite: true,
+    },
+    source: {
+      language: "js",
+      runtime: "renderify",
+      code: [
+        'import { format } from "date-fns";',
+        "export default function App(){",
+        "  return { type: 'text', value: format(new Date(0), 'yyyy-MM-dd') };",
+        "}",
+      ].join("\n"),
+    },
+  };
+
+  let fetchCount = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    fetchCount += 1;
+    return new Response("unexpected network", { status: 500 });
+  }) as typeof fetch;
+
+  try {
+    await assert.rejects(
+      () =>
+        renderPlanInBrowser(plan, {
+          security: customChecker,
+          runtime: {
+            async initialize(): Promise<void> {},
+            async terminate(): Promise<void> {},
+            async probePlan(): Promise<never> {
+              throw new Error("not implemented");
+            },
+            async executePlan(): Promise<never> {
+              throw new Error("not implemented");
+            },
+            async execute(): Promise<never> {
+              throw new Error("runtime should not execute");
+            },
+            async compile(): Promise<string> {
+              return "";
+            },
+            getPlanState() {
+              return undefined;
+            },
+            setPlanState(): void {},
+            clearPlanState(): void {},
+          } as unknown as RuntimeManager,
+          autoPinModuleLoader: new ResolveOnlyJspmLoader(),
+          autoInitializeRuntime: false,
+          autoTerminateRuntime: false,
+        }),
+      (error: unknown) => error instanceof RuntimeSecurityViolationError,
+    );
+    assert.equal(fetchCount, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("renderPlanInBrowser auto-pins bare imports after security precheck", async () => {
   const plan: RuntimePlan = {
     specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
@@ -360,6 +455,112 @@ test("renderPlanInBrowser auto-pins bare imports after security precheck", async
 
   try {
     const result = await renderPlanInBrowser(plan, {
+      runtime: runtimeStub,
+      autoPinModuleLoader: new ResolveOnlyJspmLoader(),
+      autoInitializeRuntime: false,
+      autoTerminateRuntime: false,
+    });
+
+    assert.equal(result.html, "<section>ok</section>");
+    assert.equal(
+      executedPlan?.moduleManifest?.["date-fns"]?.resolvedUrl,
+      "https://ga.jspm.io/npm:date-fns@4.1.0/index.js",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("renderPlanInBrowser still auto-pins bare imports with caller-provided checker", async () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize({ profile: "balanced" });
+
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "autopin_embed_custom_checker_allows_manifest_hydration_plan",
+    version: 1,
+    root: createElementNode("section", undefined, [createTextNode("fallback")]),
+    capabilities: {
+      domWrite: true,
+    },
+    source: {
+      language: "js",
+      runtime: "renderify",
+      code: [
+        'import { format } from "date-fns";',
+        "export default function App(){",
+        "  return { type: 'text', value: format(new Date(0), 'yyyy-MM-dd') };",
+        "}",
+      ].join("\n"),
+    },
+  };
+
+  let executedPlan: RuntimePlan | undefined;
+  const runtimeStub = {
+    async initialize(): Promise<void> {},
+    async terminate(): Promise<void> {},
+    async probePlan(_plan: RuntimePlan): Promise<never> {
+      throw new Error("not implemented");
+    },
+    async executePlan(_plan: RuntimePlan): Promise<never> {
+      throw new Error("not implemented");
+    },
+    async execute(input: RuntimeExecutionInput) {
+      executedPlan = input.plan;
+      return {
+        planId: input.plan.id,
+        root: createElementNode("section", undefined, [createTextNode("ok")]),
+        diagnostics: [],
+      };
+    },
+    async compile(_plan: RuntimePlan): Promise<string> {
+      return "";
+    },
+    getPlanState(_planId: string) {
+      return undefined;
+    },
+    setPlanState(_planId: string): void {},
+    clearPlanState(_planId: string): void {},
+  } as unknown as RuntimeManager;
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "https://ga.jspm.io/npm:date-fns") {
+      return new Response("4.1.0", {
+        status: 200,
+        headers: {
+          "content-type": "text/plain; charset=utf-8",
+        },
+      });
+    }
+
+    if (url === "https://ga.jspm.io/npm:date-fns@4.1.0/package.json") {
+      return new Response(
+        JSON.stringify({
+          exports: {
+            ".": {
+              import: {
+                default: "./index.js",
+              },
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+          },
+        },
+      );
+    }
+
+    return new Response("not found", { status: 404 });
+  }) as typeof fetch;
+
+  try {
+    const result = await renderPlanInBrowser(plan, {
+      security: checker,
       runtime: runtimeStub,
       autoPinModuleLoader: new ResolveOnlyJspmLoader(),
       autoInitializeRuntime: false,
