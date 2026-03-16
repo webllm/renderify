@@ -52,6 +52,16 @@ export async function createPreactRenderArtifact(input: {
     };
   }
 
+  if (isPlainObjectPreactOutput(input.sourceExport)) {
+    input.diagnostics.push({
+      level: "error",
+      code: "RUNTIME_PREACT_EXPORT_INVALID",
+      message:
+        'source.runtime=preact requires JSX/h() output instead of a plain object; use source.runtime="renderify" for RuntimeNode output',
+    });
+    return undefined;
+  }
+
   if (typeof input.sourceExport !== "function") {
     input.diagnostics.push({
       level: "error",
@@ -62,10 +72,12 @@ export async function createPreactRenderArtifact(input: {
   }
 
   try {
-    const vnode = preact.h(
-      input.sourceExport as (props: Record<string, JsonValue>) => unknown,
-      input.runtimeInput,
-    );
+    const component = isPreactClassComponent(input.sourceExport)
+      ? input.sourceExport
+      : wrapPreactFunctionComponent(
+          input.sourceExport as (props: Record<string, JsonValue>) => unknown,
+        );
+    const vnode = preact.h(component, input.runtimeInput);
 
     return {
       mode: "preact-vnode",
@@ -200,7 +212,43 @@ function isPreactLikeVNode(value: unknown): boolean {
   }
 
   const record = value as Record<string, unknown>;
-  return "type" in record && "props" in record;
+  return (
+    "type" in record && "props" in record && "__v" in record && "__k" in record
+  );
+}
+
+function isPlainObjectPreactOutput(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  return "type" in record && "props" in record && !isPreactLikeVNode(record);
+}
+
+function isPreactClassComponent(value: unknown): boolean {
+  if (typeof value !== "function") {
+    return false;
+  }
+
+  const prototype = (value as { prototype?: { render?: unknown } }).prototype;
+  return typeof prototype?.render === "function";
+}
+
+function wrapPreactFunctionComponent(
+  sourceComponent: (props: Record<string, JsonValue>) => unknown,
+): (props: Record<string, JsonValue>) => unknown {
+  return function RenderifyPreactSourceWrapper(
+    props: Record<string, JsonValue>,
+  ): unknown {
+    const output = sourceComponent(props);
+    if (isPlainObjectPreactOutput(output)) {
+      throw new Error(
+        'source.runtime=preact component returned a plain object; return JSX/h() output or use source.runtime="renderify"',
+      );
+    }
+    return output;
+  };
 }
 
 async function loadPreactModule(): Promise<PreactLikeModule | undefined> {

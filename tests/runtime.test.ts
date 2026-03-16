@@ -14,6 +14,7 @@ import {
   createInteractiveSession,
   createTrustedInteractiveSession,
   DefaultRuntimeManager,
+  DefaultUIRenderer,
   JspmModuleLoader,
   type RuntimeComponentFactory,
   type RuntimeManager,
@@ -3205,6 +3206,48 @@ test("runtime emits preact render artifact for source.runtime=preact modules", a
       language: "js",
       runtime: "preact",
       code: [
+        'import { h } from "preact";',
+        "export default function Dashboard(props) {",
+        '  return h("section", { "data-kind": "dashboard" }, `count:${props.state.count}`);',
+        "}",
+      ].join("\n"),
+    },
+  };
+
+  const result = await runtime.executePlan(plan);
+  assert.equal(result.renderArtifact?.mode, "preact-vnode");
+  assert.ok(result.renderArtifact?.payload);
+  assert.equal(
+    await new DefaultUIRenderer().render(result),
+    '<section data-kind="dashboard">count:4</section>',
+  );
+
+  await runtime.terminate();
+});
+
+test("runtime preact rendering rejects plain object component output", async () => {
+  const runtime = new DefaultRuntimeManager({
+    sourceTranspiler: new PassthroughSourceTranspiler(),
+  });
+  await runtime.initialize();
+
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "runtime_preact_plain_object_output_plan",
+    version: 1,
+    root: createElementNode("div", undefined, [createTextNode("fallback")]),
+    capabilities: {
+      domWrite: true,
+    },
+    state: {
+      initial: {
+        count: 4,
+      },
+    },
+    source: {
+      language: "js",
+      runtime: "preact",
+      code: [
         "export default function Dashboard(props) {",
         '  return { type: "section", props: { "data-kind": "dashboard" },',
         "    children: [`count:${props.state.count}`] };",
@@ -3215,7 +3258,10 @@ test("runtime emits preact render artifact for source.runtime=preact modules", a
 
   const result = await runtime.executePlan(plan);
   assert.equal(result.renderArtifact?.mode, "preact-vnode");
-  assert.ok(result.renderArtifact?.payload);
+  await assert.rejects(
+    () => new DefaultUIRenderer().render(result),
+    /plain object/,
+  );
 
   await runtime.terminate();
 });
