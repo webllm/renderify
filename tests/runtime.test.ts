@@ -15,12 +15,14 @@ import {
   DefaultRuntimeManager,
   JspmModuleLoader,
   type RuntimeComponentFactory,
+  type RuntimeManager,
   type RuntimeModuleLoader,
   RuntimeSecurityViolationError,
   type RuntimeSourceTranspileInput,
   type RuntimeSourceTranspiler,
   renderPlanInBrowser,
 } from "../packages/runtime/src/index";
+import { DefaultSecurityChecker } from "../packages/security/src/index";
 
 class MockLoader implements RuntimeModuleLoader {
   constructor(private readonly modules: Record<string, unknown>) {}
@@ -587,6 +589,39 @@ function createPlan(root: RuntimeNode, imports: string[] = []): RuntimePlan {
   };
 }
 
+function createEmbedRuntimeStub(): RuntimeManager {
+  return {
+    initialize: async () => {},
+    terminate: async () => {},
+    probePlan: async (plan) => ({
+      planId: plan.id,
+      diagnostics: [],
+      dependencies: [],
+    }),
+    executePlan: async (plan) => ({
+      planId: plan.id,
+      root: createElementNode("section", undefined, [createTextNode("ok")]),
+      diagnostics: [],
+    }),
+    execute: async (input) => ({
+      planId: input.plan.id,
+      root: createElementNode("section", undefined, [createTextNode("ok")]),
+      diagnostics: [],
+    }),
+    compile: async () => "",
+    getPlanState: () => undefined,
+    setPlanState: () => {},
+    clearPlanState: () => {},
+  };
+}
+
+function createEmbedUiStub() {
+  return {
+    render: async () => "<section>ok</section>",
+    renderNode: () => "<section>ok</section>",
+  };
+}
+
 test("renderPlanInBrowser renders runtime node HTML without mount target", async () => {
   const plan: RuntimePlan = {
     specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
@@ -648,6 +683,78 @@ test("renderPlanInBrowser rejects plan when security policy fails", async () => 
       }),
     (error: unknown) => error instanceof RuntimeSecurityViolationError,
   );
+});
+
+test("renderPlanInBrowser preserves a pre-initialized custom security checker", async () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize({ profile: "relaxed" });
+
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "embed_runtime_custom_security_checker",
+    version: 1,
+    root: createTextNode(""),
+    capabilities: {
+      domWrite: true,
+    },
+    source: {
+      language: "js",
+      runtime: "preact",
+      code: "export default function View(){ return null; }",
+    },
+  };
+
+  const result = await renderPlanInBrowser(plan, {
+    security: checker,
+    runtime: createEmbedRuntimeStub(),
+    ui: createEmbedUiStub(),
+    autoInitializeRuntime: false,
+    autoTerminateRuntime: false,
+    autoPinLatestModuleManifest: false,
+  });
+
+  assert.equal(result.security.safe, true, result.security.issues.join("; "));
+  assert.equal(checker.getProfile(), "relaxed");
+});
+
+test("createInteractiveSession preserves a pre-initialized custom security checker", async () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize({ profile: "relaxed" });
+
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "interactive_session_custom_security_checker",
+    version: 1,
+    root: createTextNode(""),
+    capabilities: {
+      domWrite: true,
+    },
+    source: {
+      language: "js",
+      runtime: "preact",
+      code: "export default function View(){ return null; }",
+    },
+  };
+
+  const session = await createInteractiveSession(plan, {
+    security: checker,
+    runtime: createEmbedRuntimeStub(),
+    ui: createEmbedUiStub(),
+    autoInitializeRuntime: false,
+    autoTerminateRuntime: false,
+    autoPinLatestModuleManifest: false,
+  });
+
+  try {
+    assert.equal(
+      session.security.safe,
+      true,
+      session.security.issues.join("; "),
+    );
+    assert.equal(checker.getProfile(), "relaxed");
+  } finally {
+    await session.terminate();
+  }
 });
 
 test("renderPlanInBrowser binds default runtime network policy to security policy", async () => {

@@ -31,8 +31,7 @@ export async function renderPlanInBrowser(
       options.autoPinModuleLoader ??
       options.runtimeOptions?.moduleLoader ??
       new JspmModuleLoader();
-    const security = options.security ?? new DefaultSecurityChecker();
-    security.initialize(options.securityInitialization);
+    const security = resolveEmbedSecurity(options);
     const policy = security.getPolicy();
     const runtime =
       options.runtime ??
@@ -119,8 +118,7 @@ export async function createInteractiveSession(
     options.autoPinModuleLoader ??
     options.runtimeOptions?.moduleLoader ??
     new JspmModuleLoader();
-  const security = options.security ?? new DefaultSecurityChecker();
-  security.initialize(options.securityInitialization);
+  const security = resolveEmbedSecurity(options);
   const policy = security.getPolicy();
   const runtime =
     options.runtime ??
@@ -248,6 +246,21 @@ export async function createInteractiveSession(
     }
     throw error;
   }
+}
+
+function resolveEmbedSecurity(
+  options: RuntimeEmbedRenderOptions,
+): NonNullable<RuntimeEmbedRenderOptions["security"]> {
+  const security = options.security ?? new DefaultSecurityChecker();
+
+  if (
+    options.security === undefined ||
+    options.securityInitialization !== undefined
+  ) {
+    security.initialize(options.securityInitialization);
+  }
+
+  return security;
 }
 
 async function withEmbedTargetRenderLock<T>(
