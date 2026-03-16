@@ -10,6 +10,7 @@ import {
 import {
   autoPinRuntimePlanModuleManifest,
   type RuntimeManager,
+  RuntimeSecurityViolationError,
   renderPlanInBrowser,
 } from "../packages/runtime/src/index";
 import type {
@@ -207,7 +208,72 @@ test("auto pin latest leaves existing moduleManifest entries unchanged", async (
   }
 });
 
-test("renderPlanInBrowser auto-pins bare imports before security check", async () => {
+test("renderPlanInBrowser blocks invalid plans before auto-pin network side effects", async () => {
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "autopin_embed_precheck_plan",
+    version: 1,
+    root: createElementNode("script", undefined, [createTextNode("blocked")]),
+    capabilities: {
+      domWrite: true,
+    },
+    source: {
+      language: "js",
+      runtime: "renderify",
+      code: [
+        'import { format } from "date-fns";',
+        "export default function App(){",
+        "  return { type: 'text', value: format(new Date(0), 'yyyy-MM-dd') };",
+        "}",
+      ].join("\n"),
+    },
+  };
+
+  let fetchCount = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    fetchCount += 1;
+    return new Response("unexpected network", { status: 500 });
+  }) as typeof fetch;
+
+  try {
+    await assert.rejects(
+      () =>
+        renderPlanInBrowser(plan, {
+          runtime: {
+            async initialize(): Promise<void> {},
+            async terminate(): Promise<void> {},
+            async probePlan(): Promise<never> {
+              throw new Error("not implemented");
+            },
+            async executePlan(): Promise<never> {
+              throw new Error("not implemented");
+            },
+            async execute(): Promise<never> {
+              throw new Error("runtime should not execute");
+            },
+            async compile(): Promise<string> {
+              return "";
+            },
+            getPlanState() {
+              return undefined;
+            },
+            setPlanState(): void {},
+            clearPlanState(): void {},
+          } as unknown as RuntimeManager,
+          autoPinModuleLoader: new ResolveOnlyJspmLoader(),
+          autoInitializeRuntime: false,
+          autoTerminateRuntime: false,
+        }),
+      (error: unknown) => error instanceof RuntimeSecurityViolationError,
+    );
+    assert.equal(fetchCount, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("renderPlanInBrowser auto-pins bare imports after security precheck", async () => {
   const plan: RuntimePlan = {
     specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
     id: "autopin_embed_integration_plan",

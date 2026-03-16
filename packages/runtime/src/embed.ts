@@ -52,17 +52,8 @@ export async function renderPlanInBrowser(
     }
 
     try {
-      const planForExecution = await autoPinRuntimePlanModuleManifest(plan, {
-        enabled: options.autoPinLatestModuleManifest !== false,
-        moduleLoader,
-        fetchTimeoutMs: options.autoPinFetchTimeoutMs,
-        signal: options.signal,
-      });
-
-      const securityResult = await security.checkPlan(planForExecution);
-      if (!securityResult.safe) {
-        throw new RuntimeSecurityViolationError(securityResult);
-      }
+      const { planForExecution, securityResult } =
+        await preparePlanForExecution(plan, options, security, moduleLoader);
 
       const execution = await runtime.execute({
         plan: planForExecution,
@@ -152,17 +143,12 @@ export async function createInteractiveSession(
   };
 
   try {
-    const planForExecution = await autoPinRuntimePlanModuleManifest(plan, {
-      enabled: options.autoPinLatestModuleManifest !== false,
+    const { planForExecution, securityResult } = await preparePlanForExecution(
+      plan,
+      options,
+      security,
       moduleLoader,
-      fetchTimeoutMs: options.autoPinFetchTimeoutMs,
-      signal: options.signal,
-    });
-
-    const securityResult = await security.checkPlan(planForExecution);
-    if (!securityResult.safe) {
-      throw new RuntimeSecurityViolationError(securityResult);
-    }
+    );
 
     const executeAndRender = async (
       event?: RuntimeEvent,
@@ -261,6 +247,76 @@ function resolveEmbedSecurity(
   }
 
   return security;
+}
+
+async function preparePlanForExecution(
+  plan: RuntimePlan,
+  options: RuntimeEmbedRenderOptions,
+  security: NonNullable<RuntimeEmbedRenderOptions["security"]>,
+  moduleLoader: NonNullable<RuntimeEmbedRenderOptions["autoPinModuleLoader"]>,
+): Promise<{
+  planForExecution: RuntimePlan;
+  securityResult: RuntimeEmbedRenderResult["security"];
+}> {
+  const autoPinEnabled = options.autoPinLatestModuleManifest !== false;
+  const precheckResult = await precheckPlanBeforeAutoPin(
+    plan,
+    security,
+    autoPinEnabled,
+  );
+  if (!precheckResult.safe) {
+    throw new RuntimeSecurityViolationError(precheckResult);
+  }
+
+  const planForExecution = await autoPinRuntimePlanModuleManifest(plan, {
+    enabled: autoPinEnabled,
+    moduleLoader,
+    fetchTimeoutMs: options.autoPinFetchTimeoutMs,
+    signal: options.signal,
+  });
+
+  if (!autoPinEnabled) {
+    return {
+      planForExecution,
+      securityResult: precheckResult,
+    };
+  }
+
+  const securityResult = await security.checkPlan(planForExecution);
+  if (!securityResult.safe) {
+    throw new RuntimeSecurityViolationError(securityResult);
+  }
+
+  return {
+    planForExecution,
+    securityResult,
+  };
+}
+
+async function precheckPlanBeforeAutoPin(
+  plan: RuntimePlan,
+  security: NonNullable<RuntimeEmbedRenderOptions["security"]>,
+  autoPinEnabled: boolean,
+): Promise<RuntimeEmbedRenderResult["security"]> {
+  if (!autoPinEnabled) {
+    return security.checkPlan(plan);
+  }
+
+  const policy = security.getPolicy();
+  if (!policy.requireModuleManifestForBareSpecifiers) {
+    return security.checkPlan(plan);
+  }
+
+  const precheckSecurity = new DefaultSecurityChecker();
+  precheckSecurity.initialize({
+    overrides: {
+      ...policy,
+      allowedModules: ["", ...policy.allowedModules],
+      requireModuleManifestForBareSpecifiers: false,
+    },
+  });
+
+  return precheckSecurity.checkPlan(plan);
 }
 
 async function withEmbedTargetRenderLock<T>(
