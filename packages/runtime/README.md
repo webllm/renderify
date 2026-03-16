@@ -99,4 +99,5 @@ await runtime.terminate();
 ## Notes
 
 - `renderPlanInBrowser` includes security checks by default (`DefaultSecurityChecker`).
-- Runtime source modules can run with browser sandbox modes (`worker` / `iframe`) via runtime options.
+- `renderTrustedPlanInBrowser` is the dedicated helper for reviewed `source.runtime: "preact"` plans.
+- Browser sandbox modes (`worker` / `iframe`) apply to declarative plans and `source.runtime: "renderify"` modules, not to `source.runtime: "preact"`.

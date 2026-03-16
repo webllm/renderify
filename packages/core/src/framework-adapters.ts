@@ -103,6 +103,7 @@ function buildFrameworkInstructions(
     "Return TSX/JSX only (no .vue/.svelte single-file format).",
     `Use \`${adapterComponent}\` from \`${runtimeImportPath}\` when mounting framework-native components.`,
     "Keep output as browser ESM imports so Runtime source execution can run directly.",
+    'TSX/JSX adapter output uses the trusted browser source lane; render it with renderTrustedPlanInBrowser or security profile "trusted".',
   ].join("\n");
 }
 

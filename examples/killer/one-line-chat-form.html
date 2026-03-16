@@ -50,7 +50,7 @@
     <div class="page">
       <h1>One-Line Embed: Form + State + Any Package</h1>
       <p>
-        This demo uses <code>preact/hooks</code> + <code>date-fns</code> directly from JSPM at runtime.
+        This demo uses <code>preact/hooks</code> + <code>date-fns</code> directly from JSPM through Renderify's trusted source lane.
       </p>
       <section class="panel">
         <pre id="apiSnippet"></pre>
@@ -74,7 +74,7 @@
       }
     </script>
     <script type="module">
-      import { renderPlanInBrowser } from "../../packages/runtime/dist/runtime.esm.js";
+      import { renderTrustedPlanInBrowser } from "../../packages/runtime/dist/runtime.esm.js";
 
       const plan = {
         specVersion: "runtime-plan/v1",
@@ -162,12 +162,13 @@
 
       const snippetEl = document.getElementById("apiSnippet");
       const statusEl = document.getElementById("status");
-      snippetEl.textContent = "await renderPlanInBrowser(plan, { target: '#mount' });";
+      snippetEl.textContent =
+        "await renderTrustedPlanInBrowser(plan, { target: '#mount' });";
 
       (async () => {
         try {
-          await renderPlanInBrowser(plan, { target: "#mount" });
-          statusEl.textContent = "Rendered with one line API.";
+          await renderTrustedPlanInBrowser(plan, { target: "#mount" });
+          statusEl.textContent = "Rendered with trusted one-line API.";
         } catch (error) {
           statusEl.textContent = `Render failed: ${error?.message ?? String(error)}`;
         }

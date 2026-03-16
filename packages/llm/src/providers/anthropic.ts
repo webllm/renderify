@@ -691,6 +691,7 @@ export class AnthropicLLMInterpreter implements LLMInterpreter {
       "When using third-party UI libraries, prefer bare npm specifiers (for example @mui/material) over direct CDN URLs.",
       "When third-party UI libraries are unavailable, use plain JSX/HTML components instead of fake CDN paths.",
       'If source.language is jsx/tsx and code uses React-like hooks/imports, set source.runtime to "preact".',
+      'If source.runtime is "preact", the plan must be rendered through the trusted browser source lane (for example renderTrustedPlanInBrowser or the "trusted" security profile).',
       "For preact source modules, import hooks from preact/compat or preact/hooks (not renderify).",
       `Strict mode: ${strictHint}.`,
     ].join(" ");

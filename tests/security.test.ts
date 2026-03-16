@@ -346,6 +346,9 @@ test("security checker blocks source.runtime=preact in balanced profile", async 
   assert.ok(
     result.issues.some((issue) => issue.includes("source.runtime=preact")),
   );
+  assert.ok(
+    result.issues.some((issue) => issue.includes("trusted or relaxed")),
+  );
 });
 
 test("security checker allows source.runtime=preact in relaxed profile", async () => {

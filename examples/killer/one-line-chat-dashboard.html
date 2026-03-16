@@ -107,7 +107,7 @@
             User: Build an analytics dashboard with KPI toggles and a multi-point bar chart.
           </div>
           <div class="chat-bubble">
-            Assistant emitted RuntimePlan + TSX source. Render immediately.
+            Assistant emitted RuntimePlan + TSX source. Render through the trusted source lane.
           </div>
           <pre id="apiSnippet"></pre>
           <div id="status" class="status">Rendering...</div>
@@ -134,7 +134,7 @@
       }
     </script>
     <script type="module">
-      import { renderPlanInBrowser } from "../../packages/runtime/dist/runtime.esm.js";
+      import { renderTrustedPlanInBrowser } from "../../packages/runtime/dist/runtime.esm.js";
 
       const plan = {
         specVersion: "runtime-plan/v1",
@@ -242,12 +242,13 @@
 
       const statusEl = document.getElementById("status");
       const snippetEl = document.getElementById("apiSnippet");
-      snippetEl.textContent = "await renderPlanInBrowser(plan, { target: '#mount' });";
+      snippetEl.textContent =
+        "await renderTrustedPlanInBrowser(plan, { target: '#mount' });";
 
       (async () => {
         try {
-          await renderPlanInBrowser(plan, { target: "#mount" });
-          statusEl.textContent = "Rendered with one line API.";
+          await renderTrustedPlanInBrowser(plan, { target: "#mount" });
+          statusEl.textContent = "Rendered with trusted one-line API.";
         } catch (error) {
           statusEl.textContent = `Render failed: ${error?.message ?? String(error)}`;
         }

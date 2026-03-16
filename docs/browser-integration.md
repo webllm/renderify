@@ -2,6 +2,8 @@
 
 Renderify is designed for browser-first execution. This guide covers how to embed Renderify in web applications, from simple one-line embeds to full streaming chat interfaces.
 
+Use `renderPlanInBrowser` for declarative plans and `source.runtime: "renderify"` modules. Use `renderTrustedPlanInBrowser` for reviewed browser source modules that run with `source.runtime: "preact"`.
+
 ## One-Line Embed API
 
 The simplest way to render a plan in the browser:
@@ -39,6 +41,8 @@ interface RuntimeEmbedRenderOptions {
   serializeTargetRenders?: boolean;
 }
 ```
+
+The same options shape is used by both `renderPlanInBrowser` and `renderTrustedPlanInBrowser`.
 
 - **`target`** — where to mount the rendered UI. Accepts a CSS selector string, an HTMLElement reference, or an `InteractiveRenderTarget` for event-capable rendering.
 - **`context`** — execution context with `userId` and `variables`.
@@ -107,6 +111,8 @@ await session.dispatch({
 });
 ```
 
+If the plan uses `source.runtime: "preact"`, use `createTrustedInteractiveSession` instead. It applies the same trusted-source defaults as `renderTrustedPlanInBrowser`.
+
 ## Concurrent Render Safety
 
 Multiple renders to the same DOM target are automatically serialized:
@@ -153,14 +159,14 @@ For environments without a build system, load Renderify runtime through native E
 
 Note: `@renderify/runtime` currently publishes ESM/CJS entries (no UMD bundle). `@renderify/ir` and `@renderify/security` still publish UMD files (`dist/ir.umd.min.js`, `dist/security.umd.min.js`).
 
-## TSX Source Rendering (Babel + JSPM)
+## Trusted TSX Source Rendering (Babel + JSPM)
 
-For plans with source modules, Babel standalone is needed for transpilation:
+For `source.runtime: "preact"` plans, Babel standalone is needed for transpilation and the trusted embed helper should be used:
 
 ```html
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script type="module">
-  import { renderPlanInBrowser } from "https://esm.sh/@renderify/runtime";
+  import { renderTrustedPlanInBrowser } from "https://esm.sh/@renderify/runtime";
 
   const plan = {
     specVersion: "runtime-plan/v1",
@@ -184,16 +190,26 @@ For plans with source modules, Babel standalone is needed for transpilation:
       runtime: "preact",
     },
     moduleManifest: {
+      preact: {
+        resolvedUrl:
+          "https://ga.jspm.io/npm:preact@10.28.3/dist/preact.module.js",
+      },
       "preact/hooks": {
         resolvedUrl:
           "https://ga.jspm.io/npm:preact@10.28.3/hooks/dist/hooks.module.js",
       },
+      "preact/jsx-runtime": {
+        resolvedUrl:
+          "https://ga.jspm.io/npm:preact@10.28.3/jsx-runtime/dist/jsxRuntime.module.js",
+      },
     },
   };
 
-  await renderPlanInBrowser(plan, { target: "#app" });
+  await renderTrustedPlanInBrowser(plan, { target: "#app" });
 </script>
 ```
+
+`runtime: "preact"` is a trusted browser source lane. Use it for reviewed source modules that need JSX, hooks, or third-party UI packages. For untrusted source modules, stay on the declarative path or `source.runtime: "renderify"` with sandboxing.
 
 ## Hash-Based Code Runner
 
@@ -202,7 +218,10 @@ Renderify supports URL hash payloads for sharing executable UI:
 ```html
 <!-- Load plan from URL hash -->
 <script type="module">
-  import { renderPlanInBrowser } from "https://esm.sh/@renderify/runtime";
+  import {
+    renderPlanInBrowser,
+    renderTrustedPlanInBrowser,
+  } from "https://esm.sh/@renderify/runtime";
 
   const hash = new URLSearchParams(location.hash.slice(1));
 
@@ -226,10 +245,17 @@ Renderify supports URL hash payloads for sharing executable UI:
       source: { code, language: key.replace("64", ""), runtime },
     };
 
-    await renderPlanInBrowser(plan, { target: "#app" });
+    const renderSource =
+      runtime === "preact"
+        ? renderTrustedPlanInBrowser
+        : renderPlanInBrowser;
+
+    await renderSource(plan, { target: "#app" });
   }
 </script>
 ```
+
+Treat `jsx64` / `tsx64` payloads as trusted demo inputs when they target `runtime: "preact"`.
 
 ## DOM Reconciliation
 
@@ -260,9 +286,9 @@ Keys enable correct reconciliation when list items are reordered, added, or remo
 
 When embedding Renderify in a browser application:
 
-1. **Always use a SecurityChecker** — the `renderPlanInBrowser` function includes a default balanced-profile checker
+1. **Match the helper to the trust lane** — `renderPlanInBrowser` defaults to the balanced profile; `renderTrustedPlanInBrowser` defaults to the trusted profile for `source.runtime: "preact"`
 2. **Validate plans from external sources** — plans from URLs, APIs, or user input should always go through security checks
-3. **Use sandbox mode for untrusted source** — enable worker or iframe sandboxing for source modules from untrusted origins
+3. **Use sandbox mode only for non-Preact source** — worker, iframe, and ShadowRealm sandboxing apply to untrusted declarative plans or `source.runtime: "renderify"` modules; `source.runtime: "preact"` does not support those browser sandboxes
 4. **Set appropriate security profile** — use `strict` for user-facing production deployments
 
 ```ts
@@ -277,9 +303,11 @@ await renderPlanInBrowser(plan, {
 });
 ```
 
-## Preact Component Rendering
+If you initialize a checker yourself, the embed helpers preserve that profile unless you also pass `securityInitialization`.
 
-When a plan's source module exports a Preact component, the rendering path uses Preact's native reconciliation:
+## Trusted Preact Source Rendering
+
+When a plan's source module exports a Preact component, the trusted source rendering path uses Preact's native reconciliation instead of Renderify's declarative HTML serializer:
 
 ```
 Source module
@@ -290,7 +318,7 @@ Source module
           → Preact.render() to DOM element
 ```
 
-This provides full React-compatible component rendering with hooks, state, effects, and refs — all running on the lightweight Preact runtime.
+This provides full React-compatible component rendering with hooks, state, effects, and refs. Treat that lane as reviewed source execution, not as the declarative RuntimeNode sanitizer path.
 
 ## Examples
 
@@ -300,9 +328,9 @@ The repository includes several browser examples:
 | -------------- | ------------------------------------------------ | ---------------------------------------------- |
 | Runtime plan   | `examples/runtime/browser-runtime-example.html`  | Browser plan rendering with local dist bundles |
 | TSX + JSPM     | `examples/runtime/browser-tsx-jspm-example.html` | Babel transpilation with JSPM modules          |
-| Chat dashboard | `examples/killer/one-line-chat-dashboard.html`   | Chat interface generating dashboards           |
-| Chat form      | `examples/killer/one-line-chat-form.html`        | Form generation with date-fns                  |
+| Chat dashboard | `examples/killer/one-line-chat-dashboard.html`   | Trusted TSX source dashboard demo              |
+| Chat form      | `examples/killer/one-line-chat-form.html`        | Trusted TSX form demo with date-fns            |
 | Sandbox worker | `examples/killer/one-line-sandbox-worker.html`   | Worker-sandboxed source execution              |
 | Hash runner    | `examples/killer/hash-code-runner.html`          | Execute plans from URL hashes                  |
-| Todo app       | `examples/todo/react-shadcn-todo.html`           | RuntimePlan-driven todo app with source module |
-| Todo hash app  | `examples/todo/react-shadcn-todo-hash.html`      | RuntimePlan todo app with URL hash sync        |
+| Todo app       | `examples/todo/react-shadcn-todo.html`           | Trusted JSX todo app with local module manifest |
+| Todo hash app  | `examples/todo/react-shadcn-todo-hash.html`      | Trusted JSX todo app with URL hash sync        |

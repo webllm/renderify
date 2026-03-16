@@ -658,7 +658,7 @@ export class DefaultSecurityChecker implements SecurityChecker {
 
     if (source.runtime === "preact" && !this.policy.allowPreactSourceRuntime) {
       issues.push(
-        "source.runtime=preact is disabled by policy; use relaxed profile or explicit override",
+        "source.runtime=preact is disabled by policy; use trusted or relaxed profile, or an explicit override",
       );
     }
 

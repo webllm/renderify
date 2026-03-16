@@ -358,7 +358,7 @@
               <header className="card-header">
                 <h1 className="card-title">React + shadcn Todo (RuntimePlan + JSX)</h1>
                 <p className="card-description">
-                  Rendered via renderPlanInBrowser with a JSX source module and local module manifest.
+                  Rendered via renderTrustedPlanInBrowser with a JSX source module and local module manifest.
                 </p>
               </header>
 
@@ -437,7 +437,7 @@
                 </div>
 
                 <p className="muted" style={{ marginTop: "12px", fontSize: "12px" }}>
-                  Tip: this interaction is driven by Renderify runtime source execution.
+                  Tip: this interaction is driven by Renderify's trusted runtime source lane.
                 </p>
               </div>
             </section>
@@ -447,7 +447,7 @@
     </script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script type="module">
-      import { renderPlanInBrowser } from "../../packages/runtime/dist/runtime.esm.js";
+      import { renderTrustedPlanInBrowser } from "../../packages/runtime/dist/runtime.esm.js";
 
       const appElement = document.getElementById("app");
       const statusElement = document.getElementById("runtime-status");
@@ -518,11 +518,10 @@
       async function boot() {
         setStatus("Rendering RuntimePlan...");
         try {
-          const result = await renderPlanInBrowser(plan, {
+          const result = await renderTrustedPlanInBrowser(plan, {
             target: "#app",
             autoPinLatestModuleManifest: false,
             securityInitialization: {
-              profile: "balanced",
               overrides: {
                 allowedNetworkHosts: ["ga.jspm.io", "cdn.jspm.io", window.location.host],
               },

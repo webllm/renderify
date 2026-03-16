@@ -1,10 +1,10 @@
 # Security Guide
 
-Renderify enforces a security-first execution model. Every RuntimePlan passes through a policy checker **before any code runs**. This is critical because LLM output is fundamentally untrusted — the model could generate script tags, eval calls, or unsafe network requests.
+Renderify enforces a security-first execution model. Every RuntimePlan passes through policy validation before runtime execution proceeds. When browser auto-pin is enabled, Renderify performs a lightweight precheck first, hydrates missing manifest entries, and then reruns the full plan check before execution. This is critical because LLM output is fundamentally untrusted: the model could generate script tags, eval calls, or unsafe network requests.
 
 ## Security Profiles
 
-Three built-in profiles provide graduated security postures:
+Four built-in profiles provide graduated security postures:
 
 ### Strict
 
@@ -63,6 +63,35 @@ RENDERIFY_SECURITY_PROFILE=balanced
 | Arbitrary network         | Disabled                                  |
 
 **Banned source patterns (balanced):** `eval()`, `new Function()`, `fetch()`, `XMLHttpRequest`, `WebSocket`, `importScripts`, `document.cookie`, `localStorage`, `sessionStorage`, `child_process`
+
+### Trusted
+
+Purpose-built for reviewed browser source modules that need JSX, hooks, and package imports without opening the full relaxed profile.
+
+```bash
+RENDERIFY_SECURITY_PROFILE=trusted
+```
+
+| Policy                    | Value                                     |
+| ------------------------- | ----------------------------------------- |
+| Blocked tags              | script, iframe, object, embed, link, meta |
+| Max tree depth            | 16                                        |
+| Max node count            | 1,000                                     |
+| Inline event handlers     | Disabled                                  |
+| Max imports               | 400                                       |
+| Max execution time        | 30,000 ms                                 |
+| Max component invocations | 1,000                                     |
+| Max source size           | 120,000 bytes                             |
+| Max source imports        | 180                                       |
+| `source.runtime=preact`   | Allowed                                   |
+| Module manifest required  | Yes (for bare specifiers)                 |
+| Module integrity required | No                                        |
+| Spec version required     | Yes                                       |
+| Dynamic imports in source | Disabled                                  |
+| Allowed network hosts     | ga.jspm.io, cdn.jspm.io                   |
+| Arbitrary network         | Disabled                                  |
+
+**Banned source patterns (trusted):** `eval()`, `new Function()`, `fetch()`, `XMLHttpRequest`, `WebSocket`, `importScripts`, `document.cookie`, `localStorage`, `sessionStorage`, `child_process`
 
 ### Relaxed
 
@@ -162,7 +191,7 @@ Element nodes with blocked tags are rejected:
 { "type": "element", "tag": "div" }     // OK
 ```
 
-The UI renderer also provides a second layer of tag sanitization, converting blocked tags to `<div data-renderify-sanitized-tag="script"></div>`.
+The UI renderer also provides a second layer of tag sanitization for declarative RuntimeNode rendering, converting blocked tags to `<div data-renderify-sanitized-tag="script"></div>`.
 
 ### 2. Module Specifier Validation
 
@@ -237,6 +266,8 @@ Even if a tag passes the policy check, the renderer blocks: `script`, `style`, `
 
 Blocked tags are rendered as: `<div data-renderify-sanitized-tag="script"></div>`
 
+This render-time tag sanitization applies to the declarative RuntimeNode path. `source.runtime: "preact"` renders through Preact directly and should be treated as trusted source output instead of relying on RuntimeNode tag sanitization.
+
 ### Attribute Sanitization
 
 - **Event handlers** — `on*` attributes are stripped (converted to runtime event bindings instead)
@@ -258,7 +289,7 @@ Links with `target="_blank"` automatically receive `rel="noopener noreferrer"` t
 
 ```bash
 # Security profile
-RENDERIFY_SECURITY_PROFILE=strict|balanced|relaxed
+RENDERIFY_SECURITY_PROFILE=strict|balanced|trusted|relaxed
 
 # Runtime manifest enforcement
 RENDERIFY_RUNTIME_ENFORCE_MANIFEST=true|false

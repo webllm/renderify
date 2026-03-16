@@ -143,7 +143,7 @@ export default function App() {
 
 Two modes are supported:
 
-- **`runtime: "preact"`** — uses Preact's automatic JSX transform (`jsxRuntime`)
+- **`runtime: "preact"`** — uses Preact's automatic JSX transform (`jsxRuntime`) and should be treated as the trusted browser source lane
 - **`runtime: "renderify"`** — uses custom `__renderify_runtime_h()` that produces RuntimeNode objects
 
 ### Import Rewriting
@@ -190,6 +190,8 @@ Source code executes in a sandboxed iframe with restricted permissions. Similar 
 ### sandbox-shadowrealm
 
 Source code executes in a `ShadowRealm` when available. If `ShadowRealm` is unavailable, runtime falls back to Worker and then iframe sandbox modes.
+
+Browser sandbox execution profiles apply to declarative plans and `source.runtime: "renderify"` modules. `source.runtime: "preact"` stays on the trusted in-page lane and does not use worker, iframe, or ShadowRealm sandbox adapters.
 
 ```bash
 RENDERIFY_RUNTIME_BROWSER_SANDBOX_MODE=shadowrealm

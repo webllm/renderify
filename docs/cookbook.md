@@ -138,6 +138,7 @@ await renderPlanInBrowser(planWithSource, {
 });
 ```
 
+- If `planWithSource.source?.runtime === "preact"`, use `renderTrustedPlanInBrowser(...)` instead of `renderPlanInBrowser(...)`.
 - `auto`: runtime decides helper injection based on source/runtime mode.
 - `always`: always inject helper path (predictable for heterogeneous input).
 - `never`: only for advanced setups where helper wiring is external.

@@ -465,7 +465,7 @@
               <header className="card-header">
                 <h1 className="card-title">React + shadcn Todo (Hash Share RuntimePlan + JSX)</h1>
                 <p className="card-description">
-                  State syncs to URL hash and is rendered through Renderify runtime JSX source execution.
+                  State syncs to URL hash and is rendered through Renderify's trusted runtime JSX source lane.
                 </p>
               </header>
 
@@ -573,7 +573,7 @@
     </script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script type="module">
-      import { renderPlanInBrowser } from "../../packages/runtime/dist/runtime.esm.js";
+      import { renderTrustedPlanInBrowser } from "../../packages/runtime/dist/runtime.esm.js";
 
       const appElement = document.getElementById("app");
       const statusElement = document.getElementById("runtime-status");
@@ -644,11 +644,10 @@
       async function boot() {
         setStatus("Rendering RuntimePlan...");
         try {
-          const result = await renderPlanInBrowser(plan, {
+          const result = await renderTrustedPlanInBrowser(plan, {
             target: "#app",
             autoPinLatestModuleManifest: false,
             securityInitialization: {
-              profile: "balanced",
               overrides: {
                 allowedNetworkHosts: ["ga.jspm.io", "cdn.jspm.io", window.location.host],
               },

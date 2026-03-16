@@ -62,6 +62,8 @@ interface RuntimeElementNode {
 
 Props support standard HTML attributes. Event handlers use the `onClick`, `onInput` format and are converted to runtime event bindings.
 
+In the declarative RuntimeNode lane, those bindings dispatch static runtime events. They do not extract live browser values such as `event.target.value`, `checked`, or `FormData`. Use `source.runtime: "preact"` when the UI needs value-driven forms or richer DOM event handling.
+
 ### Component Node
 
 ```ts
@@ -75,6 +77,8 @@ interface RuntimeComponentNode {
 ```
 
 Component nodes reference external modules loaded via the JSPM module loader. The `module` specifier is resolved through the module manifest or JSPM CDN.
+
+The referenced export is invoked as a Renderify component factory and must return a `RuntimeNode` tree or a string. Component nodes are not React or Preact component hosts.
 
 ## Capabilities
 
@@ -217,11 +221,15 @@ interface RuntimeSourceModule {
   code: string; // Source code
   language: "js" | "jsx" | "ts" | "tsx"; // Source language
   exportName?: string; // Export to render (default: "default")
-  runtime?: "renderify" | "preact"; // JSX runtime target
+  runtime?: "renderify" | "preact"; // JSX runtime target ("preact" is the trusted browser source lane)
 }
 ```
 
-Source modules enable richer interactivity than the declarative node tree. The source code is transpiled via Babel, imports are rewritten to CDN URLs, and the default export is rendered as a Preact component (when `runtime: "preact"`) or as a RuntimeNode tree.
+Source modules enable richer interactivity than the declarative node tree. The source code is transpiled via Babel, imports are rewritten to browser-resolvable URLs, and the default export is rendered as a Preact component (when `runtime: "preact"`) or as a RuntimeNode tree.
+
+- `runtime: "renderify"` expects the exported function to return `RuntimeNode | string` and can participate in the declarative execution/sandbox model.
+- `runtime: "preact"` expects a Preact-compatible component and should be rendered with `renderTrustedPlanInBrowser` or the `trusted` security profile.
+- `runtime: "preact"` does not run inside the browser worker/iframe/ShadowRealm sandbox adapters.
 
 ### Example Source Module
 
@@ -270,7 +278,9 @@ These aliases mean LLMs can generate standard React code that runs directly via 
 ```ts
 createTextNode("Hello");
 createElementNode("div", { class: "card" }, [createTextNode("Content")]);
-createComponentNode("recharts", "LineChart", { data: [...] });
+createComponentNode("npm:@acme/renderify-widgets", "SummaryCard", {
+  title: "Quarterly Report",
+});
 ```
 
 ### Validation Guards
