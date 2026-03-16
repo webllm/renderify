@@ -23,6 +23,12 @@ type PreactLikeModule = {
   h(type: unknown, props: unknown, ...children: unknown[]): unknown;
 };
 
+type PreactLikeClassComponent = new (
+  ...args: unknown[]
+) => {
+  render(...args: unknown[]): unknown;
+};
+
 export type RuntimeComponentFactory = (
   props: Record<string, JsonValue>,
   context: RuntimeExecutionContext,
@@ -73,7 +79,7 @@ export async function createPreactRenderArtifact(input: {
 
   try {
     const component = isPreactClassComponent(input.sourceExport)
-      ? input.sourceExport
+      ? wrapPreactClassComponent(input.sourceExport as PreactLikeClassComponent)
       : wrapPreactFunctionComponent(
           input.sourceExport as (props: Record<string, JsonValue>) => unknown,
         );
@@ -233,6 +239,22 @@ function isPreactClassComponent(value: unknown): boolean {
 
   const prototype = (value as { prototype?: { render?: unknown } }).prototype;
   return typeof prototype?.render === "function";
+}
+
+function wrapPreactClassComponent(
+  sourceComponent: PreactLikeClassComponent,
+): PreactLikeClassComponent {
+  return class RenderifyPreactSourceClassWrapper extends sourceComponent {
+    render(...args: unknown[]): unknown {
+      const output = super.render(...args);
+      if (isPlainObjectPreactOutput(output)) {
+        throw new Error(
+          'source.runtime=preact component returned a plain object; return JSX/h() output or use source.runtime="renderify"',
+        );
+      }
+      return output;
+    }
+  };
 }
 
 function wrapPreactFunctionComponent(

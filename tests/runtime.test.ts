@@ -3266,6 +3266,50 @@ test("runtime preact rendering rejects plain object component output", async () 
   await runtime.terminate();
 });
 
+test("runtime preact rendering rejects plain object class component output", async () => {
+  const runtime = new DefaultRuntimeManager({
+    sourceTranspiler: new PassthroughSourceTranspiler(),
+  });
+  await runtime.initialize();
+
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "runtime_preact_plain_object_class_output_plan",
+    version: 1,
+    root: createElementNode("div", undefined, [createTextNode("fallback")]),
+    capabilities: {
+      domWrite: true,
+    },
+    state: {
+      initial: {
+        count: 4,
+      },
+    },
+    source: {
+      language: "js",
+      runtime: "preact",
+      code: [
+        'import { Component } from "preact";',
+        "export default class Dashboard extends Component {",
+        "  render(props) {",
+        '    return { type: "section", props: { "data-kind": "dashboard" },',
+        "      children: [`count:${props.state.count}`] };",
+        "  }",
+        "}",
+      ].join("\n"),
+    },
+  };
+
+  const result = await runtime.executePlan(plan);
+  assert.equal(result.renderArtifact?.mode, "preact-vnode");
+  await assert.rejects(
+    () => new DefaultUIRenderer().render(result),
+    /plain object/,
+  );
+
+  await runtime.terminate();
+});
+
 test("runtime can fail-fast on dependency preflight import errors", async () => {
   const runtime = new DefaultRuntimeManager({
     moduleLoader: new FailingLoader(),
