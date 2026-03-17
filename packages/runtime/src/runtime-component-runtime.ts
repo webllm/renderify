@@ -29,6 +29,15 @@ type PreactLikeClassComponent = new (
   render(...args: unknown[]): unknown;
 };
 
+const PREACT_FUNCTION_COMPONENT_WRAPPERS = new WeakMap<
+  (props: Record<string, JsonValue>) => unknown,
+  (props: Record<string, JsonValue>) => unknown
+>();
+const PREACT_CLASS_COMPONENT_WRAPPERS = new WeakMap<
+  PreactLikeClassComponent,
+  PreactLikeClassComponent
+>();
+
 export type RuntimeComponentFactory = (
   props: Record<string, JsonValue>,
   context: RuntimeExecutionContext,
@@ -244,7 +253,12 @@ function isPreactClassComponent(value: unknown): boolean {
 function wrapPreactClassComponent(
   sourceComponent: PreactLikeClassComponent,
 ): PreactLikeClassComponent {
-  return class RenderifyPreactSourceClassWrapper extends sourceComponent {
+  const cached = PREACT_CLASS_COMPONENT_WRAPPERS.get(sourceComponent);
+  if (cached) {
+    return cached;
+  }
+
+  const wrapped = class RenderifyPreactSourceClassWrapper extends sourceComponent {
     render(...args: unknown[]): unknown {
       const output = super.render(...args);
       if (isPlainObjectPreactOutput(output)) {
@@ -255,12 +269,20 @@ function wrapPreactClassComponent(
       return output;
     }
   };
+
+  PREACT_CLASS_COMPONENT_WRAPPERS.set(sourceComponent, wrapped);
+  return wrapped;
 }
 
 function wrapPreactFunctionComponent(
   sourceComponent: (props: Record<string, JsonValue>) => unknown,
 ): (props: Record<string, JsonValue>) => unknown {
-  return function RenderifyPreactSourceWrapper(
+  const cached = PREACT_FUNCTION_COMPONENT_WRAPPERS.get(sourceComponent);
+  if (cached) {
+    return cached;
+  }
+
+  const wrapped = function RenderifyPreactSourceWrapper(
     props: Record<string, JsonValue>,
   ): unknown {
     const output = sourceComponent(props);
@@ -271,6 +293,9 @@ function wrapPreactFunctionComponent(
     }
     return output;
   };
+
+  PREACT_FUNCTION_COMPONENT_WRAPPERS.set(sourceComponent, wrapped);
+  return wrapped;
 }
 
 async function loadPreactModule(): Promise<PreactLikeModule | undefined> {

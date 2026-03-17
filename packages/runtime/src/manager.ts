@@ -150,6 +150,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
   private readonly browserModuleUrlCache = new Map<string, string>();
   private readonly browserModuleInflight = new Map<string, Promise<string>>();
   private readonly browserBlobUrls = new Set<string>();
+  private readonly browserBlobUrlsByCode = new Map<string, string>();
   private initialized = false;
 
   constructor(options: RuntimeManagerOptions = {}) {
@@ -209,6 +210,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
     this.states.clear();
     this.browserModuleUrlCache.clear();
     this.browserModuleInflight.clear();
+    this.browserBlobUrlsByCode.clear();
     this.revokeBrowserBlobUrls();
   }
 
@@ -1097,7 +1099,11 @@ export class DefaultRuntimeManager implements RuntimeManager {
   }
 
   private createBrowserBlobModuleUrl(code: string): string {
-    return createBrowserBlobModuleUrl(code, this.browserBlobUrls);
+    return createBrowserBlobModuleUrl(
+      code,
+      this.browserBlobUrls,
+      this.browserBlobUrlsByCode,
+    );
   }
 
   private revokeBrowserBlobUrls(): void {

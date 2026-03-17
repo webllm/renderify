@@ -48,11 +48,19 @@ export async function parseImportSpecifiersFromSource(
 export function createBrowserBlobModuleUrl(
   code: string,
   browserBlobUrls: Set<string>,
+  browserBlobUrlsByCode?: Map<string, string>,
 ): string {
+  const cached = browserBlobUrlsByCode?.get(code);
+  if (cached) {
+    browserBlobUrls.add(cached);
+    return cached;
+  }
+
   const blobUrl = URL.createObjectURL(
     new Blob([code], { type: "text/javascript" }),
   );
   browserBlobUrls.add(blobUrl);
+  browserBlobUrlsByCode?.set(code, blobUrl);
   return blobUrl;
 }
 

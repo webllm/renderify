@@ -25,6 +25,7 @@ import {
   renderPlanInBrowser,
   renderTrustedPlanInBrowser,
 } from "../packages/runtime/src/index";
+import { createPreactRenderArtifact } from "../packages/runtime/src/runtime-component-runtime";
 import { DefaultSecurityChecker } from "../packages/security/src/index";
 
 class MockLoader implements RuntimeModuleLoader {
@@ -3223,6 +3224,58 @@ test("runtime emits preact render artifact for source.runtime=preact modules", a
   );
 
   await runtime.terminate();
+});
+
+test("runtime reuses stable preact wrapper identities for repeated renders", async () => {
+  function FunctionDashboard(): null {
+    return null;
+  }
+
+  class ClassDashboard {
+    render(): null {
+      return null;
+    }
+  }
+
+  const firstFunctionArtifact = await createPreactRenderArtifact({
+    sourceExport: FunctionDashboard,
+    runtimeInput: {},
+    diagnostics: [],
+  });
+  const secondFunctionArtifact = await createPreactRenderArtifact({
+    sourceExport: FunctionDashboard,
+    runtimeInput: {},
+    diagnostics: [],
+  });
+  assert.equal(firstFunctionArtifact?.mode, "preact-vnode");
+  assert.equal(secondFunctionArtifact?.mode, "preact-vnode");
+  assert.equal(
+    Object.is(
+      (firstFunctionArtifact as { payload: { type: unknown } }).payload.type,
+      (secondFunctionArtifact as { payload: { type: unknown } }).payload.type,
+    ),
+    true,
+  );
+
+  const firstClassArtifact = await createPreactRenderArtifact({
+    sourceExport: ClassDashboard,
+    runtimeInput: {},
+    diagnostics: [],
+  });
+  const secondClassArtifact = await createPreactRenderArtifact({
+    sourceExport: ClassDashboard,
+    runtimeInput: {},
+    diagnostics: [],
+  });
+  assert.equal(firstClassArtifact?.mode, "preact-vnode");
+  assert.equal(secondClassArtifact?.mode, "preact-vnode");
+  assert.equal(
+    Object.is(
+      (firstClassArtifact as { payload: { type: unknown } }).payload.type,
+      (secondClassArtifact as { payload: { type: unknown } }).payload.type,
+    ),
+    true,
+  );
 });
 
 test("runtime preact rendering rejects plain object component output", async () => {
