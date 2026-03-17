@@ -1,13 +1,11 @@
-import {
-  collectRuntimeSourceImports,
-  type RuntimeEvent,
-  type RuntimePlan,
-  type RuntimeStateSnapshot,
+import type {
+  RuntimeEvent,
+  RuntimePlan,
+  RuntimeStateSnapshot,
 } from "@renderify/ir";
 import {
   DefaultSecurityChecker,
   type RuntimeSecurityProfile,
-  type SecurityCheckResult,
   type SecurityInitializationOptions,
 } from "@renderify/security";
 import { JspmModuleLoader } from "./jspm-module-loader";
@@ -352,21 +350,6 @@ async function precheckPlanBeforeAutoPin(
   }
 
   const policy = security.getPolicy();
-  if (callerProvidedSecurity) {
-    const callerPrecheckResult = await filterAutoPinnablePrecheckIssues(
-      await security.checkPlan(plan),
-      plan,
-      policy,
-    );
-    if (!callerPrecheckResult.safe) {
-      return callerPrecheckResult;
-    }
-
-    if (!policy.requireModuleManifestForBareSpecifiers) {
-      return callerPrecheckResult;
-    }
-  }
-
   if (!policy.requireModuleManifestForBareSpecifiers) {
     return security.checkPlan(plan);
   }
@@ -380,155 +363,25 @@ async function precheckPlanBeforeAutoPin(
     },
   });
 
-  return precheckSecurity.checkPlan(plan);
+  const policyPrecheckResult = await precheckSecurity.checkPlan(plan);
+  if (!policyPrecheckResult.safe) {
+    return policyPrecheckResult;
+  }
+
+  if (callerProvidedSecurity && !isPlainDefaultSecurityChecker(security)) {
+    return security.checkPlan(plan);
+  }
+
+  return policyPrecheckResult;
 }
 
-async function filterAutoPinnablePrecheckIssues(
-  result: SecurityCheckResult,
-  plan: RuntimePlan,
-  policy: ReturnType<
-    NonNullable<RuntimeEmbedRenderOptions["security"]>["getPolicy"]
-  >,
-): Promise<SecurityCheckResult> {
-  if (result.safe || !policy.requireModuleManifestForBareSpecifiers) {
-    return result;
-  }
-
-  const autoPinnableSpecifiers = await collectAutoPinnableBareSpecifiers(plan);
-  if (autoPinnableSpecifiers.size === 0) {
-    return result;
-  }
-
-  const removedIssues = new Set<string>();
-  const remainingIssues = result.issues.filter((issue) => {
-    const shouldRemove = isAutoPinnablePrecheckIssue(
-      issue,
-      autoPinnableSpecifiers,
-    );
-    if (shouldRemove) {
-      removedIssues.add(issue);
-    }
-    return !shouldRemove;
-  });
-
-  if (removedIssues.size === 0) {
-    return result;
-  }
-
-  return {
-    safe: remainingIssues.length === 0,
-    issues: remainingIssues,
-    diagnostics: result.diagnostics.filter(
-      (diagnostic) => !removedIssues.has(diagnostic.message),
-    ),
-  };
-}
-
-async function collectAutoPinnableBareSpecifiers(
-  plan: RuntimePlan,
-): Promise<Set<string>> {
-  const specifiers = new Set<string>();
-
-  for (const specifier of plan.imports ?? []) {
-    addAutoPinnableBareSpecifier(specifiers, specifier);
-  }
-
-  for (const specifier of plan.capabilities?.allowedModules ?? []) {
-    addAutoPinnableBareSpecifier(specifiers, specifier);
-  }
-
-  walkPlanNodes(plan.root, (node) => {
-    if (node.type === "component") {
-      addAutoPinnableBareSpecifier(specifiers, node.module);
-    }
-  });
-
-  for (const specifier of await collectRuntimeSourceImports(
-    plan.source?.code ?? "",
-  )) {
-    addAutoPinnableBareSpecifier(specifiers, specifier);
-  }
-
-  return specifiers;
-}
-
-function walkPlanNodes(
-  node: RuntimePlan["root"],
-  visitor: (node: RuntimePlan["root"]) => void,
-): void {
-  visitor(node);
-  if (node.type === "text") {
-    return;
-  }
-
-  for (const child of node.children ?? []) {
-    walkPlanNodes(child, visitor);
-  }
-}
-
-function addAutoPinnableBareSpecifier(
-  target: Set<string>,
-  specifier: string,
-): void {
-  if (isAutoPinnableBareSpecifier(specifier)) {
-    target.add(specifier);
-  }
-}
-
-function isAutoPinnableBareSpecifier(specifier: string): boolean {
-  const normalized = specifier.trim();
-  if (normalized.length === 0) {
-    return false;
-  }
-
-  const lowered = normalized.toLowerCase();
+function isPlainDefaultSecurityChecker(
+  security: NonNullable<RuntimeEmbedRenderOptions["security"]>,
+): security is DefaultSecurityChecker {
   return (
-    !normalized.startsWith("./") &&
-    !normalized.startsWith("../") &&
-    !normalized.startsWith("/") &&
-    !lowered.startsWith("http://") &&
-    !lowered.startsWith("https://") &&
-    !lowered.startsWith("data:") &&
-    !lowered.startsWith("blob:") &&
-    !lowered.startsWith("inline://") &&
-    lowered !== "this-plan-source"
+    security instanceof DefaultSecurityChecker &&
+    security.constructor === DefaultSecurityChecker
   );
-}
-
-function isAutoPinnablePrecheckIssue(
-  issue: string,
-  autoPinnableSpecifiers: ReadonlySet<string>,
-): boolean {
-  return (
-    matchesAutoPinnableSpecifierIssue(
-      issue,
-      "Missing moduleManifest entry for bare specifier: ",
-      autoPinnableSpecifiers,
-    ) ||
-    matchesAutoPinnableSpecifierIssue(
-      issue,
-      "Runtime source bare import requires manifest entry: ",
-      autoPinnableSpecifiers,
-    ) ||
-    matchesAutoPinnableSpecifierIssue(
-      issue,
-      "Module specifier is not in allowlist: ",
-      autoPinnableSpecifiers,
-    )
-  );
-}
-
-function matchesAutoPinnableSpecifierIssue(
-  issue: string,
-  prefix: string,
-  autoPinnableSpecifiers: ReadonlySet<string>,
-): boolean {
-  if (!issue.startsWith(prefix)) {
-    return false;
-  }
-
-  const specifier = issue.slice(prefix.length).trim();
-  return autoPinnableSpecifiers.has(specifier);
 }
 
 function mergeSecurityInitializationProfile(

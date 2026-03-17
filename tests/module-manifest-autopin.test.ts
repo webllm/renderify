@@ -368,6 +368,110 @@ test("renderPlanInBrowser honors custom security rejection before auto-pin fetch
   }
 });
 
+test("renderPlanInBrowser preserves caller checker rejections that match auto-pin issue text", async () => {
+  const baseChecker = new DefaultSecurityChecker();
+  baseChecker.initialize({ profile: "balanced" });
+
+  const customChecker = {
+    initialize(): void {},
+    getPolicy() {
+      return baseChecker.getPolicy();
+    },
+    getProfile() {
+      return baseChecker.getProfile();
+    },
+    checkCapabilities(
+      ...args: Parameters<DefaultSecurityChecker["checkCapabilities"]>
+    ) {
+      return baseChecker.checkCapabilities(...args);
+    },
+    checkModuleSpecifier(specifier: string) {
+      return baseChecker.checkModuleSpecifier(specifier);
+    },
+    async checkPlan() {
+      return {
+        safe: false,
+        issues: ["Module specifier is not in allowlist: date-fns"],
+        diagnostics: [
+          {
+            level: "error" as const,
+            code: "CUSTOM_CHECKER_REJECTED",
+            message: "Module specifier is not in allowlist: date-fns",
+          },
+        ],
+      };
+    },
+  };
+
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "autopin_embed_custom_checker_issue_collision_plan",
+    version: 1,
+    root: createElementNode("section", undefined, [createTextNode("fallback")]),
+    capabilities: {
+      domWrite: true,
+    },
+    source: {
+      language: "js",
+      runtime: "renderify",
+      code: [
+        'import { format } from "date-fns";',
+        "export default function App(){",
+        "  return { type: 'text', value: format(new Date(0), 'yyyy-MM-dd') };",
+        "}",
+      ].join("\n"),
+    },
+  };
+
+  let fetchCount = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    fetchCount += 1;
+    return new Response("unexpected network", { status: 500 });
+  }) as typeof fetch;
+
+  try {
+    await assert.rejects(
+      () =>
+        renderPlanInBrowser(plan, {
+          security: customChecker,
+          runtime: {
+            async initialize(): Promise<void> {},
+            async terminate(): Promise<void> {},
+            async probePlan(): Promise<never> {
+              throw new Error("not implemented");
+            },
+            async executePlan(): Promise<never> {
+              throw new Error("not implemented");
+            },
+            async execute(): Promise<never> {
+              throw new Error("runtime should not execute");
+            },
+            async compile(): Promise<string> {
+              return "";
+            },
+            getPlanState() {
+              return undefined;
+            },
+            setPlanState(): void {},
+            clearPlanState(): void {},
+          } as unknown as RuntimeManager,
+          autoPinModuleLoader: new ResolveOnlyJspmLoader(),
+          autoInitializeRuntime: false,
+          autoTerminateRuntime: false,
+        }),
+      (error: unknown) =>
+        error instanceof RuntimeSecurityViolationError &&
+        error.result.issues.includes(
+          "Module specifier is not in allowlist: date-fns",
+        ),
+    );
+    assert.equal(fetchCount, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("renderPlanInBrowser auto-pins bare imports after security precheck", async () => {
   const plan: RuntimePlan = {
     specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
