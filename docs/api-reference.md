@@ -456,7 +456,11 @@ interface SecurityCheckResult {
   diagnostics: RuntimeDiagnostic[];
 }
 
-type RuntimeSecurityProfile = "strict" | "balanced" | "relaxed";
+type RuntimeSecurityProfile =
+  | "strict"
+  | "balanced"
+  | "trusted"
+  | "relaxed";
 ```
 
 ### Utility Functions

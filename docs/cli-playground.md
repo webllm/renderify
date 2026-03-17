@@ -284,7 +284,7 @@ RENDERIFY_LLM_BASE_URL=https://api.openai.com/v1
 RENDERIFY_LLM_USE_STRUCTURED_OUTPUT=true|false
 
 # Security
-RENDERIFY_SECURITY_PROFILE=strict|balanced|relaxed
+RENDERIFY_SECURITY_PROFILE=strict|balanced|trusted|relaxed
 
 # Runtime
 RENDERIFY_RUNTIME_ENFORCE_MANIFEST=true|false

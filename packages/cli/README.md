@@ -55,7 +55,7 @@ renderify render-plan ./examples/runtime/recharts-dashboard-plan.json
 - `RENDERIFY_LLM_MAX_RETRIES` (e.g. `0` for single-attempt HTTP calls)
 - `RENDERIFY_LLM_STRUCTURED_RETRY` (`true`, `false`)
 - `RENDERIFY_LLM_STRUCTURED_FALLBACK_TEXT` (`true`, `false`)
-- `RENDERIFY_SECURITY_PROFILE` (`strict`, `balanced`, `relaxed`)
+- `RENDERIFY_SECURITY_PROFILE` (`strict`, `balanced`, `trusted`, `relaxed`)
 - `RENDERIFY_PLAYGROUND_DEBUG` (`1`, `true`, `yes`, `on`)
 - `RENDERIFY_PLAYGROUND_LLM_LOG` (`true`, `false`, default `true`)
 
