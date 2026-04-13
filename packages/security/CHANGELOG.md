@@ -1,5 +1,15 @@
 # @renderify/security
 
+## 0.6.1
+
+### Patch Changes
+
+- Add a `"trusted"` security profile for browser source execution, including runtime source modules and Preact with JSPM-only network defaults.
+- Clarify `source.runtime="preact"` policy errors to direct callers to the `"trusted"` or `"relaxed"` profiles.
+
+- Updated dependencies []:
+  - @renderify/ir@0.6.1
+
 ## 0.6.0
 
 ### Minor Changes

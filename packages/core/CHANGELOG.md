@@ -1,5 +1,17 @@
 # @renderify/core
 
+## 0.6.1
+
+### Patch Changes
+
+- Add `"trusted"` to config-level security profile parsing so runtime configuration can opt into the trusted browser source lane.
+- Update framework adapter instructions to render TSX/JSX adapter output with `renderTrustedPlanInBrowser` or the `"trusted"` security profile.
+
+- Updated dependencies []:
+  - @renderify/ir@0.6.1
+  - @renderify/runtime@0.6.1
+  - @renderify/security@0.6.1
+
 ## 0.6.0
 
 ### Minor Changes

@@ -1,5 +1,18 @@
 # @renderify/cli
 
+## 0.6.1
+
+### Patch Changes
+
+- Accept `securityProfile: "trusted"` in CLI config so preload validation supports plans that use the trusted browser source lane.
+
+- Updated dependencies []:
+  - @renderify/core@0.6.1
+  - @renderify/ir@0.6.1
+  - @renderify/llm@0.6.1
+  - @renderify/runtime@0.6.1
+  - @renderify/security@0.6.1
+
 ## 0.6.0
 
 ### Minor Changes

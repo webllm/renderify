@@ -1,5 +1,18 @@
 # renderify
 
+## 0.6.1
+
+### Patch Changes
+
+- Re-export `renderTrustedPlanInBrowser` and `createTrustedInteractiveSession` from the top-level SDK facade.
+
+- Updated dependencies []:
+  - @renderify/core@0.6.1
+  - @renderify/ir@0.6.1
+  - @renderify/llm@0.6.1
+  - @renderify/runtime@0.6.1
+  - @renderify/security@0.6.1
+
 ## 0.6.0
 
 ### Minor Changes

@@ -1,5 +1,17 @@
 # @renderify/runtime
 
+## 0.6.1
+
+### Patch Changes
+
+- Add `renderTrustedPlanInBrowser` and `createTrustedInteractiveSession` with trusted browser defaults for source-module execution.
+- Run security prechecks before auto-pin side effects and preserve caller-provided security state when preparing plans for execution.
+- Tighten Preact source handling by rejecting plain-object output, validating class component returns, and preserving source identity across rerenders.
+
+- Updated dependencies []:
+  - @renderify/ir@0.6.1
+  - @renderify/security@0.6.1
+
 ## 0.6.0
 
 ### Minor Changes

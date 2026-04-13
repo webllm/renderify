@@ -1,5 +1,15 @@
 # @renderify/llm
 
+## 0.6.1
+
+### Patch Changes
+
+- Update OpenAI, Anthropic, and Google provider guidance so `source.runtime="preact"` plans target the trusted browser source lane.
+
+- Updated dependencies []:
+  - @renderify/core@0.6.1
+  - @renderify/ir@0.6.1
+
 ## 0.6.0
 
 ### Minor Changes
