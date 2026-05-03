@@ -1,5 +1,6 @@
 import type { JsonValue } from "@renderify/ir";
 import type { RuntimeSourceSandboxMode } from "./runtime-manager.types";
+import { wrapRuntimeSourceForSandbox } from "./sandbox-hardening-source";
 import { buildIframeSandboxSrcdoc } from "./sandbox-iframe-source";
 import { buildShadowRealmBridgeSource } from "./sandbox-shadowrealm-bridge-source";
 import { WORKER_SANDBOX_SOURCE } from "./sandbox-worker-source";
@@ -49,13 +50,17 @@ export async function executeSourceInBrowserSandbox(
 ): Promise<RuntimeSandboxResult> {
   throwIfAborted(options.signal);
   validateSandboxRequest(options.request);
+  const executionOptions = {
+    ...options,
+    request: createHardenedSandboxRequest(options.request),
+  };
 
   if (options.mode === "worker") {
     if (isWorkerSandboxAvailable()) {
-      return executeSourceInWorkerSandbox(options);
+      return executeSourceInWorkerSandbox(executionOptions);
     }
     if (isIframeSandboxAvailable()) {
-      return executeSourceInIframeSandbox(options);
+      return executeSourceInIframeSandbox(executionOptions);
     }
     throw new Error(
       "Worker sandbox is unavailable and iframe fallback is unavailable in this runtime",
@@ -64,10 +69,10 @@ export async function executeSourceInBrowserSandbox(
 
   if (options.mode === "iframe") {
     if (isIframeSandboxAvailable()) {
-      return executeSourceInIframeSandbox(options);
+      return executeSourceInIframeSandbox(executionOptions);
     }
     if (isWorkerSandboxAvailable()) {
-      return executeSourceInWorkerSandbox(options);
+      return executeSourceInWorkerSandbox(executionOptions);
     }
     throw new Error(
       "Iframe sandbox is unavailable and worker fallback is unavailable in this runtime",
@@ -76,13 +81,13 @@ export async function executeSourceInBrowserSandbox(
 
   if (options.mode === "shadowrealm") {
     if (isShadowRealmSandboxAvailable()) {
-      return executeSourceInShadowRealmSandbox(options);
+      return executeSourceInShadowRealmSandbox(executionOptions);
     }
     if (isWorkerSandboxAvailable()) {
-      return executeSourceInWorkerSandbox(options);
+      return executeSourceInWorkerSandbox(executionOptions);
     }
     if (isIframeSandboxAvailable()) {
-      return executeSourceInIframeSandbox(options);
+      return executeSourceInIframeSandbox(executionOptions);
     }
     throw new Error(
       "ShadowRealm sandbox is unavailable and no browser sandbox fallback is available",
@@ -90,6 +95,15 @@ export async function executeSourceInBrowserSandbox(
   }
 
   throw new Error(`Unsupported runtime source sandbox mode: ${options.mode}`);
+}
+
+function createHardenedSandboxRequest(
+  request: RuntimeSandboxRequest,
+): RuntimeSandboxRequest {
+  return {
+    ...request,
+    code: wrapRuntimeSourceForSandbox(request.code),
+  };
 }
 
 async function executeSourceInWorkerSandbox(

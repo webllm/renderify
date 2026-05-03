@@ -533,6 +533,31 @@ test("security checker blocks runtime source fetch usage", async () => {
   assert.ok(result.issues.some((issue) => issue.includes("\\bfetch\\s*\\(")));
 });
 
+test("security checker blocks obfuscated runtime source fetch access", async () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize();
+
+  const plan = createPlan("section");
+  plan.source = {
+    language: "js",
+    code: [
+      "export default async () => {",
+      '  const fetcher = globalThis["fet" + "ch"];',
+      '  const response = await fetcher("https://example.com/data.json");',
+      '  return { type: "text", value: String(response.status) };',
+      "};",
+    ].join("\n"),
+  };
+
+  const result = await checker.checkPlan(plan);
+  assert.equal(result.safe, false);
+  assert.ok(
+    result.issues.some((issue) =>
+      issue.includes("blocked global access: fetch"),
+    ),
+  );
+});
+
 test("security checker blocks runtime source cookie access", async () => {
   const checker = new DefaultSecurityChecker();
   checker.initialize();
@@ -553,6 +578,30 @@ test("security checker blocks runtime source cookie access", async () => {
   assert.ok(
     result.issues.some((issue) =>
       issue.includes("\\bdocument\\s*\\.\\s*cookie\\b"),
+    ),
+  );
+});
+
+test("security checker blocks obfuscated runtime source cookie access", async () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize();
+
+  const plan = createPlan("section");
+  plan.source = {
+    language: "js",
+    code: [
+      "export default () => {",
+      '  const token = document["coo" + "kie"];',
+      '  return { type: "text", value: token };',
+      "};",
+    ].join("\n"),
+  };
+
+  const result = await checker.checkPlan(plan);
+  assert.equal(result.safe, false);
+  assert.ok(
+    result.issues.some((issue) =>
+      issue.includes("blocked global access: document.cookie"),
     ),
   );
 });

@@ -256,6 +256,21 @@ const SECURITY_PROFILE_POLICIES: Record<
 
 const DEFAULT_SECURITY_PROFILE: RuntimeSecurityProfile = "balanced";
 const INTERNAL_RUNTIME_SOURCE_MODULE_SPECIFIERS = new Set(["this-plan-source"]);
+const SOURCE_GLOBAL_OBJECTS = ["globalThis", "self", "window"];
+const SOURCE_BANNED_GLOBAL_PROPERTIES = [
+  "fetch",
+  "XMLHttpRequest",
+  "WebSocket",
+  "importScripts",
+  "localStorage",
+  "sessionStorage",
+  "indexedDB",
+];
+const SOURCE_BANNED_QUALIFIED_PROPERTIES = [
+  { object: "document", property: "cookie" },
+  { object: "navigator", property: "sendBeacon" },
+  { object: "process", property: "env" },
+];
 
 export function listSecurityProfiles(): RuntimeSecurityProfile[] {
   return Object.keys(SECURITY_PROFILE_POLICIES) as RuntimeSecurityProfile[];
@@ -712,7 +727,76 @@ export class DefaultSecurityChecker implements SecurityChecker {
       }
     }
 
+    issues.push(...this.checkRuntimeSourceGlobalAccess(source.code));
+
     return issues;
+  }
+
+  private checkRuntimeSourceGlobalAccess(sourceCode: string): string[] {
+    const issues = new Set<string>();
+
+    for (const property of SOURCE_BANNED_GLOBAL_PROPERTIES) {
+      if (!this.policyBlocksSourcePattern(property)) {
+        continue;
+      }
+
+      if (hasIdentifierReference(sourceCode, property)) {
+        issues.add(
+          `Runtime source contains blocked global access: ${property}`,
+        );
+      }
+    }
+
+    for (const access of collectStaticBracketPropertyAccesses(sourceCode)) {
+      const objectName = access.object.toLowerCase();
+      const propertyName = access.property.toLowerCase();
+      const blockedGlobalProperty = SOURCE_BANNED_GLOBAL_PROPERTIES.find(
+        (property) => property.toLowerCase() === propertyName,
+      );
+
+      if (
+        blockedGlobalProperty &&
+        SOURCE_GLOBAL_OBJECTS.some(
+          (object) => object.toLowerCase() === objectName,
+        ) &&
+        this.policyBlocksSourcePattern(blockedGlobalProperty)
+      ) {
+        issues.add(
+          `Runtime source contains blocked global access: ${blockedGlobalProperty}`,
+        );
+      }
+
+      for (const qualified of SOURCE_BANNED_QUALIFIED_PROPERTIES) {
+        if (
+          qualified.object.toLowerCase() === objectName &&
+          qualified.property.toLowerCase() === propertyName &&
+          this.policyBlocksQualifiedSourcePattern(qualified)
+        ) {
+          issues.add(
+            `Runtime source contains blocked global access: ${qualified.object}.${qualified.property}`,
+          );
+        }
+      }
+    }
+
+    return [...issues];
+  }
+
+  private policyBlocksSourcePattern(needle: string): boolean {
+    const normalizedNeedle = needle.toLowerCase();
+    return this.policy.sourceBannedPatternStrings.some((pattern) =>
+      pattern.toLowerCase().includes(normalizedNeedle),
+    );
+  }
+
+  private policyBlocksQualifiedSourcePattern(input: {
+    object: string;
+    property: string;
+  }): boolean {
+    return (
+      this.policyBlocksSourcePattern(input.object) &&
+      this.policyBlocksSourcePattern(input.property)
+    );
   }
 
   private checkModuleManifest(moduleManifest: RuntimeModuleManifest): string[] {
@@ -962,6 +1046,120 @@ function compileSourceBannedPatterns(patterns: string[]): Array<{
   }
 
   return compiled;
+}
+
+function hasIdentifierReference(
+  sourceCode: string,
+  identifier: string,
+): boolean {
+  return new RegExp(`\\b${escapeRegExp(identifier)}\\b`, "i").test(sourceCode);
+}
+
+function collectStaticBracketPropertyAccesses(
+  sourceCode: string,
+): Array<{ object: string; property: string }> {
+  const accesses: Array<{ object: string; property: string }> = [];
+  const pattern =
+    /\b(globalThis|self|window|document|navigator|process)\s*\[\s*((?:(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)\s*(?:\+\s*)?)+)\]/gi;
+
+  for (const match of sourceCode.matchAll(pattern)) {
+    const object = match[1];
+    const expression = match[2];
+    if (!object || !expression) {
+      continue;
+    }
+
+    const property = evaluateStaticStringExpression(expression);
+    if (property === undefined) {
+      continue;
+    }
+
+    accesses.push({ object, property });
+  }
+
+  return accesses;
+}
+
+function evaluateStaticStringExpression(
+  expression: string,
+): string | undefined {
+  let remainder = expression.trim();
+  let value = "";
+
+  while (remainder.length > 0) {
+    const literalMatch =
+      /^(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)/s.exec(
+        remainder,
+      );
+    if (!literalMatch?.[0]) {
+      return undefined;
+    }
+
+    const decoded = decodeStaticStringLiteral(literalMatch[0]);
+    if (decoded === undefined) {
+      return undefined;
+    }
+    value += decoded;
+    remainder = remainder.slice(literalMatch[0].length).trim();
+    if (remainder.length === 0) {
+      return value;
+    }
+    if (!remainder.startsWith("+")) {
+      return undefined;
+    }
+    remainder = remainder.slice(1).trim();
+  }
+
+  return value;
+}
+
+function decodeStaticStringLiteral(literal: string): string | undefined {
+  const quote = literal[0];
+  const body = literal.slice(1, -1);
+  if (quote === "`" && body.includes("${")) {
+    return undefined;
+  }
+
+  return body.replace(
+    /\\(u\{[0-9a-fA-F]+\}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|.)/g,
+    (_match, escaped: string) => decodeEscapeSequence(escaped),
+  );
+}
+
+function decodeEscapeSequence(escaped: string): string {
+  if (escaped.startsWith("u{")) {
+    const codePoint = Number.parseInt(escaped.slice(2, -1), 16);
+    return codePointToString(codePoint);
+  }
+
+  if (escaped.startsWith("u") || escaped.startsWith("x")) {
+    const codePoint = Number.parseInt(escaped.slice(1), 16);
+    return codePointToString(codePoint);
+  }
+
+  const escapes: Record<string, string> = {
+    "0": "\0",
+    b: "\b",
+    f: "\f",
+    n: "\n",
+    r: "\r",
+    t: "\t",
+    v: "\v",
+  };
+
+  return escapes[escaped] ?? escaped;
+}
+
+function codePointToString(codePoint: number): string {
+  if (!Number.isInteger(codePoint) || codePoint < 0 || codePoint > 0x10ffff) {
+    return "";
+  }
+
+  return String.fromCodePoint(codePoint);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function walkNodes(

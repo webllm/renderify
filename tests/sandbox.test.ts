@@ -4,6 +4,7 @@ import {
   executeSourceInBrowserSandbox,
   type RuntimeSandboxRequest,
 } from "../packages/runtime/src/sandbox";
+import { wrapRuntimeSourceForSandbox } from "../packages/runtime/src/sandbox-hardening-source";
 
 const BASE_REQUEST: RuntimeSandboxRequest = {
   renderifySandbox: "runtime-source",
@@ -21,6 +22,26 @@ function cloneRequest(
     ...overrides,
   };
 }
+
+test("sandbox hardening shadows dangerous runtime source globals", async () => {
+  const source = wrapRuntimeSourceForSandbox(`
+export default () => ({ globalThisType: typeof globalThis, fetchType: typeof fetch });
+export function readBracketFetch() {
+  return globalThis["fetch"];
+}
+`);
+  const moduleUrl = `data:text/javascript,${encodeURIComponent(source)}`;
+  const namespace = (await import(moduleUrl)) as {
+    default: () => Record<string, string>;
+    readBracketFetch: () => unknown;
+  };
+
+  assert.deepEqual(namespace.default(), {
+    globalThisType: "undefined",
+    fetchType: "undefined",
+  });
+  assert.throws(() => namespace.readBracketFetch(), /undefined|globalThis/);
+});
 
 function installBlobUrlSupport(): () => void {
   const target = URL as unknown as Record<string, unknown>;

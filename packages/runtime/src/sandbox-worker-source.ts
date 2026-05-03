@@ -1,4 +1,7 @@
+import { RUNTIME_SOURCE_GLOBAL_HARDENING_SOURCE } from "./sandbox-hardening-source";
+
 export const WORKER_SANDBOX_SOURCE = /* js */ `
+${RUNTIME_SOURCE_GLOBAL_HARDENING_SOURCE}
 const CHANNEL = "runtime-source";
 self.onmessage = async (event) => {
   const request = event.data;
@@ -28,6 +31,7 @@ self.onmessage = async (event) => {
     }
   };
   try {
+    __renderify_harden_runtime_source_globals();
     const moduleUrl = URL.createObjectURL(
       new Blob([String(request.code ?? "")], { type: "text/javascript" }),
     );

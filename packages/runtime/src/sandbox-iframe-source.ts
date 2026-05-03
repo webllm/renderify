@@ -1,5 +1,8 @@
+import { RUNTIME_SOURCE_GLOBAL_HARDENING_SOURCE } from "./sandbox-hardening-source";
+
 export function buildIframeSandboxSrcdoc(channelLiteral: string): string {
   return /* html */ `<!doctype html><html><body><script>
+${RUNTIME_SOURCE_GLOBAL_HARDENING_SOURCE}
 const CHANNEL = ${channelLiteral};
 window.addEventListener("message", (event) => {
   const data = event.data;
@@ -41,6 +44,7 @@ window.addEventListener("message", (event) => {
     const request = envelope.request || {};
 
     try {
+      __renderify_harden_runtime_source_globals();
       const moduleUrl = URL.createObjectURL(
         new Blob([String(request.code ?? "")], { type: "text/javascript" }),
       );
