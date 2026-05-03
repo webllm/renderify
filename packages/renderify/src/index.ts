@@ -37,8 +37,14 @@ import {
   type LLMProviderDefinition,
   type LLMProviderName,
   LLMProviderRegistry,
+  LMStudioLLMInterpreter,
+  type LMStudioLLMInterpreterOptions,
+  lmstudioLLMProvider,
+  OllamaLLMInterpreter,
+  type OllamaLLMInterpreterOptions,
   OpenAILLMInterpreter,
   type OpenAILLMInterpreterOptions,
+  ollamaLLMProvider,
   openaiLLMProvider,
 } from "@renderify/llm";
 import {
@@ -62,6 +68,8 @@ export type {
   GoogleLLMInterpreterOptions,
   LLMProviderDefinition,
   LLMProviderName,
+  LMStudioLLMInterpreterOptions,
+  OllamaLLMInterpreterOptions,
   OpenAILLMInterpreterOptions,
 };
 export {
@@ -74,7 +82,11 @@ export {
   GoogleLLMInterpreter,
   googleLLMProvider,
   LLMProviderRegistry,
+  LMStudioLLMInterpreter,
+  lmstudioLLMProvider,
+  OllamaLLMInterpreter,
   OpenAILLMInterpreter,
+  ollamaLLMProvider,
   openaiLLMProvider,
   renderPlanInBrowser,
   renderTrustedPlanInBrowser,

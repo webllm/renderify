@@ -13,6 +13,10 @@ import type { RuntimePlan } from "../packages/ir/src/index";
 import {
   createRenderify,
   createTrustedInteractiveSession,
+  LMStudioLLMInterpreter,
+  lmstudioLLMProvider,
+  OllamaLLMInterpreter,
+  ollamaLLMProvider,
   renderPlanOnce,
   renderPromptOnce,
   renderTrustedPlanInBrowser,
@@ -144,6 +148,13 @@ test("renderify facade one-shot helpers renderPromptOnce and renderPlanOnce", as
 test("renderify facade re-exports trusted browser helpers", () => {
   assert.equal(typeof renderTrustedPlanInBrowser, "function");
   assert.equal(typeof createTrustedInteractiveSession, "function");
+});
+
+test("renderify facade re-exports local llm providers", () => {
+  assert.equal(typeof OllamaLLMInterpreter, "function");
+  assert.equal(typeof ollamaLLMProvider.create, "function");
+  assert.equal(typeof LMStudioLLMInterpreter, "function");
+  assert.equal(typeof lmstudioLLMProvider.create, "function");
 });
 
 test("renderify facade binds app runtime options from config and security policy", async () => {
