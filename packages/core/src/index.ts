@@ -1,8 +1,10 @@
 import type { RuntimeExecutionResult, RuntimePlan } from "@renderify/ir";
-import type {
-  RuntimeExecutionInput,
-  RuntimeManager,
-  RuntimeManagerOptions,
+import {
+  autoPinRuntimePlanModuleManifest,
+  type RuntimeExecutionInput,
+  type RuntimeManager,
+  type RuntimeManagerOptions,
+  type RuntimeModuleLoader,
 } from "@renderify/runtime";
 import type { ApiIntegration } from "./api-integration";
 import type {
@@ -31,6 +33,7 @@ import type {
   SecurityChecker,
   SecurityCheckResult,
 } from "./security";
+import { DefaultSecurityChecker } from "./security";
 import type { RenderTarget, UIRenderer } from "./ui";
 
 export interface RenderifyCoreDependencies {
@@ -41,6 +44,7 @@ export interface RenderifyCoreDependencies {
   codegen: CodeGenerator;
   runtime: RuntimeManager;
   runtimeOptionOverrides?: RuntimeManagerOptions;
+  autoPinModuleLoader?: RuntimeModuleLoader;
   security: SecurityChecker;
   performance: PerformanceOptimizer;
   ui: UIRenderer;
@@ -785,9 +789,13 @@ export class RenderifyApp {
         plan,
         pluginContextFactory("beforePolicyCheck"),
       );
+      const planForPolicy = await this.preparePlanForPolicyCheck(
+        planBeforePolicy,
+        signal,
+      );
 
       const securityResultRaw =
-        await this.deps.security.checkPlan(planBeforePolicy);
+        await this.deps.security.checkPlan(planForPolicy);
       const securityResult = await this.runHook(
         "afterPolicyCheck",
         securityResultRaw,
@@ -800,7 +808,7 @@ export class RenderifyApp {
       }
 
       const runtimeInputRaw: RuntimeExecutionInput = {
-        plan: planBeforePolicy,
+        plan: planForPolicy,
         context: {
           userId: this.resolveUserId(),
           variables: {},
@@ -849,12 +857,12 @@ export class RenderifyApp {
         traceId,
         metric,
         prompt,
-        planId: planBeforePolicy.id,
+        planId: planForPolicy.id,
       });
 
       return {
         traceId,
-        plan: planBeforePolicy,
+        plan: planForPolicy,
         security: securityResult,
         execution: runtimeExecution,
         html,
@@ -864,6 +872,57 @@ export class RenderifyApp {
       this.emit("renderFailed", { traceId, metric, prompt, error });
       throw error;
     }
+  }
+
+  private async preparePlanForPolicyCheck(
+    plan: RuntimePlan,
+    signal?: AbortSignal,
+  ): Promise<RuntimePlan> {
+    const autoPinEnabled =
+      this.deps.config.get<boolean>("runtimeAutoPinLatestModuleManifest") !==
+      false;
+    if (!autoPinEnabled) {
+      return plan;
+    }
+
+    const canAutoPin = await this.canAutoPinBeforePolicyCheck(plan);
+    if (!canAutoPin) {
+      return plan;
+    }
+
+    return autoPinRuntimePlanModuleManifest(plan, {
+      moduleLoader: this.deps.autoPinModuleLoader,
+      fetchTimeoutMs: this.deps.config.get<number>(
+        "runtimeAutoPinFetchTimeoutMs",
+      ),
+      signal,
+    });
+  }
+
+  private async canAutoPinBeforePolicyCheck(
+    plan: RuntimePlan,
+  ): Promise<boolean> {
+    const policy = this.deps.security.getPolicy();
+    if (!policy.requireModuleManifestForBareSpecifiers) {
+      return true;
+    }
+
+    if (!isPlainDefaultSecurityChecker(this.deps.security)) {
+      const securityResult = await this.deps.security.checkPlan(plan);
+      return securityResult.safe;
+    }
+
+    const precheckSecurity = new DefaultSecurityChecker();
+    precheckSecurity.initialize({
+      overrides: {
+        ...policy,
+        allowedModules: ["", ...policy.allowedModules],
+        requireModuleManifestForBareSpecifiers: false,
+      },
+    });
+
+    const securityResult = await precheckSecurity.checkPlan(plan);
+    return securityResult.safe;
   }
 
   private ensureRunning(): void {
@@ -1113,6 +1172,15 @@ export function createRenderifyApp(
   deps: RenderifyCoreDependencies,
 ): RenderifyApp {
   return new RenderifyApp(deps);
+}
+
+function isPlainDefaultSecurityChecker(
+  security: SecurityChecker,
+): security is DefaultSecurityChecker {
+  return (
+    security instanceof DefaultSecurityChecker &&
+    security.constructor === DefaultSecurityChecker
+  );
 }
 
 export * from "./api-integration";

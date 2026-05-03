@@ -22,6 +22,8 @@ test("config loads default security profile and runtime defaults", async () => {
   assert.equal(config.get("runtimeAllowIsolationFallback"), false);
   assert.equal(config.get("runtimeEnableDependencyPreflight"), true);
   assert.equal(config.get("runtimeFailOnDependencyPreflightError"), false);
+  assert.equal(config.get("runtimeAutoPinLatestModuleManifest"), true);
+  assert.equal(config.get("runtimeAutoPinFetchTimeoutMs"), 4000);
   assert.equal(config.get("runtimeRemoteFetchTimeoutMs"), 12000);
   assert.equal(config.get("runtimeRemoteFetchRetries"), 2);
   assert.equal(config.get("runtimeRemoteFetchBackoffMs"), 150);

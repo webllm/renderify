@@ -71,8 +71,8 @@ export async function autoPinRuntimePlanModuleManifest(
     signal: options.signal,
   });
 
-  const pendingSpecifiers = bareSpecifiers.filter(
-    (specifier) => !nextManifest[specifier],
+  const pendingSpecifiers = bareSpecifiers.filter((specifier) =>
+    shouldAutoPinManifestEntry(nextManifest[specifier]),
   );
   if (pendingSpecifiers.length === 0) {
     return plan;
@@ -389,6 +389,16 @@ function isBareSpecifierForManifest(specifier: string): boolean {
     !trimmed.startsWith("npm:") &&
     !trimmed.startsWith("node:")
   );
+}
+
+function shouldAutoPinManifestEntry(
+  descriptor: RuntimeModuleDescriptor | undefined,
+): boolean {
+  if (!descriptor) {
+    return true;
+  }
+
+  return descriptor.signer === "renderify-codegen";
 }
 
 function parseBareNpmSpecifier(

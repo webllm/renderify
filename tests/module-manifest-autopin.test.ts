@@ -1,6 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  createRenderifyApp,
+  DefaultApiIntegration,
+  DefaultCodeGenerator,
+  DefaultContextManager,
+  DefaultCustomizationEngine,
+  DefaultPerformanceOptimizer,
+  DefaultRenderifyConfig,
+  DefaultUIRenderer,
+  type LLMInterpreter,
+  type LLMRequest,
+  type LLMResponse,
+  type RenderifyCoreDependencies,
+} from "../packages/core/src/index";
+import {
   createElementNode,
   createTextNode,
   DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
@@ -31,6 +45,43 @@ class ResolveOnlyJspmLoader implements RuntimeModuleLoader {
 
     return `https://ga.jspm.io/npm:${specifier}`;
   }
+}
+
+class UnusedLLM implements LLMInterpreter {
+  private readonly templates = new Map<string, string>();
+
+  configure(): void {}
+
+  async generateResponse(_req: LLMRequest): Promise<LLMResponse> {
+    throw new Error("LLM should not be called by renderPlan");
+  }
+
+  setPromptTemplate(templateName: string, templateContent: string): void {
+    this.templates.set(templateName, templateContent);
+  }
+
+  getPromptTemplate(templateName: string): string | undefined {
+    return this.templates.get(templateName);
+  }
+}
+
+function createCoreDependencies(
+  runtime: RuntimeManager,
+  moduleLoader: RuntimeModuleLoader,
+): RenderifyCoreDependencies {
+  return {
+    config: new DefaultRenderifyConfig(),
+    context: new DefaultContextManager(),
+    llm: new UnusedLLM(),
+    codegen: new DefaultCodeGenerator(),
+    runtime,
+    autoPinModuleLoader: moduleLoader,
+    security: new DefaultSecurityChecker(),
+    performance: new DefaultPerformanceOptimizer(),
+    ui: new DefaultUIRenderer(),
+    apiIntegration: new DefaultApiIntegration(),
+    customization: new DefaultCustomizationEngine(),
+  };
 }
 
 test("auto pin latest fills moduleManifest for bare source imports", async () => {
@@ -204,6 +255,85 @@ test("auto pin latest leaves existing moduleManifest entries unchanged", async (
       hydrated.moduleManifest?.["date-fns"]?.resolvedUrl,
       "https://ga.jspm.io/npm:date-fns@4.0.0/index.js",
     );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("auto pin latest replaces codegen placeholder moduleManifest entries", async () => {
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "autopin_codegen_manifest_plan",
+    version: 1,
+    root: createElementNode("section", undefined, [createTextNode("fallback")]),
+    capabilities: {
+      domWrite: true,
+    },
+    moduleManifest: {
+      "date-fns": {
+        resolvedUrl: "https://ga.jspm.io/npm:date-fns",
+        signer: "renderify-codegen",
+      },
+    },
+    source: {
+      language: "js",
+      runtime: "renderify",
+      code: [
+        'import { format } from "date-fns";',
+        "export default function App(){",
+        "  return { type: 'text', value: format(new Date(0), 'yyyy-MM-dd') };",
+        "}",
+      ].join("\n"),
+    },
+  };
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "https://ga.jspm.io/npm:date-fns") {
+      return new Response("4.1.0", {
+        status: 200,
+        headers: {
+          "content-type": "text/plain; charset=utf-8",
+        },
+      });
+    }
+
+    if (url === "https://ga.jspm.io/npm:date-fns@4.1.0/package.json") {
+      return new Response(
+        JSON.stringify({
+          exports: {
+            ".": {
+              import: {
+                default: "./index.js",
+              },
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+          },
+        },
+      );
+    }
+
+    return new Response("not found", { status: 404 });
+  }) as typeof fetch;
+
+  try {
+    const hydrated = await autoPinRuntimePlanModuleManifest(plan, {
+      moduleLoader: new ResolveOnlyJspmLoader(),
+    });
+
+    assert.notEqual(hydrated, plan);
+    assert.equal(
+      hydrated.moduleManifest?.["date-fns"]?.resolvedUrl,
+      "https://ga.jspm.io/npm:date-fns@4.1.0/index.js",
+    );
+    assert.equal(hydrated.moduleManifest?.["date-fns"]?.version, "4.1.0");
+    assert.equal(hydrated.moduleManifest?.["date-fns"]?.signer, undefined);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -677,6 +807,116 @@ test("renderPlanInBrowser still auto-pins bare imports with caller-provided chec
       "https://ga.jspm.io/npm:date-fns@4.1.0/index.js",
     );
   } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("core render flow auto-pins codegen placeholder manifests before policy check", async () => {
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "autopin_core_codegen_manifest_plan",
+    version: 1,
+    root: createElementNode("section", undefined, [createTextNode("fallback")]),
+    capabilities: {
+      domWrite: true,
+    },
+    moduleManifest: {
+      "date-fns": {
+        resolvedUrl: "https://ga.jspm.io/npm:date-fns",
+        signer: "renderify-codegen",
+      },
+    },
+    source: {
+      language: "js",
+      runtime: "renderify",
+      code: [
+        'import { format } from "date-fns";',
+        "export default function App(){",
+        "  return { type: 'text', value: format(new Date(0), 'yyyy-MM-dd') };",
+        "}",
+      ].join("\n"),
+    },
+  };
+
+  let executedPlan: RuntimePlan | undefined;
+  const runtimeStub = {
+    async initialize(): Promise<void> {},
+    async terminate(): Promise<void> {},
+    async probePlan(_plan: RuntimePlan): Promise<never> {
+      throw new Error("not implemented");
+    },
+    async executePlan(_plan: RuntimePlan): Promise<never> {
+      throw new Error("not implemented");
+    },
+    async execute(input: RuntimeExecutionInput) {
+      executedPlan = input.plan;
+      return {
+        planId: input.plan.id,
+        root: createElementNode("section", undefined, [createTextNode("ok")]),
+        diagnostics: [],
+      };
+    },
+    async compile(_plan: RuntimePlan): Promise<string> {
+      return "";
+    },
+    getPlanState(_planId: string) {
+      return undefined;
+    },
+    setPlanState(_planId: string): void {},
+    clearPlanState(_planId: string): void {},
+  } as unknown as RuntimeManager;
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url === "https://ga.jspm.io/npm:date-fns") {
+      return new Response("4.1.0", {
+        status: 200,
+        headers: {
+          "content-type": "text/plain; charset=utf-8",
+        },
+      });
+    }
+
+    if (url === "https://ga.jspm.io/npm:date-fns@4.1.0/package.json") {
+      return new Response(
+        JSON.stringify({
+          exports: {
+            ".": {
+              import: {
+                default: "./index.js",
+              },
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+          },
+        },
+      );
+    }
+
+    return new Response("not found", { status: 404 });
+  }) as typeof fetch;
+
+  const app = createRenderifyApp(
+    createCoreDependencies(runtimeStub, new ResolveOnlyJspmLoader()),
+  );
+
+  await app.start();
+  try {
+    const result = await app.renderPlan(plan);
+
+    assert.equal(result.html, "<section>ok</section>");
+    assert.equal(
+      executedPlan?.moduleManifest?.["date-fns"]?.resolvedUrl,
+      "https://ga.jspm.io/npm:date-fns@4.1.0/index.js",
+    );
+    assert.equal(executedPlan?.moduleManifest?.["date-fns"]?.version, "4.1.0");
+  } finally {
+    await app.stop();
     globalThis.fetch = originalFetch;
   }
 });

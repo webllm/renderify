@@ -10,6 +10,7 @@ export type LLMProviderConfig = string;
 const DEFAULT_RUNTIME_SPEC_VERSIONS = ["runtime-plan/v1"];
 const DEFAULT_RUNTIME_REMOTE_FALLBACK_CDNS = ["https://esm.sh"];
 const DEFAULT_JSPM_ALLOWED_NETWORK_HOSTS = ["ga.jspm.io", "cdn.jspm.io"];
+const DEFAULT_RUNTIME_AUTO_PIN_FETCH_TIMEOUT_MS = 4000;
 const DEFAULT_OPENAI_MODEL = "gpt-5-mini";
 const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-5";
@@ -38,6 +39,8 @@ export interface RenderifyConfigValues {
   runtimeSupportedSpecVersions: string[];
   runtimeEnableDependencyPreflight: boolean;
   runtimeFailOnDependencyPreflightError: boolean;
+  runtimeAutoPinLatestModuleManifest: boolean;
+  runtimeAutoPinFetchTimeoutMs: number;
   runtimeRemoteFetchTimeoutMs: number;
   runtimeRemoteFetchRetries: number;
   runtimeRemoteFetchBackoffMs: number;
@@ -121,6 +124,8 @@ export class DefaultRenderifyConfig implements RenderifyConfig {
       runtimeSupportedSpecVersions: [...DEFAULT_RUNTIME_SPEC_VERSIONS],
       runtimeEnableDependencyPreflight: true,
       runtimeFailOnDependencyPreflightError: false,
+      runtimeAutoPinLatestModuleManifest: true,
+      runtimeAutoPinFetchTimeoutMs: DEFAULT_RUNTIME_AUTO_PIN_FETCH_TIMEOUT_MS,
       runtimeRemoteFetchTimeoutMs: 12000,
       runtimeRemoteFetchRetries: 2,
       runtimeRemoteFetchBackoffMs: 150,
@@ -273,6 +278,12 @@ function getEnvironmentValues(): Partial<RenderifyConfigValues> {
       process.env.RENDERIFY_RUNTIME_PREFLIGHT !== "false",
     runtimeFailOnDependencyPreflightError:
       process.env.RENDERIFY_RUNTIME_PREFLIGHT_FAIL_FAST === "true",
+    runtimeAutoPinLatestModuleManifest:
+      process.env.RENDERIFY_RUNTIME_AUTO_PIN_LATEST_MODULE_MANIFEST !== "false",
+    runtimeAutoPinFetchTimeoutMs:
+      parsePositiveInt(
+        process.env.RENDERIFY_RUNTIME_AUTO_PIN_FETCH_TIMEOUT_MS,
+      ) ?? DEFAULT_RUNTIME_AUTO_PIN_FETCH_TIMEOUT_MS,
     runtimeRemoteFetchTimeoutMs:
       parsePositiveInt(process.env.RENDERIFY_RUNTIME_REMOTE_FETCH_TIMEOUT_MS) ??
       12000,

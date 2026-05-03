@@ -115,6 +115,8 @@ export function createRenderify(
   options: CreateRenderifyOptions = {},
 ): CreateRenderifyResult {
   const configLoadOverrides = createConfigLoadOverrides(options);
+  const moduleLoader =
+    options.moduleLoader ?? new JspmModuleLoader(options.moduleLoaderOptions);
   const dependencies: RenderifyCoreDependencies = {
     config: options.config ?? new DefaultRenderifyConfig(),
     ...(configLoadOverrides ? { configLoadOverrides } : {}),
@@ -129,14 +131,13 @@ export function createRenderify(
     runtime:
       options.runtime ??
       new DefaultRuntimeManager({
-        moduleLoader:
-          options.moduleLoader ??
-          new JspmModuleLoader(options.moduleLoaderOptions),
+        moduleLoader,
         ...(options.runtimeOptions ?? {}),
       }),
     runtimeOptionOverrides: options.runtime
       ? undefined
       : options.runtimeOptions,
+    autoPinModuleLoader: moduleLoader,
     security: options.security ?? new DefaultSecurityChecker(),
     performance: options.performance ?? new DefaultPerformanceOptimizer(),
     ui: options.ui ?? new DefaultUIRenderer(),
