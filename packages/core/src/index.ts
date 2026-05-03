@@ -10,7 +10,7 @@ import type {
   CodeGenerator,
   IncrementalCodeGenerationSession,
 } from "./codegen";
-import type { RenderifyConfig } from "./config";
+import type { RenderifyConfig, RenderifyConfigValues } from "./config";
 import type { ContextManager } from "./context";
 import type {
   CustomizationEngine,
@@ -35,6 +35,7 @@ import type { RenderTarget, UIRenderer } from "./ui";
 
 export interface RenderifyCoreDependencies {
   config: RenderifyConfig;
+  configLoadOverrides?: Partial<RenderifyConfigValues>;
   context: ContextManager;
   llm: LLMInterpreter;
   codegen: CodeGenerator;
@@ -128,7 +129,7 @@ export class RenderifyApp {
       return;
     }
 
-    await this.deps.config.load();
+    await this.deps.config.load(this.deps.configLoadOverrides);
     this.deps.llm.configure(this.deps.config.snapshot());
     await this.deps.context.initialize();
 

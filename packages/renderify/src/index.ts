@@ -15,6 +15,7 @@ import {
   type PerformanceOptimizer,
   type RenderifyApp,
   type RenderifyConfig,
+  type RenderifyConfigValues,
   type RenderifyCoreDependencies,
   type RenderPlanOptions,
   type RenderPlanResult,
@@ -56,27 +57,27 @@ import {
 } from "@renderify/security";
 
 export * from "@renderify/core";
-export {
-  AnthropicLLMInterpreter,
-  GoogleLLMInterpreter,
-  OpenAILLMInterpreter,
-  anthropicLLMProvider,
-  createDefaultLLMProviderRegistry,
-  createLLMInterpreter,
-  createTrustedInteractiveSession,
-  defaultLLMProviderRegistry,
-  googleLLMProvider,
-  LLMProviderRegistry,
-  openaiLLMProvider,
-  renderPlanInBrowser,
-  renderTrustedPlanInBrowser,
-};
 export type {
   AnthropicLLMInterpreterOptions,
   GoogleLLMInterpreterOptions,
   LLMProviderDefinition,
   LLMProviderName,
   OpenAILLMInterpreterOptions,
+};
+export {
+  AnthropicLLMInterpreter,
+  anthropicLLMProvider,
+  createDefaultLLMProviderRegistry,
+  createLLMInterpreter,
+  createTrustedInteractiveSession,
+  defaultLLMProviderRegistry,
+  GoogleLLMInterpreter,
+  googleLLMProvider,
+  LLMProviderRegistry,
+  OpenAILLMInterpreter,
+  openaiLLMProvider,
+  renderPlanInBrowser,
+  renderTrustedPlanInBrowser,
 };
 
 export interface CreateRenderifyOptions {
@@ -113,8 +114,10 @@ export interface RenderPlanOnceOptions extends CreateRenderifyOptions {
 export function createRenderify(
   options: CreateRenderifyOptions = {},
 ): CreateRenderifyResult {
+  const configLoadOverrides = createConfigLoadOverrides(options);
   const dependencies: RenderifyCoreDependencies = {
     config: options.config ?? new DefaultRenderifyConfig(),
+    ...(configLoadOverrides ? { configLoadOverrides } : {}),
     context: options.context ?? new DefaultContextManager(),
     llm:
       options.llm ??
@@ -145,6 +148,47 @@ export function createRenderify(
     app: createRenderifyApp(dependencies),
     dependencies,
   };
+}
+
+function createConfigLoadOverrides(
+  options: CreateRenderifyOptions,
+): Partial<RenderifyConfigValues> | undefined {
+  if (options.llm) {
+    return undefined;
+  }
+
+  const providerOptions = options.llmProviderOptions ?? {};
+  const overrides: Record<string, unknown> = { ...providerOptions };
+  if (typeof options.llmProvider === "string") {
+    overrides.llmProvider = options.llmProvider;
+  }
+
+  applyConfigAlias(providerOptions, overrides, "model", "llmModel");
+  applyConfigAlias(providerOptions, overrides, "baseUrl", "llmBaseUrl");
+  applyConfigAlias(providerOptions, overrides, "apiKey", "llmApiKey");
+  applyConfigAlias(
+    providerOptions,
+    overrides,
+    "timeoutMs",
+    "llmRequestTimeoutMs",
+  );
+
+  return Object.keys(overrides).length > 0
+    ? (overrides as Partial<RenderifyConfigValues>)
+    : undefined;
+}
+
+function applyConfigAlias(
+  source: Record<string, unknown>,
+  target: Record<string, unknown>,
+  sourceKey: string,
+  targetKey: keyof RenderifyConfigValues,
+): void {
+  if (target[targetKey] !== undefined || source[sourceKey] === undefined) {
+    return;
+  }
+
+  target[targetKey] = source[sourceKey];
 }
 
 export async function startRenderify(

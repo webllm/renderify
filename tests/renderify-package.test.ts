@@ -83,6 +83,37 @@ test("renderify facade createRenderify composes default app dependencies", async
   }
 });
 
+test("renderify facade preserves llmProvider options during app startup", async () => {
+  const { app, dependencies } = createRenderify({
+    llmProvider: "google",
+    llmProviderOptions: {
+      apiKey: "test-google-key",
+      baseUrl: "https://google.example.test/v1beta",
+      model: "gemini-test-model",
+      timeoutMs: 1234,
+    },
+  });
+
+  await app.start();
+  try {
+    const snapshot = dependencies.config.snapshot();
+    const llm = dependencies.llm as unknown as {
+      options: Record<string, unknown>;
+    };
+
+    assert.equal(snapshot.llmProvider, "google");
+    assert.equal(snapshot.llmApiKey, "test-google-key");
+    assert.equal(snapshot.llmBaseUrl, "https://google.example.test/v1beta");
+    assert.equal(snapshot.llmModel, "gemini-test-model");
+    assert.equal(snapshot.llmRequestTimeoutMs, 1234);
+    assert.equal(llm.options.baseUrl, "https://google.example.test/v1beta");
+    assert.equal(llm.options.model, "gemini-test-model");
+    assert.equal(llm.options.timeoutMs, 1234);
+  } finally {
+    await app.stop();
+  }
+});
+
 test("renderify facade one-shot helpers renderPromptOnce and renderPlanOnce", async () => {
   const promptResult = await renderPromptOnce("hello", {
     llm: new StaticPlanLLM(),
