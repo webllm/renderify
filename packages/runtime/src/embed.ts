@@ -350,10 +350,6 @@ async function precheckPlanBeforeAutoPin(
   }
 
   const policy = security.getPolicy();
-  if (!policy.requireModuleManifestForBareSpecifiers) {
-    return security.checkPlan(plan);
-  }
-
   const precheckSecurity = new DefaultSecurityChecker();
   precheckSecurity.initialize({
     overrides: {
