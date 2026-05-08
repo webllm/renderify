@@ -350,11 +350,14 @@ async function precheckPlanBeforeAutoPin(
   }
 
   const policy = security.getPolicy();
+  const allowedModules = Array.isArray(policy.allowedModules)
+    ? policy.allowedModules
+    : [];
   const precheckSecurity = new DefaultSecurityChecker();
   precheckSecurity.initialize({
     overrides: {
       ...policy,
-      allowedModules: ["", ...policy.allowedModules],
+      allowedModules: ["", ...allowedModules],
       requireModuleManifestForBareSpecifiers: false,
     },
   });
