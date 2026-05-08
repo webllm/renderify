@@ -15,7 +15,7 @@
     "lint": "turbo run lint:repo",
     "lint:repo": "biome lint .",
     "format": "biome format --write .",
-    "format:check": "biome format --check .",
+    "format:check": "biome format .",
     "unit": "turbo run unit:repo",
     "unit:repo": "tsx --test \"tests/*.test.ts\"",
     "compat": "turbo run compat:repo",
