@@ -1,5 +1,19 @@
 # @renderify/llm
 
+## 0.7.0
+
+### Minor Changes
+
+- fix
+
+### Patch Changes
+
+- e86c0ad: Clean up package sources to satisfy Biome lint rules.
+- Updated dependencies [e86c0ad]
+- Updated dependencies
+  - @renderify/core@0.7.0
+  - @renderify/ir@0.7.0
+
 ## 0.6.1
 
 ### Patch Changes

@@ -1,5 +1,16 @@
 # @renderify/security
 
+## 0.7.0
+
+### Minor Changes
+
+- fix
+
+### Patch Changes
+
+- Updated dependencies
+  - @renderify/ir@0.7.0
+
 ## 0.6.1
 
 ### Patch Changes

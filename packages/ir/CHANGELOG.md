@@ -1,5 +1,11 @@
 # @renderify/ir
 
+## 0.7.0
+
+### Minor Changes
+
+- fix
+
 ## 0.6.1
 
 ### Patch Changes

@@ -1,5 +1,19 @@
 # @renderify/runtime
 
+## 0.7.0
+
+### Minor Changes
+
+- fix
+
+### Patch Changes
+
+- e86c0ad: Clean up package sources to satisfy Biome lint rules.
+- 17a4f62: Allow auto-pin-latest to hydrate relaxed-profile deep bare imports before the final module allowlist check.
+- Updated dependencies
+  - @renderify/ir@0.7.0
+  - @renderify/security@0.7.0
+
 ## 0.6.1
 
 ### Patch Changes
