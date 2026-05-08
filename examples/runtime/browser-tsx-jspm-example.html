@@ -169,7 +169,7 @@
         throw new Error("RenderifyCore global is unavailable");
       }
 
-      (async function () {
+      (async () => {
         const promptInput = document.getElementById("promptInput");
         const runButton = document.getElementById("runButton");
         const statusEl = document.getElementById("status");
@@ -241,12 +241,16 @@
           runButton.disabled = flag;
         }
 
+        function getErrorMessage(error) {
+          return error?.message ? error.message : String(error);
+        }
+
         setBusy(true);
         try {
           await app.start();
           setStatus("Ready. Click Render TSX.");
         } catch (error) {
-          setStatus("Boot failed: " + (error && error.message ? error.message : String(error)));
+          setStatus(`Boot failed: ${getErrorMessage(error)}`);
           return;
         } finally {
           setBusy(false);
@@ -262,9 +266,9 @@
             sourceCodeEl.textContent = result.plan.source
               ? result.plan.source.code
               : "(no source module)";
-            setStatus("Rendered successfully. planId=" + result.plan.id);
+            setStatus(`Rendered successfully. planId=${result.plan.id}`);
           } catch (error) {
-            setStatus("Render failed: " + (error && error.message ? error.message : String(error)));
+            setStatus(`Render failed: ${getErrorMessage(error)}`);
           } finally {
             setBusy(false);
           }

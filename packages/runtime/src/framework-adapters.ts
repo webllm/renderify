@@ -19,7 +19,7 @@ export interface VueRuntimeModule {
 }
 
 export interface SolidRuntimeModule {
-  render(component: () => unknown, target: Element): (() => void) | void;
+  render(component: () => unknown, target: Element): (() => void) | undefined;
 }
 
 export interface SvelteComponentInstance {

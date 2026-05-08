@@ -25,6 +25,10 @@ import {
   renderPlanInBrowser,
   renderTrustedPlanInBrowser,
 } from "../packages/runtime/src/index";
+import {
+  toConfiguredFallbackUrl,
+  toEsmFallbackUrl,
+} from "../packages/runtime/src/module-fetch";
 import { createPreactRenderArtifact } from "../packages/runtime/src/runtime-component-runtime";
 import { DefaultSecurityChecker } from "../packages/security/src/index";
 
@@ -99,8 +103,6 @@ class SandboxSuccessWorker {
   private readonly errorHandlers = new Set<WorkerErrorHandler>();
   terminated = false;
 
-  constructor(_url: string, _options?: { type?: string; name?: string }) {}
-
   addEventListener(type: string, handler: EventListener): void {
     if (type === "message") {
       this.messageHandlers.add(handler as WorkerMessageHandler);
@@ -157,8 +159,6 @@ class SandboxSuccessWorker {
 class SandboxFailWorker {
   private readonly messageHandlers = new Set<WorkerMessageHandler>();
   private readonly errorHandlers = new Set<WorkerErrorHandler>();
-
-  constructor(_url: string, _options?: { type?: string; name?: string }) {}
 
   addEventListener(type: string, handler: EventListener): void {
     if (type === "message") {
@@ -936,7 +936,7 @@ test("renderPlanInBrowser serializes concurrent renders for the same target", as
       issues: [],
       diagnostics: [],
     }),
-  } as any;
+  } as unknown as DefaultSecurityChecker;
 
   try {
     await Promise.all([
@@ -1378,6 +1378,7 @@ test("runtime executes source module export using custom transpiler", async () =
         "export default ({ state }) => ({",
         '  type: "element",',
         '  tag: "p",',
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: this is nested runtime source code.
         "  children: [{ type: 'text', value: `Count=${state.count}` }],",
         "});",
       ].join("\n"),
@@ -1993,12 +1994,9 @@ test("runtime source specifier fallback rewrites JSPM URLs without resolver hook
 });
 
 test("runtime computes esm fallback url for jspm modules", () => {
-  const runtime = new DefaultRuntimeManager();
-  const fallback = (
-    runtime as unknown as {
-      toEsmFallbackUrl: (url: string) => string | undefined;
-    }
-  ).toEsmFallbackUrl("https://ga.jspm.io/npm:@mui/material@7.3.5/index.js");
+  const fallback = toEsmFallbackUrl(
+    "https://ga.jspm.io/npm:@mui/material@7.3.5/index.js",
+  );
 
   assert.equal(typeof fallback, "string");
   assert.match(
@@ -2009,28 +2007,11 @@ test("runtime computes esm fallback url for jspm modules", () => {
 });
 
 test("runtime computes jsdelivr and unpkg fallback urls for jspm modules", () => {
-  const runtime = new DefaultRuntimeManager({
-    remoteFallbackCdnBases: ["https://cdn.jsdelivr.net", "https://unpkg.com"],
-  });
-  const jsdelivrFallback = (
-    runtime as unknown as {
-      toConfiguredFallbackUrl: (
-        url: string,
-        cdnBase: string,
-      ) => string | undefined;
-    }
-  ).toConfiguredFallbackUrl(
+  const jsdelivrFallback = toConfiguredFallbackUrl(
     "https://ga.jspm.io/npm:@mui/material@7.3.5/index.js",
     "https://cdn.jsdelivr.net",
   );
-  const unpkgFallback = (
-    runtime as unknown as {
-      toConfiguredFallbackUrl: (
-        url: string,
-        cdnBase: string,
-      ) => string | undefined;
-    }
-  ).toConfiguredFallbackUrl(
+  const unpkgFallback = toConfiguredFallbackUrl(
     "https://ga.jspm.io/npm:@mui/material@7.3.5/index.js",
     "https://unpkg.com",
   );
@@ -3209,6 +3190,7 @@ test("runtime emits preact render artifact for source.runtime=preact modules", a
       code: [
         'import { h } from "preact";',
         "export default function Dashboard(props) {",
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: this is nested runtime source code.
         '  return h("section", { "data-kind": "dashboard" }, `count:${props.state.count}`);',
         "}",
       ].join("\n"),
@@ -3303,6 +3285,7 @@ test("runtime preact rendering rejects plain object component output", async () 
       code: [
         "export default function Dashboard(props) {",
         '  return { type: "section", props: { "data-kind": "dashboard" },',
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: this is nested runtime source code.
         "    children: [`count:${props.state.count}`] };",
         "}",
       ].join("\n"),
@@ -3346,6 +3329,7 @@ test("runtime preact rendering rejects plain object class component output", asy
         "export default class Dashboard extends Component {",
         "  render(props) {",
         '    return { type: "section", props: { "data-kind": "dashboard" },',
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: this is nested runtime source code.
         "      children: [`count:${props.state.count}`] };",
         "  }",
         "}",

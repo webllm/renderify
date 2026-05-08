@@ -129,7 +129,8 @@ export async function resolveRuntimeNode(input: {
     );
   }
 
-  if (!resolver.moduleLoader) {
+  const moduleLoader = resolver.moduleLoader;
+  if (!moduleLoader) {
     diagnostics.push({
       level: "warning",
       code: "RUNTIME_COMPONENT_SKIPPED",
@@ -158,7 +159,7 @@ export async function resolveRuntimeNode(input: {
 
   try {
     const loaded = await resolver.withRemainingBudget(
-      () => resolver.moduleLoader!.load(resolvedComponentSpecifier),
+      () => moduleLoader.load(resolvedComponentSpecifier),
       `Component module timed out: ${resolvedComponentSpecifier}`,
     );
 

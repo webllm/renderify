@@ -119,7 +119,9 @@
             "    tag: 'section',",
             "    children: [",
             "      { type: 'element', tag: 'h3', children: [{ type: 'text', value: 'Worker Sandbox Active' }] },",
+            // biome-ignore lint/suspicious/noTemplateCurlyInString: this is nested runtime source code.
             "      { type: 'element', tag: 'p', children: [{ type: 'text', value: `Unique values: ${unique.join(', ')}` }] },",
+            // biome-ignore lint/suspicious/noTemplateCurlyInString: this is nested runtime source code.
             "      { type: 'element', tag: 'p', children: [{ type: 'text', value: `Count: ${unique.length}` }] },",
             "    ],",
             "  };",

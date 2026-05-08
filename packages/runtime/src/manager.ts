@@ -4,7 +4,6 @@ import {
   createElementNode,
   createTextNode,
   getValueByPath,
-  isRuntimeNode,
   isRuntimeValueFromPath,
   isSafePath,
   type JsonValue,
@@ -26,12 +25,7 @@ import {
   resolveRuntimePlanSpecVersion,
   setValueByPath,
 } from "@renderify/ir";
-import {
-  fetchWithTimeout,
-  type RemoteModuleFetchResult,
-  toConfiguredFallbackUrl,
-  toEsmFallbackUrl,
-} from "./module-fetch";
+import { fetchWithTimeout, type RemoteModuleFetchResult } from "./module-fetch";
 import { verifyModuleIntegrity } from "./module-integrity";
 import {
   hasExceededBudget as hasRuntimeExceededBudget,
@@ -48,7 +42,6 @@ import {
   FALLBACK_BROWSER_SOURCE_SANDBOX_TIMEOUT_MS,
   FALLBACK_ENABLE_DEPENDENCY_PREFLIGHT,
   FALLBACK_ENFORCE_MODULE_MANIFEST,
-  FALLBACK_ESM_CDN_BASE,
   FALLBACK_EXECUTION_PROFILE,
   FALLBACK_FAIL_ON_DEPENDENCY_PREFLIGHT_ERROR,
   FALLBACK_JSPM_CDN_BASE,
@@ -82,10 +75,7 @@ import type {
 import { resolveRuntimeNode } from "./runtime-node-resolver";
 import { resolveRuntimePlanImports } from "./runtime-plan-imports";
 import { preflightRuntimePlanDependencies } from "./runtime-plan-preflight";
-import type {
-  RuntimeDependencyProbeStatus,
-  RuntimeDependencyUsage,
-} from "./runtime-preflight";
+import type { RuntimeDependencyProbeStatus } from "./runtime-preflight";
 import {
   executeRuntimeSourceRoot,
   type ResolvedSourceOutput,
@@ -1062,20 +1052,6 @@ export class DefaultRuntimeManager implements RuntimeManager {
       moduleManifest,
       diagnostics,
     ).materializeFetchedModuleSource(fetched);
-  }
-
-  private toConfiguredFallbackUrl(
-    url: string,
-    cdnBase: string,
-  ): string | undefined {
-    return toConfiguredFallbackUrl(url, cdnBase);
-  }
-
-  private toEsmFallbackUrl(
-    url: string,
-    cdnBase = FALLBACK_ESM_CDN_BASE,
-  ): string | undefined {
-    return toEsmFallbackUrl(url, cdnBase);
   }
 
   private async rewriteImportsAsync(

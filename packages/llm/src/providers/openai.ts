@@ -717,7 +717,7 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
     payload: OpenAIChatCompletionsPayload,
   ): OpenAIExtractedOutput {
     const choice = payload.choices?.[0];
-    if (!choice || !choice.message) {
+    if (!choice?.message) {
       throw new Error("OpenAI response missing assistant choice");
     }
 

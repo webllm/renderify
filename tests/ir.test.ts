@@ -20,6 +20,7 @@ import {
   isRuntimeSourceRuntime,
   isRuntimeStateModel,
   isSafePath,
+  type RuntimeStateSnapshot,
   resolveRuntimePlanSpecVersion,
   setValueByPath,
   walkRuntimeNode,
@@ -85,8 +86,8 @@ test("walkRuntimeNode skips malformed child payloads", () => {
 });
 
 test("path helpers set/get nested values and reject unsafe keys", () => {
-  const state: Record<string, unknown> = {};
-  setValueByPath(state as Record<string, any>, "counter.total", 7);
+  const state: RuntimeStateSnapshot = {};
+  setValueByPath(state, "counter.total", 7);
 
   assert.equal(getValueByPath(state, "counter.total"), 7);
   assert.equal(isSafePath("counter.total"), true);

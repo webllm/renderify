@@ -473,7 +473,7 @@ function normalizeJspmAllowedNetworkHosts(input: unknown): string[] {
     }
 
     const host = normalizeNetworkHostEntry(entry);
-    if (!host || !host.endsWith("jspm.io")) {
+    if (!host?.endsWith("jspm.io")) {
       continue;
     }
 

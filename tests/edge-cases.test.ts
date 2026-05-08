@@ -32,7 +32,7 @@ class PlainLLM implements LLMInterpreter {
         '  "id": "edge_prompt_plan",',
         '  "version": 1,',
         '  "capabilities": { "domWrite": true },',
-        '  "root": { "type": "text", "value": "' + req.prompt + '" }',
+        `  "root": { "type": "text", "value": "${req.prompt}" }`,
         "}",
       ].join("\n"),
     };

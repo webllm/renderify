@@ -61,7 +61,8 @@ export async function resolveRuntimePlanImports(
       continue;
     }
 
-    if (!input.moduleLoader) {
+    const moduleLoader = input.moduleLoader;
+    if (!moduleLoader) {
       diagnostics.push({
         level: "warning",
         code: "RUNTIME_LOADER_MISSING",
@@ -88,7 +89,7 @@ export async function resolveRuntimePlanImports(
 
     try {
       await input.withRemainingBudget(
-        () => input.moduleLoader!.load(resolvedSpecifier),
+        () => moduleLoader.load(resolvedSpecifier),
         `Import timed out: ${resolvedSpecifier}`,
       );
     } catch (error) {

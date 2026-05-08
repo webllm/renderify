@@ -204,7 +204,7 @@
         throw new Error("RenderifyCore global is unavailable");
       }
 
-      (async function () {
+      (async () => {
         const statusEl = document.getElementById("status");
         const promptInput = document.getElementById("promptInput");
         const renderButton = document.getElementById("renderPromptButton");
@@ -228,6 +228,10 @@
 
         function toJson(value) {
           return JSON.stringify(value ?? {}, null, 2);
+        }
+
+        function getErrorMessage(error) {
+          return error?.message ? error.message : String(error);
         }
 
         class DemoLLM {
@@ -289,15 +293,12 @@
           await app.start();
           setStatus("Renderify runtime ready.");
         } catch (error) {
-          setStatus(
-            "Boot failed: " +
-              (error && error.message ? error.message : String(error)),
-          );
+          setStatus(`Boot failed: ${getErrorMessage(error)}`);
           setBusy(true);
           return;
         }
 
-        renderButton.addEventListener("click", async function () {
+        renderButton.addEventListener("click", async () => {
           const prompt = promptInput.value.trim();
           if (!prompt) {
             setStatus("Prompt cannot be empty.");
@@ -313,22 +314,16 @@
             planJsonEl.textContent = toJson(result.plan);
             streamJsonEl.textContent = "[]";
             setStatus(
-              "Rendered. planId=" +
-                result.plan.id +
-                " version=" +
-                result.plan.version,
+              `Rendered. planId=${result.plan.id} version=${result.plan.version}`,
             );
           } catch (error) {
-            setStatus(
-              "Render failed: " +
-                (error && error.message ? error.message : String(error)),
-            );
+            setStatus(`Render failed: ${getErrorMessage(error)}`);
           } finally {
             setBusy(false);
           }
         });
 
-        streamButton.addEventListener("click", async function () {
+        streamButton.addEventListener("click", async () => {
           const prompt = promptInput.value.trim();
           if (!prompt) {
             setStatus("Prompt cannot be empty.");
@@ -360,16 +355,13 @@
             streamJsonEl.textContent = toJson(chunks);
             setStatus("Stream complete.");
           } catch (error) {
-            setStatus(
-              "Stream failed: " +
-                (error && error.message ? error.message : String(error)),
-            );
+            setStatus(`Stream failed: ${getErrorMessage(error)}`);
           } finally {
             setBusy(false);
           }
         });
 
-        clearButton.addEventListener("click", function () {
+        clearButton.addEventListener("click", () => {
           renderResultEl.innerHTML = "";
           planJsonEl.textContent = "{}";
           streamJsonEl.textContent = "[]";
@@ -377,9 +369,9 @@
           setBusy(false);
         });
 
-        window.addEventListener("beforeunload", function () {
+        window.addEventListener("beforeunload", () => {
           if (app && typeof app.stop === "function") {
-            app.stop().catch(function () {});
+            app.stop().catch(() => {});
           }
         });
       })();

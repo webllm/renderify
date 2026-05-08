@@ -208,9 +208,11 @@
             "        <button type='button' onClick={() => setMetric('users')}>Users</button>",
             "      </div>",
             "      <div style={{ overflowX: 'auto' }}>",
+            // biome-ignore lint/suspicious/noTemplateCurlyInString: this is nested TSX source code.
             "        <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} role='img' aria-label='Metric bar chart'>",
             "          {Array.from({ length: axisTicks + 1 }).map((_, tickIndex) => {",
             "            const y = pad + (tickIndex * chartHeight) / axisTicks;",
+            // biome-ignore lint/suspicious/noTemplateCurlyInString: this is nested TSX source code.
             "            return <line key={`grid-${tickIndex}`} x1={pad} y1={y} x2={width - pad} y2={y} stroke='#e6edf7' strokeDasharray='4 4' />;",
             "          })}",
             "          <line x1={pad} y1={height - pad} x2={width - pad} y2={height - pad} stroke='#d1d8e6' />",

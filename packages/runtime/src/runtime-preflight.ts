@@ -202,7 +202,8 @@ export async function executeDependencyProbe(
     );
 
     try {
-      if (executor.moduleLoader && loaderCandidate) {
+      const loader = executor.moduleLoader;
+      if (loader && loaderCandidate) {
         if (
           executor.isResolvedSpecifierAllowed &&
           !executor.isResolvedSpecifierAllowed(
@@ -221,7 +222,7 @@ export async function executeDependencyProbe(
         }
 
         await executor.withRemainingBudget(
-          () => executor.moduleLoader!.load(loaderCandidate),
+          () => loader.load(loaderCandidate),
           timeoutMessage,
         );
         return {
@@ -272,7 +273,8 @@ export async function executeDependencyProbe(
         };
       }
 
-      if (!executor.moduleLoader) {
+      const moduleLoader = executor.moduleLoader;
+      if (!moduleLoader) {
         diagnostics.push({
           level: "warning",
           code: "RUNTIME_PREFLIGHT_SKIPPED",
@@ -302,7 +304,7 @@ export async function executeDependencyProbe(
       }
 
       await executor.withRemainingBudget(
-        () => executor.moduleLoader!.load(resolved),
+        () => moduleLoader.load(resolved),
         timeoutMessage,
       );
       return {
@@ -356,7 +358,8 @@ export async function executeDependencyProbe(
     };
   }
 
-  if (!executor.moduleLoader) {
+  const moduleLoader = executor.moduleLoader;
+  if (!moduleLoader) {
     diagnostics.push({
       level: "warning",
       code: "RUNTIME_PREFLIGHT_SKIPPED",
@@ -386,7 +389,7 @@ export async function executeDependencyProbe(
 
   try {
     await executor.withRemainingBudget(
-      () => executor.moduleLoader!.load(resolved),
+      () => moduleLoader.load(resolved),
       `Dependency preflight timed out: ${resolved}`,
     );
     return {

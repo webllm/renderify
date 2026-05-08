@@ -133,7 +133,7 @@ function normalizeFrameworkCodeFences(
   let normalized = llmText;
 
   for (const languageTag of languageTags) {
-    const regex = new RegExp("```\\s*" + languageTag + "(?=\\s|$)", "gi");
+    const regex = new RegExp(`\`\`\`\\s*${languageTag}(?=\\s|$)`, "gi");
     normalized = normalized.replace(regex, "```tsx");
   }
 

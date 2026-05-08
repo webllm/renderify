@@ -54,10 +54,11 @@ export async function withRemainingBudget<T>(
   const abortPromise =
     signal &&
     new Promise<T>((_resolve, reject) => {
-      onAbort = () => {
+      const handleAbort = () => {
         reject(createAbortError("Runtime execution aborted"));
       };
-      signal.addEventListener("abort", onAbort!, { once: true });
+      onAbort = handleAbort;
+      signal.addEventListener("abort", handleAbort, { once: true });
     });
 
   try {

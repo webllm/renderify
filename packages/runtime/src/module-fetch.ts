@@ -181,8 +181,8 @@ export function createCssProxyModuleSource(
   const cssLiteral = JSON.stringify(cssText);
   const styleIdLiteral = JSON.stringify(styleId);
   return [
-    "const __css = " + cssLiteral + ";",
-    "const __styleId = " + styleIdLiteral + ";",
+    `const __css = ${cssLiteral};`,
+    `const __styleId = ${styleIdLiteral};`,
     'if (typeof document !== "undefined") {',
     "  let __style = null;",
     '  const __styles = document.querySelectorAll("style[data-renderify-style-id]");',
