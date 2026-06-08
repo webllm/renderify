@@ -144,7 +144,7 @@ flowchart TD
 - React ecosystem compatibility bridge:
   - `react`, `react-dom`, `react-dom/client`, `react/jsx-runtime` are mapped to `preact/compat` equivalents
   - enables direct runtime rendering for React-first packages (e.g. `recharts`, `@mui/material`)
-- LLM provider package (`@renderify/llm`) with built-in OpenAI, Anthropic, and Google providers
+- LLM provider package (`@renderify/llm`) with built-in OpenAI, OpenAI Codex, Anthropic, Google, Ollama, and LM Studio providers
 - Runtime source static policy checks (blocked patterns, dynamic import policy, source import count)
 - Streaming prompt pipeline (`renderPromptStream`) with progressive preview updates
 - Preact DOM reconciliation path for runtime source modules (diff-based UI updates)
@@ -219,6 +219,11 @@ RENDERIFY_LLM_PROVIDER=anthropic RENDERIFY_LLM_API_KEY=<your_key> pnpm playgroun
 RENDERIFY_LLM_PROVIDER=anthropic RENDERIFY_LLM_MODEL=claude-sonnet-4-5 RENDERIFY_LLM_BASE_URL=https://api.anthropic.com/v1 pnpm playground
 RENDERIFY_LLM_PROVIDER=google RENDERIFY_LLM_API_KEY=<your_key> pnpm playground
 RENDERIFY_LLM_PROVIDER=google RENDERIFY_LLM_MODEL=gemini-2.5-flash RENDERIFY_LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta pnpm playground
+
+# OpenAI Codex OAuth backend (does not require Codex CLI)
+pnpm cli -- auth codex login
+RENDERIFY_LLM_PROVIDER=openai-codex pnpm playground
+RENDERIFY_LLM_PROVIDER=openai-codex RENDERIFY_LLM_MODEL=gpt-5.3-codex pnpm playground
 
 # Single-shot LLM mode (avoid structured retry/text fallback + network retries)
 RENDERIFY_LLM_MAX_RETRIES=0 RENDERIFY_LLM_STRUCTURED_RETRY=false RENDERIFY_LLM_STRUCTURED_FALLBACK_TEXT=false pnpm playground
@@ -382,7 +387,7 @@ Use `manifest-only` in production (`autoPinLatestModuleManifest: false`) when yo
 | `@renderify/runtime`  | Runtime execution engine + JSPM loader + one-line embed API      |
 | `@renderify/security` | Policy profiles + plan/module/source static checks               |
 | `@renderify/core`     | Legacy orchestration facade (optional compatibility layer)       |
-| `@renderify/llm`      | LLM provider package (OpenAI + Anthropic + Google)               |
+| `@renderify/llm`      | LLM provider package (OpenAI + OpenAI Codex + Anthropic + Google + local providers) |
 | `@renderify/cli`      | CLI + browser playground                                         |
 
 ## Integration Docs

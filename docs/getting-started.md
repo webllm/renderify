@@ -136,7 +136,7 @@ await app.stop();
 
 ## LLM Provider Configuration
 
-Renderify supports three LLM providers out of the box. Configure via environment variables:
+Renderify supports hosted and local LLM providers out of the box. Configure via environment variables:
 
 ```bash
 # OpenAI (default)
@@ -147,6 +147,10 @@ RENDERIFY_LLM_PROVIDER=anthropic RENDERIFY_LLM_API_KEY=sk-ant-... pnpm playgroun
 
 # Google (Gemini)
 RENDERIFY_LLM_PROVIDER=google RENDERIFY_LLM_API_KEY=... pnpm playground
+
+# OpenAI Codex OAuth backend (no Codex CLI required)
+pnpm cli -- auth codex login
+RENDERIFY_LLM_PROVIDER=openai-codex pnpm playground
 ```
 
 You can also customize the model and base URL:
@@ -202,7 +206,7 @@ pnpm format           # Auto-format code
 | `packages/runtime`   | `@renderify/runtime`  | Execution engine, JSPM loader, browser embed API               |
 | `packages/security`  | `@renderify/security` | Security policy profiles and static checks                     |
 | `packages/core`      | `@renderify/core`     | Orchestration facade: config, codegen, plugins, LLM interface  |
-| `packages/llm`       | `@renderify/llm`      | LLM provider implementations (OpenAI, Anthropic, Google)       |
+| `packages/llm`       | `@renderify/llm`      | LLM provider implementations (OpenAI, Codex, Anthropic, Google, local) |
 | `packages/cli`       | `@renderify/cli`      | CLI commands and browser playground server                     |
 
 ## Next Steps

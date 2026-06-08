@@ -569,6 +569,66 @@ test("e2e: playground prints llm request/response logs by default", async () => 
   }
 });
 
+test("e2e: playground logs codex responses requests with sensitive headers redacted", async () => {
+  const tempDir = await mkdtemp(
+    path.join(os.tmpdir(), "renderify-e2e-playground-codex-log-"),
+  );
+  const port = await allocatePort();
+  const codexPort = await allocatePort();
+  const { close } = await startFakeCodexServer(codexPort);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const accessToken = codexAccessToken("acct_e2e_codex");
+
+  const processHandle = startPlayground(port, {
+    RENDERIFY_SESSION_FILE: path.join(tempDir, "session.json"),
+    RENDERIFY_LLM_PROVIDER: "openai-codex",
+    RENDERIFY_CODEX_ACCESS_TOKEN: accessToken,
+    RENDERIFY_LLM_BASE_URL: `http://127.0.0.1:${codexPort}/backend-api/codex`,
+    RENDERIFY_LLM_MODEL: "gpt-5.3-codex",
+  });
+
+  let playgroundStdout = "";
+  processHandle.stdout.on("data", (chunk: Buffer | string) => {
+    playgroundStdout += String(chunk);
+  });
+
+  try {
+    await waitForHealth(`${baseUrl}/api/health`, 10000);
+
+    const promptResponse = await fetchJson(`${baseUrl}/api/prompt`, {
+      method: "POST",
+      body: {
+        prompt: "codex llm terminal log prompt",
+      },
+    });
+    assert.equal(promptResponse.status, 200);
+
+    await waitForTextInOutput(
+      () =>
+        playgroundStdout.includes("[playground-llm]") &&
+        playgroundStdout.includes("/backend-api/codex/responses") &&
+        playgroundStdout.includes("response#"),
+      5000,
+      "playground codex llm request/response logs",
+    );
+
+    assert.match(
+      playgroundStdout,
+      /\[playground-llm\].*request#\d+ POST .*backend-api\/codex\/responses/,
+    );
+    assert.match(playgroundStdout, /"authorization":"\[REDACTED\]"/);
+    assert.match(playgroundStdout, /"chatgpt-account-id":"\[REDACTED\]"/);
+    assert.doesNotMatch(playgroundStdout, /acct_e2e_codex/);
+    assert.match(playgroundStdout, /"body":\{"model":"gpt-5.3-codex"/);
+    assert.match(playgroundStdout, /"statusCode":200/);
+  } finally {
+    processHandle.kill("SIGTERM");
+    await onceExit(processHandle, 3000);
+    await close();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("e2e: playground debug stats endpoint returns disabled snapshot when debug is off", async () => {
   const tempDir = await mkdtemp(
     path.join(os.tmpdir(), "renderify-e2e-playground-debug-disabled-"),
@@ -1487,6 +1547,75 @@ async function startFakeOpenAIServer(port: number): Promise<{
   };
 }
 
+async function startFakeCodexServer(port: number): Promise<{
+  requests: Record<string, unknown>[];
+  close: () => Promise<void>;
+}> {
+  const requests: Record<string, unknown>[] = [];
+  const plan = {
+    id: "fake_codex_plan",
+    version: 1,
+    capabilities: {
+      domWrite: true,
+    },
+    root: {
+      type: "element",
+      tag: "section",
+      children: [
+        {
+          type: "text",
+          value: "Codex provider plan",
+        },
+      ],
+    },
+  };
+
+  const server = createServer(
+    (req: IncomingMessage, res: ServerResponse): void => {
+      void (async () => {
+        const method = (req.method ?? "GET").toUpperCase();
+        const pathName = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
+
+        if (method !== "POST" || pathName !== "/backend-api/codex/responses") {
+          sendJson(res, 404, { error: { message: "not found" } });
+          return;
+        }
+
+        const body = await readJsonRequest(req);
+        requests.push(body);
+
+        sendJson(res, 200, {
+          id: "resp_e2e_codex",
+          model: "gpt-5.3-codex",
+          usage: {
+            total_tokens: 64,
+          },
+          output_text: JSON.stringify(plan),
+        });
+      })().catch((error: unknown) => {
+        sendJson(res, 500, {
+          error: {
+            message: error instanceof Error ? error.message : String(error),
+          },
+        });
+      });
+    },
+  );
+
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+
+  return {
+    requests,
+    close: () => closeServer(server),
+  };
+}
+
 async function startFakeOpenAIServerSourceRuntimePlan(port: number): Promise<{
   requests: Record<string, unknown>[];
   close: () => Promise<void>;
@@ -1824,6 +1953,24 @@ async function readJsonRequest(
     string,
     unknown
   >;
+}
+
+function codexAccessToken(accountId: string): string {
+  const header = base64UrlEncode({ alg: "none", typ: "JWT" });
+  const payload = base64UrlEncode({
+    "https://api.openai.com/auth": {
+      chatgpt_account_id: accountId,
+    },
+  });
+  return `${header}.${payload}.signature`;
+}
+
+function base64UrlEncode(payload: unknown): string {
+  return Buffer.from(JSON.stringify(payload), "utf8")
+    .toString("base64")
+    .replace(/=/g, "")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
 }
 
 async function closeServer(server: Server): Promise<void> {

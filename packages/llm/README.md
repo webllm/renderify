@@ -6,7 +6,7 @@
 
 LLM provider implementations and registry for Renderify.
 
-`@renderify/llm` provides built-in interpreters for OpenAI, Anthropic, Google, Ollama, and LM Studio, plus a provider registry API for custom providers.
+`@renderify/llm` provides built-in interpreters for OpenAI, OpenAI Codex, Anthropic, Google, Ollama, and LM Studio, plus a provider registry API for custom providers.
 
 ## Install
 
@@ -19,6 +19,7 @@ npm i @renderify/llm
 ## Built-in Providers
 
 - `OpenAILLMInterpreter` (`provider: "openai"`)
+- `OpenAICodexLLMInterpreter` (`provider: "openai-codex"`)
 - `AnthropicLLMInterpreter` (`provider: "anthropic"`)
 - `GoogleLLMInterpreter` (`provider: "google"`)
 - `OllamaLLMInterpreter` (`provider: "ollama"`)
@@ -49,6 +50,23 @@ const response = await llm.generateResponse({
 });
 
 console.log(response.text);
+```
+
+## OpenAI Codex
+
+The OpenAI Codex provider talks directly to the Codex Responses backend. The provider accepts an OAuth access token; CLI users should normally create and refresh that token with `renderify auth codex login`.
+
+```ts
+import { createLLMInterpreter } from "@renderify/llm";
+
+const codex = createLLMInterpreter({
+  provider: "openai-codex",
+  providerOptions: {
+    accessToken: process.env.RENDERIFY_CODEX_ACCESS_TOKEN,
+    model: "gpt-5.3-codex",
+    baseUrl: "https://chatgpt.com/backend-api/codex",
+  },
+});
 ```
 
 ## Local Models Example

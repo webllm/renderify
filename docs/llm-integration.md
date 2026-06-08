@@ -4,11 +4,14 @@ Renderify supports multiple LLM providers for generating UI from natural languag
 
 ## Supported Providers
 
-| Provider        | Default Model              | Package          |
-| --------------- | -------------------------- | ---------------- |
-| OpenAI          | `gpt-5-mini`             | `@renderify/llm` |
-| Anthropic       | `claude-sonnet-4-5` | `@renderify/llm` |
-| Google (Gemini) | `gemini-2.5-flash`         | `@renderify/llm` |
+| Provider        | Default Model        | Package          |
+| --------------- | -------------------- | ---------------- |
+| OpenAI          | `gpt-5-mini`         | `@renderify/llm` |
+| OpenAI Codex    | `gpt-5.3-codex`      | `@renderify/llm` |
+| Anthropic       | `claude-sonnet-4-5`  | `@renderify/llm` |
+| Google (Gemini) | `gemini-2.5-flash`   | `@renderify/llm` |
+| Ollama          | `qwen2.5-coder:7b`   | `@renderify/llm` |
+| LM Studio       | local server default | `@renderify/llm` |
 
 ## Configuration
 
@@ -16,10 +19,14 @@ Renderify supports multiple LLM providers for generating UI from natural languag
 
 ```bash
 # Provider selection
-RENDERIFY_LLM_PROVIDER=openai|anthropic|google
+RENDERIFY_LLM_PROVIDER=openai|openai-codex|anthropic|google|ollama|lmstudio
 
 # API credentials
 RENDERIFY_LLM_API_KEY=your-api-key
+
+# OpenAI Codex OAuth credentials are managed by the Renderify CLI
+renderify auth codex login
+RENDERIFY_LLM_PROVIDER=openai-codex renderify playground
 
 # Optional: custom model
 RENDERIFY_LLM_MODEL=gpt-5-mini
@@ -67,6 +74,18 @@ const google = createLLMInterpreter({
     apiKey: "...",
     model: "gemini-2.5-flash",
     baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+  },
+});
+
+// OpenAI Codex backend via explicit access token.
+// CLI users should prefer `renderify auth codex login`; this low-level form is
+// useful for hosts that already manage OAuth tokens.
+const codex = createLLMInterpreter({
+  provider: "openai-codex",
+  providerOptions: {
+    accessToken: "...",
+    model: "gpt-5.3-codex",
+    baseUrl: "https://chatgpt.com/backend-api/codex",
   },
 });
 ```

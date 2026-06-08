@@ -65,6 +65,16 @@ Loads a RuntimePlan JSON file and executes it through the full pipeline, printin
 pnpm cli -- render-plan examples/runtime/counter-plan.json
 ```
 
+### `auth codex` — Manage OpenAI Codex OAuth
+
+Authenticates Renderify against the OpenAI Codex backend with Renderify's own auth store. This does not require the Codex CLI.
+
+```bash
+pnpm cli -- auth codex login
+pnpm cli -- auth codex status
+pnpm cli -- auth codex logout
+```
+
 ### `playground` — Start Browser Playground
 
 Starts a local HTTP server with an interactive playground UI.
@@ -277,11 +287,14 @@ All CLI and playground behavior can be configured via environment:
 
 ```bash
 # LLM Configuration
-RENDERIFY_LLM_PROVIDER=openai|anthropic|google
+RENDERIFY_LLM_PROVIDER=openai|openai-codex|anthropic|google|ollama|lmstudio
 RENDERIFY_LLM_API_KEY=...
 RENDERIFY_LLM_MODEL=gpt-5-mini
 RENDERIFY_LLM_BASE_URL=https://api.openai.com/v1
 RENDERIFY_LLM_USE_STRUCTURED_OUTPUT=true|false
+RENDERIFY_CODEX_ACCESS_TOKEN=...
+RENDERIFY_CODEX_AUTH_FILE=~/.renderify/auth.json
+RENDERIFY_CODEX_BASE_URL=https://chatgpt.com/backend-api/codex
 
 # Security
 RENDERIFY_SECURITY_PROFILE=strict|balanced|trusted|relaxed

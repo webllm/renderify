@@ -64,7 +64,7 @@ renderify
 
 ### Stage 1: LLM Interpretation
 
-The `LLMInterpreter` interface abstracts over LLM providers. Each provider (OpenAI, Anthropic, Google) implements:
+The `LLMInterpreter` interface abstracts over LLM providers. Each provider (OpenAI, OpenAI Codex, Anthropic, Google, or local model backends) implements:
 
 - **`generateResponse()`** — single-shot text generation
 - **`generateResponseStream()`** — streaming token-by-token generation via SSE

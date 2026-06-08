@@ -80,7 +80,7 @@ const DEBUG_RECENT_LOG_LIMIT = 120;
 const LLM_LOG_INLINE_LIMIT = 10_000;
 const LLM_LOG_TEXT_LIMIT = 4_000;
 const LLM_SENSITIVE_KEY_PATTERN =
-  /(api[-_]?key|authorization|token|secret|password|cookie|session)/i;
+  /(account|api[-_]?key|authorization|token|secret|password|cookie|session)/i;
 const { readFile } = fs.promises;
 
 interface PlaygroundDebugAggregate {
@@ -1853,9 +1853,11 @@ function isLikelyLlmHttpTarget(rawUrl: string): boolean {
     const pathname = parsed.pathname.toLowerCase();
     return (
       pathname.endsWith("/chat/completions") ||
+      pathname.endsWith("/responses") ||
       pathname.endsWith("/messages") ||
       pathname.endsWith("/api/chat") ||
       pathname.endsWith("/api/generate") ||
+      pathname.includes("/backend-api/codex") ||
       pathname.includes(":generatecontent") ||
       pathname.includes(":streamgeneratecontent")
     );
@@ -1863,9 +1865,11 @@ function isLikelyLlmHttpTarget(rawUrl: string): boolean {
     const normalized = rawUrl.toLowerCase();
     return (
       normalized.includes("/chat/completions") ||
+      normalized.includes("/responses") ||
       normalized.includes("/messages") ||
       normalized.includes("/api/chat") ||
       normalized.includes("/api/generate") ||
+      normalized.includes("/backend-api/codex") ||
       normalized.includes(":generatecontent")
     );
   }

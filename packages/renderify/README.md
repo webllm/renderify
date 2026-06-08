@@ -39,6 +39,13 @@ console.log(result.html);
 await app.stop();
 ```
 
+For OpenAI Codex, authenticate with the CLI and select the `openai-codex` provider:
+
+```bash
+renderify auth codex login
+RENDERIFY_LLM_PROVIDER=openai-codex renderify playground
+```
+
 ## Renderer-only (BYO LLM/Backend)
 
 You do not need to use the built-in LLM providers. A common integration is to generate RuntimePlan externally and only use `renderify` for execution/rendering:

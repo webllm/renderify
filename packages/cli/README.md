@@ -30,6 +30,7 @@ renderify plan <prompt>         # Print RuntimePlan JSON
 renderify probe-plan <file>     # Probe plan dependencies and policy compatibility
 renderify render-plan <file>    # Execute RuntimePlan JSON file and print HTML
 renderify playground [port] [--debug] [--no-llm-log]  # Start browser playground server
+renderify auth codex login|status|logout              # Manage OpenAI Codex OAuth
 ```
 
 ## Quick Start
@@ -44,14 +45,21 @@ renderify plan "build a todo app"
 # Probe and execute a local plan file
 renderify probe-plan ./examples/runtime/recharts-dashboard-plan.json
 renderify render-plan ./examples/runtime/recharts-dashboard-plan.json
+
+# Use OpenAI Codex without installing Codex CLI
+renderify auth codex login
+RENDERIFY_LLM_PROVIDER=openai-codex renderify playground
 ```
 
 ## Useful Environment Variables
 
 - `RENDERIFY_LLM_API_KEY`
-- `RENDERIFY_LLM_PROVIDER` (`openai`, `anthropic`, `google`)
+- `RENDERIFY_LLM_PROVIDER` (`openai`, `openai-codex`, `anthropic`, `google`, `ollama`, `lmstudio`)
 - `RENDERIFY_LLM_MODEL`
 - `RENDERIFY_LLM_BASE_URL`
+- `RENDERIFY_CODEX_ACCESS_TOKEN` (optional direct token override)
+- `RENDERIFY_CODEX_AUTH_FILE` (defaults to `~/.renderify/auth.json`)
+- `RENDERIFY_CODEX_BASE_URL` (defaults to `https://chatgpt.com/backend-api/codex`)
 - `RENDERIFY_LLM_MAX_RETRIES` (e.g. `0` for single-attempt HTTP calls)
 - `RENDERIFY_LLM_STRUCTURED_RETRY` (`true`, `false`)
 - `RENDERIFY_LLM_STRUCTURED_FALLBACK_TEXT` (`true`, `false`)

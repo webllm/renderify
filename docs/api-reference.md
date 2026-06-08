@@ -642,6 +642,9 @@ function createLLMInterpreter(options: {
 class OpenAILLMInterpreter implements LLMInterpreter {
   /* ... */
 }
+class OpenAICodexLLMInterpreter implements LLMInterpreter {
+  /* ... */
+}
 class AnthropicLLMInterpreter implements LLMInterpreter {
   /* ... */
 }

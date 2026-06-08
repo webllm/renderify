@@ -193,7 +193,7 @@ Test files are in `tests/*.test.ts`. Key test areas:
 | `security.test.ts`      | Policy profiles, tag blocking, source analysis  |
 | `codegen.test.ts`       | Plan generation, TSX extraction, streaming      |
 | `config.test.ts`        | Environment variables, defaults                 |
-| `llm.test.ts`           | OpenAI, Anthropic, Google providers             |
+| `llm.test.ts`           | OpenAI, OpenAI Codex, Anthropic, Google, local providers |
 | `ui.test.ts`            | HTML rendering, XSS protection                  |
 | `runtime-utils.test.ts` | Budget enforcement, template interpolation      |
 | `runtime-jspm.test.ts`  | Module resolution, compatibility                |

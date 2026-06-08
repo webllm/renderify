@@ -70,7 +70,7 @@ Renderify is organized as a monorepo using pnpm workspaces + Turborepo, consisti
 | `@renderify/security` | Security policy engine — profile configuration, static analysis, module allowlists          |
 | `@renderify/runtime`  | Runtime execution engine — transpilation, module loading, sandboxed execution, UI rendering |
 | `@renderify/core`     | Orchestration layer — RenderifyApp full pipeline, streaming, plugin system                  |
-| `@renderify/llm`      | LLM provider abstraction — OpenAI/Anthropic/Google/Ollama/LMStudio                          |
+| `@renderify/llm`      | LLM provider abstraction — OpenAI/OpenAI Codex/Anthropic/Google/Ollama/LMStudio             |
 | `renderify`           | Top-level SDK facade — the recommended application entry point                              |
 | `@renderify/cli`      | CLI tooling + browser Playground                                                            |
 
@@ -447,6 +447,7 @@ pnpm cli -- probe-plan examples/runtime/recharts-dashboard-plan.json
 
 # Configure LLM provider
 RENDERIFY_LLM_PROVIDER=openai RENDERIFY_LLM_API_KEY=<key> pnpm playground
+RENDERIFY_LLM_PROVIDER=openai-codex pnpm playground
 RENDERIFY_LLM_PROVIDER=anthropic RENDERIFY_LLM_API_KEY=<key> pnpm playground
 RENDERIFY_LLM_PROVIDER=google RENDERIFY_LLM_API_KEY=<key> pnpm playground
 ```
@@ -492,7 +493,7 @@ The `fetch → rewrite imports → blob URL` pipeline solves a problem that brow
 
 ### 4. Strategy over Convention
 
-Key components throughout the system employ the Strategy pattern — transpilers (Babel/esbuild), sandbox modes (Worker/iframe/ShadowRealm), LLM providers (five built-in implementations), module loaders — all are swappable implementations behind interfaces.
+Key components throughout the system employ the Strategy pattern — transpilers (Babel/esbuild), sandbox modes (Worker/iframe/ShadowRealm), LLM providers (multiple built-in implementations), module loaders — all are swappable implementations behind interfaces.
 
 ### 5. Zero-Configuration React Compatibility
 
