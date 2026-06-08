@@ -33,6 +33,14 @@ import {
   JspmModuleLoader,
 } from "@renderify/runtime";
 import { DefaultSecurityChecker } from "@renderify/security";
+import {
+  getCodexAuthStatus,
+  loginCodex,
+  logoutCodex,
+  OPENAI_CODEX_PROVIDER,
+  resolveCodexAuthFile,
+  resolveCodexRuntimeCredentials,
+} from "./codex-auth";
 import { PLAYGROUND_HTML } from "./playground-html";
 
 interface CliArgs {
@@ -42,7 +50,10 @@ interface CliArgs {
     | "probe-plan"
     | "render-plan"
     | "playground"
+    | "auth"
     | "help";
+  authProvider?: "codex";
+  authAction?: "login" | "status" | "logout";
   prompt?: string;
   planFile?: string;
   port?: number;
@@ -378,7 +389,9 @@ class PlaygroundDebugTracer {
   }
 }
 
-function createLLM(config: DefaultRenderifyConfig): LLMInterpreter {
+async function createLLM(
+  config: DefaultRenderifyConfig,
+): Promise<LLMInterpreter> {
   const provider = config.get<LLMProviderConfig>("llmProvider") ?? "openai";
   const providerOptions: Record<string, unknown> = {
     apiKey: config.get<string>("llmApiKey"),
@@ -388,6 +401,7 @@ function createLLM(config: DefaultRenderifyConfig): LLMInterpreter {
 
   if (
     provider === "openai" ||
+    provider === OPENAI_CODEX_PROVIDER ||
     provider === "google" ||
     typeof process.env.RENDERIFY_LLM_MODEL === "string"
   ) {
@@ -396,10 +410,24 @@ function createLLM(config: DefaultRenderifyConfig): LLMInterpreter {
 
   if (
     provider === "openai" ||
+    provider === OPENAI_CODEX_PROVIDER ||
     provider === "google" ||
     typeof process.env.RENDERIFY_LLM_BASE_URL === "string"
   ) {
     providerOptions.baseUrl = config.get<string>("llmBaseUrl");
+  }
+
+  if (provider === OPENAI_CODEX_PROVIDER) {
+    const credentials = await resolveCodexRuntimeCredentials({
+      explicitAccessToken: config.get<string>("llmApiKey"),
+      explicitBaseUrl: config.get<string>("llmBaseUrl"),
+    });
+    providerOptions.apiKey = credentials.apiKey;
+    providerOptions.accessToken = credentials.apiKey;
+    if (credentials.accountId) {
+      providerOptions.accountId = credentials.accountId;
+    }
+    providerOptions.baseUrl = credentials.baseUrl;
   }
 
   return createLLMInterpreter({
@@ -416,9 +444,14 @@ async function main() {
     return;
   }
 
+  if (args.command === "auth") {
+    await handleAuthCommand(args);
+    return;
+  }
+
   const config = new DefaultRenderifyConfig();
   await config.load();
-  const llm = createLLM(config);
+  const llm = await createLLM(config);
   const runtimeRemoteFallbackCdnBases = config.get<string[]>(
     "runtimeRemoteFallbackCdnBases",
   ) ?? ["https://esm.sh"];
@@ -737,6 +770,8 @@ function parseArgs(argv: string[]): CliArgs {
       return {
         ...parsePlaygroundArgs(rest),
       };
+    case "auth":
+      return parseAuthArgs(rest);
     case "help":
       return { command: "help" };
     default:
@@ -744,6 +779,83 @@ function parseArgs(argv: string[]): CliArgs {
         command: "run",
         prompt: [rawCommand, ...rest].join(" ").trim() || DEFAULT_PROMPT,
       };
+  }
+}
+
+function parseAuthArgs(args: string[]): CliArgs {
+  const [provider, action, ...rest] = args;
+  if (rest.length > 0) {
+    throw new Error(`Unexpected auth argument: ${rest[0]}`);
+  }
+
+  if (provider !== "codex") {
+    throw new Error("Usage: renderify auth codex <login|status|logout>");
+  }
+
+  if (action === undefined || action === "status") {
+    return {
+      command: "auth",
+      authProvider: "codex",
+      authAction: "status",
+    };
+  }
+
+  if (action === "login" || action === "logout") {
+    return {
+      command: "auth",
+      authProvider: "codex",
+      authAction: action,
+    };
+  }
+
+  throw new Error(`Unknown Codex auth action: ${action}`);
+}
+
+async function handleAuthCommand(args: CliArgs): Promise<void> {
+  if (args.authProvider !== "codex") {
+    throw new Error("Usage: renderify auth codex <login|status|logout>");
+  }
+
+  switch (args.authAction ?? "status") {
+    case "login": {
+      const state = await loginCodex();
+      console.log("OpenAI Codex login successful.");
+      console.log(`Auth file: ${resolveCodexAuthFile()}`);
+      console.log(`Base URL: ${state.base_url}`);
+      return;
+    }
+    case "status": {
+      const status = await getCodexAuthStatus();
+      console.log(
+        `OpenAI Codex: ${status.loggedIn ? "logged in" : "not logged in"}`,
+      );
+      console.log(`Auth file: ${status.authFile}`);
+      if (status.baseUrl) {
+        console.log(`Base URL: ${status.baseUrl}`);
+      }
+      if (status.accountId) {
+        console.log(`Account: ${status.accountId}`);
+      }
+      if (status.expiresAt) {
+        console.log(`Expires: ${status.expiresAt}`);
+      }
+      if (status.lastRefresh) {
+        console.log(`Last refresh: ${status.lastRefresh}`);
+      }
+      if (status.error) {
+        console.log(`Status detail: ${status.error}`);
+      }
+      return;
+    }
+    case "logout": {
+      const removed = await logoutCodex();
+      console.log(
+        removed
+          ? "OpenAI Codex credentials removed."
+          : "No OpenAI Codex credentials were stored.",
+      );
+      return;
+    }
   }
 }
 
@@ -792,7 +904,8 @@ function printHelp(): void {
   renderify plan <prompt>                    Print runtime plan JSON
   renderify probe-plan <file>                Probe RuntimePlan dependencies and policy compatibility
   renderify render-plan <file>               Execute RuntimePlan JSON file
-  renderify playground [port] [--debug] [--no-llm-log]      Start browser runtime playground`);
+  renderify playground [port] [--debug] [--no-llm-log]      Start browser runtime playground
+  renderify auth codex login|status|logout   Manage OpenAI Codex OAuth credentials`);
 }
 
 async function loadPlanFile(filePath: string): Promise<RuntimePlan> {

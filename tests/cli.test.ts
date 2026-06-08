@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 
 interface CommandResult {
   code: number;
@@ -19,14 +21,27 @@ const RENDERIFY_CLI_ENTRY = path.join(
   "index.ts",
 );
 
-async function runCli(args: string[]): Promise<CommandResult> {
+async function runCli(
+  args: string[],
+  envOverrides: Record<string, string | undefined> = {},
+): Promise<CommandResult> {
   return new Promise<CommandResult>((resolve) => {
+    const env = {
+      ...process.env,
+      ...envOverrides,
+    };
+    for (const [key, value] of Object.entries(envOverrides)) {
+      if (value === undefined) {
+        delete env[key];
+      }
+    }
+
     const child = spawn(
       process.execPath,
       [TSX_CLI, RENDERIFY_CLI_ENTRY, ...args],
       {
         cwd: REPO_ROOT,
-        env: process.env,
+        env,
         stdio: "pipe",
       },
     );
@@ -58,6 +73,7 @@ test("cli shows help text", async () => {
   assert.equal(result.code, 0);
   assert.match(result.stdout, /Usage:/);
   assert.match(result.stdout, /renderify playground \[port\]/);
+  assert.match(result.stdout, /renderify auth codex login\|status\|logout/);
 });
 
 test("cli accepts leading -- separator", async () => {
@@ -94,3 +110,47 @@ test("cli requires plan file for render-plan", async () => {
   assert.notEqual(result.code, 0);
   assert.match(result.stderr, /render-plan requires a JSON file path/);
 });
+
+test("cli reports missing codex auth status", async (t) => {
+  const authFile = await tempAuthFile(t);
+  const result = await runCli(["auth", "codex", "status"], {
+    RENDERIFY_CODEX_AUTH_FILE: authFile,
+  });
+
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /OpenAI Codex: not logged in/);
+  assert.match(result.stdout, new RegExp(escapeRegExp(authFile)));
+  assert.match(result.stdout, /No OpenAI Codex credentials stored/);
+});
+
+test("cli handles codex logout without stored credentials", async (t) => {
+  const authFile = await tempAuthFile(t);
+  const result = await runCli(["auth", "codex", "logout"], {
+    RENDERIFY_CODEX_AUTH_FILE: authFile,
+  });
+
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /No OpenAI Codex credentials were stored/);
+});
+
+test("cli validates unknown codex auth action", async () => {
+  const result = await runCli(["auth", "codex", "refresh"]);
+
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /Unknown Codex auth action: refresh/);
+});
+
+async function tempAuthFile(t: TestContext): Promise<string> {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "renderify-cli-auth-"));
+  t.after(async () => {
+    await rm(dir, {
+      recursive: true,
+      force: true,
+    });
+  });
+  return path.join(dir, "auth.json");
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
