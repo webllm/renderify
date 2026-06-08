@@ -95,8 +95,9 @@ interface OpenAICodexInputMessage {
 
 const DEFAULT_BASE_URL = "https://chatgpt.com/backend-api/codex";
 const DEFAULT_MODEL = "gpt-5.5";
-const DEFAULT_TIMEOUT_MS = 30000;
+const DEFAULT_TIMEOUT_MS = 300000;
 const DEFAULT_USER_AGENT = "codex_cli_rs/0.0.0 (Renderify)";
+const DEFAULT_INSTRUCTIONS = "You are Renderify Codex runtime.";
 
 const RUNTIME_PLAN_JSON_SCHEMA = {
   type: "object",
@@ -480,28 +481,39 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
       const reader = response.body.getReader();
       let buffer = "";
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-          break;
+      try {
+        while (true) {
+          const { done, value } = await readCodexStreamChunk(
+            reader,
+            abortScope.signal,
+          );
+          if (done) {
+            break;
+          }
+
+          if (value) {
+            buffer += decoder.decode(value, { stream: true });
+          }
+
+          const parsedEvents = consumeSseEvents(buffer);
+          buffer = parsedEvents.remaining;
+
+          for (const chunk of processEvents(parsedEvents.events)) {
+            yield chunk;
+          }
         }
 
-        if (value) {
-          buffer += decoder.decode(value, { stream: true });
-        }
-
-        const parsedEvents = consumeSseEvents(buffer);
-        buffer = parsedEvents.remaining;
-
-        for (const chunk of processEvents(parsedEvents.events)) {
+        buffer += decoder.decode();
+        const finalEvents = consumeSseEvents(buffer, true);
+        for (const chunk of processEvents(finalEvents.events)) {
           yield chunk;
         }
-      }
-
-      buffer += decoder.decode();
-      const finalEvents = consumeSseEvents(buffer, true);
-      for (const chunk of processEvents(finalEvents.events)) {
-        yield chunk;
+      } finally {
+        try {
+          reader.releaseLock();
+        } catch {
+          // The pending read may still be settling after an abort-triggered cancel.
+        }
       }
 
       if (!doneEmitted) {
@@ -558,7 +570,7 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
           format: {
             type: "json_schema",
             name: "runtime_plan",
-            strict: req.strict !== false,
+            strict: false,
             schema: RUNTIME_PLAN_JSON_SCHEMA,
           },
         },
@@ -669,7 +681,10 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
             init: {
               method: "POST",
               headers: this.createHeaders(accessToken),
-              body: JSON.stringify(body),
+              body: JSON.stringify({
+                ...body,
+                stream: true,
+              }),
               signal: timeoutSignal,
             },
             reliability: this.reliability,
@@ -684,19 +699,14 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
             );
           }
 
-          const parsed = (await response.json()) as OpenAICodexResponsesPayload;
-          if (parsed.error?.message) {
-            throw new Error(`OpenAI Codex error: ${parsed.error.message}`);
+          if (!response.body) {
+            throw new Error("OpenAI Codex streaming response body is empty");
           }
 
-          if (parsed.status === "failed" || parsed.status === "cancelled") {
-            throw new Error(
-              parsed.error?.message ??
-                `OpenAI Codex response status: ${parsed.status}`,
-            );
-          }
-
-          return parsed;
+          return await this.readCompletedStreamResponse(
+            response.body,
+            timeoutSignal,
+          );
         },
       );
     } catch (error) {
@@ -712,6 +722,118 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
     }
   }
 
+  private async readCompletedStreamResponse(
+    body: ReadableStream<Uint8Array>,
+    signal?: AbortSignal,
+  ): Promise<OpenAICodexResponsesPayload> {
+    const decoder = new TextDecoder();
+    const reader = body.getReader();
+    let buffer = "";
+    let completed: OpenAICodexResponsesPayload | undefined;
+    let outputText = "";
+
+    const processEvents = (events: Array<{ event?: string; data: string }>) => {
+      for (const event of events) {
+        if (event.data === "[DONE]") {
+          continue;
+        }
+
+        let payload: OpenAICodexResponsesStreamPayload;
+        try {
+          payload = JSON.parse(event.data) as OpenAICodexResponsesStreamPayload;
+        } catch (error) {
+          throw new Error(
+            `OpenAI Codex stream chunk parse failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+
+        if (payload.error?.message) {
+          throw new Error(`OpenAI Codex error: ${payload.error.message}`);
+        }
+
+        const eventType = payload.type ?? event.event ?? "";
+        if (eventType.includes("output_text.delta")) {
+          outputText += payload.delta ?? payload.text ?? "";
+        }
+
+        if (eventType === "response.output_item.done" && payload.item) {
+          const itemOutput = this.extractItemOutput(payload.item);
+          if (itemOutput.refusal) {
+            throw new Error(
+              `OpenAI Codex refused request: ${itemOutput.refusal}`,
+            );
+          }
+          if (outputText.length === 0) {
+            outputText += itemOutput.text;
+          }
+        }
+
+        if (eventType === "response.completed" && payload.response) {
+          completed = payload.response;
+        }
+      }
+    };
+
+    try {
+      while (true) {
+        const { done, value } = await readCodexStreamChunk(reader, signal);
+        if (done) {
+          break;
+        }
+
+        if (value) {
+          buffer += decoder.decode(value, { stream: true });
+        }
+
+        const parsedEvents = consumeSseEvents(buffer);
+        buffer = parsedEvents.remaining;
+        processEvents(parsedEvents.events);
+      }
+
+      buffer += decoder.decode();
+      const finalEvents = consumeSseEvents(buffer, true);
+      processEvents(finalEvents.events);
+    } finally {
+      try {
+        reader.releaseLock();
+      } catch {
+        // The pending read may still be settling after an abort-triggered cancel.
+      }
+    }
+
+    if (!completed) {
+      throw new Error(
+        "OpenAI Codex streaming response missing response.completed event",
+      );
+    }
+
+    if (
+      outputText.trim().length > 0 &&
+      typeof completed.output_text !== "string" &&
+      (!Array.isArray(completed.output) || completed.output.length === 0)
+    ) {
+      completed = {
+        ...completed,
+        output_text: outputText,
+      };
+    }
+
+    if (completed.error?.message) {
+      throw new Error(`OpenAI Codex error: ${completed.error.message}`);
+    }
+
+    if (completed.status === "failed" || completed.status === "cancelled") {
+      throw new Error(
+        completed.error?.message ??
+          `OpenAI Codex response status: ${completed.status}`,
+      );
+    }
+
+    return completed;
+  }
+
   private resolveAccessToken(): string {
     const accessToken = this.options.accessToken ?? this.options.apiKey;
     if (!accessToken || accessToken.trim().length === 0) {
@@ -723,7 +845,7 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
     return accessToken.trim();
   }
 
-  private buildInstructions(req: LLMRequest): string | undefined {
+  private buildInstructions(req: LLMRequest): string {
     const instructions: string[] = [];
     const templateSystem = this.templates.get("default");
     const promptSystem = req.systemPrompt;
@@ -735,7 +857,9 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
       }
     }
 
-    return instructions.length > 0 ? instructions.join("\n\n") : undefined;
+    return instructions.length > 0
+      ? instructions.join("\n\n")
+      : DEFAULT_INSTRUCTIONS;
   }
 
   private buildInput(req: LLMRequest): string {
@@ -792,6 +916,7 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
     const accountId =
       this.options.accountId ?? resolveChatGptAccountId(accessToken);
     const headers: Record<string, string> = {
+      accept: "text/event-stream",
       "content-type": "application/json",
       authorization: `Bearer ${accessToken}`,
       "User-Agent": this.options.userAgent,
@@ -903,6 +1028,62 @@ function resolveTokensUsed(
   }
 
   return undefined;
+}
+
+function createCodexAbortError(): Error {
+  const error = new Error("OpenAI Codex request aborted");
+  error.name = "AbortError";
+  return error;
+}
+
+function readCodexStreamChunk(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  signal?: AbortSignal,
+): Promise<ReadableStreamReadResult<Uint8Array>> {
+  if (!signal) {
+    return reader.read();
+  }
+
+  if (signal.aborted) {
+    return Promise.reject(createCodexAbortError());
+  }
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const cleanup = () => {
+      signal.removeEventListener("abort", onAbort);
+    };
+    const onAbort = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      void reader.cancel().catch(() => undefined);
+      reject(createCodexAbortError());
+    };
+
+    signal.addEventListener("abort", onAbort, { once: true });
+
+    reader.read().then(
+      (result) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cleanup();
+        resolve(result);
+      },
+      (error: unknown) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cleanup();
+        reject(error);
+      },
+    );
+  });
 }
 
 function resolveChatGptAccountId(accessToken: string): string | undefined {

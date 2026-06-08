@@ -15,6 +15,7 @@ const DEFAULT_OPENAI_MODEL = "gpt-5-mini";
 const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_OPENAI_CODEX_MODEL = "gpt-5.5";
 const DEFAULT_OPENAI_CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex";
+const DEFAULT_OPENAI_CODEX_TIMEOUT_MS = 300000;
 const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-5";
 const DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1";
 const DEFAULT_GOOGLE_MODEL = "gemini-2.5-flash";
@@ -102,6 +103,9 @@ export class DefaultRenderifyConfig implements RenderifyConfig {
     const hasExplicitLlmBaseUrl =
       typeof env.llmBaseUrl === "string" ||
       typeof overrides?.llmBaseUrl === "string";
+    const hasExplicitLlmTimeout =
+      typeof env.llmRequestTimeoutMs === "number" ||
+      typeof overrides?.llmRequestTimeoutMs === "number";
     const hasExplicitSecurityProfile =
       Object.hasOwn(env, "securityProfile") ||
       typeof overrides?.securityProfile === "string";
@@ -146,6 +150,7 @@ export class DefaultRenderifyConfig implements RenderifyConfig {
     this.config = applyDerivedConfig(merged, {
       hasExplicitLlmModel,
       hasExplicitLlmBaseUrl,
+      hasExplicitLlmTimeout,
       hasExplicitSecurityProfile,
       hasExplicitStrictSecurity,
     });
@@ -173,6 +178,7 @@ function applyDerivedConfig(
   options: {
     hasExplicitLlmModel: boolean;
     hasExplicitLlmBaseUrl: boolean;
+    hasExplicitLlmTimeout: boolean;
     hasExplicitSecurityProfile: boolean;
     hasExplicitStrictSecurity: boolean;
   },
@@ -185,6 +191,9 @@ function applyDerivedConfig(
       : {}),
     ...(!options.hasExplicitLlmBaseUrl && llmDefaults?.baseUrl
       ? { llmBaseUrl: llmDefaults.baseUrl }
+      : {}),
+    ...(!options.hasExplicitLlmTimeout && llmDefaults?.timeoutMs
+      ? { llmRequestTimeoutMs: llmDefaults.timeoutMs }
       : {}),
   };
 
@@ -225,7 +234,7 @@ function applyDerivedConfig(
 
 function resolveProviderLlmDefaults(
   provider: LLMProviderConfig,
-): { model: string; baseUrl: string } | undefined {
+): { model: string; baseUrl: string; timeoutMs?: number } | undefined {
   const normalizedProvider = parseLlmProvider(provider);
   if (normalizedProvider === "openai") {
     return {
@@ -238,6 +247,7 @@ function resolveProviderLlmDefaults(
     return {
       model: DEFAULT_OPENAI_CODEX_MODEL,
       baseUrl: DEFAULT_OPENAI_CODEX_BASE_URL,
+      timeoutMs: DEFAULT_OPENAI_CODEX_TIMEOUT_MS,
     };
   }
 

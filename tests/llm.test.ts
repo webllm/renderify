@@ -398,25 +398,31 @@ test("openai codex interpreter generates text response", async () => {
         body: parseBody(init?.body),
       });
 
-      return jsonResponse({
-        id: "resp_codex_text_1",
-        model: "gpt-5.5",
-        usage: {
-          input_tokens: 12,
-          output_tokens: 8,
-        },
-        output: [
-          {
-            type: "message",
-            content: [
-              {
-                type: "output_text",
-                text: "codex runtime text",
+      return sseResponse([
+        "event: response.completed\ndata: " +
+          JSON.stringify({
+            type: "response.completed",
+            response: {
+              id: "resp_codex_text_1",
+              model: "gpt-5.5",
+              usage: {
+                input_tokens: 12,
+                output_tokens: 8,
               },
-            ],
-          },
-        ],
-      });
+              output: [
+                {
+                  type: "message",
+                  content: [
+                    {
+                      type: "output_text",
+                      text: "codex runtime text",
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+      ]);
     },
   });
 
@@ -441,6 +447,7 @@ test("openai codex interpreter generates text response", async () => {
     requests[0].headers.get("authorization"),
     `Bearer ${accessToken}`,
   );
+  assert.equal(requests[0].headers.get("accept"), "text/event-stream");
   assert.equal(requests[0].headers.get("originator"), "codex_cli_rs");
   assert.equal(
     requests[0].headers.get("chatgpt-account-id"),
@@ -448,6 +455,7 @@ test("openai codex interpreter generates text response", async () => {
   );
   assert.equal(requests[0].body.model, "gpt-5.5");
   assert.equal(requests[0].body.store, false);
+  assert.equal(requests[0].body.stream, true);
   assert.match(String(requests[0].body.instructions), /Renderify Codex/);
   const inputText = assertCodexInputText(requests[0].body.input);
   assert.match(inputText, /build runtime card/);
@@ -506,6 +514,10 @@ test("openai codex interpreter streams text response chunks", async () => {
   );
   assert.equal(requests[0].body.stream, true);
   assert.equal(requests[0].body.store, false);
+  assert.equal(
+    requests[0].body.instructions,
+    "You are Renderify Codex runtime.",
+  );
   assert.equal(assertCodexInputText(requests[0].body.input), "stream this");
   assert.equal(chunks.length, 3);
   assert.equal(chunks[0].delta, "hello ");
@@ -541,14 +553,24 @@ test("openai codex interpreter validates structured runtime plan response", asyn
     accessToken: "codex-test-token",
     fetchImpl: async (_input: RequestInfo | URL, init?: RequestInit) => {
       requests.push(parseBody(init?.body));
-      return jsonResponse({
-        id: "resp_codex_structured_1",
-        model: "gpt-5.5",
-        usage: {
-          total_tokens: 64,
-        },
-        output_text: JSON.stringify(plan),
-      });
+      return sseResponse([
+        "event: response.output_text.delta\ndata: " +
+          JSON.stringify({
+            type: "response.output_text.delta",
+            delta: JSON.stringify(plan),
+          }),
+        "event: response.completed\ndata: " +
+          JSON.stringify({
+            type: "response.completed",
+            response: {
+              id: "resp_codex_structured_1",
+              model: "gpt-5.5",
+              usage: {
+                total_tokens: 64,
+              },
+            },
+          }),
+      ]);
     },
   });
 
@@ -568,7 +590,8 @@ test("openai codex interpreter validates structured runtime plan response", asyn
   };
   assert.equal(textConfig.format?.type, "json_schema");
   assert.equal(textConfig.format?.name, "runtime_plan");
-  assert.equal(textConfig.format?.strict, true);
+  assert.equal(textConfig.format?.strict, false);
+  assert.equal(requests[0].stream, true);
   assert.equal(
     assertCodexInputText(requests[0].input),
     "build structured runtime plan",
@@ -587,6 +610,37 @@ test("openai codex interpreter requires an access token", async () => {
       }),
     /OpenAI Codex access token is missing/,
   );
+});
+
+test("openai codex interpreter times out stalled streaming responses", async () => {
+  let streamCanceled = false;
+  const llm = new OpenAICodexLLMInterpreter({
+    accessToken: "codex-test-token",
+    timeoutMs: 20,
+    fetchImpl: async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          cancel() {
+            streamCanceled = true;
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "content-type": "text/event-stream",
+          },
+        },
+      ),
+  });
+
+  await assert.rejects(
+    () =>
+      llm.generateResponse({
+        prompt: "stall",
+      }),
+    /OpenAI Codex request timed out after 20ms/,
+  );
+  assert.equal(streamCanceled, true);
 });
 
 test("anthropic interpreter generates text response", async () => {
@@ -1231,11 +1285,17 @@ test("llm provider registry can create builtin openai codex interpreter", async 
     providerOptions: {
       accessToken: "codex-test-token",
       fetchImpl: async (_input: RequestInfo | URL, _init?: RequestInit) =>
-        jsonResponse({
-          id: "resp_provider_codex",
-          model: "gpt-5.5",
-          output_text: "ok-codex",
-        }),
+        sseResponse([
+          "event: response.completed\ndata: " +
+            JSON.stringify({
+              type: "response.completed",
+              response: {
+                id: "resp_provider_codex",
+                model: "gpt-5.5",
+                output_text: "ok-codex",
+              },
+            }),
+        ]),
     },
   });
 

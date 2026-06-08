@@ -186,10 +186,12 @@ test("config derives openai codex defaults when only provider is configured", as
   const previousProvider = process.env.RENDERIFY_LLM_PROVIDER;
   const previousModel = process.env.RENDERIFY_LLM_MODEL;
   const previousBaseUrl = process.env.RENDERIFY_LLM_BASE_URL;
+  const previousTimeout = process.env.RENDERIFY_LLM_TIMEOUT_MS;
 
   process.env.RENDERIFY_LLM_PROVIDER = "openai-codex";
   delete process.env.RENDERIFY_LLM_MODEL;
   delete process.env.RENDERIFY_LLM_BASE_URL;
+  delete process.env.RENDERIFY_LLM_TIMEOUT_MS;
 
   try {
     const config = new DefaultRenderifyConfig();
@@ -201,10 +203,12 @@ test("config derives openai codex defaults when only provider is configured", as
       config.get("llmBaseUrl"),
       "https://chatgpt.com/backend-api/codex",
     );
+    assert.equal(config.get("llmRequestTimeoutMs"), 300000);
   } finally {
     restoreEnv("RENDERIFY_LLM_PROVIDER", previousProvider);
     restoreEnv("RENDERIFY_LLM_MODEL", previousModel);
     restoreEnv("RENDERIFY_LLM_BASE_URL", previousBaseUrl);
+    restoreEnv("RENDERIFY_LLM_TIMEOUT_MS", previousTimeout);
   }
 });
 

@@ -1589,14 +1589,32 @@ async function startFakeCodexServer(port: number): Promise<{
           return;
         }
 
-        sendJson(res, 200, {
-          id: "resp_e2e_codex",
-          model: "gpt-5.5",
-          usage: {
-            total_tokens: 64,
+        if (
+          typeof body.instructions !== "string" ||
+          body.instructions.trim().length === 0
+        ) {
+          sendJson(res, 400, { detail: "Instructions are required" });
+          return;
+        }
+
+        if (body.stream !== true) {
+          sendJson(res, 400, { detail: "Stream must be set to true" });
+          return;
+        }
+
+        sendSse(res, [
+          {
+            type: "response.completed",
+            response: {
+              id: "resp_e2e_codex",
+              model: "gpt-5.5",
+              usage: {
+                total_tokens: 64,
+              },
+              output_text: JSON.stringify(plan),
+            },
           },
-          output_text: JSON.stringify(plan),
-        });
+        ]);
       })().catch((error: unknown) => {
         sendJson(res, 500, {
           error: {
@@ -1938,6 +1956,19 @@ function sendJson(res: ServerResponse, status: number, payload: unknown): void {
   const body = JSON.stringify(payload);
   res.statusCode = status;
   res.setHeader("content-type", "application/json; charset=utf-8");
+  res.setHeader("content-length", Buffer.byteLength(body));
+  res.end(body);
+}
+
+function sendSse(res: ServerResponse, payloads: unknown[]): void {
+  const body = payloads
+    .map(
+      (payload) =>
+        `event: response.completed\ndata: ${JSON.stringify(payload)}\n\n`,
+    )
+    .join("");
+  res.statusCode = 200;
+  res.setHeader("content-type", "text/event-stream; charset=utf-8");
   res.setHeader("content-length", Buffer.byteLength(body));
   res.end(body);
 }
