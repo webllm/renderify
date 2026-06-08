@@ -19,6 +19,10 @@ import {
   OpenAILLMInterpreter,
   type OpenAILLMInterpreterOptions,
 } from "./providers/openai";
+import {
+  OpenAICodexLLMInterpreter,
+  type OpenAICodexLLMInterpreterOptions,
+} from "./providers/openai-codex";
 
 export type LLMProviderName = string;
 
@@ -33,6 +37,12 @@ export const openaiLLMProvider: LLMProviderDefinition<OpenAILLMInterpreterOption
   {
     name: "openai",
     create: (options) => new OpenAILLMInterpreter(options),
+  };
+
+export const openaiCodexLLMProvider: LLMProviderDefinition<OpenAICodexLLMInterpreterOptions> =
+  {
+    name: "openai-codex",
+    create: (options) => new OpenAICodexLLMInterpreter(options),
   };
 
 export const anthropicLLMProvider: LLMProviderDefinition<AnthropicLLMInterpreterOptions> =
@@ -108,6 +118,7 @@ export function createDefaultLLMProviderRegistry(): LLMProviderRegistry {
   registry.register(googleLLMProvider);
   registry.register(lmstudioLLMProvider);
   registry.register(ollamaLLMProvider);
+  registry.register(openaiCodexLLMProvider);
   registry.register(openaiLLMProvider);
   return registry;
 }

@@ -1,0 +1,923 @@
+import type {
+  LLMInterpreter,
+  LLMRequest,
+  LLMResponse,
+  LLMResponseStreamChunk,
+  LLMStructuredRequest,
+  LLMStructuredResponse,
+} from "@renderify/core";
+import { isRuntimePlan } from "@renderify/ir";
+import {
+  consumeSseEvents,
+  createLLMReliabilityState,
+  createTimeoutAbortScope,
+  fetchWithReliability,
+  formatContext,
+  type LLMReliabilityOptions,
+  pickFetch,
+  pickLLMReliabilityOptions,
+  pickPositiveInt,
+  pickString,
+  readErrorResponse,
+  resolveFetch,
+  resolveLLMReliabilityOptions,
+  tryParseJson,
+  withTimeoutAbortScope,
+} from "./shared";
+
+export interface OpenAICodexLLMInterpreterOptions {
+  apiKey?: string;
+  accessToken?: string;
+  model?: string;
+  baseUrl?: string;
+  timeoutMs?: number;
+  accountId?: string;
+  userAgent?: string;
+  systemPrompt?: string;
+  reliability?: LLMReliabilityOptions;
+  fetchImpl?: typeof fetch;
+}
+
+interface OpenAICodexUsagePayload {
+  total_tokens?: number;
+  input_tokens?: number;
+  output_tokens?: number;
+}
+
+interface OpenAICodexContentPart {
+  type?: string;
+  text?: string;
+  refusal?: string | null;
+}
+
+interface OpenAICodexOutputItem {
+  type?: string;
+  status?: string;
+  content?: OpenAICodexContentPart[] | string;
+}
+
+interface OpenAICodexResponsesPayload {
+  id?: string;
+  model?: string;
+  status?: string;
+  output_text?: string;
+  output?: OpenAICodexOutputItem[];
+  usage?: OpenAICodexUsagePayload;
+  error?: {
+    message?: string;
+  };
+}
+
+interface OpenAICodexResponsesStreamPayload {
+  type?: string;
+  delta?: string;
+  text?: string;
+  item?: OpenAICodexOutputItem;
+  response?: OpenAICodexResponsesPayload;
+  error?: {
+    message?: string;
+  };
+}
+
+interface OpenAICodexExtractedOutput {
+  text: string;
+  refusal?: string;
+}
+
+const DEFAULT_BASE_URL = "https://chatgpt.com/backend-api/codex";
+const DEFAULT_MODEL = "gpt-5.3-codex";
+const DEFAULT_TIMEOUT_MS = 30000;
+const DEFAULT_USER_AGENT = "codex_cli_rs/0.0.0 (Renderify)";
+
+const RUNTIME_PLAN_JSON_SCHEMA = {
+  type: "object",
+  additionalProperties: true,
+  required: ["id", "version", "root", "capabilities"],
+  properties: {
+    specVersion: {
+      type: "string",
+      minLength: 1,
+    },
+    id: {
+      type: "string",
+      minLength: 1,
+    },
+    version: {
+      type: "integer",
+      minimum: 1,
+    },
+    root: {
+      type: "object",
+      additionalProperties: true,
+    },
+    capabilities: {
+      type: "object",
+      additionalProperties: true,
+    },
+    imports: {
+      type: "array",
+      items: {
+        type: "string",
+      },
+    },
+    moduleManifest: {
+      type: "object",
+      additionalProperties: {
+        type: "object",
+        additionalProperties: false,
+        required: ["resolvedUrl"],
+        properties: {
+          resolvedUrl: { type: "string", minLength: 1 },
+          integrity: { type: "string", minLength: 1 },
+          version: { type: "string", minLength: 1 },
+          signer: { type: "string", minLength: 1 },
+        },
+      },
+    },
+    metadata: {
+      type: "object",
+      additionalProperties: true,
+    },
+    state: {
+      type: "object",
+      additionalProperties: true,
+    },
+    source: {
+      type: "object",
+      additionalProperties: false,
+      required: ["language", "code"],
+      properties: {
+        language: {
+          type: "string",
+          enum: ["js", "jsx", "ts", "tsx"],
+        },
+        code: {
+          type: "string",
+          minLength: 1,
+        },
+        exportName: {
+          type: "string",
+          minLength: 1,
+        },
+        runtime: {
+          type: "string",
+          enum: ["renderify", "preact"],
+        },
+      },
+    },
+  },
+} as const;
+
+export class OpenAICodexLLMInterpreter implements LLMInterpreter {
+  private readonly templates = new Map<string, string>();
+  private options: Required<
+    Pick<
+      OpenAICodexLLMInterpreterOptions,
+      "baseUrl" | "model" | "timeoutMs" | "userAgent"
+    >
+  > &
+    Omit<
+      OpenAICodexLLMInterpreterOptions,
+      "baseUrl" | "model" | "timeoutMs" | "userAgent" | "fetchImpl"
+    > = {
+    baseUrl: DEFAULT_BASE_URL,
+    model: DEFAULT_MODEL,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    userAgent: DEFAULT_USER_AGENT,
+    apiKey: undefined,
+    accessToken: undefined,
+    accountId: undefined,
+    systemPrompt: undefined,
+  };
+  private fetchImpl: typeof fetch | undefined;
+  private reliability = resolveLLMReliabilityOptions();
+  private readonly reliabilityState = createLLMReliabilityState();
+
+  constructor(options: OpenAICodexLLMInterpreterOptions = {}) {
+    this.configure({ ...options });
+    if (options.fetchImpl) {
+      this.fetchImpl = options.fetchImpl;
+    }
+  }
+
+  configure(options: Record<string, unknown>): void {
+    const apiKey = pickString(options, "apiKey", "accessToken", "llmApiKey");
+    const model = pickString(options, "model", "llmModel");
+    const baseUrl = pickString(options, "baseUrl", "llmBaseUrl");
+    const accountId = pickString(options, "accountId", "codexAccountId");
+    const userAgent = pickString(options, "userAgent", "codexUserAgent");
+    const systemPrompt = pickString(options, "systemPrompt");
+    const timeoutMs = pickPositiveInt(
+      options,
+      "timeoutMs",
+      "llmRequestTimeoutMs",
+    );
+    const fetchImpl = pickFetch(options, "fetchImpl");
+    const reliability = pickLLMReliabilityOptions(options);
+
+    this.options = {
+      ...this.options,
+      ...(apiKey !== undefined ? { apiKey, accessToken: apiKey } : {}),
+      ...(model !== undefined ? { model } : {}),
+      ...(baseUrl !== undefined ? { baseUrl } : {}),
+      ...(accountId !== undefined ? { accountId } : {}),
+      ...(userAgent !== undefined ? { userAgent } : {}),
+      ...(systemPrompt !== undefined ? { systemPrompt } : {}),
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+    };
+
+    if (fetchImpl) {
+      this.fetchImpl = fetchImpl;
+    }
+
+    if (reliability) {
+      this.reliability = resolveLLMReliabilityOptions(
+        reliability,
+        this.reliability,
+      );
+    }
+  }
+
+  async generateResponse(req: LLMRequest): Promise<LLMResponse> {
+    const payload = await this.requestResponses(
+      {
+        model: this.options.model,
+        instructions: this.buildInstructions(req),
+        input: this.buildInput(req),
+        store: false,
+      },
+      req.signal,
+    );
+
+    const output = this.extractOutput(payload);
+    if (output.refusal) {
+      throw new Error(`OpenAI Codex refused request: ${output.refusal}`);
+    }
+
+    return {
+      text: output.text,
+      tokensUsed: resolveTokensUsed(payload.usage),
+      model: payload.model ?? this.options.model,
+      raw: {
+        mode: "text",
+        responseId: payload.id,
+      },
+    };
+  }
+
+  async *generateResponseStream(
+    req: LLMRequest,
+  ): AsyncIterable<LLMResponseStreamChunk> {
+    const fetchImpl = resolveFetch(
+      this.fetchImpl,
+      "Global fetch is unavailable. Provide fetchImpl in OpenAICodexLLMInterpreter options.",
+    );
+    const accessToken = this.resolveAccessToken();
+    const abortScope = createTimeoutAbortScope(
+      this.options.timeoutMs,
+      req.signal,
+    );
+
+    let aggregatedText = "";
+    let chunkIndex = 0;
+    let tokensUsed: number | undefined;
+    let model = this.options.model;
+    let doneEmitted = false;
+
+    const emitDone = (): LLMResponseStreamChunk | undefined => {
+      if (doneEmitted) {
+        return undefined;
+      }
+
+      chunkIndex += 1;
+      doneEmitted = true;
+      return {
+        delta: "",
+        text: aggregatedText,
+        done: true,
+        index: chunkIndex,
+        tokensUsed,
+        model,
+        raw: {
+          mode: "stream",
+          done: true,
+        },
+      };
+    };
+
+    const emitDelta = (
+      delta: string,
+      raw: Record<string, unknown>,
+    ): LLMResponseStreamChunk | undefined => {
+      if (delta.length === 0) {
+        return undefined;
+      }
+
+      aggregatedText += delta;
+      chunkIndex += 1;
+      return {
+        delta,
+        text: aggregatedText,
+        done: false,
+        index: chunkIndex,
+        tokensUsed,
+        model,
+        raw,
+      };
+    };
+
+    const processEvents = (
+      events: Array<{ event?: string; data: string }>,
+    ): LLMResponseStreamChunk[] => {
+      const chunks: LLMResponseStreamChunk[] = [];
+
+      for (const event of events) {
+        if (event.data === "[DONE]") {
+          const done = emitDone();
+          if (done) {
+            chunks.push(done);
+          }
+          continue;
+        }
+
+        let payload: OpenAICodexResponsesStreamPayload;
+        try {
+          payload = JSON.parse(event.data) as OpenAICodexResponsesStreamPayload;
+        } catch (error) {
+          throw new Error(
+            `OpenAI Codex stream chunk parse failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+
+        if (payload.error?.message) {
+          throw new Error(`OpenAI Codex error: ${payload.error.message}`);
+        }
+
+        const eventType = payload.type ?? event.event ?? "";
+        const response = payload.response;
+        if (response) {
+          if (
+            typeof response.model === "string" &&
+            response.model.trim().length > 0
+          ) {
+            model = response.model;
+          }
+
+          const responseTokens = resolveTokensUsed(response.usage);
+          if (responseTokens !== undefined) {
+            tokensUsed = responseTokens;
+          }
+        }
+
+        if (eventType === "response.completed") {
+          if (response && aggregatedText.length === 0) {
+            const finalOutput = this.extractOutput(response);
+            if (finalOutput.refusal) {
+              throw new Error(
+                `OpenAI Codex refused request: ${finalOutput.refusal}`,
+              );
+            }
+            const chunk = emitDelta(finalOutput.text, {
+              mode: "stream",
+              event: payload,
+            });
+            if (chunk) {
+              chunks.push(chunk);
+            }
+          }
+          const done = emitDone();
+          if (done) {
+            chunks.push(done);
+          }
+          continue;
+        }
+
+        if (eventType === "response.output_item.done" && payload.item) {
+          const itemOutput = this.extractItemOutput(payload.item);
+          if (itemOutput.refusal) {
+            throw new Error(
+              `OpenAI Codex refused request: ${itemOutput.refusal}`,
+            );
+          }
+          if (aggregatedText.length === 0) {
+            const chunk = emitDelta(itemOutput.text, {
+              mode: "stream",
+              event: payload,
+            });
+            if (chunk) {
+              chunks.push(chunk);
+            }
+          }
+          continue;
+        }
+
+        if (eventType.includes("refusal")) {
+          const refusal = payload.delta ?? payload.text ?? "";
+          if (refusal.trim().length > 0) {
+            throw new Error(`OpenAI Codex refused request: ${refusal.trim()}`);
+          }
+        }
+
+        if (eventType.includes("output_text.delta")) {
+          const delta = payload.delta ?? payload.text ?? "";
+          const chunk = emitDelta(delta, {
+            mode: "stream",
+            event: payload,
+          });
+          if (chunk) {
+            chunks.push(chunk);
+          }
+        }
+      }
+
+      return chunks;
+    };
+
+    try {
+      const response = await fetchWithReliability({
+        fetchImpl,
+        input: `${this.options.baseUrl.replace(/\/$/, "")}/responses`,
+        init: {
+          method: "POST",
+          headers: this.createHeaders(accessToken),
+          body: JSON.stringify({
+            model: this.options.model,
+            instructions: this.buildInstructions(req),
+            input: this.buildInput(req),
+            store: false,
+            stream: true,
+          }),
+          signal: abortScope.signal,
+        },
+        reliability: this.reliability,
+        state: this.reliabilityState,
+        operationName: "OpenAI Codex request",
+      });
+
+      if (!response.ok) {
+        const details = await readErrorResponse(response);
+        throw new Error(
+          `OpenAI Codex request failed (${response.status}): ${details}`,
+        );
+      }
+
+      if (!response.body) {
+        throw new Error("OpenAI Codex streaming response body is empty");
+      }
+
+      const decoder = new TextDecoder();
+      const reader = response.body.getReader();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+
+        if (value) {
+          buffer += decoder.decode(value, { stream: true });
+        }
+
+        const parsedEvents = consumeSseEvents(buffer);
+        buffer = parsedEvents.remaining;
+
+        for (const chunk of processEvents(parsedEvents.events)) {
+          yield chunk;
+        }
+      }
+
+      buffer += decoder.decode();
+      const finalEvents = consumeSseEvents(buffer, true);
+      for (const chunk of processEvents(finalEvents.events)) {
+        yield chunk;
+      }
+
+      if (!doneEmitted) {
+        chunkIndex += 1;
+        doneEmitted = true;
+        yield {
+          delta: "",
+          text: aggregatedText,
+          done: true,
+          index: chunkIndex,
+          tokensUsed,
+          model,
+          raw: {
+            mode: "stream",
+            done: true,
+            reason: "eof",
+          },
+        };
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        if (req.signal?.aborted) {
+          throw new Error("OpenAI Codex request aborted by caller");
+        }
+        throw new Error(
+          `OpenAI Codex request timed out after ${this.options.timeoutMs}ms`,
+        );
+      }
+      throw error;
+    } finally {
+      abortScope.release();
+    }
+  }
+
+  async generateStructuredResponse<T = unknown>(
+    req: LLMStructuredRequest,
+  ): Promise<LLMStructuredResponse<T>> {
+    if (req.format !== "runtime-plan") {
+      return {
+        text: "",
+        valid: false,
+        errors: [`Unsupported structured format: ${String(req.format)}`],
+        model: this.options.model,
+      };
+    }
+
+    const payload = await this.requestResponses(
+      {
+        model: this.options.model,
+        instructions: this.resolveStructuredSystemPrompt(req),
+        input: this.buildInput(req),
+        store: false,
+        text: {
+          format: {
+            type: "json_schema",
+            name: "runtime_plan",
+            strict: req.strict !== false,
+            schema: RUNTIME_PLAN_JSON_SCHEMA,
+          },
+        },
+      },
+      req.signal,
+    );
+
+    const output = this.extractOutput(payload);
+
+    if (output.refusal) {
+      return {
+        text: "",
+        valid: false,
+        errors: [`OpenAI Codex refusal: ${output.refusal}`],
+        tokensUsed: resolveTokensUsed(payload.usage),
+        model: payload.model ?? this.options.model,
+        raw: {
+          mode: "structured",
+          responseId: payload.id,
+          refusal: output.refusal,
+        },
+      };
+    }
+
+    if (output.text.trim().length === 0) {
+      return {
+        text: "",
+        valid: false,
+        errors: ["Structured response content is empty"],
+        tokensUsed: resolveTokensUsed(payload.usage),
+        model: payload.model ?? this.options.model,
+        raw: {
+          mode: "structured",
+          responseId: payload.id,
+        },
+      };
+    }
+
+    const parsed = tryParseJson(output.text);
+    if (!parsed.ok) {
+      return {
+        text: output.text,
+        valid: false,
+        errors: [`Structured JSON parse failed: ${parsed.error}`],
+        tokensUsed: resolveTokensUsed(payload.usage),
+        model: payload.model ?? this.options.model,
+        raw: {
+          mode: "structured",
+          responseId: payload.id,
+        },
+      };
+    }
+
+    if (!isRuntimePlan(parsed.value)) {
+      return {
+        text: output.text,
+        value: parsed.value as T,
+        valid: false,
+        errors: ["Structured payload is not a valid RuntimePlan"],
+        tokensUsed: resolveTokensUsed(payload.usage),
+        model: payload.model ?? this.options.model,
+        raw: {
+          mode: "structured",
+          responseId: payload.id,
+        },
+      };
+    }
+
+    return {
+      text: output.text,
+      value: parsed.value as T,
+      valid: true,
+      tokensUsed: resolveTokensUsed(payload.usage),
+      model: payload.model ?? this.options.model,
+      raw: {
+        mode: "structured",
+        responseId: payload.id,
+      },
+    };
+  }
+
+  setPromptTemplate(templateName: string, templateContent: string): void {
+    this.templates.set(templateName, templateContent);
+  }
+
+  getPromptTemplate(templateName: string): string | undefined {
+    return this.templates.get(templateName);
+  }
+
+  private async requestResponses(
+    body: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<OpenAICodexResponsesPayload> {
+    const fetchImpl = resolveFetch(
+      this.fetchImpl,
+      "Global fetch is unavailable. Provide fetchImpl in OpenAICodexLLMInterpreter options.",
+    );
+    const accessToken = this.resolveAccessToken();
+
+    try {
+      return await withTimeoutAbortScope(
+        this.options.timeoutMs,
+        signal,
+        async (timeoutSignal) => {
+          const response = await fetchWithReliability({
+            fetchImpl,
+            input: `${this.options.baseUrl.replace(/\/$/, "")}/responses`,
+            init: {
+              method: "POST",
+              headers: this.createHeaders(accessToken),
+              body: JSON.stringify(body),
+              signal: timeoutSignal,
+            },
+            reliability: this.reliability,
+            state: this.reliabilityState,
+            operationName: "OpenAI Codex request",
+          });
+
+          if (!response.ok) {
+            const details = await readErrorResponse(response);
+            throw new Error(
+              `OpenAI Codex request failed (${response.status}): ${details}`,
+            );
+          }
+
+          const parsed = (await response.json()) as OpenAICodexResponsesPayload;
+          if (parsed.error?.message) {
+            throw new Error(`OpenAI Codex error: ${parsed.error.message}`);
+          }
+
+          if (parsed.status === "failed" || parsed.status === "cancelled") {
+            throw new Error(
+              parsed.error?.message ??
+                `OpenAI Codex response status: ${parsed.status}`,
+            );
+          }
+
+          return parsed;
+        },
+      );
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        if (signal?.aborted) {
+          throw new Error("OpenAI Codex request aborted by caller");
+        }
+        throw new Error(
+          `OpenAI Codex request timed out after ${this.options.timeoutMs}ms`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  private resolveAccessToken(): string {
+    const accessToken = this.options.accessToken ?? this.options.apiKey;
+    if (!accessToken || accessToken.trim().length === 0) {
+      throw new Error(
+        "OpenAI Codex access token is missing. Run `renderify auth codex login`, set RENDERIFY_CODEX_ACCESS_TOKEN, or configure accessToken.",
+      );
+    }
+
+    return accessToken.trim();
+  }
+
+  private buildInstructions(req: LLMRequest): string | undefined {
+    const instructions: string[] = [];
+    const templateSystem = this.templates.get("default");
+    const promptSystem = req.systemPrompt;
+    const configuredSystem = this.options.systemPrompt;
+
+    for (const system of [configuredSystem, templateSystem, promptSystem]) {
+      if (typeof system === "string" && system.trim().length > 0) {
+        instructions.push(system.trim());
+      }
+    }
+
+    return instructions.length > 0 ? instructions.join("\n\n") : undefined;
+  }
+
+  private buildInput(req: LLMRequest): string {
+    const contextSnippet = formatContext(req.context);
+    return contextSnippet
+      ? `${req.prompt}\n\nContext:\n${contextSnippet}`
+      : req.prompt;
+  }
+
+  private resolveStructuredSystemPrompt(req: LLMStructuredRequest): string {
+    const template = this.templates.get("runtime-plan");
+    if (template && template.trim().length > 0) {
+      return template;
+    }
+
+    const base = this.buildInstructions(req);
+    const strictHint = req.strict === false ? "false" : "true";
+    const structured = [
+      "You generate RuntimePlan JSON for Renderify.",
+      "Return only JSON with no markdown or explanations.",
+      'Use specVersion exactly as "runtime-plan/v1".',
+      "Schema priority: id/version/root/capabilities must be valid.",
+      "Do not set root.type to component unless source.code is present with a matching export.",
+      'Do not include synthetic source module aliases such as "this-plan-source" in imports, capabilities.allowedModules, or moduleManifest.',
+      'Do not use local path aliases such as "@/..." in any import or module URL.',
+      'Do not emit wildcard module specifiers such as "https://esm.sh/*".',
+      "When using third-party UI libraries, prefer bare npm specifiers (for example @mui/material) over direct CDN URLs.",
+      "When third-party UI libraries are unavailable, use plain JSX/HTML components instead of fake CDN paths.",
+      'If source.language is jsx/tsx and code uses React-like hooks/imports, set source.runtime to "preact".',
+      'If source.runtime is "preact", the plan must be rendered through the trusted browser source lane (for example renderTrustedPlanInBrowser or the "trusted" security profile).',
+      "For preact source modules, import hooks from preact/compat or preact/hooks (not renderify).",
+      `Strict mode: ${strictHint}.`,
+    ].join(" ");
+
+    return base ? `${base}\n\n${structured}` : structured;
+  }
+
+  private createHeaders(accessToken: string): Record<string, string> {
+    const accountId =
+      this.options.accountId ?? resolveChatGptAccountId(accessToken);
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      authorization: `Bearer ${accessToken}`,
+      "User-Agent": this.options.userAgent,
+      originator: "codex_cli_rs",
+    };
+
+    if (accountId) {
+      headers["ChatGPT-Account-ID"] = accountId;
+    }
+
+    return headers;
+  }
+
+  private extractOutput(
+    payload: OpenAICodexResponsesPayload,
+  ): OpenAICodexExtractedOutput {
+    if (typeof payload.output_text === "string") {
+      return {
+        text: payload.output_text.trim(),
+      };
+    }
+
+    const output = payload.output;
+    if (!Array.isArray(output) || output.length === 0) {
+      throw new Error("OpenAI Codex response missing output items");
+    }
+
+    let text = "";
+    for (const item of output) {
+      const itemOutput = this.extractItemOutput(item);
+      if (itemOutput.refusal) {
+        return itemOutput;
+      }
+      text += itemOutput.text;
+    }
+
+    return {
+      text: text.trim(),
+    };
+  }
+
+  private extractItemOutput(
+    item: OpenAICodexOutputItem,
+  ): OpenAICodexExtractedOutput {
+    const content = item.content;
+    if (typeof content === "string") {
+      return {
+        text: content,
+      };
+    }
+
+    if (!Array.isArray(content)) {
+      return {
+        text: "",
+      };
+    }
+
+    let text = "";
+    for (const part of content) {
+      if (typeof part.refusal === "string" && part.refusal.trim().length > 0) {
+        return {
+          text: "",
+          refusal: part.refusal.trim(),
+        };
+      }
+
+      if (part.type !== "output_text" && part.type !== "text") {
+        continue;
+      }
+
+      if (typeof part.text === "string") {
+        text += part.text;
+      }
+    }
+
+    return {
+      text,
+    };
+  }
+}
+
+function resolveTokensUsed(
+  usage: OpenAICodexUsagePayload | undefined,
+): number | undefined {
+  if (!usage) {
+    return undefined;
+  }
+
+  if (
+    typeof usage.total_tokens === "number" &&
+    Number.isFinite(usage.total_tokens)
+  ) {
+    return usage.total_tokens;
+  }
+
+  const inputTokens =
+    typeof usage.input_tokens === "number" &&
+    Number.isFinite(usage.input_tokens)
+      ? usage.input_tokens
+      : undefined;
+  const outputTokens =
+    typeof usage.output_tokens === "number" &&
+    Number.isFinite(usage.output_tokens)
+      ? usage.output_tokens
+      : undefined;
+
+  if (inputTokens !== undefined || outputTokens !== undefined) {
+    return (inputTokens ?? 0) + (outputTokens ?? 0);
+  }
+
+  return undefined;
+}
+
+function resolveChatGptAccountId(accessToken: string): string | undefined {
+  try {
+    const parts = accessToken.split(".");
+    if (parts.length < 2) {
+      return undefined;
+    }
+
+    const claims = decodeBase64UrlJson(parts[1]);
+    if (!isRecord(claims)) {
+      return undefined;
+    }
+
+    const authClaims = claims["https://api.openai.com/auth"];
+    if (!isRecord(authClaims)) {
+      return undefined;
+    }
+
+    const accountId = authClaims.chatgpt_account_id;
+    return typeof accountId === "string" && accountId.trim().length > 0
+      ? accountId.trim()
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function decodeBase64UrlJson(segment: string): unknown {
+  const normalized = `${segment.replace(/-/g, "+").replace(/_/g, "/")}${"=".repeat(
+    (4 - (segment.length % 4)) % 4,
+  )}`;
+  const decoded =
+    typeof globalThis.atob === "function"
+      ? globalThis.atob(normalized)
+      : Buffer.from(normalized, "base64").toString("utf8");
+  return JSON.parse(decoded) as unknown;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}

@@ -13,6 +13,8 @@ const DEFAULT_JSPM_ALLOWED_NETWORK_HOSTS = ["ga.jspm.io", "cdn.jspm.io"];
 const DEFAULT_RUNTIME_AUTO_PIN_FETCH_TIMEOUT_MS = 4000;
 const DEFAULT_OPENAI_MODEL = "gpt-5-mini";
 const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
+const DEFAULT_OPENAI_CODEX_MODEL = "gpt-5.3-codex";
+const DEFAULT_OPENAI_CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex";
 const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-5";
 const DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1";
 const DEFAULT_GOOGLE_MODEL = "gemini-2.5-flash";
@@ -229,6 +231,13 @@ function resolveProviderLlmDefaults(
     return {
       model: DEFAULT_OPENAI_MODEL,
       baseUrl: DEFAULT_OPENAI_BASE_URL,
+    };
+  }
+
+  if (normalizedProvider === "openai-codex") {
+    return {
+      model: DEFAULT_OPENAI_CODEX_MODEL,
+      baseUrl: DEFAULT_OPENAI_CODEX_BASE_URL,
     };
   }
 

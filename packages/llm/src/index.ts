@@ -19,6 +19,10 @@ export {
   type OpenAILLMInterpreterOptions,
 } from "./providers/openai";
 export {
+  OpenAICodexLLMInterpreter,
+  type OpenAICodexLLMInterpreterOptions,
+} from "./providers/openai-codex";
+export {
   anthropicLLMProvider,
   createDefaultLLMProviderRegistry,
   createLLMInterpreter,
@@ -29,5 +33,6 @@ export {
   LLMProviderRegistry,
   lmstudioLLMProvider,
   ollamaLLMProvider,
+  openaiCodexLLMProvider,
   openaiLLMProvider,
 } from "./registry";

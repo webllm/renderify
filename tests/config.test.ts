@@ -182,6 +182,32 @@ test("config derives google defaults when only provider is configured", async ()
   }
 });
 
+test("config derives openai codex defaults when only provider is configured", async () => {
+  const previousProvider = process.env.RENDERIFY_LLM_PROVIDER;
+  const previousModel = process.env.RENDERIFY_LLM_MODEL;
+  const previousBaseUrl = process.env.RENDERIFY_LLM_BASE_URL;
+
+  process.env.RENDERIFY_LLM_PROVIDER = "openai-codex";
+  delete process.env.RENDERIFY_LLM_MODEL;
+  delete process.env.RENDERIFY_LLM_BASE_URL;
+
+  try {
+    const config = new DefaultRenderifyConfig();
+    await config.load();
+
+    assert.equal(config.get("llmProvider"), "openai-codex");
+    assert.equal(config.get("llmModel"), "gpt-5.3-codex");
+    assert.equal(
+      config.get("llmBaseUrl"),
+      "https://chatgpt.com/backend-api/codex",
+    );
+  } finally {
+    restoreEnv("RENDERIFY_LLM_PROVIDER", previousProvider);
+    restoreEnv("RENDERIFY_LLM_MODEL", previousModel);
+    restoreEnv("RENDERIFY_LLM_BASE_URL", previousBaseUrl);
+  }
+});
+
 test("config reads runtime policy values from env", async () => {
   const previousEnforceManifest =
     process.env.RENDERIFY_RUNTIME_ENFORCE_MANIFEST;

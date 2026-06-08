@@ -8,6 +8,7 @@ import {
   GoogleLLMInterpreter,
   LMStudioLLMInterpreter,
   OllamaLLMInterpreter,
+  OpenAICodexLLMInterpreter,
   OpenAILLMInterpreter,
 } from "../packages/llm/src/index";
 
@@ -375,6 +376,209 @@ test("openai interpreter distinguishes caller abort from timeout", async () => {
         signal: controller.signal,
       }),
     /OpenAI request aborted by caller/,
+  );
+});
+
+test("openai codex interpreter generates text response", async () => {
+  const requests: Array<{
+    url: string;
+    headers: Headers;
+    body: Record<string, unknown>;
+  }> = [];
+  const accessToken = codexAccessToken("acct_renderify_test");
+
+  const llm = new OpenAICodexLLMInterpreter({
+    accessToken,
+    model: "gpt-5.3-codex",
+    baseUrl: "https://example.codex.test/backend-api/codex",
+    fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        headers: new Headers(init?.headers),
+        body: parseBody(init?.body),
+      });
+
+      return jsonResponse({
+        id: "resp_codex_text_1",
+        model: "gpt-5.3-codex",
+        usage: {
+          input_tokens: 12,
+          output_tokens: 8,
+        },
+        output: [
+          {
+            type: "message",
+            content: [
+              {
+                type: "output_text",
+                text: "codex runtime text",
+              },
+            ],
+          },
+        ],
+      });
+    },
+  });
+
+  llm.setPromptTemplate("default", "You are Renderify Codex runtime.");
+
+  const response = await llm.generateResponse({
+    prompt: "build runtime card",
+    context: {
+      tenantId: "codex-tenant",
+    },
+  });
+
+  assert.equal(response.text, "codex runtime text");
+  assert.equal(response.model, "gpt-5.3-codex");
+  assert.equal(response.tokensUsed, 20);
+  assert.equal(requests.length, 1);
+  assert.equal(
+    requests[0].url,
+    "https://example.codex.test/backend-api/codex/responses",
+  );
+  assert.equal(
+    requests[0].headers.get("authorization"),
+    `Bearer ${accessToken}`,
+  );
+  assert.equal(requests[0].headers.get("originator"), "codex_cli_rs");
+  assert.equal(
+    requests[0].headers.get("chatgpt-account-id"),
+    "acct_renderify_test",
+  );
+  assert.equal(requests[0].body.model, "gpt-5.3-codex");
+  assert.equal(requests[0].body.store, false);
+  assert.match(String(requests[0].body.instructions), /Renderify Codex/);
+  assert.match(String(requests[0].body.input), /codex-tenant/);
+});
+
+test("openai codex interpreter streams text response chunks", async () => {
+  const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+
+  const llm = new OpenAICodexLLMInterpreter({
+    accessToken: "codex-test-token",
+    model: "gpt-5.3-codex",
+    baseUrl: "https://example.codex.test/backend-api/codex",
+    fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: parseBody(init?.body),
+      });
+
+      return sseResponse([
+        "event: response.output_text.delta\ndata: " +
+          JSON.stringify({
+            type: "response.output_text.delta",
+            delta: "hello ",
+          }),
+        "event: response.output_text.delta\ndata: " +
+          JSON.stringify({
+            type: "response.output_text.delta",
+            delta: "codex",
+          }),
+        "event: response.completed\ndata: " +
+          JSON.stringify({
+            type: "response.completed",
+            response: {
+              id: "resp_codex_stream_1",
+              model: "gpt-5.3-codex",
+              usage: { total_tokens: 31 },
+              output_text: "hello codex",
+            },
+          }),
+      ]);
+    },
+  });
+
+  const chunks = [];
+  for await (const chunk of llm.generateResponseStream({
+    prompt: "stream this",
+  })) {
+    chunks.push(chunk);
+  }
+
+  assert.equal(requests.length, 1);
+  assert.equal(
+    requests[0].url,
+    "https://example.codex.test/backend-api/codex/responses",
+  );
+  assert.equal(requests[0].body.stream, true);
+  assert.equal(requests[0].body.store, false);
+  assert.equal(chunks.length, 3);
+  assert.equal(chunks[0].delta, "hello ");
+  assert.equal(chunks[0].text, "hello ");
+  assert.equal(chunks[1].delta, "codex");
+  assert.equal(chunks[1].text, "hello codex");
+  assert.equal(chunks[2].done, true);
+  assert.equal(chunks[2].text, "hello codex");
+  assert.equal(chunks[2].tokensUsed, 31);
+});
+
+test("openai codex interpreter validates structured runtime plan response", async () => {
+  const requests: Array<Record<string, unknown>> = [];
+  const plan = {
+    id: "codex_runtime_plan_1",
+    version: 1,
+    capabilities: {
+      domWrite: true,
+    },
+    root: {
+      type: "element",
+      tag: "section",
+      children: [
+        {
+          type: "text",
+          value: "structured codex plan",
+        },
+      ],
+    },
+  };
+
+  const llm = new OpenAICodexLLMInterpreter({
+    accessToken: "codex-test-token",
+    fetchImpl: async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push(parseBody(init?.body));
+      return jsonResponse({
+        id: "resp_codex_structured_1",
+        model: "gpt-5.3-codex",
+        usage: {
+          total_tokens: 64,
+        },
+        output_text: JSON.stringify(plan),
+      });
+    },
+  });
+
+  const response = await llm.generateStructuredResponse({
+    prompt: "build structured runtime plan",
+    format: "runtime-plan",
+    strict: true,
+  });
+
+  assert.equal(response.valid, true);
+  assert.equal(response.model, "gpt-5.3-codex");
+  assert.equal(response.tokensUsed, 64);
+  assert.deepEqual(response.value, plan);
+
+  const textConfig = requests[0].text as {
+    format?: { type?: string; name?: string; strict?: boolean };
+  };
+  assert.equal(textConfig.format?.type, "json_schema");
+  assert.equal(textConfig.format?.name, "runtime_plan");
+  assert.equal(textConfig.format?.strict, true);
+});
+
+test("openai codex interpreter requires an access token", async () => {
+  const llm = new OpenAICodexLLMInterpreter({
+    fetchImpl: async () => jsonResponse({}),
+  });
+
+  await assert.rejects(
+    () =>
+      llm.generateResponse({
+        prompt: "missing token",
+      }),
+    /OpenAI Codex access token is missing/,
   );
 });
 
@@ -1014,6 +1218,27 @@ test("llm provider registry can create builtin openai interpreter", async () => 
   assert.equal(response.text, "ok");
 });
 
+test("llm provider registry can create builtin openai codex interpreter", async () => {
+  const llm = createLLMInterpreter({
+    provider: "openai-codex",
+    providerOptions: {
+      accessToken: "codex-test-token",
+      fetchImpl: async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        jsonResponse({
+          id: "resp_provider_codex",
+          model: "gpt-5.3-codex",
+          output_text: "ok-codex",
+        }),
+    },
+  });
+
+  assert.ok(llm instanceof OpenAICodexLLMInterpreter);
+  const response = await llm.generateResponse({
+    prompt: "test provider",
+  });
+  assert.equal(response.text, "ok-codex");
+});
+
 test("llm provider registry can create builtin anthropic interpreter", async () => {
   const llm = createLLMInterpreter({
     provider: "anthropic",
@@ -1217,6 +1442,24 @@ function sseResponse(lines: string[]): Response {
       },
     },
   );
+}
+
+function codexAccessToken(accountId: string): string {
+  const header = base64UrlEncode({ alg: "none", typ: "JWT" });
+  const payload = base64UrlEncode({
+    "https://api.openai.com/auth": {
+      chatgpt_account_id: accountId,
+    },
+  });
+  return `${header}.${payload}.signature`;
+}
+
+function base64UrlEncode(payload: unknown): string {
+  return Buffer.from(JSON.stringify(payload), "utf8")
+    .toString("base64")
+    .replace(/=/g, "")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_");
 }
 
 function createAbortError(): Error {
