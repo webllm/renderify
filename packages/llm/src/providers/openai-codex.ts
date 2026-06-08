@@ -84,6 +84,15 @@ interface OpenAICodexExtractedOutput {
   refusal?: string;
 }
 
+interface OpenAICodexInputMessage {
+  type: "message";
+  role: "user";
+  content: Array<{
+    type: "input_text";
+    text: string;
+  }>;
+}
+
 const DEFAULT_BASE_URL = "https://chatgpt.com/backend-api/codex";
 const DEFAULT_MODEL = "gpt-5.5";
 const DEFAULT_TIMEOUT_MS = 30000;
@@ -243,7 +252,7 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
       {
         model: this.options.model,
         instructions: this.buildInstructions(req),
-        input: this.buildInput(req),
+        input: this.buildInputItems(req),
         store: false,
       },
       req.signal,
@@ -445,7 +454,7 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
           body: JSON.stringify({
             model: this.options.model,
             instructions: this.buildInstructions(req),
-            input: this.buildInput(req),
+            input: this.buildInputItems(req),
             store: false,
             stream: true,
           }),
@@ -543,7 +552,7 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
       {
         model: this.options.model,
         instructions: this.resolveStructuredSystemPrompt(req),
-        input: this.buildInput(req),
+        input: this.buildInputItems(req),
         store: false,
         text: {
           format: {
@@ -734,6 +743,21 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
     return contextSnippet
       ? `${req.prompt}\n\nContext:\n${contextSnippet}`
       : req.prompt;
+  }
+
+  private buildInputItems(req: LLMRequest): OpenAICodexInputMessage[] {
+    return [
+      {
+        type: "message",
+        role: "user",
+        content: [
+          {
+            type: "input_text",
+            text: this.buildInput(req),
+          },
+        ],
+      },
+    ];
   }
 
   private resolveStructuredSystemPrompt(req: LLMStructuredRequest): string {

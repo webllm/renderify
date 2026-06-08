@@ -449,7 +449,9 @@ test("openai codex interpreter generates text response", async () => {
   assert.equal(requests[0].body.model, "gpt-5.5");
   assert.equal(requests[0].body.store, false);
   assert.match(String(requests[0].body.instructions), /Renderify Codex/);
-  assert.match(String(requests[0].body.input), /codex-tenant/);
+  const inputText = assertCodexInputText(requests[0].body.input);
+  assert.match(inputText, /build runtime card/);
+  assert.match(inputText, /codex-tenant/);
 });
 
 test("openai codex interpreter streams text response chunks", async () => {
@@ -504,6 +506,7 @@ test("openai codex interpreter streams text response chunks", async () => {
   );
   assert.equal(requests[0].body.stream, true);
   assert.equal(requests[0].body.store, false);
+  assert.equal(assertCodexInputText(requests[0].body.input), "stream this");
   assert.equal(chunks.length, 3);
   assert.equal(chunks[0].delta, "hello ");
   assert.equal(chunks[0].text, "hello ");
@@ -566,6 +569,10 @@ test("openai codex interpreter validates structured runtime plan response", asyn
   assert.equal(textConfig.format?.type, "json_schema");
   assert.equal(textConfig.format?.name, "runtime_plan");
   assert.equal(textConfig.format?.strict, true);
+  assert.equal(
+    assertCodexInputText(requests[0].input),
+    "build structured runtime plan",
+  );
 });
 
 test("openai codex interpreter requires an access token", async () => {
@@ -1442,6 +1449,25 @@ function sseResponse(lines: string[]): Response {
       },
     },
   );
+}
+
+function assertCodexInputText(input: unknown): string {
+  assert.ok(Array.isArray(input), "Codex input must be an item list");
+  assert.equal(input.length, 1);
+
+  const message = input[0] as Record<string, unknown>;
+  assert.equal(message.type, "message");
+  assert.equal(message.role, "user");
+  assert.ok(Array.isArray(message.content), "Codex message content list");
+  assert.equal(message.content.length, 1);
+
+  const part = message.content[0] as Record<string, unknown>;
+  assert.equal(part.type, "input_text");
+  const text = part.text;
+  if (typeof text !== "string") {
+    assert.fail("Codex input text must be a string");
+  }
+  return text;
 }
 
 function codexAccessToken(accountId: string): string {

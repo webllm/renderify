@@ -1584,6 +1584,11 @@ async function startFakeCodexServer(port: number): Promise<{
         const body = await readJsonRequest(req);
         requests.push(body);
 
+        if (!Array.isArray(body.input)) {
+          sendJson(res, 400, { detail: "Input must be a list" });
+          return;
+        }
+
         sendJson(res, 200, {
           id: "resp_e2e_codex",
           model: "gpt-5.5",

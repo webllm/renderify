@@ -5,4 +5,4 @@
 "renderify": minor
 ---
 
-Add a built-in OpenAI Codex Responses provider with Renderify-managed Codex OAuth login, runtime credential refresh, `gpt-5.5` as the Codex default model, and playground LLM log redaction for Codex requests.
+Add a built-in OpenAI Codex Responses provider with Renderify-managed Codex OAuth login, runtime credential refresh, `gpt-5.5` as the Codex default model, Responses input-list request bodies for the Codex backend, and playground LLM log redaction for Codex requests.
