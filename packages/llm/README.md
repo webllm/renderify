@@ -63,7 +63,7 @@ const codex = createLLMInterpreter({
   provider: "openai-codex",
   providerOptions: {
     accessToken: process.env.RENDERIFY_CODEX_ACCESS_TOKEN,
-    model: "gpt-5.3-codex",
+    model: "gpt-5.5",
     baseUrl: "https://chatgpt.com/backend-api/codex",
   },
 });

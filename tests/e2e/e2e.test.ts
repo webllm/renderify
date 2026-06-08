@@ -584,7 +584,7 @@ test("e2e: playground logs codex responses requests with sensitive headers redac
     RENDERIFY_LLM_PROVIDER: "openai-codex",
     RENDERIFY_CODEX_ACCESS_TOKEN: accessToken,
     RENDERIFY_LLM_BASE_URL: `http://127.0.0.1:${codexPort}/backend-api/codex`,
-    RENDERIFY_LLM_MODEL: "gpt-5.3-codex",
+    RENDERIFY_LLM_MODEL: "gpt-5.5",
   });
 
   let playgroundStdout = "";
@@ -619,7 +619,7 @@ test("e2e: playground logs codex responses requests with sensitive headers redac
     assert.match(playgroundStdout, /"authorization":"\[REDACTED\]"/);
     assert.match(playgroundStdout, /"chatgpt-account-id":"\[REDACTED\]"/);
     assert.doesNotMatch(playgroundStdout, /acct_e2e_codex/);
-    assert.match(playgroundStdout, /"body":\{"model":"gpt-5.3-codex"/);
+    assert.match(playgroundStdout, /"body":\{"model":"gpt-5.5"/);
     assert.match(playgroundStdout, /"statusCode":200/);
   } finally {
     processHandle.kill("SIGTERM");
@@ -1586,7 +1586,7 @@ async function startFakeCodexServer(port: number): Promise<{
 
         sendJson(res, 200, {
           id: "resp_e2e_codex",
-          model: "gpt-5.3-codex",
+          model: "gpt-5.5",
           usage: {
             total_tokens: 64,
           },

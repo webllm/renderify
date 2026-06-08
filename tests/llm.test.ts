@@ -389,7 +389,7 @@ test("openai codex interpreter generates text response", async () => {
 
   const llm = new OpenAICodexLLMInterpreter({
     accessToken,
-    model: "gpt-5.3-codex",
+    model: "gpt-5.5",
     baseUrl: "https://example.codex.test/backend-api/codex",
     fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
       requests.push({
@@ -400,7 +400,7 @@ test("openai codex interpreter generates text response", async () => {
 
       return jsonResponse({
         id: "resp_codex_text_1",
-        model: "gpt-5.3-codex",
+        model: "gpt-5.5",
         usage: {
           input_tokens: 12,
           output_tokens: 8,
@@ -430,7 +430,7 @@ test("openai codex interpreter generates text response", async () => {
   });
 
   assert.equal(response.text, "codex runtime text");
-  assert.equal(response.model, "gpt-5.3-codex");
+  assert.equal(response.model, "gpt-5.5");
   assert.equal(response.tokensUsed, 20);
   assert.equal(requests.length, 1);
   assert.equal(
@@ -446,7 +446,7 @@ test("openai codex interpreter generates text response", async () => {
     requests[0].headers.get("chatgpt-account-id"),
     "acct_renderify_test",
   );
-  assert.equal(requests[0].body.model, "gpt-5.3-codex");
+  assert.equal(requests[0].body.model, "gpt-5.5");
   assert.equal(requests[0].body.store, false);
   assert.match(String(requests[0].body.instructions), /Renderify Codex/);
   assert.match(String(requests[0].body.input), /codex-tenant/);
@@ -457,7 +457,7 @@ test("openai codex interpreter streams text response chunks", async () => {
 
   const llm = new OpenAICodexLLMInterpreter({
     accessToken: "codex-test-token",
-    model: "gpt-5.3-codex",
+    model: "gpt-5.5",
     baseUrl: "https://example.codex.test/backend-api/codex",
     fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
       requests.push({
@@ -481,7 +481,7 @@ test("openai codex interpreter streams text response chunks", async () => {
             type: "response.completed",
             response: {
               id: "resp_codex_stream_1",
-              model: "gpt-5.3-codex",
+              model: "gpt-5.5",
               usage: { total_tokens: 31 },
               output_text: "hello codex",
             },
@@ -540,7 +540,7 @@ test("openai codex interpreter validates structured runtime plan response", asyn
       requests.push(parseBody(init?.body));
       return jsonResponse({
         id: "resp_codex_structured_1",
-        model: "gpt-5.3-codex",
+        model: "gpt-5.5",
         usage: {
           total_tokens: 64,
         },
@@ -556,7 +556,7 @@ test("openai codex interpreter validates structured runtime plan response", asyn
   });
 
   assert.equal(response.valid, true);
-  assert.equal(response.model, "gpt-5.3-codex");
+  assert.equal(response.model, "gpt-5.5");
   assert.equal(response.tokensUsed, 64);
   assert.deepEqual(response.value, plan);
 
@@ -1226,7 +1226,7 @@ test("llm provider registry can create builtin openai codex interpreter", async 
       fetchImpl: async (_input: RequestInfo | URL, _init?: RequestInit) =>
         jsonResponse({
           id: "resp_provider_codex",
-          model: "gpt-5.3-codex",
+          model: "gpt-5.5",
           output_text: "ok-codex",
         }),
     },

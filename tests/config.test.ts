@@ -196,7 +196,7 @@ test("config derives openai codex defaults when only provider is configured", as
     await config.load();
 
     assert.equal(config.get("llmProvider"), "openai-codex");
-    assert.equal(config.get("llmModel"), "gpt-5.3-codex");
+    assert.equal(config.get("llmModel"), "gpt-5.5");
     assert.equal(
       config.get("llmBaseUrl"),
       "https://chatgpt.com/backend-api/codex",

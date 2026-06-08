@@ -85,7 +85,7 @@ interface OpenAICodexExtractedOutput {
 }
 
 const DEFAULT_BASE_URL = "https://chatgpt.com/backend-api/codex";
-const DEFAULT_MODEL = "gpt-5.3-codex";
+const DEFAULT_MODEL = "gpt-5.5";
 const DEFAULT_TIMEOUT_MS = 30000;
 const DEFAULT_USER_AGENT = "codex_cli_rs/0.0.0 (Renderify)";
 

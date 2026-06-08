@@ -7,7 +7,7 @@ Renderify supports multiple LLM providers for generating UI from natural languag
 | Provider        | Default Model        | Package          |
 | --------------- | -------------------- | ---------------- |
 | OpenAI          | `gpt-5-mini`         | `@renderify/llm` |
-| OpenAI Codex    | `gpt-5.3-codex`      | `@renderify/llm` |
+| OpenAI Codex    | `gpt-5.5`           | `@renderify/llm` |
 | Anthropic       | `claude-sonnet-4-5`  | `@renderify/llm` |
 | Google (Gemini) | `gemini-2.5-flash`   | `@renderify/llm` |
 | Ollama          | `qwen2.5-coder:7b`   | `@renderify/llm` |
@@ -84,7 +84,7 @@ const codex = createLLMInterpreter({
   provider: "openai-codex",
   providerOptions: {
     accessToken: "...",
-    model: "gpt-5.3-codex",
+    model: "gpt-5.5",
     baseUrl: "https://chatgpt.com/backend-api/codex",
   },
 });
