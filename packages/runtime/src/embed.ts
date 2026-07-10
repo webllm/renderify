@@ -50,6 +50,7 @@ export async function renderPlanInBrowser(
       new DefaultRuntimeManager({
         moduleLoader,
         ...(options.runtimeOptions ?? {}),
+        allowRuntimeSourceExecution: policy.allowRuntimeSourceModules,
         allowArbitraryNetwork: policy.allowArbitraryNetwork,
         allowedNetworkHosts: policy.allowedNetworkHosts,
       });
@@ -135,6 +136,7 @@ export async function createInteractiveSession(
     new DefaultRuntimeManager({
       moduleLoader,
       ...(options.runtimeOptions ?? {}),
+      allowRuntimeSourceExecution: policy.allowRuntimeSourceModules,
       allowArbitraryNetwork: policy.allowArbitraryNetwork,
       allowedNetworkHosts: policy.allowedNetworkHosts,
     });

@@ -8,6 +8,7 @@ The runtime execution engine is the core of Renderify. It takes a validated Runt
 RuntimePlan
   │
   ├── Validate spec version
+  ├── Reject plan.source unless trusted source execution is enabled
   ├── Initialize state (if plan.state exists)
   ├── Resolve imports (module manifest → JSPM CDN)
   ├── Execute source module (if plan.source exists)
@@ -34,6 +35,9 @@ const runtime = new DefaultRuntimeManager({
 
   // Module manifest enforcement
   enforceModuleManifest: true,
+
+  // Trusted-only source execution; disabled by default
+  allowRuntimeSourceExecution: false,
 
   // Trusted-only fallback when the reserved isolated-vm backend is unavailable
   allowIsolationFallback: false,
@@ -117,7 +121,15 @@ Non-JS modules are converted to executable proxies:
 
 ## Source Module Execution
 
-When a plan includes `plan.source`, the runtime executes a full source pipeline:
+`DefaultRuntimeManager` rejects plans containing `plan.source` by default with
+`RUNTIME_SOURCE_EXECUTION_DISABLED`, before dependency preflight or module
+loading. Direct runtime callers must opt in with
+`allowRuntimeSourceExecution: true`, and should do so only for reviewed source.
+The core and browser embed APIs derive this gate from the initialized security
+policy: `strict` and `balanced` keep it disabled, while `trusted` and `relaxed`
+enable it.
+
+When trusted source execution is enabled, the runtime executes this pipeline:
 
 ### Transpilation
 

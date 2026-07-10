@@ -1025,6 +1025,7 @@ export class RenderifyApp {
     policy: RuntimeSecurityPolicy,
   ): RuntimeManagerOptions {
     const options: RuntimeManagerOptions = {
+      allowRuntimeSourceExecution: policy.allowRuntimeSourceModules,
       allowArbitraryNetwork: policy.allowArbitraryNetwork,
       allowedNetworkHosts: [...policy.allowedNetworkHosts],
     };
@@ -1128,7 +1129,8 @@ export class RenderifyApp {
     return {
       ...options,
       ...overrides,
-      // Security policy remains authoritative for runtime network guards.
+      // Security policy remains authoritative for runtime execution/network guards.
+      allowRuntimeSourceExecution: options.allowRuntimeSourceExecution,
       allowArbitraryNetwork: options.allowArbitraryNetwork,
       allowedNetworkHosts: options.allowedNetworkHosts,
     };

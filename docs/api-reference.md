@@ -350,6 +350,9 @@ interface RuntimeManagerOptions {
   defaultExecutionProfile?: RuntimeExecutionProfile;
   supportedPlanSpecVersions?: string[];
   enforceModuleManifest?: boolean;
+  // Trusted-only: execute JavaScript/TypeScript supplied by plan.source.
+  // Defaults to false.
+  allowRuntimeSourceExecution?: boolean;
   // Trusted-only: execute unavailable isolated-vm requests as standard code.
   // Defaults to false.
   allowIsolationFallback?: boolean;

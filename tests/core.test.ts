@@ -430,6 +430,30 @@ function createDependencies(
   };
 }
 
+test("core keeps the security policy authoritative for runtime source execution", async () => {
+  const runtime = new DefaultRuntimeManager({
+    allowRuntimeSourceExecution: true,
+  });
+  const app = createRenderifyApp(
+    createDependencies({
+      runtime,
+      runtimeOptionOverrides: {
+        allowRuntimeSourceExecution: true,
+      },
+    }),
+  );
+
+  await app.start();
+
+  assert.equal(
+    (runtime as unknown as { allowRuntimeSourceExecution?: boolean })
+      .allowRuntimeSourceExecution,
+    false,
+  );
+
+  await app.stop();
+});
+
 test("core renderPrompt returns plan/html with diagnostics", async () => {
   const app = createRenderifyApp(createDependencies());
 

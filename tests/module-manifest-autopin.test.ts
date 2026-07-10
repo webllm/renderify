@@ -500,7 +500,7 @@ test("renderPlanInBrowser honors custom security rejection before auto-pin fetch
 
 test("renderPlanInBrowser preserves caller checker rejections that match auto-pin issue text", async () => {
   const baseChecker = new DefaultSecurityChecker();
-  baseChecker.initialize({ profile: "balanced" });
+  baseChecker.initialize({ profile: "trusted" });
 
   const customChecker = {
     initialize(): void {},
@@ -693,6 +693,7 @@ test("renderPlanInBrowser auto-pins bare imports after security precheck", async
       autoPinModuleLoader: new ResolveOnlyJspmLoader(),
       autoInitializeRuntime: false,
       autoTerminateRuntime: false,
+      securityInitialization: { profile: "trusted" },
     });
 
     assert.equal(result.html, "<section>ok</section>");
@@ -811,7 +812,7 @@ test("renderPlanInBrowser auto-pins relaxed profile deep imports before allowlis
 
 test("renderPlanInBrowser still auto-pins bare imports with caller-provided checker", async () => {
   const checker = new DefaultSecurityChecker();
-  checker.initialize({ profile: "balanced" });
+  checker.initialize({ profile: "trusted" });
 
   const plan: RuntimePlan = {
     specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
@@ -1005,9 +1006,12 @@ test("core render flow auto-pins codegen placeholder manifests before policy che
     return new Response("not found", { status: 404 });
   }) as typeof fetch;
 
-  const app = createRenderifyApp(
-    createCoreDependencies(runtimeStub, new ResolveOnlyJspmLoader()),
+  const dependencies = createCoreDependencies(
+    runtimeStub,
+    new ResolveOnlyJspmLoader(),
   );
+  dependencies.configLoadOverrides = { securityProfile: "trusted" };
+  const app = createRenderifyApp(dependencies);
 
   await app.start();
   try {

@@ -25,6 +25,7 @@ RENDERIFY_SECURITY_PROFILE=strict
 | Max component invocations | 120                                       |
 | Max source size           | 20,000 bytes                              |
 | Max source imports        | 30                                        |
+| Runtime source modules    | Disabled                                  |
 | `source.runtime=preact`   | Disabled                                  |
 | Module manifest required  | Yes (for bare specifiers)                 |
 | Module integrity required | Yes                                       |
@@ -54,6 +55,7 @@ RENDERIFY_SECURITY_PROFILE=balanced
 | Max component invocations | 500                                       |
 | Max source size           | 80,000 bytes                              |
 | Max source imports        | 120                                       |
+| Runtime source modules    | Disabled                                  |
 | `source.runtime=preact`   | Disabled                                  |
 | Module manifest required  | Yes (for bare specifiers)                 |
 | Module integrity required | No                                        |
@@ -83,6 +85,7 @@ RENDERIFY_SECURITY_PROFILE=trusted
 | Max component invocations | 1,000                                     |
 | Max source size           | 120,000 bytes                             |
 | Max source imports        | 180                                       |
+| Runtime source modules    | Allowed for reviewed source               |
 | `source.runtime=preact`   | Allowed                                   |
 | Module manifest required  | Yes (for bare specifiers)                 |
 | Module integrity required | No                                        |
@@ -112,6 +115,7 @@ RENDERIFY_SECURITY_PROFILE=relaxed
 | Max component invocations | 4,000                                      |
 | Max source size           | 200,000 bytes                              |
 | Max source imports        | 500                                        |
+| Runtime source modules    | Allowed for reviewed source                |
 | `source.runtime=preact`   | Allowed                                    |
 | Module manifest required  | No                                         |
 | Module integrity required | No                                         |

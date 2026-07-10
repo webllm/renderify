@@ -783,15 +783,38 @@ test("renderPlanInBrowser binds default runtime network policy to security polic
   });
 
   const runtime = result.runtime as unknown as {
+    allowRuntimeSourceExecution?: boolean;
     allowArbitraryNetwork?: boolean;
     allowedNetworkHosts?: Set<string>;
   };
 
+  assert.equal(runtime.allowRuntimeSourceExecution, false);
   assert.equal(runtime.allowArbitraryNetwork, false);
   assert.deepEqual(
     [...(runtime.allowedNetworkHosts ?? new Set<string>())].sort(),
     ["cdn.jspm.io", "ga.jspm.io"],
   );
+});
+
+test("renderTrustedPlanInBrowser enables source execution on its default runtime", async () => {
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "embed_runtime_trusted_source_gate",
+    version: 1,
+    root: createTextNode("trusted"),
+    capabilities: {
+      domWrite: true,
+    },
+  };
+
+  const result = await renderTrustedPlanInBrowser(plan, {
+    autoPinLatestModuleManifest: false,
+  });
+  const runtime = result.runtime as unknown as {
+    allowRuntimeSourceExecution?: boolean;
+  };
+
+  assert.equal(runtime.allowRuntimeSourceExecution, true);
 });
 
 test("renderTrustedPlanInBrowser defaults to trusted security for preact source plans", async () => {
@@ -1385,8 +1408,71 @@ test("runtime isolated-vm profile explicitly falls back to standard execution", 
   await runtime.terminate();
 });
 
+test("runtime fails closed for source plans before probing or loading modules", async () => {
+  let loadCalls = 0;
+  let transpileCalls = 0;
+  const runtime = new DefaultRuntimeManager({
+    moduleLoader: {
+      async load() {
+        loadCalls += 1;
+        return { default: () => createTextNode("loaded") };
+      },
+    },
+    sourceTranspiler: {
+      async transpile(input) {
+        transpileCalls += 1;
+        return input.code;
+      },
+    },
+  });
+  await runtime.initialize();
+
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "runtime_source_disabled_plan",
+    version: 1,
+    root: createComponentNode("npm:acme/source-dependency"),
+    imports: ["npm:acme/source-dependency"],
+    moduleManifest: {
+      "npm:acme/source-dependency": {
+        resolvedUrl: "npm:acme/source-dependency",
+        signer: "tests",
+      },
+    },
+    capabilities: {
+      domWrite: true,
+    },
+    source: {
+      language: "js",
+      code: [
+        'import value from "npm:acme/source-dependency";',
+        "export default () => ({ type: 'text', value: String(value) });",
+      ].join("\n"),
+    },
+  };
+
+  const probe = await runtime.probePlan(plan);
+  const result = await runtime.executePlan(plan);
+
+  assert.deepEqual(probe.dependencies, []);
+  assert.deepEqual(
+    probe.diagnostics.map((item) => item.code),
+    ["RUNTIME_SOURCE_EXECUTION_DISABLED"],
+  );
+  assert.deepEqual(
+    result.diagnostics.map((item) => item.code),
+    ["RUNTIME_SOURCE_EXECUTION_DISABLED"],
+  );
+  assert.equal(result.root, plan.root);
+  assert.equal(loadCalls, 0);
+  assert.equal(transpileCalls, 0);
+
+  await runtime.terminate();
+});
+
 test("runtime executes source module export using custom transpiler", async () => {
   const runtime = new DefaultRuntimeManager({
+    allowRuntimeSourceExecution: true,
     sourceTranspiler: new PassthroughSourceTranspiler(),
   });
 
@@ -1436,6 +1522,7 @@ test("runtime executes source module export using custom transpiler", async () =
 
 test("runtime falls back to default source export when exportName is missing", async () => {
   const runtime = new DefaultRuntimeManager({
+    allowRuntimeSourceExecution: true,
     sourceTranspiler: new PassthroughSourceTranspiler(),
   });
 
@@ -1491,6 +1578,7 @@ test("runtime falls back to default source export when exportName is missing", a
 test("runtime executes source modules inside worker sandbox in browser mode", async () => {
   const restoreGlobals = installBrowserSandboxGlobals(SandboxSuccessWorker);
   const runtime = new DefaultRuntimeManager({
+    allowRuntimeSourceExecution: true,
     sourceTranspiler: new PassthroughSourceTranspiler(),
     browserSourceSandboxMode: "worker",
     browserSourceSandboxFailClosed: true,
@@ -1542,6 +1630,7 @@ test("runtime executes source modules inside worker sandbox in browser mode", as
 test("runtime falls back to iframe sandbox when worker is unavailable", async () => {
   const restoreGlobals = installBrowserIframeSandboxGlobals();
   const runtime = new DefaultRuntimeManager({
+    allowRuntimeSourceExecution: true,
     sourceTranspiler: new PassthroughSourceTranspiler(),
     browserSourceSandboxMode: "worker",
     browserSourceSandboxFailClosed: true,
@@ -1597,6 +1686,7 @@ test("runtime falls back to iframe sandbox when worker is unavailable", async ()
 test("runtime falls back to worker sandbox when iframe is unavailable", async () => {
   const restoreGlobals = installBrowserSandboxGlobals(SandboxSuccessWorker);
   const runtime = new DefaultRuntimeManager({
+    allowRuntimeSourceExecution: true,
     sourceTranspiler: new PassthroughSourceTranspiler(),
     browserSourceSandboxMode: "iframe",
     browserSourceSandboxFailClosed: true,
@@ -1662,6 +1752,7 @@ test("runtime executes source modules inside shadowrealm sandbox when available"
   });
 
   const runtime = new DefaultRuntimeManager({
+    allowRuntimeSourceExecution: true,
     sourceTranspiler: new PassthroughSourceTranspiler(),
     browserSourceSandboxMode: "shadowrealm",
     browserSourceSandboxFailClosed: true,
@@ -1728,6 +1819,7 @@ test("runtime shadowrealm mode falls back to worker sandbox when unavailable", a
   });
 
   const runtime = new DefaultRuntimeManager({
+    allowRuntimeSourceExecution: true,
     sourceTranspiler: new PassthroughSourceTranspiler(),
     browserSourceSandboxMode: "shadowrealm",
     browserSourceSandboxFailClosed: true,
@@ -1782,6 +1874,7 @@ test("runtime shadowrealm mode falls back to worker sandbox when unavailable", a
 test("runtime sandbox fail-closed keeps fallback root and reports diagnostics", async () => {
   const restoreGlobals = installBrowserSandboxGlobals(SandboxFailWorker);
   const runtime = new DefaultRuntimeManager({
+    allowRuntimeSourceExecution: true,
     sourceTranspiler: new PassthroughSourceTranspiler(),
     browserSourceSandboxMode: "worker",
     browserSourceSandboxFailClosed: true,
@@ -1834,6 +1927,7 @@ test("runtime worker sandbox execution is abortable", async () => {
   SandboxDelayedWorker.reset();
   const restoreGlobals = installBrowserSandboxGlobals(SandboxDelayedWorker);
   const runtime = new DefaultRuntimeManager({
+    allowRuntimeSourceExecution: true,
     sourceTranspiler: new PassthroughSourceTranspiler(),
     browserSourceSandboxMode: "worker",
     browserSourceSandboxFailClosed: true,
@@ -1889,6 +1983,7 @@ test("runtime worker sandbox execution is abortable", async () => {
 
 test("runtime rewrites source imports through module loader resolver", async () => {
   const runtime = new DefaultRuntimeManager({
+    allowRuntimeSourceExecution: true,
     moduleLoader: new ResolveOnlyLoader(),
     sourceTranspiler: new PassthroughSourceTranspiler(),
   });
@@ -3200,6 +3295,7 @@ test("runtime accepts module manifest entry when integrity verification succeeds
 
 test("runtime emits preact render artifact for source.runtime=preact modules", async () => {
   const runtime = new DefaultRuntimeManager({
+    allowRuntimeSourceExecution: true,
     sourceTranspiler: new PassthroughSourceTranspiler(),
   });
   await runtime.initialize();
@@ -3295,6 +3391,7 @@ test("runtime reuses stable preact wrapper identities for repeated renders", asy
 
 test("runtime preact rendering rejects plain object component output", async () => {
   const runtime = new DefaultRuntimeManager({
+    allowRuntimeSourceExecution: true,
     sourceTranspiler: new PassthroughSourceTranspiler(),
   });
   await runtime.initialize();
@@ -3337,6 +3434,7 @@ test("runtime preact rendering rejects plain object component output", async () 
 
 test("runtime preact rendering rejects plain object class component output", async () => {
   const runtime = new DefaultRuntimeManager({
+    allowRuntimeSourceExecution: true,
     sourceTranspiler: new PassthroughSourceTranspiler(),
   });
   await runtime.initialize();
@@ -3420,6 +3518,7 @@ test("runtime can fail-fast on dependency preflight import errors", async () => 
 
 test("runtime preflight rejects unresolved relative source imports", async () => {
   const runtime = new DefaultRuntimeManager({
+    allowRuntimeSourceExecution: true,
     sourceTranspiler: new PassthroughSourceTranspiler(),
     failOnDependencyPreflightError: true,
   });
@@ -3553,6 +3652,7 @@ test("runtime execute rejects when aborted before execution starts", async () =>
 
 test("runtime probePlan returns dependency statuses without executing source", async () => {
   const runtime = new DefaultRuntimeManager({
+    allowRuntimeSourceExecution: true,
     moduleLoader: new MockLoader({
       "npm:acme/chart": { default: () => createTextNode("ok") },
       "npm:acme/data": { value: 1 },

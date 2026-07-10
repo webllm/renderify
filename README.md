@@ -73,7 +73,7 @@ LLM output (JSX/TSX or structured plan)
 - **Zero-build rendering**: LLM-generated JSX/TSX runs directly in the browser via `@babel/standalone` + JSPM CDN. No backend build server, no deploy step, no server round-trip.
 - **JSPM package support (tiered contract)**: Compatibility aliases (`preact`/`react` bridge, `recharts`) are guaranteed; pure browser ESM packages (for example `lodash-es`, `date-fns`, `@mui/material`) are best-effort. Node.js builtins and unsupported schemes are rejected deterministically. This is the concrete scope of the [bundleless contract](#bundleless-contract).
 - **Default auto-pin-latest for bare imports**: `renderPlanInBrowser` automatically resolves bare source imports (for example `import { format } from "date-fns"`) through JSPM latest and injects pinned `moduleManifest` entries before policy check and execution.
-- **Security-first execution**: Every plan passes through a policy checker (blocked tags, module allowlists, tree depth limits, execution budgets) _before_ any code runs. Three built-in profiles: `strict`, `balanced`, `relaxed`.
+- **Security-first execution**: Every plan passes through a policy checker (blocked tags, module allowlists, tree depth limits, execution budgets) _before_ any code runs. Four built-in profiles: `strict`, `balanced`, `trusted`, `relaxed`; strict and balanced reject runtime source modules.
 - **JSPM-only strict preset**: Set `RENDERIFY_RUNTIME_JSPM_ONLY_STRICT_MODE=true` to force strict profile + manifest/integrity enforcement + preflight fail-fast + no fallback CDNs.
 - **Dual input paths**: Accepts both structured JSON RuntimePlans (for precise LLM structured output) and raw TSX/JSX code blocks (for natural LLM text generation).
 - **LLM is optional**: You can use Renderify as a renderer-only runtime by supplying RuntimePlan/source from your own backend or model pipeline.
@@ -149,7 +149,7 @@ flowchart TD
 - Runtime source static policy checks (blocked patterns, dynamic import policy, source import count)
 - Streaming prompt pipeline (`renderPromptStream`) with progressive preview updates
 - Preact DOM reconciliation path for runtime source modules (diff-based UI updates)
-- Security profiles: `strict | balanced | relaxed`
+- Security profiles: `strict | balanced | trusted | relaxed`
 - RuntimePlan structural guards for safer plan ingestion
 - One-line embed API: `renderPlanInBrowser(plan, { target })`
 - Interactive session API: `createInteractiveSession(plan, { target })` with event->state->rerender loop
@@ -332,10 +332,10 @@ await renderPlanInBrowser(plan, { target: "#mount" });
 
 ### Renderer-only TSX + Dependency Package (JSPM)
 
-`renderPlanInBrowser` defaults to `auto-pin-latest`, so bare imports work out of the box:
+`renderTrustedPlanInBrowser` defaults to `auto-pin-latest`, so reviewed source modules can use bare imports:
 
 ```ts
-import { renderPlanInBrowser } from "renderify";
+import { renderTrustedPlanInBrowser } from "renderify";
 
 const tsxPlan = {
   specVersion: "runtime-plan/v1",
@@ -360,7 +360,7 @@ const tsxPlan = {
   },
 };
 
-await renderPlanInBrowser(tsxPlan, { target: "#mount" });
+await renderTrustedPlanInBrowser(tsxPlan, { target: "#mount" });
 ```
 
 For production determinism, prefer `manifest-only` (explicit pinned versions) and disable auto-pin:
@@ -376,13 +376,13 @@ const pinnedPlan = {
   },
 };
 
-await renderPlanInBrowser(pinnedPlan, {
+await renderTrustedPlanInBrowser(pinnedPlan, {
   target: "#mount",
   autoPinLatestModuleManifest: false,
 });
 ```
 
-Auto-pin-latest workflow (`renderPlanInBrowser` default):
+Auto-pin-latest workflow (`renderTrustedPlanInBrowser` default for reviewed source):
 
 1. Write bare imports for DX, for example `import { format } from "date-fns/format"`.
 2. On first run, Renderify resolves the bare specifier via JSPM latest metadata.

@@ -2,7 +2,7 @@
 
 Renderify is designed for browser-first execution. This guide covers how to embed Renderify in web applications, from simple one-line embeds to full streaming chat interfaces.
 
-Use `renderPlanInBrowser` for declarative plans and `source.runtime: "renderify"` modules. Use `renderTrustedPlanInBrowser` for reviewed browser source modules that run with `source.runtime: "preact"`.
+Use `renderPlanInBrowser` for declarative plans. Use `renderTrustedPlanInBrowser` for reviewed browser source modules (`source.runtime: "renderify"` or `"preact"`). The default strict and balanced policies reject all `plan.source` execution.
 
 ## One-Line Embed API
 
@@ -209,7 +209,7 @@ For `source.runtime: "preact"` plans, Babel standalone is needed for transpilati
 </script>
 ```
 
-`runtime: "preact"` is a trusted browser source lane. Use it for reviewed source modules that need JSX, hooks, or third-party UI packages. For untrusted source modules, stay on the declarative path or `source.runtime: "renderify"` with sandboxing.
+`runtime: "preact"` is a trusted browser source lane. Use it for reviewed source modules that need JSX, hooks, or third-party UI packages. Keep untrusted input on the declarative path; worker, iframe, and ShadowRealm adapters are not trusted security boundaries for arbitrary source.
 
 ## Hash-Based Code Runner
 
@@ -286,9 +286,9 @@ Keys enable correct reconciliation when list items are reordered, added, or remo
 
 When embedding Renderify in a browser application:
 
-1. **Match the helper to the trust lane** — `renderPlanInBrowser` defaults to the balanced profile; `renderTrustedPlanInBrowser` defaults to the trusted profile for `source.runtime: "preact"`
+1. **Match the helper to the trust lane** — `renderPlanInBrowser` defaults to the balanced, declarative-only profile; `renderTrustedPlanInBrowser` defaults to the trusted profile for reviewed source
 2. **Validate plans from external sources** — plans from URLs, APIs, or user input should always go through security checks
-3. **Use sandbox mode only for non-Preact source** — worker, iframe, and ShadowRealm sandboxing apply to untrusted declarative plans or `source.runtime: "renderify"` modules; `source.runtime: "preact"` does not support those browser sandboxes
+3. **Do not treat browser adapters as a trust boundary** — worker, iframe, and ShadowRealm modes can add containment for reviewed non-Preact source, but they do not make arbitrary source trusted
 4. **Set appropriate security profile** — use `strict` for user-facing production deployments
 
 ```ts

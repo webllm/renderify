@@ -37,6 +37,7 @@ import {
 import { createPreactRenderArtifact as createPreactRenderArtifactFromComponentRuntime } from "./runtime-component-runtime";
 import {
   FALLBACK_ALLOW_ISOLATION_FALLBACK,
+  FALLBACK_ALLOW_RUNTIME_SOURCE_EXECUTION,
   FALLBACK_BROWSER_MODULE_URL_CACHE_MAX_ENTRIES,
   FALLBACK_BROWSER_SOURCE_SANDBOX_FAIL_CLOSED,
   FALLBACK_BROWSER_SOURCE_SANDBOX_TIMEOUT_MS,
@@ -121,6 +122,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
   private readonly defaultExecutionProfile: RuntimeExecutionProfile;
   private supportedPlanSpecVersions: Set<string>;
   private enforceModuleManifest: boolean;
+  private allowRuntimeSourceExecution: boolean;
   private allowIsolationFallback: boolean;
   private browserSourceSandboxMode: RuntimeSourceSandboxMode;
   private readonly runtimeSourceJsxHelperMode: "auto" | "always" | "never";
@@ -161,6 +163,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
     );
     this.supportedPlanSpecVersions = new Set<string>();
     this.enforceModuleManifest = FALLBACK_ENFORCE_MODULE_MANIFEST;
+    this.allowRuntimeSourceExecution = FALLBACK_ALLOW_RUNTIME_SOURCE_EXECUTION;
     this.allowIsolationFallback = FALLBACK_ALLOW_ISOLATION_FALLBACK;
     this.browserSourceSandboxMode = normalizeSourceSandboxMode(undefined);
     this.browserSourceSandboxTimeoutMs =
@@ -217,6 +220,12 @@ export class DefaultRuntimeManager implements RuntimeManager {
     if (applyDefaults || options.enforceModuleManifest !== undefined) {
       this.enforceModuleManifest =
         options.enforceModuleManifest ?? FALLBACK_ENFORCE_MODULE_MANIFEST;
+    }
+
+    if (applyDefaults || options.allowRuntimeSourceExecution !== undefined) {
+      this.allowRuntimeSourceExecution =
+        options.allowRuntimeSourceExecution ??
+        FALLBACK_ALLOW_RUNTIME_SOURCE_EXECUTION;
     }
 
     if (applyDefaults || options.allowIsolationFallback !== undefined) {
@@ -375,6 +384,15 @@ export class DefaultRuntimeManager implements RuntimeManager {
       };
     }
 
+    if (plan.source && !this.allowRuntimeSourceExecution) {
+      diagnostics.push(this.createSourceExecutionDisabledDiagnostic());
+      return {
+        planId: plan.id,
+        diagnostics,
+        dependencies: [],
+      };
+    }
+
     const capabilities = plan.capabilities ?? {};
     const executionProfile = this.resolveAvailableExecutionProfile(
       capabilities.executionProfile ?? this.defaultExecutionProfile,
@@ -432,6 +450,18 @@ export class DefaultRuntimeManager implements RuntimeManager {
           ...this.supportedPlanSpecVersions,
         ].join(", ")}`,
       });
+      return {
+        planId: plan.id,
+        root: plan.root,
+        diagnostics,
+        state: cloneJsonValue(this.resolveState(plan, stateOverride)),
+        handledEvent: event,
+        appliedActions: [],
+      };
+    }
+
+    if (plan.source && !this.allowRuntimeSourceExecution) {
+      diagnostics.push(this.createSourceExecutionDisabledDiagnostic());
       return {
         planId: plan.id,
         root: plan.root,
@@ -1264,6 +1294,15 @@ export class DefaultRuntimeManager implements RuntimeManager {
     if (!this.initialized) {
       throw new Error("RuntimeManager is not initialized");
     }
+  }
+
+  private createSourceExecutionDisabledDiagnostic(): RuntimeDiagnostic {
+    return {
+      level: "error",
+      code: "RUNTIME_SOURCE_EXECUTION_DISABLED",
+      message:
+        "Runtime source execution is disabled; set allowRuntimeSourceExecution to true only for trusted plans",
+    };
   }
 
   private errorToMessage(error: unknown): string {

@@ -78,6 +78,11 @@ export interface RuntimeManagerOptions {
   supportedPlanSpecVersions?: string[];
   enforceModuleManifest?: boolean;
   /**
+   * Executes JavaScript/TypeScript supplied through `plan.source`.
+   * Defaults to `false`; enable only for explicitly trusted plans.
+   */
+  allowRuntimeSourceExecution?: boolean;
+  /**
    * Allows the reserved `isolated-vm` profile to execute as trusted
    * `standard` code when no secure isolation backend is available.
    * Defaults to `false`; leave disabled for untrusted modules.

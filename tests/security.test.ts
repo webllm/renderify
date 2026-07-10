@@ -287,10 +287,26 @@ test("security profiles list includes strict balanced trusted relaxed", async ()
 
 test("trusted profile enables preact without relaxed network permissions", async () => {
   const trustedPolicy = getSecurityProfilePolicy("trusted");
+  assert.equal(trustedPolicy.allowRuntimeSourceModules, true);
   assert.equal(trustedPolicy.allowPreactSourceRuntime, true);
   assert.equal(trustedPolicy.allowArbitraryNetwork, false);
   assert.equal(trustedPolicy.allowDynamicSourceImports, false);
   assert.equal(trustedPolicy.requireModuleManifestForBareSpecifiers, true);
+});
+
+test("strict and balanced profiles disable runtime source modules", () => {
+  assert.equal(
+    getSecurityProfilePolicy("strict").allowRuntimeSourceModules,
+    false,
+  );
+  assert.equal(
+    getSecurityProfilePolicy("balanced").allowRuntimeSourceModules,
+    false,
+  );
+  assert.equal(
+    getSecurityProfilePolicy("relaxed").allowRuntimeSourceModules,
+    true,
+  );
 });
 
 test("security checker validates requested execution profile", async () => {
@@ -330,9 +346,14 @@ test("security checker can disable runtime source modules via policy", async () 
   );
 });
 
-test("security checker blocks source.runtime=preact in balanced profile", async () => {
+test("security checker blocks preact when balanced source is explicitly enabled", async () => {
   const checker = new DefaultSecurityChecker();
-  checker.initialize({ profile: "balanced" });
+  checker.initialize({
+    profile: "balanced",
+    overrides: {
+      allowRuntimeSourceModules: true,
+    },
+  });
 
   const plan = createPlan("section");
   plan.source = {
@@ -461,7 +482,7 @@ test("security checker strict profile requires integrity for remote modules", as
 
 test("security checker allows internal inline runtime source specifiers without manifest entries", async () => {
   const checker = new DefaultSecurityChecker();
-  checker.initialize({ profile: "strict" });
+  checker.initialize({ profile: "trusted" });
 
   const plan: RuntimePlan = {
     specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
@@ -495,7 +516,7 @@ test("security checker allows internal synthetic source alias specifiers", async
 
 test("security checker blocks banned runtime source patterns", async () => {
   const checker = new DefaultSecurityChecker();
-  checker.initialize();
+  checker.initialize({ profile: "trusted" });
 
   const plan = createPlan("section");
   plan.source = {
@@ -515,7 +536,7 @@ test("security checker blocks banned runtime source patterns", async () => {
 
 test("security checker blocks runtime source fetch usage", async () => {
   const checker = new DefaultSecurityChecker();
-  checker.initialize();
+  checker.initialize({ profile: "trusted" });
 
   const plan = createPlan("section");
   plan.source = {
@@ -535,7 +556,7 @@ test("security checker blocks runtime source fetch usage", async () => {
 
 test("security checker blocks obfuscated runtime source fetch access", async () => {
   const checker = new DefaultSecurityChecker();
-  checker.initialize();
+  checker.initialize({ profile: "trusted" });
 
   const plan = createPlan("section");
   plan.source = {
@@ -560,7 +581,7 @@ test("security checker blocks obfuscated runtime source fetch access", async () 
 
 test("security checker blocks runtime source cookie access", async () => {
   const checker = new DefaultSecurityChecker();
-  checker.initialize();
+  checker.initialize({ profile: "trusted" });
 
   const plan = createPlan("section");
   plan.source = {
@@ -584,7 +605,7 @@ test("security checker blocks runtime source cookie access", async () => {
 
 test("security checker blocks obfuscated runtime source cookie access", async () => {
   const checker = new DefaultSecurityChecker();
-  checker.initialize();
+  checker.initialize({ profile: "trusted" });
 
   const plan = createPlan("section");
   plan.source = {

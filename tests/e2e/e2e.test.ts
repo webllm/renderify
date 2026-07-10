@@ -887,6 +887,7 @@ test("e2e: playground api accepts inline runtime source module specifiers", asyn
   const port = await allocatePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   const processHandle = startPlayground(port, {
+    RENDERIFY_SECURITY_PROFILE: "trusted",
     RENDERIFY_SESSION_FILE: path.join(tempDir, "session.json"),
   });
 
@@ -1026,6 +1027,7 @@ test("e2e: playground hash source renders server output without browser re-execu
   const port = await allocatePort();
   const baseUrl = `http://127.0.0.1:${port}`;
   const processHandle = startPlayground(port, {
+    RENDERIFY_SECURITY_PROFILE: "trusted",
     RENDERIFY_SESSION_FILE: path.join(tempDir, "session.json"),
   });
 
