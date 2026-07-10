@@ -433,7 +433,7 @@ test("security checker returns detached policy array snapshots", () => {
 test("security checker precompiles source banned patterns on initialize", async () => {
   const checker = new DefaultSecurityChecker();
   checker.initialize({
-    sourceBannedPatternStrings: ["\\beval\\s*\\(", "["],
+    sourceBannedPatternStrings: ["\\beval\\s*\\(", "\\bfetch\\s*\\("],
   });
 
   const compiled = (
@@ -444,8 +444,28 @@ test("security checker precompiles source banned patterns on initialize", async 
 
   assert.deepEqual(
     (compiled ?? []).map((entry) => entry.raw),
-    ["\\beval\\s*\\("],
+    ["\\beval\\s*\\(", "\\bfetch\\s*\\("],
   );
+});
+
+test("security checker rejects invalid source patterns atomically", () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize({ profile: "strict" });
+  const previousPolicy = checker.getPolicy();
+
+  assert.throws(
+    () =>
+      checker.initialize({
+        profile: "relaxed",
+        overrides: {
+          sourceBannedPatternStrings: ["["],
+        },
+      }),
+    /Invalid source banned pattern "\["/,
+  );
+
+  assert.equal(checker.getProfile(), "strict");
+  assert.deepEqual(checker.getPolicy(), previousPolicy);
 });
 
 test("security profiles list includes strict balanced trusted relaxed", async () => {

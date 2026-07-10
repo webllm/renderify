@@ -402,7 +402,7 @@ export class DefaultSecurityChecker implements SecurityChecker {
     const profile = normalized.profile ?? DEFAULT_SECURITY_PROFILE;
     const basePolicy = getSecurityProfilePolicy(profile);
 
-    this.policy = clonePolicy({
+    const nextPolicy = clonePolicy({
       ...basePolicy,
       ...normalized.overrides,
       blockedTags: normalized.overrides?.blockedTags ?? basePolicy.blockedTags,
@@ -421,9 +421,12 @@ export class DefaultSecurityChecker implements SecurityChecker {
         normalized.overrides?.sourceBannedPatternStrings ??
         basePolicy.sourceBannedPatternStrings,
     });
-    this.sourceBannedPatterns = compileSourceBannedPatterns(
-      this.policy.sourceBannedPatternStrings,
+    const nextSourceBannedPatterns = compileSourceBannedPatterns(
+      nextPolicy.sourceBannedPatternStrings,
     );
+
+    this.policy = nextPolicy;
+    this.sourceBannedPatterns = nextSourceBannedPatterns;
     this.profile = profile;
   }
 
@@ -1394,7 +1397,12 @@ function compileSourceBannedPatterns(patterns: string[]): Array<{
         raw: patternText,
         regex: new RegExp(patternText, "i"),
       });
-    } catch {}
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Invalid source banned pattern ${JSON.stringify(patternText)}: ${message}`,
+      );
+    }
   }
 
   return compiled;

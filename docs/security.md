@@ -160,6 +160,10 @@ interface RuntimeSecurityPolicy {
 }
 ```
 
+Custom source-ban entries are compiled as regular expressions during security
+initialization. An invalid expression fails initialization atomically instead
+of being ignored and weakening the active policy.
+
 ## Custom Policy Overrides
 
 You can override individual policy settings while keeping a base profile:
