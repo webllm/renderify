@@ -251,7 +251,9 @@ pnpm version-packages
 pnpm release
 ```
 
-Release automation runs on `main` via GitHub Actions. The release workflow either opens a version PR (if changesets are pending) or publishes to npm with provenance.
+Release automation publishes only from a SemVer tag such as `v0.8.0`. The
+release workflow validates the tag, package metadata, and built entry points
+before publishing to npm with provenance.
 
 ## CI Pipeline
 
