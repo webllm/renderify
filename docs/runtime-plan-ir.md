@@ -113,11 +113,13 @@ Three budget dimensions are enforced at runtime:
 
 | Budget                | Field                     | Description                          |
 | --------------------- | ------------------------- | ------------------------------------ |
-| Import count          | `maxImports`              | Number of module imports allowed     |
+| Import count          | `maxImports`              | Declared imports and distinct remote materializations |
 | Component invocations | `maxComponentInvocations` | Number of component renders          |
 | Wall-clock time       | `maxExecutionMs`          | Total execution time in milliseconds |
 
-When a budget is exceeded, execution stops and a diagnostic error is emitted.
+`maxImports` covers declared imports and remote modules reached transitively
+through component or runtime-source imports during the same execution. When a
+budget is exceeded, execution stops and a diagnostic error is emitted.
 
 ## State Model
 

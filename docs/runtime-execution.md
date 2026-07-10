@@ -243,7 +243,7 @@ The runtime tracks three budget dimensions during execution:
 
 | Budget           | What It Tracks                    | What Happens When Exceeded          |
 | ---------------- | --------------------------------- | ----------------------------------- |
-| Import budget    | Number of module imports resolved | Execution stops, diagnostic emitted |
+| Import budget    | Declared imports and distinct remote materializations | Execution stops, diagnostic emitted |
 | Component budget | Number of component node renders  | Execution stops, diagnostic emitted |
 | Time budget      | Wall-clock execution time         | Execution stops, diagnostic emitted |
 

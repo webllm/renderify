@@ -15,6 +15,7 @@ import {
   executeComponentFactory,
   type RuntimeComponentFactory,
 } from "./runtime-component-runtime";
+import { isRuntimeModuleMaterializationLimitError } from "./runtime-module-materialization-budget";
 import { interpolateTemplate, resolveProps } from "./template";
 
 export interface RuntimeNodeResolutionFrame {
@@ -217,6 +218,13 @@ export async function resolveRuntimeNode(input: {
       [createTextNode("Unsupported component output")],
     );
   } catch (error) {
+    if (isRuntimeModuleMaterializationLimitError(error)) {
+      return createElementNode(
+        "div",
+        { "data-renderify-component-error": node.module },
+        [createTextNode("Component module import limit exceeded")],
+      );
+    }
     diagnostics.push({
       level: "error",
       code: "RUNTIME_COMPONENT_EXEC_FAILED",

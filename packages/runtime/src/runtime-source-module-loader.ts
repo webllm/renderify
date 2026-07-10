@@ -19,6 +19,13 @@ import {
   verifyModuleIntegrity,
 } from "./module-integrity";
 import { isBrowserRuntime, isNodeRuntime } from "./runtime-environment";
+import {
+  assertRuntimeModuleMaterializationBudgetActive,
+  claimRuntimeModuleMaterialization,
+  isRuntimeModuleMaterializationLimitError,
+  type RuntimeModuleMaterializationBudget,
+  setBudgetedMapEntryWithLimit,
+} from "./runtime-module-materialization-budget";
 import { isHttpUrl } from "./runtime-specifier";
 
 export interface RuntimeSourceModuleLoaderOptions {
@@ -45,6 +52,7 @@ export interface RuntimeSourceModuleLoaderOptions {
   isRemoteUrlAllowed?: (url: string) => boolean;
   materializedModuleUrlCacheMaxEntries?: number;
   localNodeSpecifierUrlCacheMaxEntries?: number;
+  materializationBudget?: RuntimeModuleMaterializationBudget;
 }
 
 type NodeModuleResolver = {
@@ -101,6 +109,9 @@ export class RuntimeSourceModuleLoader {
   private readonly isRemoteUrlAllowedFn: (url: string) => boolean;
   private readonly materializedModuleUrlCacheMaxEntries: number;
   private readonly localNodeSpecifierUrlCacheMaxEntries: number;
+  private readonly materializationBudget:
+    | RuntimeModuleMaterializationBudget
+    | undefined;
   private readonly integrityByResolvedUrl: Map<string, string>;
   private readonly localNodeSpecifierUrlCache = new Map<
     string,
@@ -138,6 +149,7 @@ export class RuntimeSourceModuleLoader {
       options.localNodeSpecifierUrlCacheMaxEntries,
       DEFAULT_LOCAL_NODE_SPECIFIER_CACHE_MAX_ENTRIES,
     );
+    this.materializationBudget = options.materializationBudget;
     this.integrityByResolvedUrl = collectIntegrityByResolvedUrl(
       this.moduleManifest,
     );
@@ -272,6 +284,7 @@ export class RuntimeSourceModuleLoader {
     if (
       !expectedIntegrity &&
       isBrowserRuntime() &&
+      !this.materializationBudget &&
       this.shouldPreserveRemoteImport(normalizedUrl)
     ) {
       if (!this.isRemoteImportAllowed(normalizedUrl)) {
@@ -289,6 +302,21 @@ export class RuntimeSourceModuleLoader {
     const cachedUrl = this.materializedModuleUrlCache.get(cacheKey);
     if (cachedUrl) {
       return cachedUrl;
+    }
+
+    try {
+      if (this.materializationBudget) {
+        claimRuntimeModuleMaterialization(
+          this.materializationBudget,
+          cacheKey,
+          normalizedUrl,
+        );
+      }
+    } catch (error) {
+      if (isRuntimeModuleMaterializationLimitError(error)) {
+        this.pushMaterializationLimitDiagnostic(error.message);
+      }
+      throw error;
     }
 
     const releaseDependency = parentMaterializationKey
@@ -312,12 +340,17 @@ export class RuntimeSourceModuleLoader {
           cacheKey,
         );
 
+        assertRuntimeModuleMaterializationBudgetActive(
+          this.materializationBudget,
+        );
+
         const inlineUrl = this.createInlineModuleUrlFn(rewritten);
-        setMapEntryWithLimit(
+        setBudgetedMapEntryWithLimit(
           this.materializedModuleUrlCache,
           cacheKey,
           inlineUrl,
           this.materializedModuleUrlCacheMaxEntries,
+          this.materializationBudget,
         );
         const fetchedIntegrity =
           this.resolveExpectedIntegrity(
@@ -326,11 +359,12 @@ export class RuntimeSourceModuleLoader {
             fetched.requestUrl,
             fetched.url,
           ) ?? expectedIntegrity;
-        setMapEntryWithLimit(
+        setBudgetedMapEntryWithLimit(
           this.materializedModuleUrlCache,
           this.createMaterializedCacheKey(fetched.url, fetchedIntegrity),
           inlineUrl,
           this.materializedModuleUrlCacheMaxEntries,
+          this.materializationBudget,
         );
         return inlineUrl;
       })();
@@ -585,6 +619,22 @@ export class RuntimeSourceModuleLoader {
     }
 
     return String(error);
+  }
+
+  private pushMaterializationLimitDiagnostic(message: string): void {
+    if (
+      this.diagnostics.some(
+        (item) => item.code === "RUNTIME_MODULE_MATERIALIZATION_LIMIT_EXCEEDED",
+      )
+    ) {
+      return;
+    }
+
+    this.diagnostics.push({
+      level: "error",
+      code: "RUNTIME_MODULE_MATERIALIZATION_LIMIT_EXCEEDED",
+      message,
+    });
   }
 
   private createAbortController(): AbortController | undefined {

@@ -4,6 +4,7 @@ import {
   type RuntimeModuleManifest,
   type RuntimePlan,
 } from "@renderify/ir";
+import { isRuntimeModuleMaterializationLimitError } from "./runtime-module-materialization-budget";
 
 export type RuntimeDependencyUsage = "import" | "component" | "source-import";
 
@@ -328,6 +329,15 @@ export async function executeDependencyProbe(
           message: "Dependency preflight aborted",
         };
       }
+      if (isRuntimeModuleMaterializationLimitError(error)) {
+        return {
+          usage: probe.usage,
+          specifier: probe.specifier,
+          resolvedSpecifier: resolved,
+          ok: false,
+          message: executor.errorToMessage(error),
+        };
+      }
       diagnostics.push({
         level: "error",
         code: "RUNTIME_PREFLIGHT_SOURCE_IMPORT_FAILED",
@@ -411,6 +421,15 @@ export async function executeDependencyProbe(
         resolvedSpecifier: resolved,
         ok: false,
         message: "Dependency preflight aborted",
+      };
+    }
+    if (isRuntimeModuleMaterializationLimitError(error)) {
+      return {
+        usage: probe.usage,
+        specifier: probe.specifier,
+        resolvedSpecifier: resolved,
+        ok: false,
+        message: executor.errorToMessage(error),
       };
     }
     diagnostics.push({

@@ -1305,6 +1305,158 @@ test("runtime enforces maxImports capability", async () => {
   await runtime.terminate();
 });
 
+test("runtime applies maxImports to deep transitive JSPM module graphs", async () => {
+  const moduleLoader = new JspmModuleLoader({
+    remoteFetchRetries: 0,
+    remoteFetchBackoffMs: 0,
+  });
+  const runtime = new DefaultRuntimeManager({
+    enableDependencyPreflight: false,
+    moduleLoader,
+  });
+  await runtime.initialize();
+
+  const entryUrl = "https://cdn.example.com/deep-entry.mjs";
+  const dependencyUrl = "https://cdn.example.com/deep-dependency.mjs";
+  const blockedUrl = "https://cdn.example.com/deep-blocked.mjs";
+  const requestedUrls: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    requestedUrls.push(url);
+    const body =
+      url === entryUrl
+        ? 'import "./deep-dependency.mjs"; export default 1;'
+        : url === dependencyUrl
+          ? 'import "./deep-blocked.mjs"; export default 2;'
+          : "export default 3;";
+    return new Response(body, {
+      status: 200,
+      headers: { "content-type": "text/javascript; charset=utf-8" },
+    });
+  }) as typeof fetch;
+
+  try {
+    const plan: RuntimePlan = {
+      specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+      id: "runtime_transitive_jspm_import_budget_plan",
+      version: 1,
+      root: createTextNode("fallback"),
+      imports: [entryUrl],
+      moduleManifest: {
+        [entryUrl]: { resolvedUrl: entryUrl, signer: "tests" },
+      },
+      capabilities: {
+        domWrite: true,
+        maxImports: 2,
+      },
+    };
+
+    const result = await runtime.executePlan(plan);
+    const limitDiagnostics = result.diagnostics.filter(
+      (item) => item.code === "RUNTIME_MODULE_MATERIALIZATION_LIMIT_EXCEEDED",
+    );
+
+    assert.equal(limitDiagnostics.length, 1);
+    assert.match(limitDiagnostics[0]?.message ?? "", /maxImports=2/);
+    assert.match(limitDiagnostics[0]?.message ?? "", /deep-blocked\.mjs/);
+    assert.equal(
+      result.diagnostics.some((item) => item.code === "RUNTIME_IMPORT_FAILED"),
+      false,
+    );
+    assert.deepEqual(requestedUrls, [entryUrl, dependencyUrl]);
+    assert.equal(requestedUrls.includes(blockedUrl), false);
+
+    const internals = moduleLoader as unknown as {
+      cache: Map<string, unknown>;
+      inflight: Map<string, Promise<unknown>>;
+      remoteMaterializedUrlCache: Map<string, string>;
+      remoteMaterializedInflight: Map<string, Promise<string>>;
+    };
+    assert.equal(internals.cache.size, 0);
+    assert.equal(internals.inflight.size, 0);
+    assert.equal(internals.remoteMaterializedUrlCache.size, 0);
+    assert.equal(internals.remoteMaterializedInflight.size, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await runtime.terminate();
+  }
+});
+
+test("runtime rolls back a broad source module graph when maxImports is exceeded", async () => {
+  const runtime = new DefaultRuntimeManager({
+    allowRuntimeSourceExecution: true,
+    enableDependencyPreflight: false,
+    remoteFallbackCdnBases: [],
+    remoteFetchRetries: 0,
+    sourceTranspiler: new PassthroughSourceTranspiler(),
+  });
+  await runtime.initialize();
+
+  const entryUrl = "https://cdn.example.com/broad-entry.mjs";
+  const firstUrl = "https://cdn.example.com/broad-first.mjs";
+  const blockedUrl = "https://cdn.example.com/broad-blocked.mjs";
+  const requestedUrls: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    requestedUrls.push(url);
+    const body =
+      url === entryUrl
+        ? 'import "./broad-first.mjs"; import "./broad-blocked.mjs"; export default 1;'
+        : "export default 2;";
+    return new Response(body, {
+      status: 200,
+      headers: { "content-type": "text/javascript; charset=utf-8" },
+    });
+  }) as typeof fetch;
+
+  try {
+    const plan: RuntimePlan = {
+      specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+      id: "runtime_broad_source_import_budget_plan",
+      version: 1,
+      root: createTextNode("fallback"),
+      capabilities: {
+        domWrite: true,
+        maxImports: 2,
+      },
+      source: {
+        language: "js",
+        code: `import "${entryUrl}"; export default { type: "text", value: "unexpected" };`,
+      },
+    };
+
+    const result = await runtime.executePlan(plan);
+    const limitDiagnostics = result.diagnostics.filter(
+      (item) => item.code === "RUNTIME_MODULE_MATERIALIZATION_LIMIT_EXCEEDED",
+    );
+
+    assert.equal(limitDiagnostics.length, 1);
+    assert.match(limitDiagnostics[0]?.message ?? "", /maxImports=2/);
+    assert.match(limitDiagnostics[0]?.message ?? "", /broad-blocked\.mjs/);
+    assert.equal(
+      result.diagnostics.some(
+        (item) => item.code === "RUNTIME_SOURCE_EXEC_FAILED",
+      ),
+      false,
+    );
+    assert.deepEqual(requestedUrls, [entryUrl, firstUrl]);
+    assert.equal(requestedUrls.includes(blockedUrl), false);
+    assert.deepEqual(result.root, createTextNode("fallback"));
+
+    const internals = runtime as unknown as {
+      browserModuleUrlCache: Map<string, string>;
+      browserModuleInflight: Map<string, Promise<string>>;
+    };
+    assert.equal(internals.browserModuleUrlCache.size, 0);
+    assert.equal(internals.browserModuleInflight.size, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await runtime.terminate();
+  }
+});
+
 test("runtime isolated-vm profile fails closed before loading modules by default", async () => {
   let loadCalls = 0;
   const runtime = new DefaultRuntimeManager({

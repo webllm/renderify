@@ -1,4 +1,5 @@
 import type { RuntimeDiagnostic, RuntimeModuleManifest } from "@renderify/ir";
+import { isRuntimeModuleMaterializationLimitError } from "./runtime-module-materialization-budget";
 
 export interface RuntimePlanImportResolutionInput {
   imports: string[];
@@ -99,6 +100,9 @@ export async function resolveRuntimePlanImports(
           code: "RUNTIME_ABORTED",
           message: `Execution aborted during import: ${resolvedSpecifier}`,
         });
+        break;
+      }
+      if (isRuntimeModuleMaterializationLimitError(error)) {
         break;
       }
       diagnostics.push({

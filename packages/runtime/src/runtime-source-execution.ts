@@ -11,6 +11,7 @@ import type {
   RuntimeSourceModule,
   RuntimeStateSnapshot,
 } from "@renderify/ir";
+import { isRuntimeModuleMaterializationLimitError } from "./runtime-module-materialization-budget";
 import { selectExportFromNamespace } from "./runtime-node-resolver";
 import type { RuntimeSourceSandboxMode } from "./runtime-source-runtime";
 import {
@@ -242,6 +243,9 @@ export async function executeRuntimeSourceRoot(
   } catch (error) {
     if (input.isAbortError(error)) {
       throw error;
+    }
+    if (isRuntimeModuleMaterializationLimitError(error)) {
+      return undefined;
     }
     diagnostics.push({
       level: "error",

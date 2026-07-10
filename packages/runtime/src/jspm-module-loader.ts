@@ -8,6 +8,11 @@ import type {
   RuntimeModuleLoader,
   RuntimeModuleNetworkPolicy,
 } from "./runtime-manager.types";
+import {
+  type RuntimeModuleLoadOptions,
+  registerBudgetAwareRuntimeModuleLoader,
+  setBudgetedMapEntryWithLimit,
+} from "./runtime-module-materialization-budget";
 import { RuntimeSourceModuleLoader } from "./runtime-source-module-loader";
 import { rewriteImportsAsync } from "./runtime-source-utils";
 
@@ -132,9 +137,22 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
       options.remoteMaterializedUrlCacheMaxEntries,
       DEFAULT_REMOTE_MATERIALIZED_URL_CACHE_MAX_ENTRIES,
     );
+    registerBudgetAwareRuntimeModuleLoader(this, {
+      load: (specifier, loadOptions) =>
+        this.loadWithOptions(specifier, loadOptions),
+      loadVerified: (specifier, integrity, loadOptions) =>
+        this.loadVerifiedWithOptions(specifier, integrity, loadOptions),
+    });
   }
 
   async load(specifier: string): Promise<unknown> {
+    return this.loadWithOptions(specifier, {});
+  }
+
+  private async loadWithOptions(
+    specifier: string,
+    options: RuntimeModuleLoadOptions,
+  ): Promise<unknown> {
     const resolved = this.resolveSpecifier(specifier);
     this.assertRemoteUrlAllowed(resolved);
 
@@ -151,8 +169,14 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
     }
 
     const loading = (async () => {
-      const loaded = await this.importWithBestEffort(resolved);
-      setMapEntryWithLimit(cache, resolved, loaded, this.moduleCacheMaxEntries);
+      const loaded = await this.importWithBestEffort(resolved, options);
+      setBudgetedMapEntryWithLimit(
+        cache,
+        resolved,
+        loaded,
+        this.moduleCacheMaxEntries,
+        options.materializationBudget,
+      );
       return loaded;
     })();
 
@@ -165,6 +189,14 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
   }
 
   async loadVerified(specifier: string, integrity: string): Promise<unknown> {
+    return this.loadVerifiedWithOptions(specifier, integrity, {});
+  }
+
+  private async loadVerifiedWithOptions(
+    specifier: string,
+    integrity: string,
+    options: RuntimeModuleLoadOptions,
+  ): Promise<unknown> {
     const resolved = this.resolveSpecifier(specifier);
     if (!this.isUrl(resolved)) {
       throw new Error(
@@ -197,18 +229,23 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
           integrity: normalizedIntegrity,
         },
       };
-      const diagnostics: RuntimeDiagnostic[] = [];
-      const loader = this.createRemoteSourceModuleLoader(manifest, diagnostics);
+      const diagnostics = options.diagnostics ?? [];
+      const loader = this.createRemoteSourceModuleLoader(
+        manifest,
+        diagnostics,
+        options,
+      );
       const materializedUrl = await loader.resolveRuntimeImportSpecifier(
         resolved,
         undefined,
       );
       const loaded = await import(/* webpackIgnore: true */ materializedUrl);
-      setMapEntryWithLimit(
+      setBudgetedMapEntryWithLimit(
         verifiedCache,
         cacheKey,
         loaded,
         this.moduleCacheMaxEntries,
+        options.materializationBudget,
       );
       return loaded;
     })();
@@ -292,13 +329,22 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
     throw new Error(`Unsupported JSPM specifier: ${normalized}`);
   }
 
-  private async importWithBestEffort(resolved: string): Promise<unknown> {
-    if (this.isUrl(resolved) && !this.allowArbitraryNetwork) {
-      const rewrittenSpecifier =
-        await this.getRemoteSourceModuleLoader().resolveRuntimeImportSpecifier(
-          resolved,
-          undefined,
-        );
+  private async importWithBestEffort(
+    resolved: string,
+    options: RuntimeModuleLoadOptions,
+  ): Promise<unknown> {
+    if (
+      this.isUrl(resolved) &&
+      (!this.allowArbitraryNetwork || options.materializationBudget)
+    ) {
+      const rewrittenSpecifier = await (options.materializationBudget
+        ? this.createRemoteSourceModuleLoader(
+            undefined,
+            options.diagnostics ?? this.remoteMaterializationDiagnostics,
+            options,
+          )
+        : this.getRemoteSourceModuleLoader()
+      ).resolveRuntimeImportSpecifier(resolved, undefined);
       return import(/* webpackIgnore: true */ rewrittenSpecifier);
     }
 
@@ -431,6 +477,7 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
   private createRemoteSourceModuleLoader(
     moduleManifest: RuntimeModuleManifest | undefined,
     diagnostics: RuntimeDiagnostic[],
+    options: RuntimeModuleLoadOptions = {},
   ): RuntimeSourceModuleLoader {
     return new RuntimeSourceModuleLoader({
       moduleManifest,
@@ -443,6 +490,7 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
       remoteFetchBackoffMs: this.remoteFetchBackoffMs,
       materializedModuleUrlCacheMaxEntries:
         this.remoteMaterializedUrlCacheMaxEntries,
+      materializationBudget: options.materializationBudget,
       canMaterializeRuntimeModules: () => this.canMaterializeRemoteModules(),
       rewriteImportsAsync: (code, resolver) =>
         rewriteImportsAsync(code, resolver),
@@ -524,24 +572,4 @@ function normalizeNonNegativeInteger(
   }
 
   return value;
-}
-
-function setMapEntryWithLimit<Key, Value>(
-  map: Map<Key, Value>,
-  key: Key,
-  value: Value,
-  maxEntries: number,
-): void {
-  if (map.has(key)) {
-    map.delete(key);
-  }
-
-  map.set(key, value);
-  while (map.size > maxEntries) {
-    const oldestKey = map.keys().next().value;
-    if (oldestKey === undefined) {
-      break;
-    }
-    map.delete(oldestKey);
-  }
 }

@@ -73,6 +73,12 @@ import type {
   RuntimeSourceSandboxMode,
   RuntimeSourceTranspiler,
 } from "./runtime-manager.types";
+import {
+  createRuntimeModuleMaterializationBudget,
+  loadRuntimeModuleWithBudget,
+  loadVerifiedRuntimeModuleWithBudget,
+  type RuntimeModuleMaterializationBudget,
+} from "./runtime-module-materialization-budget";
 import { resolveRuntimeNode } from "./runtime-node-resolver";
 import { resolveRuntimePlanImports } from "./runtime-plan-imports";
 import { preflightRuntimePlanDependencies } from "./runtime-plan-preflight";
@@ -107,6 +113,7 @@ interface ExecutionFrame {
   maxComponentInvocations: number;
   componentInvocations: number;
   executionProfile: RuntimeExecutionProfile;
+  materializationBudget: RuntimeModuleMaterializationBudget;
   signal?: AbortSignal;
 }
 
@@ -425,6 +432,9 @@ export class DefaultRuntimeManager implements RuntimeManager {
         this.defaultMaxComponentInvocations,
       componentInvocations: 0,
       executionProfile,
+      materializationBudget: createRuntimeModuleMaterializationBudget(
+        capabilities.maxImports ?? this.defaultMaxImports,
+      ),
     };
 
     const dependencies = await this.preflightPlanDependencies(
@@ -510,6 +520,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
       diagnostics,
     });
 
+    const maxImports = capabilities.maxImports ?? this.defaultMaxImports;
     const frame: ExecutionFrame = {
       startedAt: nowMs(),
       maxExecutionMs: capabilities.maxExecutionMs ?? this.defaultMaxExecutionMs,
@@ -518,10 +529,11 @@ export class DefaultRuntimeManager implements RuntimeManager {
         this.defaultMaxComponentInvocations,
       componentInvocations: 0,
       executionProfile,
+      materializationBudget:
+        createRuntimeModuleMaterializationBudget(maxImports),
       signal,
     };
 
-    const maxImports = capabilities.maxImports ?? this.defaultMaxImports;
     const imports = plan.imports ?? [];
 
     if (this.enableDependencyPreflight) {
@@ -558,6 +570,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
       moduleLoader: this.createIntegrityAwareModuleLoader(
         plan.moduleManifest,
         diagnostics,
+        frame.materializationBudget,
       ),
       resolveRuntimeSpecifier: (
         specifier,
@@ -856,6 +869,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
       moduleLoader: this.createIntegrityAwareModuleLoader(
         plan.moduleManifest,
         diagnostics,
+        frame.materializationBudget,
       ),
       withRemainingBudget: (operation, timeoutMessage) =>
         withRuntimeRemainingBudget(operation, frame, timeoutMessage),
@@ -891,6 +905,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
         this.createSourceModuleLoader(
           manifest,
           runtimeDiagnostics,
+          frame.materializationBudget,
         ).materializeRemoteModule(url),
       fetchRemoteModuleCodeWithFallback: (url, runtimeDiagnostics) =>
         this.createSourceModuleLoader(
@@ -953,6 +968,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
         this.createSourceModuleLoader(
           manifest,
           runtimeDiagnostics,
+          frame.materializationBudget,
         ).importSourceModuleFromCode(code),
       normalizeSourceOutput: (output) => this.normalizeSourceOutput(output),
       shouldUsePreactSourceRuntime,
@@ -1019,6 +1035,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
   private createSourceModuleLoader(
     moduleManifest: RuntimeModuleManifest | undefined,
     diagnostics: RuntimeDiagnostic[],
+    materializationBudget?: RuntimeModuleMaterializationBudget,
   ): RuntimeSourceModuleLoader {
     return new RuntimeSourceModuleLoader({
       moduleManifest,
@@ -1033,6 +1050,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
         this.browserModuleUrlCacheMaxEntries,
       localNodeSpecifierUrlCacheMaxEntries:
         this.runtimeSourceLocalSpecifierCacheMaxEntries,
+      materializationBudget,
       canMaterializeRuntimeModules: () =>
         canMaterializeBrowserModules() || typeof Buffer !== "undefined",
       rewriteImportsAsync: (code, resolver) =>
@@ -1186,6 +1204,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
         moduleLoader: this.createIntegrityAwareModuleLoader(
           moduleManifest,
           diagnostics,
+          frame.materializationBudget,
         ),
         isResolvedSpecifierAllowed: (specifier, runtimeDiagnostics) =>
           this.isResolvedSpecifierAllowed(
@@ -1225,6 +1244,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
   private createIntegrityAwareModuleLoader(
     moduleManifest: RuntimeModuleManifest | undefined,
     diagnostics: RuntimeDiagnostic[],
+    materializationBudget?: RuntimeModuleMaterializationBudget,
   ): RuntimeModuleLoader | undefined {
     const moduleLoader = this.moduleLoader;
     if (!moduleLoader) {
@@ -1244,7 +1264,10 @@ export class DefaultRuntimeManager implements RuntimeManager {
         }
 
         if (expectedIntegrities.size === 0 || !this.isHttpUrl(specifier)) {
-          return moduleLoader.load(specifier);
+          return loadRuntimeModuleWithBudget(moduleLoader, specifier, {
+            materializationBudget,
+            diagnostics,
+          });
         }
 
         if (expectedIntegrities.size > 1) {
@@ -1259,7 +1282,10 @@ export class DefaultRuntimeManager implements RuntimeManager {
 
         const expectedIntegrity = expectedIntegrities.values().next().value;
         if (!expectedIntegrity) {
-          return moduleLoader.load(specifier);
+          return loadRuntimeModuleWithBudget(moduleLoader, specifier, {
+            materializationBudget,
+            diagnostics,
+          });
         }
 
         if (!moduleLoader.loadVerified) {
@@ -1273,10 +1299,14 @@ export class DefaultRuntimeManager implements RuntimeManager {
         }
 
         try {
-          return await moduleLoader.loadVerified.call(
+          return await loadVerifiedRuntimeModuleWithBudget(
             moduleLoader,
             specifier,
             expectedIntegrity,
+            {
+              materializationBudget,
+              diagnostics,
+            },
           );
         } catch (error) {
           if (isRuntimeModuleIntegrityError(error)) {
