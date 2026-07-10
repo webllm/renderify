@@ -124,46 +124,51 @@ export class RenderifyApp {
   private readonly deps: RenderifyCoreDependencies;
   private readonly listeners = new Map<string, Set<EventCallback>>();
   private running = false;
+  private lifecycleTail: Promise<void> = Promise.resolve();
 
   constructor(deps: RenderifyCoreDependencies) {
     this.deps = deps;
   }
 
   public async start(): Promise<void> {
-    if (this.running) {
-      return;
-    }
+    return this.enqueueLifecycle(async () => {
+      if (this.running) {
+        return;
+      }
 
-    await this.deps.config.load(this.deps.configLoadOverrides);
-    this.deps.llm.configure(this.deps.config.snapshot());
-    await this.deps.context.initialize();
+      await this.deps.config.load(this.deps.configLoadOverrides);
+      this.deps.llm.configure(this.deps.config.snapshot());
+      await this.deps.context.initialize();
 
-    const policyOverrides =
-      this.deps.config.get<Partial<RuntimeSecurityPolicy>>("securityPolicy");
-    const securityProfile =
-      this.deps.config.get<RuntimeSecurityProfile>("securityProfile");
-    this.deps.security.initialize({
-      profile: securityProfile,
-      overrides: policyOverrides,
+      const policyOverrides =
+        this.deps.config.get<Partial<RuntimeSecurityPolicy>>("securityPolicy");
+      const securityProfile =
+        this.deps.config.get<RuntimeSecurityProfile>("securityProfile");
+      this.deps.security.initialize({
+        profile: securityProfile,
+        overrides: policyOverrides,
+      });
+      this.deps.runtime.configure?.(
+        this.resolveRuntimeConfigureOptions(this.deps.security.getPolicy()),
+      );
+
+      await this.deps.runtime.initialize();
+
+      this.running = true;
+      this.emit("started");
     });
-    this.deps.runtime.configure?.(
-      this.resolveRuntimeConfigureOptions(this.deps.security.getPolicy()),
-    );
-
-    await this.deps.runtime.initialize();
-
-    this.running = true;
-    this.emit("started");
   }
 
   public async stop(): Promise<void> {
-    if (!this.running) {
-      return;
-    }
+    return this.enqueueLifecycle(async () => {
+      if (!this.running) {
+        return;
+      }
 
-    await this.deps.runtime.terminate();
-    this.running = false;
-    this.emit("stopped");
+      await this.deps.runtime.terminate();
+      this.running = false;
+      this.emit("stopped");
+    });
   }
 
   public async renderPrompt(
@@ -999,6 +1004,12 @@ export class RenderifyApp {
     if (!this.running) {
       throw new Error("RenderifyApp is not started");
     }
+  }
+
+  private enqueueLifecycle(operation: () => Promise<void>): Promise<void> {
+    const result = this.lifecycleTail.then(operation, operation);
+    this.lifecycleTail = result.catch(() => undefined);
+    return result;
   }
 
   private async runHook<Payload>(

@@ -380,6 +380,50 @@ class CleanupTrackingLLM implements LLMInterpreter {
   }
 }
 
+function createDeferred(): {
+  promise: Promise<void>;
+  resolve(): void;
+} {
+  let resolvePromise: (() => void) | undefined;
+  const promise = new Promise<void>((resolve) => {
+    resolvePromise = resolve;
+  });
+  return {
+    promise,
+    resolve() {
+      resolvePromise?.();
+    },
+  };
+}
+
+class GatedLifecycleRuntime extends DefaultRuntimeManager {
+  initializeCalls = 0;
+  terminateCalls = 0;
+  readonly initializeStarted = createDeferred();
+  readonly terminateStarted = createDeferred();
+
+  constructor(
+    private readonly initializeGate: Promise<void>,
+    private readonly terminateGate: Promise<void>,
+  ) {
+    super();
+  }
+
+  override async initialize(): Promise<void> {
+    this.initializeCalls += 1;
+    this.initializeStarted.resolve();
+    await this.initializeGate;
+    await super.initialize();
+  }
+
+  override async terminate(): Promise<void> {
+    this.terminateCalls += 1;
+    this.terminateStarted.resolve();
+    await this.terminateGate;
+    await super.terminate();
+  }
+}
+
 class CountingIncrementalCodeGenerator extends DefaultCodeGenerator {
   public generatePlanCalls = 0;
   public pushDeltaCalls = 0;
@@ -429,6 +473,76 @@ function createDependencies(
     ...overrides,
   };
 }
+
+test("core serializes concurrent lifecycle calls", async () => {
+  const initializeGate = createDeferred();
+  const terminateGate = createDeferred();
+  const runtime = new GatedLifecycleRuntime(
+    initializeGate.promise,
+    terminateGate.promise,
+  );
+  const app = createRenderifyApp(createDependencies({ runtime }));
+  let startedEvents = 0;
+  let stoppedEvents = 0;
+  app.on("started", () => {
+    startedEvents += 1;
+  });
+  app.on("stopped", () => {
+    stoppedEvents += 1;
+  });
+
+  const firstStart = app.start();
+  const secondStart = app.start();
+  await runtime.initializeStarted.promise;
+  assert.equal(runtime.initializeCalls, 1);
+
+  initializeGate.resolve();
+  await Promise.all([firstStart, secondStart]);
+  assert.equal(runtime.initializeCalls, 1);
+  assert.equal(startedEvents, 1);
+
+  const firstStop = app.stop();
+  const secondStop = app.stop();
+  await runtime.terminateStarted.promise;
+  assert.equal(runtime.terminateCalls, 1);
+
+  terminateGate.resolve();
+  await Promise.all([firstStop, secondStop]);
+  assert.equal(runtime.terminateCalls, 1);
+  assert.equal(stoppedEvents, 1);
+});
+
+test("core queues stop requested while start is in progress", async () => {
+  const initializeGate = createDeferred();
+  const terminateGate = createDeferred();
+  const runtime = new GatedLifecycleRuntime(
+    initializeGate.promise,
+    terminateGate.promise,
+  );
+  const app = createRenderifyApp(createDependencies({ runtime }));
+
+  const starting = app.start();
+  await runtime.initializeStarted.promise;
+  const stopping = app.stop();
+
+  initializeGate.resolve();
+  await runtime.terminateStarted.promise;
+  terminateGate.resolve();
+  await Promise.all([starting, stopping]);
+
+  assert.equal(runtime.initializeCalls, 1);
+  assert.equal(runtime.terminateCalls, 1);
+  await assert.rejects(
+    () =>
+      app.renderPlan({
+        specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+        id: "lifecycle_stopped_plan",
+        version: 1,
+        root: createTextNode("stopped"),
+      }),
+    /RenderifyApp is not started/,
+  );
+});
 
 test("core keeps the security policy authoritative for runtime source execution", async () => {
   const runtime = new DefaultRuntimeManager({
