@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DefaultCodeGenerator } from "../packages/core/src/codegen";
+import { DefaultRuntimeManager } from "../packages/runtime/src";
 import { DefaultSecurityChecker } from "../packages/security/src";
 
 test("codegen parses RuntimePlan JSON output directly", async () => {
@@ -103,6 +104,63 @@ test("codegen falls back to section root when no JSON payload exists", async () 
   assert.equal(plan.root.tag, "section");
   assert.equal(plan.capabilities?.domWrite, true);
   assert.equal(plan.specVersion, "runtime-plan/v1");
+});
+
+test("codegen assigns unique fallback plan ids and isolates runtime state when the clock does not advance", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const planJson = JSON.stringify({
+    version: 1,
+    root: {
+      type: "element",
+      tag: "p",
+      children: [{ type: "text", value: "Count={{state.count}}" }],
+    },
+    state: {
+      initial: { count: 0 },
+      transitions: {
+        increment: [{ type: "increment", path: "count", by: 1 }],
+      },
+    },
+  });
+  const originalNow = Date.now;
+  let plans: Awaited<ReturnType<DefaultCodeGenerator["generatePlan"]>>[] = [];
+
+  Date.now = () => 1_700_000_000_000;
+  try {
+    plans = await Promise.all(
+      Array.from({ length: 32 }, () =>
+        codegen.generatePlan({
+          prompt: "stateful counter",
+          llmText: planJson,
+        }),
+      ),
+    );
+  } finally {
+    Date.now = originalNow;
+  }
+
+  assert.equal(new Set(plans.map((plan) => plan.id)).size, plans.length);
+  assert.ok(plans.every((plan) => plan.id.startsWith("plan_")));
+
+  const [firstPlan, secondPlan] = plans;
+  assert.ok(firstPlan);
+  assert.ok(secondPlan);
+
+  const runtime = new DefaultRuntimeManager();
+  await runtime.initialize();
+  try {
+    const firstResult = await runtime.executePlan(firstPlan, undefined, {
+      type: "increment",
+    });
+    const secondResult = await runtime.executePlan(secondPlan);
+
+    assert.equal(firstResult.state?.count, 1);
+    assert.equal(secondResult.state?.count, 0);
+    assert.equal(runtime.getPlanState(firstPlan.id)?.count, 1);
+    assert.equal(runtime.getPlanState(secondPlan.id)?.count, 0);
+  } finally {
+    await runtime.terminate();
+  }
 });
 
 test("codegen extracts tsx source module from fenced output", async () => {

@@ -38,6 +38,42 @@ const SYNTHETIC_SOURCE_MODULE_SPECIFIER_ALIASES = new Set([
 const SHADCN_ALIAS_IMPORT_PREFIX = "https://esm.sh/@/components/ui/";
 const MUI_MATERIAL_BARE_SPECIFIER = "@mui/material";
 const MUI_ICONS_BARE_PREFIX = "@mui/icons-material";
+let generatedPlanIdSequence = 0;
+
+function createPlanIdEntropy(): string {
+  const cryptoApi = globalThis.crypto;
+
+  if (typeof cryptoApi?.randomUUID === "function") {
+    try {
+      return cryptoApi.randomUUID().replaceAll("-", "");
+    } catch {
+      // Continue to the broadly supported getRandomValues fallback.
+    }
+  }
+
+  if (typeof cryptoApi?.getRandomValues === "function") {
+    try {
+      const values = cryptoApi.getRandomValues(new Uint32Array(4));
+      return [...values]
+        .map((value) => value.toString(36).padStart(7, "0"))
+        .join("");
+    } catch {
+      // Some embedded runtimes expose crypto without a usable entropy source.
+    }
+  }
+
+  return `${Math.random().toString(36).slice(2)}${Math.random()
+    .toString(36)
+    .slice(2)}`;
+}
+
+function createGeneratedPlanId(): string {
+  generatedPlanIdSequence += 1;
+  const timestamp = Date.now().toString(36);
+  const sequence = generatedPlanIdSequence.toString(36);
+  return `plan_${timestamp}_${sequence}_${createPlanIdEntropy()}`;
+}
+
 const JSX_INTRINSIC_TAG_NAMES = [
   "a",
   "article",
@@ -757,7 +793,7 @@ export class DefaultCodeGenerator implements CodeGenerator {
       return id.trim();
     }
 
-    return `plan_${Date.now().toString(36)}`;
+    return createGeneratedPlanId();
   }
 
   private normalizePlanVersion(version?: number): number {
