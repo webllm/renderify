@@ -946,7 +946,7 @@ test("e2e: playground api accepts inline runtime source module specifiers", asyn
   }
 });
 
-test("e2e: playground hash plan64 auto-renders on load", async (t) => {
+test("e2e: playground hash plan64 auto-renders on load", async () => {
   const tempDir = await mkdtemp(
     path.join(os.tmpdir(), "renderify-e2e-playground-hash-plan64-"),
   );
@@ -961,14 +961,7 @@ test("e2e: playground hash plan64 auto-renders on load", async (t) => {
   try {
     await waitForHealth(`${baseUrl}/api/health`, 10000);
 
-    try {
-      browser = await chromium.launch({ headless: true });
-    } catch (error) {
-      t.skip(
-        `playwright chromium is unavailable: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      return;
-    }
+    browser = await chromium.launch({ headless: true });
 
     const page = await browser.newPage();
     const plan = {
@@ -1020,7 +1013,7 @@ test("e2e: playground hash plan64 auto-renders on load", async (t) => {
   }
 });
 
-test("e2e: playground hash source renders server output without browser re-execution", async (t) => {
+test("e2e: playground hash source renders server output without browser re-execution", async () => {
   const tempDir = await mkdtemp(
     path.join(os.tmpdir(), "renderify-e2e-playground-hash-js64-"),
   );
@@ -1036,14 +1029,7 @@ test("e2e: playground hash source renders server output without browser re-execu
   try {
     await waitForHealth(`${baseUrl}/api/health`, 10000);
 
-    try {
-      browser = await chromium.launch({ headless: true });
-    } catch (error) {
-      t.skip(
-        `playwright chromium is unavailable: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      return;
-    }
+    browser = await chromium.launch({ headless: true });
 
     const page = await browser.newPage();
     await page.addInitScript(() => {
@@ -1126,7 +1112,7 @@ test("e2e: playground hash source renders server output without browser re-execu
   }
 });
 
-test("e2e: framework adapters mount, update, unmount and fallback in browser", async (t) => {
+test("e2e: framework adapters mount, update, unmount and fallback in browser", async () => {
   const e2eTempRoot = path.join(REPO_ROOT, ".tmp");
   await mkdir(e2eTempRoot, { recursive: true });
   const tempDir = await mkdtemp(
@@ -1171,14 +1157,7 @@ test("e2e: framework adapters mount, update, unmount and fallback in browser", a
       harnessBundle,
     });
 
-    try {
-      browser = await chromium.launch({ headless: true });
-    } catch (error) {
-      t.skip(
-        `playwright chromium is unavailable: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      return;
-    }
+    browser = await chromium.launch({ headless: true });
 
     const page = await browser.newPage();
     await page.goto(baseUrl, {
@@ -1260,7 +1239,7 @@ test("e2e: framework adapters mount, update, unmount and fallback in browser", a
   }
 });
 
-test("e2e: renderPlanInBrowser covers auto-pin-latest and manifest-only modes", async (t) => {
+test("e2e: renderPlanInBrowser covers auto-pin-latest and manifest-only modes", async () => {
   const e2eTempRoot = path.join(REPO_ROOT, ".tmp");
   await mkdir(e2eTempRoot, { recursive: true });
   const tempDir = await mkdtemp(
@@ -1305,14 +1284,7 @@ test("e2e: renderPlanInBrowser covers auto-pin-latest and manifest-only modes", 
       harnessBundle,
     });
 
-    try {
-      browser = await chromium.launch({ headless: true });
-    } catch (error) {
-      t.skip(
-        `playwright chromium is unavailable: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      return;
-    }
+    browser = await chromium.launch({ headless: true });
 
     const page = await browser.newPage();
     await page.goto(baseUrl, {
