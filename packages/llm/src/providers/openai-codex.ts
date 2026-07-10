@@ -65,17 +65,25 @@ interface OpenAICodexResponsesPayload {
   output?: OpenAICodexOutputItem[];
   usage?: OpenAICodexUsagePayload;
   error?: {
+    code?: string;
     message?: string;
+  };
+  incomplete_details?: {
+    reason?: string;
   };
 }
 
 interface OpenAICodexResponsesStreamPayload {
   type?: string;
+  code?: string;
+  message?: string;
+  param?: string | null;
   delta?: string;
   text?: string;
   item?: OpenAICodexOutputItem;
   response?: OpenAICodexResponsesPayload;
   error?: {
+    code?: string;
     message?: string;
   };
 }
@@ -362,11 +370,9 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
           );
         }
 
-        if (payload.error?.message) {
-          throw new Error(`OpenAI Codex error: ${payload.error.message}`);
-        }
-
         const eventType = payload.type ?? event.event ?? "";
+        throwIfCodexStreamEventFailed(payload, eventType);
+
         const response = payload.response;
         if (response) {
           if (
@@ -381,6 +387,8 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
             tokensUsed = responseTokens;
           }
         }
+
+        throwIfCodexResponseFailed(response, eventType);
 
         if (eventType === "response.completed") {
           if (response && aggregatedText.length === 0) {
@@ -749,11 +757,10 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
           );
         }
 
-        if (payload.error?.message) {
-          throw new Error(`OpenAI Codex error: ${payload.error.message}`);
-        }
-
         const eventType = payload.type ?? event.event ?? "";
+        throwIfCodexStreamEventFailed(payload, eventType);
+        throwIfCodexResponseFailed(payload.response, eventType);
+
         if (eventType.includes("output_text.delta")) {
           outputText += payload.delta ?? payload.text ?? "";
         }
@@ -817,16 +824,7 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
       };
     }
 
-    if (completed.error?.message) {
-      throw new Error(`OpenAI Codex error: ${completed.error.message}`);
-    }
-
-    if (completed.status === "failed" || completed.status === "cancelled") {
-      throw new Error(
-        completed.error?.message ??
-          `OpenAI Codex response status: ${completed.status}`,
-      );
-    }
+    throwIfCodexResponseFailed(completed, "response.completed");
 
     return completed;
   }
@@ -993,6 +991,109 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
       text,
     };
   }
+}
+
+function throwIfCodexStreamEventFailed(
+  payload: OpenAICodexResponsesStreamPayload,
+  eventType: string,
+): void {
+  const isTopLevelError = eventType === "error";
+  const code =
+    normalizeErrorField(payload.code) ??
+    normalizeErrorField(payload.error?.code);
+  const message =
+    normalizeErrorField(payload.message) ??
+    normalizeErrorField(payload.error?.message);
+
+  if (!isTopLevelError && !code && !message) {
+    return;
+  }
+
+  let errorMessage = "OpenAI Codex stream error";
+  if (code) {
+    errorMessage += ` (${code})`;
+  }
+  if (message) {
+    errorMessage += `: ${message}`;
+  }
+
+  const param = normalizeErrorField(payload.param);
+  if (isTopLevelError && param) {
+    errorMessage += ` [param: ${param}]`;
+  }
+
+  throw new Error(errorMessage);
+}
+
+function throwIfCodexResponseFailed(
+  response: OpenAICodexResponsesPayload | undefined,
+  eventType: string,
+): void {
+  const responseStatus = normalizeErrorField(response?.status)?.toLowerCase();
+  const eventStatus = codexTerminalStatusFromEvent(eventType);
+  const failureStatus = isCodexFailureStatus(responseStatus)
+    ? responseStatus
+    : isCodexFailureStatus(eventStatus)
+      ? eventStatus
+      : undefined;
+  const code = normalizeErrorField(response?.error?.code);
+  const message = normalizeErrorField(response?.error?.message);
+  const reason = normalizeErrorField(response?.incomplete_details?.reason);
+
+  if (!failureStatus && !code && !message && !reason) {
+    return;
+  }
+
+  const status = failureStatus ?? (reason ? "incomplete" : "failed");
+  let errorMessage = `OpenAI Codex response ${status}`;
+  if (code) {
+    errorMessage += ` (${code})`;
+  }
+
+  const details: string[] = [];
+  if (message) {
+    details.push(message);
+  }
+  if (reason && reason !== message) {
+    details.push(message ? `reason: ${reason}` : reason);
+  }
+  if (details.length > 0) {
+    errorMessage += `: ${details.join("; ")}`;
+  }
+
+  throw new Error(errorMessage);
+}
+
+function codexTerminalStatusFromEvent(eventType: string): string | undefined {
+  switch (eventType) {
+    case "response.failed":
+      return "failed";
+    case "response.incomplete":
+      return "incomplete";
+    case "response.cancelled":
+    case "response.canceled":
+      return "cancelled";
+    default:
+      return undefined;
+  }
+}
+
+function isCodexFailureStatus(status: string | undefined): boolean {
+  return (
+    status === "failed" ||
+    status === "incomplete" ||
+    status === "cancelled" ||
+    status === "canceled"
+  );
+}
+
+function normalizeErrorField(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 function resolveTokensUsed(

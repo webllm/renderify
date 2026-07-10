@@ -529,6 +529,87 @@ test("openai codex interpreter streams text response chunks", async () => {
   assert.equal(chunks[2].tokensUsed, 31);
 });
 
+test("openai codex interpreter rejects response.failed with response error details", async () => {
+  const llm = new OpenAICodexLLMInterpreter({
+    accessToken: "codex-test-token",
+    fetchImpl: async () =>
+      sseResponse([
+        "event: response.failed\ndata: " +
+          JSON.stringify({
+            type: "response.failed",
+            response: {
+              id: "resp_codex_failed_1",
+              status: "failed",
+              error: {
+                code: "server_error",
+                message: "The model failed to generate a response.",
+              },
+            },
+          }),
+      ]),
+  });
+
+  await assert.rejects(
+    () => llm.generateResponse({ prompt: "fail this response" }),
+    /OpenAI Codex response failed \(server_error\): The model failed to generate a response\./,
+  );
+});
+
+test("openai codex streaming rejects response.failed instead of emitting done", async () => {
+  const llm = new OpenAICodexLLMInterpreter({
+    accessToken: "codex-test-token",
+    fetchImpl: async () =>
+      sseResponse([
+        "event: response.failed\ndata: " +
+          JSON.stringify({
+            type: "response.failed",
+            response: {
+              id: "resp_codex_stream_failed_1",
+              status: "failed",
+              error: {
+                code: "model_error",
+                message: "Generation stopped unexpectedly.",
+              },
+            },
+          }),
+      ]),
+  });
+
+  let sawDone = false;
+  await assert.rejects(async () => {
+    for await (const chunk of llm.generateResponseStream({
+      prompt: "stream failure",
+    })) {
+      sawDone ||= chunk.done;
+    }
+  }, /OpenAI Codex response failed \(model_error\): Generation stopped unexpectedly\./);
+  assert.equal(sawDone, false);
+});
+
+test("openai codex streaming preserves top-level error event details", async () => {
+  const llm = new OpenAICodexLLMInterpreter({
+    accessToken: "codex-test-token",
+    fetchImpl: async () =>
+      sseResponse([
+        "event: error\ndata: " +
+          JSON.stringify({
+            type: "error",
+            code: "invalid_prompt",
+            message: "Prompt input was rejected.",
+            param: "input",
+          }),
+      ]),
+  });
+
+  await assert.rejects(async () => {
+    for await (const _chunk of llm.generateResponseStream({
+      prompt: "invalid stream prompt",
+    })) {
+      // The error event must terminate the stream without yielding success.
+    }
+  }, /OpenAI Codex stream error \(invalid_prompt\): Prompt input was rejected\. \[param: input\]/);
+});
+
 test("openai codex interpreter validates structured runtime plan response", async () => {
   const requests: Array<Record<string, unknown>> = [];
   const plan = {
@@ -595,6 +676,35 @@ test("openai codex interpreter validates structured runtime plan response", asyn
   assert.equal(
     assertCodexInputText(requests[0].input),
     "build structured runtime plan",
+  );
+});
+
+test("openai codex structured response rejects incomplete terminal state", async () => {
+  const llm = new OpenAICodexLLMInterpreter({
+    accessToken: "codex-test-token",
+    fetchImpl: async () =>
+      sseResponse([
+        "event: response.incomplete\ndata: " +
+          JSON.stringify({
+            type: "response.incomplete",
+            response: {
+              id: "resp_codex_incomplete_1",
+              status: "incomplete",
+              incomplete_details: {
+                reason: "max_output_tokens",
+              },
+            },
+          }),
+      ]),
+  });
+
+  await assert.rejects(
+    () =>
+      llm.generateStructuredResponse({
+        prompt: "build an oversized runtime plan",
+        format: "runtime-plan",
+      }),
+    /OpenAI Codex response incomplete: max_output_tokens/,
   );
 });
 
