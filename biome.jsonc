@@ -1,11 +1,13 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.4.13/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.4.15/schema.json",
   "files": {
     "includes": [
       "**",
       "!**/node_modules",
       "!**/dist",
       "!**/dist-types",
+      "!.artifacts",
+      "!.pnpm-store",
       "!.turbo",
       "!.renderify",
       "!.claude",
