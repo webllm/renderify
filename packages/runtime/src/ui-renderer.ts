@@ -4,6 +4,10 @@ import type {
   RuntimeExecutionResult,
   RuntimeNode,
 } from "@renderify/ir";
+import {
+  inspectRuntimeUrlAttribute,
+  isRuntimeUrlAttribute,
+} from "@renderify/security";
 
 export interface RuntimeEventDispatchRequest {
   planId: string;
@@ -716,16 +720,6 @@ const BLOCKED_ATTRIBUTE_NAMES = new Set([
   "dangerouslysetinnerhtml",
 ]);
 
-const URL_ATTRIBUTE_NAMES = new Set([
-  "href",
-  "src",
-  "xlink:href",
-  "action",
-  "formaction",
-  "poster",
-]);
-
-const SAFE_URL_PROTOCOLS = new Set(["http:", "https:", "mailto:", "tel:"]);
 const UNSAFE_STYLE_PATTERNS = [
   /\bexpression\s*\(/i,
   /\burl\s*\(/i,
@@ -760,42 +754,6 @@ function normalizeTagName(tag: string): string | undefined {
 
 function isSafeAttributeName(attributeName: string): boolean {
   return /^[A-Za-z_:][A-Za-z0-9:._-]*$/.test(attributeName);
-}
-
-function isSafeAttributeUrl(value: string): boolean {
-  const trimmed = value.trim();
-  if (trimmed.length === 0) {
-    return false;
-  }
-
-  if (
-    trimmed.startsWith("#") ||
-    trimmed.startsWith("/") ||
-    trimmed.startsWith("./") ||
-    trimmed.startsWith("../")
-  ) {
-    return true;
-  }
-
-  const lowered = trimmed.toLowerCase();
-  if (
-    lowered.startsWith("javascript:") ||
-    lowered.startsWith("vbscript:") ||
-    lowered.startsWith("data:")
-  ) {
-    return false;
-  }
-
-  if (/^[a-z][a-z0-9+.-]*:/.test(lowered)) {
-    try {
-      const parsed = new URL(trimmed);
-      return SAFE_URL_PROTOCOLS.has(parsed.protocol);
-    } catch {
-      return false;
-    }
-  }
-
-  return true;
 }
 
 function serializeProps(
@@ -843,8 +801,12 @@ function serializeProps(
       continue;
     }
 
-    if (URL_ATTRIBUTE_NAMES.has(normalizedKey)) {
-      if (typeof rawValue !== "string" || !isSafeAttributeUrl(rawValue)) {
+    if (isRuntimeUrlAttribute(normalizedKey)) {
+      if (typeof rawValue !== "string") {
+        continue;
+      }
+      const inspection = inspectRuntimeUrlAttribute(normalizedKey, rawValue);
+      if (!inspection.safe || inspection.remoteUrls.length > 0) {
         continue;
       }
     }
@@ -996,9 +958,12 @@ function sanitizeElementAttributes(element: Element): void {
       continue;
     }
 
-    if (URL_ATTRIBUTE_NAMES.has(normalizedKey) && !isSafeAttributeUrl(value)) {
-      element.removeAttribute(key);
-      continue;
+    if (isRuntimeUrlAttribute(normalizedKey)) {
+      const inspection = inspectRuntimeUrlAttribute(normalizedKey, value);
+      if (!inspection.safe || inspection.remoteUrls.length > 0) {
+        element.removeAttribute(key);
+        continue;
+      }
     }
 
     if (normalizedKey === "style") {

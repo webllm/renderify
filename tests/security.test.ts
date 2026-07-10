@@ -141,6 +141,82 @@ test("security checker normalizes default ports for allowed network hosts", () =
   assert.equal(reverseProtocolMismatchedPortBlocked.safe, false);
 });
 
+test("security checker applies network policy to declarative UI URLs", async () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize({
+    overrides: {
+      allowArbitraryNetwork: false,
+      allowedNetworkHosts: ["assets.example.com"],
+    },
+  });
+
+  const blockedPlan = createPlan("section");
+  blockedPlan.root = createElementNode("img", {
+    src: "https://evil.example.com/collect",
+    srcSet:
+      "https://assets.example.com/image.png 1x, //evil.example.com/image.png 2x",
+    filter: "url(https://evil.example.com/filter.svg#blur)",
+  });
+  const blocked = await checker.checkPlan(blockedPlan);
+
+  assert.equal(blocked.safe, false);
+  assert.ok(
+    blocked.issues.some((issue) =>
+      issue.includes("Network host is not in allowlist for <img> src"),
+    ),
+  );
+  assert.ok(
+    blocked.issues.some((issue) =>
+      issue.includes("Network host is not in allowlist for <img> srcSet"),
+    ),
+  );
+  assert.ok(
+    blocked.issues.some((issue) =>
+      issue.includes("Network host is not in allowlist for <img> filter"),
+    ),
+  );
+
+  const allowedPlan = createPlan("section");
+  allowedPlan.root = createElementNode("section", undefined, [
+    createElementNode("img", {
+      src: "https://assets.example.com/image.png",
+      srcSet: "/image.png 1x, ../image@2x.png 2x",
+    }),
+    createElementNode("a", { href: "mailto:support@example.com" }, [
+      createTextNode("Support"),
+    ]),
+  ]);
+  const allowed = await checker.checkPlan(allowedPlan);
+
+  assert.equal(allowed.safe, true, allowed.issues.join("; "));
+});
+
+test("security checker rejects dangerous UI URL protocols in relaxed mode", async () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize({ profile: "relaxed" });
+  const plan = createPlan("section");
+  plan.root = createElementNode("section", undefined, [
+    createElementNode("img", {
+      src: "data:image/svg+xml,<svg onload=alert(1)>",
+    }),
+    createElementNode("a", { href: "java\nscript:alert(1)" }, [
+      createTextNode("unsafe"),
+    ]),
+    createElementNode("svg", {
+      fill: "u\\72l(data:image/svg+xml,<svg onload=alert(1)>)",
+    }),
+    createElementNode("img", { src: "mailto:leak@example.com" }),
+  ]);
+
+  const result = await checker.checkPlan(plan);
+
+  assert.equal(result.safe, false);
+  assert.equal(
+    result.issues.filter((issue) => issue.includes("Unsafe URL value")).length,
+    4,
+  );
+});
+
 test("security checker allows allowed JSPM module specifiers", async () => {
   const checker = new DefaultSecurityChecker();
   checker.initialize();

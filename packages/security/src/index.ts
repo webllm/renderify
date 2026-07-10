@@ -23,6 +23,11 @@ export interface SecurityCheckResult {
   diagnostics: RuntimeDiagnostic[];
 }
 
+export interface RuntimeUrlAttributeInspection {
+  safe: boolean;
+  remoteUrls: URL[];
+}
+
 export interface RuntimeSecurityPolicy {
   blockedTags: string[];
   maxTreeDepth: number;
@@ -256,6 +261,60 @@ const SECURITY_PROFILE_POLICIES: Record<
 
 const DEFAULT_SECURITY_PROFILE: RuntimeSecurityProfile = "balanced";
 const INTERNAL_RUNTIME_SOURCE_MODULE_SPECIFIERS = new Set(["this-plan-source"]);
+const SINGLE_RUNTIME_URL_ATTRIBUTE_NAMES = new Set([
+  "action",
+  "background",
+  "cite",
+  "codebase",
+  "data",
+  "dynsrc",
+  "formaction",
+  "href",
+  "longdesc",
+  "lowsrc",
+  "manifest",
+  "poster",
+  "profile",
+  "src",
+  "usemap",
+  "xlink:href",
+  "xlinkhref",
+  "xml:base",
+  "xmlbase",
+]);
+const LIST_RUNTIME_URL_ATTRIBUTE_NAMES = new Set([
+  "archive",
+  "attributionsrc",
+  "ping",
+]);
+const SOURCE_SET_RUNTIME_URL_ATTRIBUTE_NAMES = new Set([
+  "imagesrcset",
+  "srcset",
+]);
+const FUNCTIONAL_IRI_RUNTIME_ATTRIBUTE_NAMES = new Set([
+  "clip-path",
+  "clippath",
+  "cursor",
+  "fill",
+  "filter",
+  "marker",
+  "marker-end",
+  "marker-mid",
+  "marker-start",
+  "markerend",
+  "markermid",
+  "markerstart",
+  "mask",
+  "shape-inside",
+  "shape-outside",
+  "stroke",
+]);
+const SAFE_NON_NETWORK_URL_PROTOCOLS = new Set(["mailto:", "tel:"]);
+const SAFE_NON_NETWORK_PROTOCOL_ATTRIBUTE_NAMES = new Set([
+  "href",
+  "xlink:href",
+  "xlinkhref",
+]);
 const SOURCE_GLOBAL_OBJECTS = ["globalThis", "self", "window"];
 const SOURCE_BANNED_GLOBAL_PROPERTIES = [
   "fetch",
@@ -280,6 +339,52 @@ export function getSecurityProfilePolicy(
   profile: RuntimeSecurityProfile,
 ): RuntimeSecurityPolicy {
   return clonePolicy(SECURITY_PROFILE_POLICIES[profile]);
+}
+
+export function isRuntimeUrlAttribute(attributeName: string): boolean {
+  const normalized = attributeName.toLowerCase();
+  return (
+    SINGLE_RUNTIME_URL_ATTRIBUTE_NAMES.has(normalized) ||
+    LIST_RUNTIME_URL_ATTRIBUTE_NAMES.has(normalized) ||
+    SOURCE_SET_RUNTIME_URL_ATTRIBUTE_NAMES.has(normalized) ||
+    FUNCTIONAL_IRI_RUNTIME_ATTRIBUTE_NAMES.has(normalized)
+  );
+}
+
+export function inspectRuntimeUrlAttribute(
+  attributeName: string,
+  value: string,
+): RuntimeUrlAttributeInspection {
+  const normalized = attributeName.toLowerCase();
+  const references = splitRuntimeUrlAttributeValue(normalized, value);
+  if (!references) {
+    return {
+      safe: false,
+      remoteUrls: [],
+    };
+  }
+
+  const remoteUrls: URL[] = [];
+  for (const reference of references) {
+    const inspected = inspectRuntimeUrlReference(
+      reference,
+      SAFE_NON_NETWORK_PROTOCOL_ATTRIBUTE_NAMES.has(normalized),
+    );
+    if (!inspected.safe) {
+      return {
+        safe: false,
+        remoteUrls: [],
+      };
+    }
+    if (inspected.remoteUrl) {
+      remoteUrls.push(inspected.remoteUrl);
+    }
+  }
+
+  return {
+    safe: true,
+    remoteUrls,
+  };
 }
 
 export class DefaultSecurityChecker implements SecurityChecker {
@@ -403,12 +508,41 @@ export class DefaultSecurityChecker implements SecurityChecker {
           }
 
           if (node.props) {
-            for (const key of Object.keys(node.props)) {
+            for (const [key, value] of Object.entries(node.props)) {
               if (
                 !this.policy.allowInlineEventHandlers &&
                 /^on[A-Z]|^on[a-z]/.test(key)
               ) {
                 issues.push(`Inline event handler is not allowed: ${key}`);
+              }
+
+              if (!isRuntimeUrlAttribute(key) || typeof value !== "string") {
+                continue;
+              }
+
+              const inspection = inspectRuntimeUrlAttribute(key, value);
+              if (!inspection.safe) {
+                issues.push(
+                  `Unsafe URL value in <${normalizedTag}> ${key} attribute`,
+                );
+                continue;
+              }
+
+              if (this.policy.allowArbitraryNetwork) {
+                continue;
+              }
+
+              for (const remoteUrl of inspection.remoteUrls) {
+                if (
+                  !isAllowedNetworkUrl(
+                    remoteUrl,
+                    this.policy.allowedNetworkHosts,
+                  )
+                ) {
+                  issues.push(
+                    `Network host is not in allowlist for <${normalizedTag}> ${key}: ${remoteUrl.host}`,
+                  );
+                }
               }
             }
           }
@@ -1085,6 +1219,158 @@ function clonePolicy(policy: RuntimeSecurityPolicy): RuntimeSecurityPolicy {
     supportedSpecVersions: [...policy.supportedSpecVersions],
     sourceBannedPatternStrings: [...policy.sourceBannedPatternStrings],
   };
+}
+
+function splitRuntimeUrlAttributeValue(
+  attributeName: string,
+  value: string,
+): string[] | undefined {
+  if (FUNCTIONAL_IRI_RUNTIME_ATTRIBUTE_NAMES.has(attributeName)) {
+    return extractFunctionalIriReferences(value);
+  }
+
+  if (SOURCE_SET_RUNTIME_URL_ATTRIBUTE_NAMES.has(attributeName)) {
+    const candidates = value.split(",");
+    const references: string[] = [];
+    for (const candidate of candidates) {
+      const normalized = candidate.trim();
+      if (normalized.length === 0) {
+        return undefined;
+      }
+      const reference = normalized.split(/\s+/, 1)[0];
+      if (!reference) {
+        return undefined;
+      }
+      references.push(reference);
+    }
+    return references;
+  }
+
+  if (LIST_RUNTIME_URL_ATTRIBUTE_NAMES.has(attributeName)) {
+    const references = value.trim().split(/\s+/).filter(Boolean);
+    return references.length > 0 ? references : undefined;
+  }
+
+  if (SINGLE_RUNTIME_URL_ATTRIBUTE_NAMES.has(attributeName)) {
+    return [value];
+  }
+
+  return undefined;
+}
+
+function extractFunctionalIriReferences(value: string): string[] | undefined {
+  const normalized = normalizeCssForUrlSecurityInspection(value);
+  if (normalized.length === 0) {
+    return undefined;
+  }
+
+  const references: string[] = [];
+  const unmatched = normalized.replace(
+    /url\s*\(\s*(?:"([^"]*)"|'([^']*)'|([^"'()]*))\s*\)/gi,
+    (_match, doubleQuoted: string, singleQuoted: string, unquoted: string) => {
+      references.push(doubleQuoted ?? singleQuoted ?? unquoted ?? "");
+      return "";
+    },
+  );
+
+  if (/url\s*\(/i.test(unmatched)) {
+    return undefined;
+  }
+
+  return references;
+}
+
+function inspectRuntimeUrlReference(
+  reference: string,
+  allowSafeNonNetworkProtocol: boolean,
+): {
+  safe: boolean;
+  remoteUrl?: URL;
+} {
+  const normalized = normalizeUrlForSecurityInspection(reference);
+  if (normalized.length === 0 || normalized.includes("\\")) {
+    return { safe: false };
+  }
+
+  if (normalized.startsWith("//")) {
+    try {
+      return {
+        safe: true,
+        remoteUrl: new URL(`https:${normalized}`),
+      };
+    } catch {
+      return { safe: false };
+    }
+  }
+
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(normalized)?.[1];
+  if (!scheme) {
+    return { safe: true };
+  }
+
+  const protocol = `${scheme.toLowerCase()}:`;
+  if (protocol === "http:" || protocol === "https:") {
+    try {
+      return {
+        safe: true,
+        remoteUrl: new URL(normalized),
+      };
+    } catch {
+      return { safe: false };
+    }
+  }
+
+  return {
+    safe:
+      allowSafeNonNetworkProtocol &&
+      SAFE_NON_NETWORK_URL_PROTOCOLS.has(protocol),
+  };
+}
+
+function normalizeCssForUrlSecurityInspection(value: string): string {
+  const withoutComments = value.replace(/\/\*[\s\S]*?\*\//g, "");
+  return decodeCssEscapesForUrlInspection(withoutComments).replaceAll(
+    String.fromCodePoint(0),
+    "",
+  );
+}
+
+function decodeCssEscapesForUrlInspection(value: string): string {
+  return value.replace(
+    /\\(?:([0-9a-fA-F]{1,6})(?:\r\n|[ \t\r\n\f])?|(\r\n|[\r\n\f])|(.))/g,
+    (
+      _match,
+      hexCodePoint: string | undefined,
+      lineContinuation: string | undefined,
+      escapedCharacter: string | undefined,
+    ) => {
+      if (lineContinuation) {
+        return "";
+      }
+      if (!hexCodePoint) {
+        return escapedCharacter ?? "";
+      }
+
+      const codePoint = Number.parseInt(hexCodePoint, 16);
+      if (
+        !Number.isFinite(codePoint) ||
+        codePoint < 0 ||
+        codePoint > 0x10ffff
+      ) {
+        return "";
+      }
+      return String.fromCodePoint(codePoint);
+    },
+  );
+}
+
+function normalizeUrlForSecurityInspection(value: string): string {
+  return Array.from(value.trim())
+    .filter((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return codePoint > 0x20 && (codePoint < 0x7f || codePoint > 0x9f);
+    })
+    .join("");
 }
 
 function compileSourceBannedPatterns(patterns: string[]): Array<{
