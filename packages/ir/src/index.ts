@@ -916,7 +916,7 @@ export function isSafePath(path: string): boolean {
 
 export function getValueByPath(source: unknown, path: string): unknown {
   const segments = splitPath(path);
-  if (segments.length === 0) {
+  if (segments.length === 0 || !isSafePath(path)) {
     return undefined;
   }
 
@@ -924,6 +924,10 @@ export function getValueByPath(source: unknown, path: string): unknown {
 
   for (const segment of segments) {
     if (typeof cursor !== "object" || cursor === null) {
+      return undefined;
+    }
+
+    if (!Object.hasOwn(cursor, segment)) {
       return undefined;
     }
 
@@ -939,7 +943,7 @@ export function setValueByPath(
   value: JsonValue,
 ): void {
   const segments = splitPath(path);
-  if (segments.length === 0) {
+  if (segments.length === 0 || !isSafePath(path)) {
     return;
   }
 

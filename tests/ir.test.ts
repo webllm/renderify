@@ -88,8 +88,16 @@ test("walkRuntimeNode skips malformed child payloads", () => {
 test("path helpers set/get nested values and reject unsafe keys", () => {
   const state: RuntimeStateSnapshot = {};
   setValueByPath(state, "counter.total", 7);
+  setValueByPath(state, "__proto__.polluted", "yes");
+  setValueByPath(state, "constructor.prototype.polluted", "yes");
 
   assert.equal(getValueByPath(state, "counter.total"), 7);
+  assert.equal(getValueByPath(state, "__proto__.polluted"), undefined);
+  assert.equal(getValueByPath({}, "toString"), undefined);
+  assert.equal(
+    (Object.prototype as { polluted?: unknown }).polluted,
+    undefined,
+  );
   assert.equal(isSafePath("counter.total"), true);
   assert.equal(isSafePath("__proto__.polluted"), false);
 });
