@@ -164,7 +164,11 @@ Note: `@renderify/runtime` currently publishes ESM/CJS entries (no UMD bundle). 
 For `source.runtime: "preact"` plans, Babel standalone is needed for transpilation and the trusted embed helper should be used:
 
 ```html
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script
+  src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"
+  integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y"
+  crossorigin="anonymous"
+></script>
 <script type="module">
   import { renderTrustedPlanInBrowser } from "https://esm.sh/@renderify/runtime";
 
