@@ -11,6 +11,7 @@ import {
   hashStringFNV1a32,
   hashStringFNV1a32Base36,
   hashStringFNV1a64Hex,
+  isJsonValue,
   isRuntimeCapabilities,
   isRuntimeModuleDescriptor,
   isRuntimeModuleManifest,
@@ -111,6 +112,59 @@ test("asJsonValue normalizes undefined and non-finite numbers", () => {
     ok: true,
     nested: [1, null],
   });
+});
+
+test("json helpers reject exotic objects and normalize cycles without invoking getters", () => {
+  const cyclic: Record<string, unknown> = {};
+  cyclic.self = cyclic;
+
+  let getterCalls = 0;
+  const withGetter: Record<string, unknown> = {};
+  Object.defineProperty(withGetter, "secret", {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      return "leaked";
+    },
+  });
+
+  const arrayWithGetter: unknown[] = [];
+  Object.defineProperty(arrayWithGetter, "0", {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      return "leaked";
+    },
+  });
+  arrayWithGetter.length = 1;
+
+  const protoKey: Record<string, unknown> = {};
+  Object.defineProperty(protoKey, "__proto__", {
+    enumerable: true,
+    value: { polluted: true },
+  });
+  const normalizedProtoKey = asJsonValue(protoKey);
+
+  assert.equal(isJsonValue(cyclic), false);
+  assert.equal(isJsonValue(new Date()), false);
+  assert.equal(isJsonValue(withGetter), false);
+  assert.equal(isJsonValue(arrayWithGetter), false);
+  assert.deepEqual(asJsonValue(cyclic), { self: null });
+  assert.equal(asJsonValue(new Date()), null);
+  assert.deepEqual(asJsonValue(withGetter), { secret: null });
+  assert.deepEqual(asJsonValue(arrayWithGetter), [null]);
+  assert.equal(getterCalls, 0);
+  assert.equal(
+    typeof normalizedProtoKey === "object" &&
+      normalizedProtoKey !== null &&
+      !Array.isArray(normalizedProtoKey) &&
+      Object.hasOwn(normalizedProtoKey, "__proto__"),
+    true,
+  );
+  assert.equal(
+    (Object.prototype as { polluted?: unknown }).polluted,
+    undefined,
+  );
 });
 
 test("runtime plan/type guards validate structures", () => {

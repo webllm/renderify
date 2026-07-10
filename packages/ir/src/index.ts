@@ -976,6 +976,10 @@ export function cloneJsonValue<T extends JsonValue>(value: T): T {
 }
 
 export function asJsonValue(value: unknown): JsonValue {
+  return asJsonValueInternal(value, new Set<object>());
+}
+
+function asJsonValueInternal(value: unknown, seen: Set<object>): JsonValue {
   if (value === undefined) {
     return null;
   }
@@ -993,15 +997,67 @@ export function asJsonValue(value: unknown): JsonValue {
   }
 
   if (Array.isArray(value)) {
-    return value.map((item) => asJsonValue(item));
+    if (seen.has(value)) {
+      return null;
+    }
+
+    seen.add(value);
+    try {
+      const result: JsonValue[] = [];
+      for (let index = 0; index < value.length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(
+          value,
+          String(index),
+        );
+        result.push(
+          descriptor && "value" in descriptor
+            ? asJsonValueInternal(descriptor.value, seen)
+            : null,
+        );
+      }
+      return result;
+    } catch {
+      return null;
+    } finally {
+      seen.delete(value);
+    }
+  }
+
+  if (isPlainJsonObject(value)) {
+    if (seen.has(value)) {
+      return null;
+    }
+
+    seen.add(value);
+    const result: JsonObject = {};
+    try {
+      const descriptors = Object.getOwnPropertyDescriptors(value);
+      for (const [key, descriptor] of Object.entries(descriptors)) {
+        if (!descriptor.enumerable) {
+          continue;
+        }
+
+        const normalized =
+          "value" in descriptor
+            ? asJsonValueInternal(descriptor.value, seen)
+            : null;
+        Object.defineProperty(result, key, {
+          configurable: true,
+          enumerable: true,
+          writable: true,
+          value: normalized,
+        });
+      }
+      return result;
+    } catch {
+      return null;
+    } finally {
+      seen.delete(value);
+    }
   }
 
   if (typeof value === "object" && value !== null) {
-    const result: JsonObject = {};
-    for (const [key, item] of Object.entries(value)) {
-      result[key] = asJsonValue(item);
-    }
-    return result;
+    return null;
   }
 
   return String(value);
@@ -1037,23 +1093,62 @@ function isJsonValueInternal(value: unknown, seen: Set<object>): boolean {
     }
 
     seen.add(value);
-    const valid = value.every((entry) => isJsonValueInternal(entry, seen));
-    seen.delete(value);
-    return valid;
+    try {
+      for (let index = 0; index < value.length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(
+          value,
+          String(index),
+        );
+        if (
+          !descriptor ||
+          !("value" in descriptor) ||
+          !isJsonValueInternal(descriptor.value, seen)
+        ) {
+          return false;
+        }
+      }
+      return true;
+    } catch {
+      return false;
+    } finally {
+      seen.delete(value);
+    }
   }
 
-  if (isRecord(value)) {
+  if (isPlainJsonObject(value)) {
     if (seen.has(value)) {
       return false;
     }
 
     seen.add(value);
-    const valid = Object.values(value).every((entry) =>
-      isJsonValueInternal(entry, seen),
-    );
-    seen.delete(value);
-    return valid;
+    try {
+      const descriptors = Object.getOwnPropertyDescriptors(value);
+      const valid = Object.values(descriptors).every(
+        (descriptor) =>
+          !descriptor.enumerable ||
+          ("value" in descriptor &&
+            isJsonValueInternal(descriptor.value, seen)),
+      );
+      return valid;
+    } catch {
+      return false;
+    } finally {
+      seen.delete(value);
+    }
   }
 
   return false;
+}
+
+function isPlainJsonObject(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    return prototype === Object.prototype || prototype === null;
+  } catch {
+    return false;
+  }
 }
