@@ -428,6 +428,11 @@ export class RuntimeSourceModuleLoader {
         }
 
         const effectiveUrl = response.url || attempt;
+        this.assertEffectiveRemoteUrlAllowed(
+          originalUrl,
+          attempt,
+          effectiveUrl,
+        );
         if (
           isLikelyUnpinnedJspmNpmUrl(attempt) ||
           isLikelyUnpinnedJspmNpmUrl(effectiveUrl)
@@ -517,6 +522,25 @@ export class RuntimeSourceModuleLoader {
       message: `Blocked remote module URL by runtime network policy: ${url}`,
     });
     return false;
+  }
+
+  private assertEffectiveRemoteUrlAllowed(
+    originalUrl: string,
+    requestUrl: string,
+    effectiveUrl: string,
+  ): void {
+    if (this.isRemoteUrlAllowedFn(effectiveUrl)) {
+      return;
+    }
+
+    this.diagnostics.push({
+      level: "warning",
+      code: "RUNTIME_SOURCE_IMPORT_REDIRECT_BLOCKED",
+      message: `Blocked remote module response URL by runtime network policy: ${originalUrl} (request: ${requestUrl}, effective: ${effectiveUrl})`,
+    });
+    throw new Error(
+      `Remote module response URL is blocked by runtime network policy: ${effectiveUrl}`,
+    );
   }
 
   private errorToMessage(error: unknown): string {

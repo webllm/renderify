@@ -3,8 +3,11 @@ import {
   type RuntimeDiagnostic,
   type RuntimeModuleManifest,
 } from "@renderify/ir";
-import type { RuntimeModuleLoader } from "./index";
 import { isNodeRuntime } from "./runtime-environment";
+import type {
+  RuntimeModuleLoader,
+  RuntimeModuleNetworkPolicy,
+} from "./runtime-manager.types";
 import { RuntimeSourceModuleLoader } from "./runtime-source-module-loader";
 import { rewriteImportsAsync } from "./runtime-source-utils";
 
@@ -90,17 +93,16 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
   private readonly remoteFetchBackoffMs: number;
   private readonly moduleCacheMaxEntries: number;
   private readonly remoteMaterializedUrlCacheMaxEntries: number;
-  private readonly cache = new Map<string, unknown>();
-  private readonly inflight = new Map<string, Promise<unknown>>();
-  private readonly verifiedCache = new Map<string, unknown>();
-  private readonly verifiedInflight = new Map<string, Promise<unknown>>();
+  private cache = new Map<string, unknown>();
+  private inflight = new Map<string, Promise<unknown>>();
+  private verifiedCache = new Map<string, unknown>();
+  private verifiedInflight = new Map<string, Promise<unknown>>();
   private readonly remoteMaterializationDiagnostics: RuntimeDiagnostic[] = [];
-  private readonly remoteMaterializedUrlCache = new Map<string, string>();
-  private readonly remoteMaterializedInflight = new Map<
-    string,
-    Promise<string>
-  >();
+  private remoteMaterializedUrlCache = new Map<string, string>();
+  private remoteMaterializedInflight = new Map<string, Promise<string>>();
   private remoteSourceModuleLoader?: RuntimeSourceModuleLoader;
+  private allowArbitraryNetwork = true;
+  private isRemoteUrlAllowedFn: (url: string) => boolean = () => true;
 
   constructor(options: JspmModuleLoaderOptions = {}) {
     this.cdnBaseUrl = this.normalizeCdnBaseUrl(options.cdnBaseUrl);
@@ -134,32 +136,31 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
 
   async load(specifier: string): Promise<unknown> {
     const resolved = this.resolveSpecifier(specifier);
+    this.assertRemoteUrlAllowed(resolved);
 
-    if (this.cache.has(resolved)) {
-      return this.cache.get(resolved);
+    const cache = this.cache;
+    const inflightEntries = this.inflight;
+
+    if (cache.has(resolved)) {
+      return cache.get(resolved);
     }
 
-    const inflight = this.inflight.get(resolved);
+    const inflight = inflightEntries.get(resolved);
     if (inflight) {
       return inflight;
     }
 
     const loading = (async () => {
       const loaded = await this.importWithBestEffort(resolved);
-      setMapEntryWithLimit(
-        this.cache,
-        resolved,
-        loaded,
-        this.moduleCacheMaxEntries,
-      );
+      setMapEntryWithLimit(cache, resolved, loaded, this.moduleCacheMaxEntries);
       return loaded;
     })();
 
-    this.inflight.set(resolved, loading);
+    inflightEntries.set(resolved, loading);
     try {
       return await loading;
     } finally {
-      this.inflight.delete(resolved);
+      inflightEntries.delete(resolved);
     }
   }
 
@@ -170,6 +171,7 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
         `Integrity-pinned loading requires an HTTP(S) module URL: ${resolved}`,
       );
     }
+    this.assertRemoteUrlAllowed(resolved);
 
     const normalizedIntegrity = integrity.trim();
     if (normalizedIntegrity.length === 0) {
@@ -177,11 +179,13 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
     }
 
     const cacheKey = `${resolved}\u0000integrity:${normalizedIntegrity}`;
-    if (this.verifiedCache.has(cacheKey)) {
-      return this.verifiedCache.get(cacheKey);
+    const verifiedCache = this.verifiedCache;
+    const verifiedInflight = this.verifiedInflight;
+    if (verifiedCache.has(cacheKey)) {
+      return verifiedCache.get(cacheKey);
     }
 
-    const inflight = this.verifiedInflight.get(cacheKey);
+    const inflight = verifiedInflight.get(cacheKey);
     if (inflight) {
       return inflight;
     }
@@ -201,7 +205,7 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
       );
       const loaded = await import(/* webpackIgnore: true */ materializedUrl);
       setMapEntryWithLimit(
-        this.verifiedCache,
+        verifiedCache,
         cacheKey,
         loaded,
         this.moduleCacheMaxEntries,
@@ -209,12 +213,28 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
       return loaded;
     })();
 
-    this.verifiedInflight.set(cacheKey, loading);
+    verifiedInflight.set(cacheKey, loading);
     try {
       return await loading;
     } finally {
-      this.verifiedInflight.delete(cacheKey);
+      verifiedInflight.delete(cacheKey);
     }
+  }
+
+  configureNetworkPolicy(policy: RuntimeModuleNetworkPolicy): void {
+    this.allowArbitraryNetwork = policy.allowArbitraryNetwork;
+    this.isRemoteUrlAllowedFn = policy.isRemoteUrlAllowed;
+
+    // Policy-specific materializations must never survive a policy change.
+    // Replace the maps instead of clearing them so an older in-flight load
+    // cannot repopulate or delete entries in the new policy's caches.
+    this.cache = new Map<string, unknown>();
+    this.inflight = new Map<string, Promise<unknown>>();
+    this.verifiedCache = new Map<string, unknown>();
+    this.verifiedInflight = new Map<string, Promise<unknown>>();
+    this.remoteMaterializedUrlCache = new Map<string, string>();
+    this.remoteMaterializedInflight = new Map<string, Promise<string>>();
+    this.remoteSourceModuleLoader = undefined;
   }
 
   async unload(specifier: string): Promise<void> {
@@ -273,6 +293,15 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
   }
 
   private async importWithBestEffort(resolved: string): Promise<unknown> {
+    if (this.isUrl(resolved) && !this.allowArbitraryNetwork) {
+      const rewrittenSpecifier =
+        await this.getRemoteSourceModuleLoader().resolveRuntimeImportSpecifier(
+          resolved,
+          undefined,
+        );
+      return import(/* webpackIgnore: true */ rewrittenSpecifier);
+    }
+
     const globalValue: unknown = globalThis;
     const maybeSystem =
       typeof globalValue === "object" && globalValue !== null
@@ -425,8 +454,18 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
           return specifier;
         }
       },
-      isRemoteUrlAllowed: () => true,
+      isRemoteUrlAllowed: (url) => this.isRemoteUrlAllowedFn(url),
     });
+  }
+
+  private assertRemoteUrlAllowed(url: string): void {
+    if (!this.isUrl(url) || this.isRemoteUrlAllowedFn(url)) {
+      return;
+    }
+
+    throw new Error(
+      `Remote module URL is blocked by runtime network policy: ${url}`,
+    );
   }
 
   private createInlineModuleUrl(code: string): string {

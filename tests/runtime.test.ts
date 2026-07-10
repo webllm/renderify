@@ -626,6 +626,27 @@ function createEmbedUiStub() {
   };
 }
 
+function createRemoteModuleResponse(input: {
+  url: string;
+  body?: string;
+  status?: number;
+  onRead?: () => void;
+}): Response {
+  const status = input.status ?? 200;
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    url: input.url,
+    headers: new Headers({
+      "content-type": "text/javascript; charset=utf-8",
+    }),
+    text: async () => {
+      input.onRead?.();
+      return input.body ?? "export default 1;";
+    },
+  } as Response;
+}
+
 test("renderPlanInBrowser renders runtime node HTML without mount target", async () => {
   const plan: RuntimePlan = {
     specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
@@ -2367,6 +2388,181 @@ test("runtime source loader skips fallback URLs blocked by network policy", asyn
   }
 });
 
+test("runtime source loader blocks a primary response redirected to a disallowed host", async () => {
+  const runtime = new DefaultRuntimeManager({
+    remoteFallbackCdnBases: [],
+    remoteFetchRetries: 0,
+    allowArbitraryNetwork: false,
+    allowedNetworkHosts: ["ga.jspm.io"],
+  });
+  const diagnostics: Array<{ code?: string; message?: string }> = [];
+  const loader = (
+    runtime as unknown as {
+      createSourceModuleLoader: (
+        moduleManifest: RuntimeModuleManifest | undefined,
+        diagnostics: Array<{ code?: string; message?: string }>,
+      ) => {
+        fetchRemoteModuleCodeWithFallback(url: string): Promise<unknown>;
+      };
+    }
+  ).createSourceModuleLoader(undefined, diagnostics);
+
+  const originalUrl = "https://ga.jspm.io/npm:lit@3.3.0/index.js";
+  const effectiveUrl = "https://evil.example.com/lit.js";
+  let responseReads = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    createRemoteModuleResponse({
+      url: effectiveUrl,
+      onRead: () => {
+        responseReads += 1;
+      },
+    })) as typeof fetch;
+
+  try {
+    await assert.rejects(
+      loader.fetchRemoteModuleCodeWithFallback(originalUrl),
+      /response URL is blocked by runtime network policy/,
+    );
+    assert.equal(responseReads, 0);
+    assert.ok(
+      diagnostics.some(
+        (item) =>
+          item.code === "RUNTIME_SOURCE_IMPORT_REDIRECT_BLOCKED" &&
+          item.message?.includes(originalUrl) &&
+          item.message.includes(effectiveUrl),
+      ),
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("runtime source loader blocks a fallback response redirected to a disallowed host", async () => {
+  const runtime = new DefaultRuntimeManager({
+    remoteFallbackCdnBases: ["https://esm.sh"],
+    remoteFetchRetries: 0,
+    remoteFetchBackoffMs: 10,
+    allowArbitraryNetwork: false,
+    allowedNetworkHosts: ["ga.jspm.io", "esm.sh"],
+  });
+  const diagnostics: Array<{ code?: string; message?: string }> = [];
+  const loader = (
+    runtime as unknown as {
+      createSourceModuleLoader: (
+        moduleManifest: RuntimeModuleManifest | undefined,
+        diagnostics: Array<{ code?: string; message?: string }>,
+      ) => {
+        fetchRemoteModuleCodeWithFallback(url: string): Promise<unknown>;
+      };
+    }
+  ).createSourceModuleLoader(undefined, diagnostics);
+
+  const requestedUrls: string[] = [];
+  const effectiveUrl = "https://evil.example.com/fallback.js";
+  let fallbackResponseReads = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const requestUrl = String(input);
+    requestedUrls.push(requestUrl);
+    if (requestUrl.startsWith("https://ga.jspm.io/")) {
+      return createRemoteModuleResponse({
+        url: requestUrl,
+        status: 503,
+      });
+    }
+    return createRemoteModuleResponse({
+      url: effectiveUrl,
+      onRead: () => {
+        fallbackResponseReads += 1;
+      },
+    });
+  }) as typeof fetch;
+
+  try {
+    await assert.rejects(
+      loader.fetchRemoteModuleCodeWithFallback(
+        "https://ga.jspm.io/npm:lit@3.3.0/index.js",
+      ),
+      /response URL is blocked by runtime network policy/,
+    );
+    assert.ok(requestedUrls.some((url) => url.startsWith("https://esm.sh/")));
+    assert.equal(fallbackResponseReads, 0);
+    assert.ok(
+      diagnostics.some(
+        (item) =>
+          item.code === "RUNTIME_SOURCE_IMPORT_REDIRECT_BLOCKED" &&
+          item.message?.includes("request: https://esm.sh/") &&
+          item.message.includes(effectiveUrl),
+      ),
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("runtime source loader rechecks effective URLs on every retry", async () => {
+  const runtime = new DefaultRuntimeManager({
+    remoteFallbackCdnBases: [],
+    remoteFetchRetries: 1,
+    remoteFetchBackoffMs: 0,
+    allowArbitraryNetwork: false,
+    allowedNetworkHosts: ["ga.jspm.io", "cdn.jspm.io"],
+  });
+  const diagnostics: Array<{ code?: string; message?: string }> = [];
+  const loader = (
+    runtime as unknown as {
+      createSourceModuleLoader: (
+        moduleManifest: RuntimeModuleManifest | undefined,
+        diagnostics: Array<{ code?: string; message?: string }>,
+      ) => {
+        fetchRemoteModuleCodeWithFallback(
+          url: string,
+        ): Promise<{ url: string; code: string }>;
+      };
+    }
+  ).createSourceModuleLoader(undefined, diagnostics);
+
+  let fetchCalls = 0;
+  let responseReads = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    return createRemoteModuleResponse({
+      url:
+        fetchCalls === 1
+          ? "https://evil.example.com/retry.js"
+          : "https://cdn.jspm.io/retry.js",
+      body: "export default 'retry-ok';",
+      onRead: () => {
+        responseReads += 1;
+      },
+    });
+  }) as typeof fetch;
+
+  try {
+    const fetched = await loader.fetchRemoteModuleCodeWithFallback(
+      "https://ga.jspm.io/npm:lit@3.3.0/index.js",
+    );
+    assert.equal(fetchCalls, 2);
+    assert.equal(responseReads, 1);
+    assert.equal(fetched.url, "https://cdn.jspm.io/retry.js");
+    assert.equal(fetched.code, "export default 'retry-ok';");
+    assert.ok(
+      diagnostics.some(
+        (item) => item.code === "RUNTIME_SOURCE_IMPORT_REDIRECT_BLOCKED",
+      ),
+    );
+    assert.ok(
+      diagnostics.some(
+        (item) => item.code === "RUNTIME_SOURCE_IMPORT_RETRY_SUCCEEDED",
+      ),
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("runtime blocks remote import specifiers by runtime network policy during execution", async () => {
   let loadCalls = 0;
   const runtime = new DefaultRuntimeManager({
@@ -2554,6 +2750,54 @@ test("runtime network policy supports wildcard hosts and default port normalizat
       "https://ga.jspm.io:444/npm:lit@3.3.0/index.js",
     ),
     false,
+  );
+});
+
+test("runtime propagates network policy changes into the module loader", async () => {
+  const policies: Array<{
+    allowArbitraryNetwork: boolean;
+    isRemoteUrlAllowed(url: string): boolean;
+  }> = [];
+  const runtime = new DefaultRuntimeManager({
+    moduleLoader: {
+      async load() {
+        return {};
+      },
+      configureNetworkPolicy(policy) {
+        policies.push(policy);
+      },
+    },
+    allowArbitraryNetwork: false,
+    allowedNetworkHosts: ["ga.jspm.io"],
+  });
+
+  assert.equal(policies.length, 1);
+  assert.equal(policies[0]?.allowArbitraryNetwork, false);
+  assert.equal(
+    policies[0]?.isRemoteUrlAllowed(
+      "https://ga.jspm.io/npm:lit@3.3.0/index.js",
+    ),
+    true,
+  );
+  assert.equal(
+    policies[0]?.isRemoteUrlAllowed("https://evil.example.com/module.js"),
+    false,
+  );
+
+  runtime.configure?.({
+    allowedNetworkHosts: ["cdn.jspm.io"],
+  });
+
+  assert.equal(policies.length, 2);
+  assert.equal(
+    policies[1]?.isRemoteUrlAllowed(
+      "https://ga.jspm.io/npm:lit@3.3.0/index.js",
+    ),
+    false,
+  );
+  assert.equal(
+    policies[1]?.isRemoteUrlAllowed("https://cdn.jspm.io/module.js"),
+    true,
   );
 });
 

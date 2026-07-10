@@ -211,6 +211,10 @@ export class DefaultRuntimeManager implements RuntimeManager {
     options: RuntimeManagerOptions,
     applyDefaults: boolean,
   ): void {
+    const networkPolicyChanged =
+      applyDefaults ||
+      options.allowArbitraryNetwork !== undefined ||
+      options.allowedNetworkHosts !== undefined;
     if (applyDefaults || options.supportedPlanSpecVersions !== undefined) {
       this.supportedPlanSpecVersions = normalizeSupportedSpecVersions(
         options.supportedPlanSpecVersions,
@@ -322,6 +326,13 @@ export class DefaultRuntimeManager implements RuntimeManager {
       );
       this.allowedNetworkHosts = normalizedHosts.hosts;
       this.allowedNetworkHostMatchers = normalizedHosts.matchers;
+    }
+
+    if (networkPolicyChanged) {
+      this.moduleLoader?.configureNetworkPolicy?.({
+        allowArbitraryNetwork: this.allowArbitraryNetwork,
+        isRemoteUrlAllowed: (url) => this.isRemoteUrlAllowed(url),
+      });
     }
   }
 

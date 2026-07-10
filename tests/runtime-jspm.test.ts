@@ -2,6 +2,25 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { JspmModuleLoader } from "../packages/runtime/src/index";
 
+function createRemoteModuleResponse(input: {
+  url: string;
+  body?: string;
+  onRead?: () => void;
+}): Response {
+  return {
+    ok: true,
+    status: 200,
+    url: input.url,
+    headers: new Headers({
+      "content-type": "text/javascript; charset=utf-8",
+    }),
+    text: async () => {
+      input.onRead?.();
+      return input.body ?? "export default 1;";
+    },
+  } as Response;
+}
+
 test("runtime-jspm resolves known overrides for preact/recharts", () => {
   const loader = new JspmModuleLoader();
 
@@ -192,6 +211,138 @@ test("runtime-jspm evicts stale module cache entries beyond capacity", async () 
     } else {
       globalState.System = previousSystem;
     }
+  }
+});
+
+test("runtime-jspm enforces configured policy after redirects before native import", async () => {
+  const loader = new JspmModuleLoader({
+    remoteFallbackCdnBases: ["https://cdn.example.com"],
+    remoteFetchRetries: 0,
+  });
+  loader.configureNetworkPolicy({
+    allowArbitraryNetwork: false,
+    isRemoteUrlAllowed: (url) => new URL(url).hostname === "cdn.example.com",
+  });
+
+  const globalState = globalThis as unknown as {
+    System?: { import(url: string): Promise<unknown> };
+  };
+  const previousSystem = globalState.System;
+  const previousFetch = globalThis.fetch;
+  let systemImportCalls = 0;
+  let responseReads = 0;
+
+  globalState.System = {
+    import: async () => {
+      systemImportCalls += 1;
+      return { default: "native import bypass" };
+    },
+  };
+  globalThis.fetch = (async () =>
+    createRemoteModuleResponse({
+      url: "https://evil.example.com/entry.mjs",
+      onRead: () => {
+        responseReads += 1;
+      },
+    })) as typeof fetch;
+
+  try {
+    await assert.rejects(
+      loader.load("https://cdn.example.com/entry.mjs"),
+      /response URL is blocked by runtime network policy/,
+    );
+    assert.equal(responseReads, 0);
+    assert.equal(systemImportCalls, 0);
+  } finally {
+    if (previousSystem === undefined) {
+      delete globalState.System;
+    } else {
+      globalState.System = previousSystem;
+    }
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("runtime-jspm applies configured policy to transitive imports", async () => {
+  const loader = new JspmModuleLoader({
+    remoteFallbackCdnBases: ["https://cdn.example.com"],
+    remoteFetchRetries: 0,
+  });
+  loader.configureNetworkPolicy({
+    allowArbitraryNetwork: false,
+    isRemoteUrlAllowed: (url) => new URL(url).hostname === "cdn.example.com",
+  });
+
+  const previousFetch = globalThis.fetch;
+  const requestedUrls: string[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const requestUrl = String(input);
+    requestedUrls.push(requestUrl);
+    return createRemoteModuleResponse({
+      url: requestUrl,
+      body: 'import "https://evil.example.com/dep.mjs"; export default 1;',
+    });
+  }) as typeof fetch;
+
+  try {
+    await assert.rejects(
+      loader.load("https://cdn.example.com/entry.mjs"),
+      /blocked by runtime network policy/,
+    );
+    assert.deepEqual(requestedUrls, ["https://cdn.example.com/entry.mjs"]);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("runtime-jspm invalidates materialized modules when policy changes", async () => {
+  const loader = new JspmModuleLoader({
+    remoteFallbackCdnBases: ["https://cdn.example.com"],
+    remoteFetchRetries: 0,
+  });
+  const remoteUrl = "https://cdn.example.com/cache-policy.mjs";
+  const globalState = globalThis as unknown as {
+    System?: { import(url: string): Promise<unknown> };
+  };
+  const previousSystem = globalState.System;
+  const previousFetch = globalThis.fetch;
+  let systemImportCalls = 0;
+  let fetchCalls = 0;
+
+  globalState.System = {
+    import: async () => {
+      systemImportCalls += 1;
+      return { default: "unrestricted" };
+    },
+  };
+
+  try {
+    const unrestricted = (await loader.load(remoteUrl)) as { default: string };
+    assert.equal(unrestricted.default, "unrestricted");
+
+    loader.configureNetworkPolicy({
+      allowArbitraryNetwork: false,
+      isRemoteUrlAllowed: (url) => new URL(url).hostname === "cdn.example.com",
+    });
+    globalThis.fetch = (async () => {
+      fetchCalls += 1;
+      return createRemoteModuleResponse({
+        url: remoteUrl,
+        body: 'export default "restricted";',
+      });
+    }) as typeof fetch;
+
+    const restricted = (await loader.load(remoteUrl)) as { default: string };
+    assert.equal(restricted.default, "restricted");
+    assert.equal(systemImportCalls, 1);
+    assert.equal(fetchCalls, 1);
+  } finally {
+    if (previousSystem === undefined) {
+      delete globalState.System;
+    } else {
+      globalState.System = previousSystem;
+    }
+    globalThis.fetch = previousFetch;
   }
 });
 
