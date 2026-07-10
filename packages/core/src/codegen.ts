@@ -497,7 +497,16 @@ export class DefaultCodeGenerator implements CodeGenerator {
     text: string,
     prompt: string,
   ): Promise<RuntimePlan | undefined> {
-    const parsed = this.tryParseJsonPayload(text);
+    const parsed = this.tryParseJsonPayload(text, (value) => {
+      if (!this.isRecord(value)) {
+        return false;
+      }
+
+      return (
+        isRuntimeNode(value.root) ||
+        (this.isRecord(value.source) && isRuntimeSourceModule(value.source))
+      );
+    });
     if (!this.isRecord(parsed)) {
       return undefined;
     }
@@ -604,7 +613,7 @@ export class DefaultCodeGenerator implements CodeGenerator {
   }
 
   private tryParseRuntimeNode(text: string): RuntimeNode | undefined {
-    const parsed = this.tryParseJsonPayload(text);
+    const parsed = this.tryParseJsonPayload(text, isRuntimeNode);
     if (isRuntimeNode(parsed)) {
       return parsed;
     }
@@ -612,8 +621,12 @@ export class DefaultCodeGenerator implements CodeGenerator {
     return undefined;
   }
 
-  private tryParseJsonPayload(text: string): unknown {
+  private tryParseJsonPayload(
+    text: string,
+    accepts: (value: unknown) => boolean,
+  ): unknown {
     const candidates: string[] = [];
+    const parsedCandidates = new Set<string>();
 
     const jsonCodeBlockMatch = text.match(/```json\s*([\s\S]*?)\s*```/i);
     if (jsonCodeBlockMatch?.[1]) {
@@ -639,28 +652,37 @@ export class DefaultCodeGenerator implements CodeGenerator {
 
       if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
         try {
-          return JSON.parse(trimmed) as unknown;
+          const parsed = JSON.parse(trimmed) as unknown;
+          parsedCandidates.add(trimmed);
+          if (accepts(parsed)) {
+            return parsed;
+          }
         } catch {
           // fall through to balanced extraction path
         }
       }
 
-      const extracted = this.extractFirstJsonPayload(trimmed);
-      if (!extracted) {
-        continue;
-      }
-
-      try {
-        return JSON.parse(extracted) as unknown;
-      } catch {
-        // ignore and continue
+      for (const extracted of this.extractJsonPayloads(trimmed)) {
+        if (parsedCandidates.has(extracted)) {
+          continue;
+        }
+        parsedCandidates.add(extracted);
+        try {
+          const parsed = JSON.parse(extracted) as unknown;
+          if (accepts(parsed)) {
+            return parsed;
+          }
+        } catch {
+          // Ignore malformed candidates and continue scanning later payloads.
+        }
       }
     }
 
     return undefined;
   }
 
-  private extractFirstJsonPayload(text: string): string | undefined {
+  private extractJsonPayloads(text: string): string[] {
+    const payloads: string[] = [];
     let inString = false;
     let escaped = false;
     let startIndex = -1;
@@ -717,15 +739,20 @@ export class DefaultCodeGenerator implements CodeGenerator {
       if (char === "}" || char === "]") {
         const expected = stack.pop();
         if (expected !== char) {
-          return undefined;
+          startIndex = -1;
+          stack.length = 0;
+          inString = false;
+          escaped = false;
+          continue;
         }
         if (stack.length === 0) {
-          return text.slice(startIndex, index + 1);
+          payloads.push(text.slice(startIndex, index + 1));
+          startIndex = -1;
         }
       }
     }
 
-    return undefined;
+    return payloads;
   }
 
   private isLikelyCompleteJsonPayload(text: string): boolean {

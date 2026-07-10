@@ -89,6 +89,29 @@ test("codegen extracts RuntimePlan JSON from prose-wrapped output", async () => 
   assert.equal(plan.root.tag, "section");
 });
 
+test("codegen skips unrelated JSON before the RuntimePlan payload", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const llmText = [
+    'Analysis metadata: {"confidence":0.92}',
+    "```json",
+    '{"note":"this fenced object is not a plan"}',
+    "```",
+    "Final RuntimePlan:",
+    '{"id":"later_runtime_plan","version":1,"root":{"type":"text","value":"selected later payload"}}',
+  ].join("\n");
+
+  const plan = await codegen.generatePlan({
+    prompt: "select the actual plan",
+    llmText,
+  });
+
+  assert.equal(plan.id, "later_runtime_plan");
+  assert.deepEqual(plan.root, {
+    type: "text",
+    value: "selected later payload",
+  });
+});
+
 test("codegen falls back to section root when no JSON payload exists", async () => {
   const codegen = new DefaultCodeGenerator();
 
