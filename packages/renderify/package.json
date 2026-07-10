@@ -21,7 +21,7 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "typecheck": "tsc -p tsconfig.json --pretty false --noEmit",
     "lint": "biome lint src",
-    "clean": "rm -rf dist dist-types",
+    "clean": "node -e \"for (const dir of ['dist', 'dist-types']) require('node:fs').rmSync(dir, { recursive: true, force: true })\"",
     "build:repo": "tsup --config tsup.config.ts",
     "watch:repo": "tsup --config tsup.config.ts --watch"
   },
