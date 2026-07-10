@@ -125,7 +125,7 @@ flowchart TD
   - `executionProfile: "isolated-vm"` is reserved for a future secure component isolation backend
   - current runtimes fail closed before loading modules when that profile is requested
   - trusted callers can explicitly set `allowIsolationFallback: true` to run it as `standard` without isolation
-  - browser source sandbox with `sandbox-worker` / `sandbox-iframe` / `sandbox-shadowrealm` execution profiles
+  - browser source sandbox with `sandbox-worker` / `sandbox-iframe` / `sandbox-shadowrealm` execution profiles; all three use a terminable Worker boundary (`iframe` and `shadowrealm` remain compatibility names)
   - runtime-level controls: mode / timeout / fail-closed
 - LLM structured contract:
   - prompt flow prefers structured `runtime-plan` output

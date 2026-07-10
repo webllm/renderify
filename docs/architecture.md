@@ -211,7 +211,11 @@ source.code
                     ──▶ Render as Preact component (or RuntimeNode tree)
 ```
 
-Optional sandbox modes (`sandbox-worker`, `sandbox-iframe`, `sandbox-shadowrealm`) isolate execution in a separate context with configurable timeouts and fail-closed behavior.
+Optional sandbox modes (`sandbox-worker`, `sandbox-iframe`,
+`sandbox-shadowrealm`) isolate execution in a terminable Web Worker with
+configurable timeouts and fail-closed behavior. The iframe and ShadowRealm names
+remain API-compatible routing preferences; they do not execute untrusted code
+on the main thread.
 
 ## Key Design Decisions
 

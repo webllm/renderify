@@ -210,13 +210,25 @@ RENDERIFY_RUNTIME_BROWSER_SANDBOX_FAIL_CLOSED=true
 
 ### sandbox-iframe
 
-Source code executes in a sandboxed iframe with restricted permissions. Similar timeout and fail-closed behavior as worker mode.
+This compatibility profile routes source code through the same terminable Web
+Worker boundary as `sandbox-worker`. Renderify does not execute untrusted source
+inside an iframe because a synchronous loop there cannot be reliably stopped by
+a main-thread timer. If Worker execution is unavailable, the profile fails
+closed.
 
 ### sandbox-shadowrealm
 
-Source code executes in a `ShadowRealm` when available. If `ShadowRealm` is unavailable, runtime falls back to Worker and then iframe sandbox modes.
+This compatibility profile also routes source code through a terminable Web
+Worker. A `ShadowRealm` is same-thread and cannot provide a reliable synchronous
+termination boundary. Availability of the `ShadowRealm` API therefore does not
+change execution routing; without Worker support, execution fails closed.
 
 Browser sandbox execution profiles apply to declarative plans and `source.runtime: "renderify"` modules. `source.runtime: "preact"` stays on the trusted in-page lane and does not use worker, iframe, or ShadowRealm sandbox adapters.
+
+For explicit `sandbox-worker`, `sandbox-iframe`, and `sandbox-shadowrealm`
+execution profiles, sandbox failure is always terminal. Setting
+`browserSourceSandboxFailClosed: false` does not permit an unsafe same-thread
+fallback for those profiles.
 
 ```bash
 RENDERIFY_RUNTIME_BROWSER_SANDBOX_MODE=shadowrealm

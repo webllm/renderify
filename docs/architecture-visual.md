@@ -65,17 +65,14 @@ flowchart TD
   A[Source execution requested] --> B{Sandbox mode}
 
   B -->|none| C[Main thread execution]
-  B -->|worker| D[Worker sandbox]
-  B -->|iframe| E[Iframe sandbox]
-  B -->|shadowrealm| F[ShadowRealm sandbox]
+  B -->|worker| D{Worker available?}
+  B -->|iframe compatibility name| D
+  B -->|shadowrealm compatibility name| D
 
-  F --> G{ShadowRealm available?}
-  G -->|yes| H[Execute in ShadowRealm]
-  G -->|no| I[Fallback chain]
-  I --> D
-  I --> E
-
-  D --> J{Timeout or abort?}
+  D -->|yes| E[Execute in terminable Worker]
+  D -->|no| F[Fail closed]
+  E --> G{Timeout or abort?}
+  G -->|yes| H[Terminate Worker]
   E --> J
   H --> J
 

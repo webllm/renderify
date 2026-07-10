@@ -102,9 +102,9 @@ interface RuntimeCapabilities {
 type RuntimeExecutionProfile =
   | "standard" // Default, in-page execution
   | "isolated-vm" // Reserved; current runtimes fail closed before module loading
-  | "sandbox-worker" // Web Worker sandbox
-  | "sandbox-iframe" // iframe sandbox
-  | "sandbox-shadowrealm"; // ShadowRealm sandbox
+  | "sandbox-worker" // Terminable Web Worker sandbox
+  | "sandbox-iframe" // Compatibility name routed to a Worker
+  | "sandbox-shadowrealm"; // Compatibility name routed to a Worker
 ```
 
 ### Execution Budgets

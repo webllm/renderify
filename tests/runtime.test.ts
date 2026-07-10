@@ -1648,12 +1648,12 @@ test("runtime executes source modules inside worker sandbox in browser mode", as
   }
 });
 
-test("runtime falls back to iframe sandbox when worker is unavailable", async () => {
+test("runtime iframe mode fails closed without a terminable worker", async () => {
   const restoreGlobals = installBrowserIframeSandboxGlobals();
   const runtime = new DefaultRuntimeManager({
     allowRuntimeSourceExecution: true,
     sourceTranspiler: new PassthroughSourceTranspiler(),
-    browserSourceSandboxMode: "worker",
+    browserSourceSandboxMode: "iframe",
     browserSourceSandboxFailClosed: true,
   });
 
@@ -1675,7 +1675,7 @@ test("runtime falls back to iframe sandbox when worker is unavailable", async ()
       },
       source: {
         language: "js",
-        code: "this is not valid js but iframe mock handles it",
+        code: "export default () => { while (true) {} }",
       },
     };
 
@@ -1685,17 +1685,20 @@ test("runtime falls back to iframe sandbox when worker is unavailable", async ()
     if (result.root.type !== "element") {
       throw new Error("expected element root");
     }
-    assert.equal(result.root.tag, "article");
+    assert.equal(result.root.tag, "div");
     assert.equal(result.root.children?.[0]?.type, "text");
     if (!result.root.children?.[0] || result.root.children[0].type !== "text") {
       throw new Error("expected text child");
     }
-    assert.equal(result.root.children[0].value, "iframe-sandbox-count:21");
+    assert.equal(result.root.children[0].value, "fallback");
     assert.ok(
       result.diagnostics.some(
-        (item) =>
-          item.code === "RUNTIME_SOURCE_SANDBOX_EXECUTED" &&
-          item.message.includes("iframe sandbox"),
+        (item) => item.code === "RUNTIME_SOURCE_SANDBOX_FAILED",
+      ),
+    );
+    assert.ok(
+      !result.diagnostics.some(
+        (item) => item.code === "RUNTIME_SOURCE_SANDBOX_EXECUTED",
       ),
     );
   } finally {
@@ -1704,7 +1707,7 @@ test("runtime falls back to iframe sandbox when worker is unavailable", async ()
   }
 });
 
-test("runtime falls back to worker sandbox when iframe is unavailable", async () => {
+test("runtime iframe mode routes source execution through a worker", async () => {
   const restoreGlobals = installBrowserSandboxGlobals(SandboxSuccessWorker);
   const runtime = new DefaultRuntimeManager({
     allowRuntimeSourceExecution: true,
@@ -1759,8 +1762,8 @@ test("runtime falls back to worker sandbox when iframe is unavailable", async ()
   }
 });
 
-test("runtime executes source modules inside shadowrealm sandbox when available", async () => {
-  const restoreGlobals = installBrowserSandboxGlobals(undefined);
+test("runtime shadowrealm mode routes source execution through a worker", async () => {
+  const restoreGlobals = installBrowserSandboxGlobals(SandboxSuccessWorker);
   const root = globalThis as Record<string, unknown>;
   const previousShadowRealm = Object.getOwnPropertyDescriptor(
     root,
@@ -1806,17 +1809,17 @@ test("runtime executes source modules inside shadowrealm sandbox when available"
     if (result.root.type !== "element") {
       throw new Error("expected element root");
     }
-    assert.equal(result.root.tag, "aside");
+    assert.equal(result.root.tag, "section");
     assert.equal(result.root.children?.[0]?.type, "text");
     if (!result.root.children?.[0] || result.root.children[0].type !== "text") {
       throw new Error("expected text child");
     }
-    assert.equal(result.root.children[0].value, "shadowrealm-count:9");
+    assert.equal(result.root.children[0].value, "sandbox-count:9");
     assert.ok(
       result.diagnostics.some(
         (item) =>
           item.code === "RUNTIME_SOURCE_SANDBOX_EXECUTED" &&
-          item.message.includes("shadowrealm sandbox"),
+          item.message.includes("worker sandbox"),
       ),
     );
   } finally {
@@ -1826,8 +1829,8 @@ test("runtime executes source modules inside shadowrealm sandbox when available"
   }
 });
 
-test("runtime shadowrealm mode falls back to worker sandbox when unavailable", async () => {
-  const restoreGlobals = installBrowserSandboxGlobals(SandboxSuccessWorker);
+test("runtime explicit iframe and shadowrealm profiles never use unsafe fallback", async () => {
+  const restoreGlobals = installBrowserIframeSandboxGlobals();
   const root = globalThis as Record<string, unknown>;
   const previousShadowRealm = Object.getOwnPropertyDescriptor(
     root,
@@ -1836,55 +1839,70 @@ test("runtime shadowrealm mode falls back to worker sandbox when unavailable", a
   Object.defineProperty(root, "ShadowRealm", {
     configurable: true,
     writable: true,
-    value: undefined,
+    value: SandboxSuccessShadowRealm,
   });
 
   const runtime = new DefaultRuntimeManager({
     allowRuntimeSourceExecution: true,
     sourceTranspiler: new PassthroughSourceTranspiler(),
-    browserSourceSandboxMode: "shadowrealm",
-    browserSourceSandboxFailClosed: true,
+    browserSourceSandboxMode: "none",
+    browserSourceSandboxFailClosed: false,
   });
 
   try {
     await runtime.initialize();
 
-    const plan: RuntimePlan = {
-      specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
-      id: "runtime_source_shadowrealm_worker_fallback_plan",
-      version: 1,
-      root: createElementNode("div", undefined, [createTextNode("fallback")]),
-      capabilities: {
-        domWrite: true,
-      },
-      state: {
-        initial: {
-          count: 18,
+    for (const executionProfile of [
+      "sandbox-iframe",
+      "sandbox-shadowrealm",
+    ] as const) {
+      const plan: RuntimePlan = {
+        specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+        id: `runtime_source_${executionProfile}_no_worker_plan`,
+        version: 1,
+        root: createElementNode("div", undefined, [createTextNode("fallback")]),
+        capabilities: {
+          domWrite: true,
+          executionProfile,
         },
-      },
-      source: {
-        language: "js",
-        code: "this is not valid js but worker mock handles it",
-      },
-    };
+        state: {
+          initial: {
+            count: 18,
+          },
+        },
+        source: {
+          language: "js",
+          code: "export default () => ({ type: 'text', value: 'must-not-run' })",
+        },
+      };
 
-    const result = await runtime.executePlan(plan);
-    assert.equal(result.root.type, "element");
-    if (result.root.type !== "element") {
-      throw new Error("expected element root");
+      const result = await runtime.executePlan(plan);
+      assert.equal(result.root.type, "element");
+      if (result.root.type !== "element") {
+        throw new Error("expected element root");
+      }
+      assert.equal(result.root.tag, "div");
+      assert.equal(result.root.children?.[0]?.type, "text");
+      if (
+        !result.root.children?.[0] ||
+        result.root.children[0].type !== "text"
+      ) {
+        throw new Error("expected text child");
+      }
+      assert.equal(result.root.children[0].value, "fallback");
+      assert.ok(
+        result.diagnostics.some(
+          (item) => item.code === "RUNTIME_SOURCE_SANDBOX_FAILED",
+        ),
+      );
+      assert.ok(
+        !result.diagnostics.some(
+          (item) =>
+            item.code === "RUNTIME_SOURCE_SANDBOX_FALLBACK" ||
+            item.code === "RUNTIME_SOURCE_SANDBOX_EXECUTED",
+        ),
+      );
     }
-    assert.equal(result.root.children?.[0]?.type, "text");
-    if (!result.root.children?.[0] || result.root.children[0].type !== "text") {
-      throw new Error("expected text child");
-    }
-    assert.equal(result.root.children[0].value, "sandbox-count:18");
-    assert.ok(
-      result.diagnostics.some(
-        (item) =>
-          item.code === "RUNTIME_SOURCE_SANDBOX_EXECUTED" &&
-          item.message.includes("worker sandbox"),
-      ),
-    );
   } finally {
     await runtime.terminate();
     restoreDescriptor(root, "ShadowRealm", previousShadowRealm);

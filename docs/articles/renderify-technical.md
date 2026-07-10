@@ -302,15 +302,18 @@ Each hook receives the current stage's payload and can transform it before passi
 
 ## Sandbox Execution Model
 
-For scenarios requiring stronger isolation, Renderify offers three browser sandbox modes:
+For scenarios requiring stronger isolation, Renderify accepts three browser sandbox profile names:
 
-| Mode                  | Mechanism                                         | Characteristics                                          |
-| --------------------- | ------------------------------------------------- | -------------------------------------------------------- |
-| `sandbox-worker`      | Web Worker + blob URL + `postMessage`             | Separate-thread execution with timeout and abort support |
-| `sandbox-iframe`      | `sandbox="allow-scripts"` iframe + MessageChannel | Isolated document context                                |
-| `sandbox-shadowrealm` | ShadowRealm API + blob URL bridge                 | Same-thread isolated realm                               |
+| Mode                  | Mechanism                             | Characteristics                                          |
+| --------------------- | ------------------------------------- | -------------------------------------------------------- |
+| `sandbox-worker`      | Web Worker + blob URL + `postMessage` | Separate-thread execution with timeout and abort support |
+| `sandbox-iframe`      | Terminable Web Worker                 | Compatibility name; never executes source in an iframe   |
+| `sandbox-shadowrealm` | Terminable Web Worker                 | Compatibility name; never executes source same-thread    |
 
-The three modes support automatic fallback chains — if the preferred mode is unavailable, execution automatically falls back to the next one. Each mode supports configurable timeouts and fail-closed behavior (fail-closed by default; can be disabled via `browserSourceSandboxFailClosed` to fall back to non-sandboxed execution on failure).
+All three require Worker support and fail closed when it is unavailable. A
+timeout or abort terminates the worker. Explicit sandbox execution profiles
+never fall back to non-sandboxed execution, even when
+`browserSourceSandboxFailClosed` is disabled.
 
 ## DOM Reconciliation and UI Rendering
 

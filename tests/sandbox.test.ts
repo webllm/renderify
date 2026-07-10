@@ -374,7 +374,7 @@ test("sandbox rejects invalid request envelope", async () => {
   );
 });
 
-test("sandbox worker mode fails when neither worker nor iframe is available", async () => {
+test("sandbox worker mode fails when a terminable worker is unavailable", async () => {
   const restoreBlob = installBlobUrlSupport();
   const restoreWorker = clearWorker();
   const restoreIframe = clearIframeEnvironment();
@@ -387,7 +387,7 @@ test("sandbox worker mode fails when neither worker nor iframe is available", as
           timeoutMs: 20,
           request: cloneRequest(),
         }),
-      /Worker sandbox is unavailable and iframe fallback is unavailable/,
+      /mode "worker" requires an available Worker/,
     );
   } finally {
     restoreIframe();
@@ -396,10 +396,13 @@ test("sandbox worker mode fails when neither worker nor iframe is available", as
   }
 });
 
-test("sandbox iframe mode falls back to worker when iframe is unavailable", async () => {
+test("sandbox iframe mode routes execution through a terminable worker", async () => {
   const restoreBlob = installBlobUrlSupport();
   const restoreWorker = installWorker(SuccessWorker);
-  const restoreIframe = clearIframeEnvironment();
+  const restoreIframe = installIframeEnvironment({
+    type: "text",
+    value: "must-not-use-iframe",
+  });
 
   try {
     const result = await executeSourceInBrowserSandbox({
@@ -417,7 +420,7 @@ test("sandbox iframe mode falls back to worker when iframe is unavailable", asyn
   }
 });
 
-test("sandbox worker mode falls back to iframe when worker is unavailable", async () => {
+test("sandbox worker and iframe modes fail closed without a worker", async () => {
   const restoreBlob = installBlobUrlSupport();
   const restoreWorker = clearWorker();
   const restoreIframe = installIframeEnvironment({
@@ -426,14 +429,19 @@ test("sandbox worker mode falls back to iframe when worker is unavailable", asyn
   });
 
   try {
-    const result = await executeSourceInBrowserSandbox({
-      mode: "worker",
-      timeoutMs: 100,
-      request: cloneRequest(),
-    });
-
-    assert.equal(result.mode, "iframe");
-    assert.deepEqual(result.output, { type: "text", value: "iframe-ok" });
+    for (const mode of ["worker", "iframe"] as const) {
+      await assert.rejects(
+        () =>
+          executeSourceInBrowserSandbox({
+            mode,
+            timeoutMs: 100,
+            request: cloneRequest({
+              code: "export default () => { while (true) {} }",
+            }),
+          }),
+        new RegExp(`mode "${mode}" requires an available Worker`),
+      );
+    }
   } finally {
     restoreIframe();
     restoreWorker();
@@ -441,10 +449,10 @@ test("sandbox worker mode falls back to iframe when worker is unavailable", asyn
   }
 });
 
-test("sandbox shadowrealm mode falls back to worker when ShadowRealm is unavailable", async () => {
+test("sandbox shadowrealm mode routes execution through a terminable worker", async () => {
   const restoreBlob = installBlobUrlSupport();
   const restoreWorker = installWorker(SuccessWorker);
-  const restoreShadowRealm = installShadowRealm(undefined);
+  const restoreShadowRealm = installShadowRealm(InvalidShadowRealm);
   const restoreIframe = clearIframeEnvironment();
 
   try {
@@ -522,7 +530,7 @@ test("sandbox worker mode aborts with AbortError and terminates worker", async (
   }
 });
 
-test("sandbox shadowrealm mode rejects invalid payload shape", async () => {
+test("sandbox shadowrealm mode does not execute in an available ShadowRealm", async () => {
   const restoreBlob = installBlobUrlSupport();
   const restoreShadowRealm = installShadowRealm(InvalidShadowRealm);
   const restoreWorker = clearWorker();
@@ -536,7 +544,7 @@ test("sandbox shadowrealm mode rejects invalid payload shape", async () => {
           timeoutMs: 100,
           request: cloneRequest(),
         }),
-      /invalid JSON payload|invalid payload shape/,
+      /mode "shadowrealm" requires an available Worker/,
     );
   } finally {
     restoreIframe();

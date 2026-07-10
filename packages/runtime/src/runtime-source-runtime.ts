@@ -4,6 +4,12 @@ import type {
 } from "@renderify/ir";
 import { BabelRuntimeSourceTranspiler } from "./transpiler";
 
+/**
+ * Browser source sandbox preference. The iframe and shadowrealm values remain
+ * accepted for compatibility, but execution is routed through a terminable
+ * Worker because those mechanisms do not provide a reliable synchronous
+ * termination guarantee.
+ */
 export type RuntimeSourceSandboxMode =
   | "none"
   | "worker"

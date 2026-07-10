@@ -109,6 +109,11 @@ export async function executeRuntimeSourceRoot(
       frame.executionProfile,
     );
     if (sandboxMode !== "none") {
+      const sandboxFailureIsTerminal =
+        browserSourceSandboxFailClosed ||
+        frame.executionProfile === "sandbox-worker" ||
+        frame.executionProfile === "sandbox-iframe" ||
+        frame.executionProfile === "sandbox-shadowrealm";
       try {
         const sandboxResult = await input.withRemainingBudget(
           () =>
@@ -153,14 +158,14 @@ export async function executeRuntimeSourceRoot(
         }
         const message = input.errorToMessage(error);
         diagnostics.push({
-          level: browserSourceSandboxFailClosed ? "error" : "warning",
-          code: browserSourceSandboxFailClosed
+          level: sandboxFailureIsTerminal ? "error" : "warning",
+          code: sandboxFailureIsTerminal
             ? "RUNTIME_SOURCE_SANDBOX_FAILED"
             : "RUNTIME_SOURCE_SANDBOX_FALLBACK",
           message,
         });
 
-        if (browserSourceSandboxFailClosed) {
+        if (sandboxFailureIsTerminal) {
           throw new Error(
             `Runtime source sandbox (${sandboxMode}) failed: ${message}`,
           );
