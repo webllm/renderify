@@ -1642,6 +1642,44 @@ test("llm provider registry can create builtin lmstudio interpreter", async () =
   );
 });
 
+test("lmstudio configure accepts generic Renderify LLM option names", async () => {
+  const requests: Array<{
+    url: string;
+    headers: Headers;
+    body: Record<string, unknown>;
+  }> = [];
+  const llm = new LMStudioLLMInterpreter({
+    fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        headers: new Headers(init?.headers),
+        body: parseBody(init?.body),
+      });
+      return jsonResponse({
+        choices: [{ message: { content: "configured" } }],
+      });
+    },
+  });
+  llm.configure({
+    llmApiKey: "local-secret",
+    llmBaseUrl: "https://configured.lmstudio.test/v1/",
+    llmModel: "configured-local-model",
+  });
+
+  const response = await llm.generateResponse({ prompt: "configure aliases" });
+
+  assert.equal(response.text, "configured");
+  assert.equal(
+    requests[0]?.url,
+    "https://configured.lmstudio.test/v1/chat/completions",
+  );
+  assert.equal(
+    requests[0]?.headers.get("authorization"),
+    "Bearer local-secret",
+  );
+  assert.equal(requests[0]?.body.model, "configured-local-model");
+});
+
 test("llm provider registry supports custom provider registration", async () => {
   class DemoLLMInterpreter implements LLMInterpreter {
     configure(): void {}

@@ -25,22 +25,33 @@ export class LMStudioLLMInterpreter extends OpenAILLMInterpreter {
   }
 
   configure(options: Record<string, unknown>): void {
+    const apiKey = pickConfiguredValue(options, "apiKey", "llmApiKey");
+    const baseUrl = pickConfiguredValue(options, "baseUrl", "llmBaseUrl");
+    const model = pickConfiguredValue(options, "model", "llmModel");
+
     super.configure({
       ...options,
-      apiKey: resolveValue(
-        typeof options.apiKey === "string" ? options.apiKey : undefined,
-        DEFAULT_API_KEY,
-      ),
-      baseUrl: resolveValue(
-        typeof options.baseUrl === "string" ? options.baseUrl : undefined,
-        DEFAULT_BASE_URL,
-      ),
-      model: resolveValue(
-        typeof options.model === "string" ? options.model : undefined,
-        DEFAULT_MODEL,
-      ),
+      ...(apiKey !== undefined ? { apiKey } : {}),
+      ...(baseUrl !== undefined ? { baseUrl } : {}),
+      ...(model !== undefined ? { model } : {}),
     });
   }
+}
+
+function pickConfiguredValue(
+  options: Record<string, unknown>,
+  directKey: string,
+  genericKey: string,
+): string | undefined {
+  const direct = options[directKey];
+  if (typeof direct === "string" && direct.trim().length > 0) {
+    return direct.trim();
+  }
+
+  const generic = options[genericKey];
+  return typeof generic === "string" && generic.trim().length > 0
+    ? generic.trim()
+    : undefined;
 }
 
 function resolveValue(value: string | undefined, fallback: string): string {

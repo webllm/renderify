@@ -21,6 +21,10 @@ const DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1";
 const DEFAULT_GOOGLE_MODEL = "gemini-2.5-flash";
 const DEFAULT_GOOGLE_BASE_URL =
   "https://generativelanguage.googleapis.com/v1beta";
+const DEFAULT_OLLAMA_MODEL = "qwen2.5-coder:7b";
+const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434";
+const DEFAULT_LMSTUDIO_MODEL = "qwen2.5-coder-7b-instruct";
+const DEFAULT_LMSTUDIO_BASE_URL = "http://127.0.0.1:1234/v1";
 
 export interface RenderifyConfigValues {
   llmApiKey?: string;
@@ -262,6 +266,20 @@ function resolveProviderLlmDefaults(
     return {
       model: DEFAULT_GOOGLE_MODEL,
       baseUrl: DEFAULT_GOOGLE_BASE_URL,
+    };
+  }
+
+  if (normalizedProvider === "ollama") {
+    return {
+      model: DEFAULT_OLLAMA_MODEL,
+      baseUrl: DEFAULT_OLLAMA_BASE_URL,
+    };
+  }
+
+  if (normalizedProvider === "lmstudio") {
+    return {
+      model: DEFAULT_LMSTUDIO_MODEL,
+      baseUrl: DEFAULT_LMSTUDIO_BASE_URL,
     };
   }
 

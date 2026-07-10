@@ -212,6 +212,44 @@ test("config derives openai codex defaults when only provider is configured", as
   }
 });
 
+test("config derives local-provider defaults when only provider is configured", async (t) => {
+  const previousProvider = process.env.RENDERIFY_LLM_PROVIDER;
+  const previousModel = process.env.RENDERIFY_LLM_MODEL;
+  const previousBaseUrl = process.env.RENDERIFY_LLM_BASE_URL;
+  delete process.env.RENDERIFY_LLM_PROVIDER;
+  delete process.env.RENDERIFY_LLM_MODEL;
+  delete process.env.RENDERIFY_LLM_BASE_URL;
+
+  try {
+    const cases = [
+      {
+        provider: "ollama",
+        model: "qwen2.5-coder:7b",
+        baseUrl: "http://127.0.0.1:11434",
+      },
+      {
+        provider: "lmstudio",
+        model: "qwen2.5-coder-7b-instruct",
+        baseUrl: "http://127.0.0.1:1234/v1",
+      },
+    ] as const;
+
+    for (const entry of cases) {
+      await t.test(entry.provider, async () => {
+        const config = new DefaultRenderifyConfig();
+        await config.load({ llmProvider: entry.provider });
+
+        assert.equal(config.get("llmModel"), entry.model);
+        assert.equal(config.get("llmBaseUrl"), entry.baseUrl);
+      });
+    }
+  } finally {
+    restoreEnv("RENDERIFY_LLM_PROVIDER", previousProvider);
+    restoreEnv("RENDERIFY_LLM_MODEL", previousModel);
+    restoreEnv("RENDERIFY_LLM_BASE_URL", previousBaseUrl);
+  }
+});
+
 test("config reads runtime policy values from env", async () => {
   const previousEnforceManifest =
     process.env.RENDERIFY_RUNTIME_ENFORCE_MANIFEST;
