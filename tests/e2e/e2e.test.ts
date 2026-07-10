@@ -385,6 +385,26 @@ test("e2e: playground api supports prompt and stream flow", async () => {
   try {
     await waitForHealth(`${baseUrl}/api/health`, 10000);
 
+    const crossOriginResponse = await fetch(`${baseUrl}/api/prompt`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin: "https://attacker.example",
+      },
+      body: JSON.stringify({ prompt: "cross-origin request" }),
+    });
+    assert.equal(crossOriginResponse.status, 403);
+
+    const sameOriginResponse = await fetch(`${baseUrl}/api/prompt`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        origin: baseUrl,
+      },
+      body: JSON.stringify({ prompt: "same-origin request" }),
+    });
+    assert.equal(sameOriginResponse.status, 200);
+
     const promptResponse = await fetchJson(`${baseUrl}/api/prompt`, {
       method: "POST",
       body: {

@@ -44,6 +44,7 @@ import {
 import { PLAYGROUND_HTML } from "./playground-html";
 import {
   formatPlaygroundUrlHost,
+  getPlaygroundMutationRejectionReason,
   listenForPlayground,
   normalizePlaygroundHost,
   resolvePlaygroundHost,
@@ -1078,6 +1079,16 @@ async function handlePlaygroundRequest(
   };
 
   try {
+    if (method === "POST") {
+      const provenanceError = getPlaygroundMutationRejectionReason(req.headers);
+      if (provenanceError) {
+        sendJson(res, 403, { error: provenanceError });
+        responseSummary = { error: "request-origin-rejected" };
+        finishDebug(403, provenanceError);
+        return;
+      }
+    }
+
     if (method === "GET" && pathname === "/") {
       sendHtml(res, PLAYGROUND_HTML);
       responseSummary = { contentType: "text/html" };

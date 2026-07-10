@@ -104,6 +104,10 @@ RENDERIFY_PLAYGROUND_HOST=0.0.0.0 pnpm playground
 Binding to a non-loopback address exposes the development server to the
 reachable network. Keep the default unless remote access is intentional.
 
+Browser writes to Playground API endpoints must come from the Playground's
+own origin. Cross-origin `POST` requests are rejected with HTTP 403. CLI and
+SDK clients that do not send browser provenance headers remain supported.
+
 ### `help` — Print Usage
 
 ```bash
