@@ -1,4 +1,10 @@
-import type { RuntimeExecutionResult, RuntimePlan } from "@renderify/ir";
+import {
+  asJsonValue,
+  type JsonObject,
+  type RuntimeExecutionContext,
+  type RuntimeExecutionResult,
+  type RuntimePlan,
+} from "@renderify/ir";
 import {
   autoPinRuntimePlanModuleManifest,
   type RuntimeExecutionInput,
@@ -835,10 +841,7 @@ export class RenderifyApp {
 
       const runtimeInputRaw: RuntimeExecutionInput = {
         plan: planForPolicy,
-        context: {
-          userId: this.resolveUserId(),
-          variables: {},
-        },
+        context: this.resolveRuntimeExecutionContext(),
         signal,
       };
 
@@ -1155,8 +1158,27 @@ export class RenderifyApp {
     return `pipeline:${traceId}`;
   }
 
-  private resolveUserId(): string {
-    const candidate = this.deps.context.getContext().user?.id;
+  private resolveRuntimeExecutionContext(): RuntimeExecutionContext {
+    const normalized = asJsonValue(this.deps.context.getContext());
+    const variables = this.asJsonObject(normalized) ?? {};
+
+    return {
+      userId: this.resolveUserId(variables),
+      variables,
+    };
+  }
+
+  private asJsonObject(value: unknown): JsonObject | undefined {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+      return undefined;
+    }
+
+    return value as JsonObject;
+  }
+
+  private resolveUserId(variables: JsonObject): string {
+    const user = this.asJsonObject(variables.user);
+    const candidate = user?.id;
     if (typeof candidate === "string" && candidate.trim().length > 0) {
       return candidate.trim();
     }
@@ -1219,10 +1241,7 @@ export class RenderifyApp {
 
       const execution = await this.deps.runtime.execute({
         plan,
-        context: {
-          userId: this.resolveUserId(),
-          variables: {},
-        },
+        context: this.resolveRuntimeExecutionContext(),
         signal,
       });
       const html = await this.deps.ui.render(execution, target);

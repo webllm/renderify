@@ -28,7 +28,10 @@ import {
   DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
   type RuntimePlan,
 } from "../packages/ir/src/index";
-import { DefaultRuntimeManager } from "../packages/runtime/src/index";
+import {
+  DefaultRuntimeManager,
+  type RuntimeExecutionInput,
+} from "../packages/runtime/src/index";
 import { DefaultSecurityChecker } from "../packages/security/src/index";
 
 class RejectingConfig extends DefaultRenderifyConfig {
@@ -424,6 +427,15 @@ class GatedLifecycleRuntime extends DefaultRuntimeManager {
   }
 }
 
+class ContextCapturingRuntime extends DefaultRuntimeManager {
+  readonly inputs: RuntimeExecutionInput[] = [];
+
+  override async execute(input: RuntimeExecutionInput) {
+    this.inputs.push(input);
+    return super.execute(input);
+  }
+}
+
 class CountingIncrementalCodeGenerator extends DefaultCodeGenerator {
   public generatePlanCalls = 0;
   public pushDeltaCalls = 0;
@@ -621,6 +633,80 @@ test("core renderPlan executes provided plan", async () => {
   const result = await app.renderPlan(plan, { prompt: "plan mode" });
   assert.match(result.html, /Hello from render plan/);
   assert.equal(result.plan.id, "core_render_plan");
+
+  await app.stop();
+});
+
+test("core passes normalized application context to runtime and previews", async () => {
+  const context = new DefaultContextManager();
+  const runtime = new ContextCapturingRuntime();
+  const app = createRenderifyApp(
+    createDependencies({
+      context,
+      runtime,
+    }),
+  );
+  await app.start();
+
+  const circular: Record<string, unknown> = { label: "safe" };
+  circular.self = circular;
+  context.updateContext({
+    user: {
+      id: "user_42",
+      name: "Ada",
+      role: "operator",
+    },
+    tenant: {
+      id: "tenant_7",
+    },
+    nonFinite: Number.POSITIVE_INFINITY,
+    circular,
+  });
+
+  const result = await app.renderPlan({
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "core_runtime_context_plan",
+    version: 1,
+    root: createTextNode(
+      "id={{context.userId}}, name={{vars.user.name}}, tenant={{vars.tenant.id}}, invalid={{vars.nonFinite}}, cycle={{vars.circular.self}}",
+    ),
+    capabilities: {
+      domWrite: true,
+    },
+  });
+
+  assert.match(
+    result.html,
+    /id=user_42, name=Ada, tenant=tenant_7, invalid=, cycle=/,
+  );
+
+  let sawPreview = false;
+  for await (const chunk of app.renderPromptStream("context preview", {
+    previewEveryChunks: 1,
+  })) {
+    if (chunk.type === "preview") {
+      sawPreview = true;
+    }
+  }
+
+  assert.equal(sawPreview, true);
+  assert.ok(runtime.inputs.length >= 3);
+  for (const input of runtime.inputs) {
+    assert.equal(input.context?.userId, "user_42");
+    assert.deepEqual(input.context?.variables?.user, {
+      id: "user_42",
+      name: "Ada",
+      role: "operator",
+    });
+    assert.deepEqual(input.context?.variables?.tenant, {
+      id: "tenant_7",
+    });
+    assert.equal(input.context?.variables?.nonFinite, null);
+    assert.deepEqual(input.context?.variables?.circular, {
+      label: "safe",
+      self: null,
+    });
+  }
 
   await app.stop();
 });
