@@ -334,52 +334,77 @@ export class OllamaLLMInterpreter implements LLMInterpreter {
       };
     }
 
-    const response = await this.generateResponse({
-      prompt: `${req.prompt}\n\nReturn valid JSON only.`,
-      context: req.context,
-      systemPrompt: req.systemPrompt,
-      signal: req.signal,
-    });
+    const payload = await this.requestGenerate(
+      {
+        model: this.options.model,
+        prompt: this.buildPrompt({
+          ...req,
+          prompt: `${req.prompt}\n\nReturn one valid Renderify RuntimePlan JSON object only. No markdown.`,
+        }),
+        stream: false,
+        // Ollama also accepts a JSON Schema object here, but the string form
+        // is compatible with older local servers. RuntimePlan validation below
+        // remains the authoritative schema check.
+        format: "json",
+        ...(this.options.keepAlive
+          ? { keep_alive: this.options.keepAlive }
+          : {}),
+      },
+      req.signal,
+    );
 
-    const parsed = tryParseJson(response.text);
+    const text = typeof payload.response === "string" ? payload.response : "";
+    const tokensUsed = this.extractTotalTokens(payload);
+    const model = payload.model ?? this.options.model;
+    const raw = {
+      mode: "structured",
+      format: "json",
+      done: payload.done,
+      doneReason: payload.done_reason,
+    };
+
+    if (text.trim().length === 0) {
+      return {
+        text,
+        valid: false,
+        errors: ["Structured response content is empty"],
+        tokensUsed,
+        model,
+        raw,
+      };
+    }
+
+    const parsed = tryParseJson(text);
     if (!parsed.ok) {
       return {
-        text: response.text,
+        text,
         valid: false,
         errors: [`Structured JSON parse failed: ${parsed.error}`],
-        tokensUsed: response.tokensUsed,
-        model: response.model,
-        raw: {
-          mode: "structured",
-          source: response.raw,
-        },
+        tokensUsed,
+        model,
+        raw,
       };
     }
 
     if (!isRuntimePlan(parsed.value)) {
       return {
-        text: response.text,
+        text,
+        value: parsed.value as T,
         valid: false,
-        errors: ["Structured response is not a valid RuntimePlan"],
-        tokensUsed: response.tokensUsed,
-        model: response.model,
-        raw: {
-          mode: "structured",
-          source: response.raw,
-        },
+        errors: ["Structured payload is not a valid RuntimePlan"],
+        tokensUsed,
+        model,
+        raw,
       };
     }
 
     return {
-      text: response.text,
+      text,
       value: parsed.value as T,
       valid: true,
-      tokensUsed: response.tokensUsed,
-      model: response.model,
-      raw: {
-        mode: "structured",
-        source: response.raw,
-      },
+      tokensUsed,
+      model,
+      raw,
     };
   }
 

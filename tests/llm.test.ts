@@ -1314,6 +1314,203 @@ test("ollama interpreter generates text response", async () => {
   assert.equal(requests[0].body.stream, false);
 });
 
+test("ollama interpreter requests and validates native structured JSON", async () => {
+  const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+  const plan = {
+    id: "ollama_runtime_plan_1",
+    version: 1,
+    capabilities: {
+      domWrite: true,
+    },
+    root: {
+      type: "element",
+      tag: "section",
+      children: [{ type: "text", value: "structured ollama plan" }],
+    },
+  };
+  const llm = new OllamaLLMInterpreter({
+    baseUrl: "https://example.ollama.test/",
+    model: "qwen2.5-coder:7b",
+    keepAlive: "5m",
+    fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: parseBody(init?.body),
+      });
+      return jsonResponse({
+        model: "qwen2.5-coder:7b",
+        response: JSON.stringify(plan),
+        prompt_eval_count: 9,
+        eval_count: 12,
+        done: true,
+        done_reason: "stop",
+      });
+    },
+  });
+
+  const response = await llm.generateStructuredResponse({
+    prompt: "build a runtime plan",
+    context: { tenantId: "tenant-1" },
+    format: "runtime-plan",
+    strict: true,
+  });
+
+  assert.equal(response.valid, true);
+  assert.deepEqual(response.value, plan);
+  assert.equal(response.tokensUsed, 21);
+  assert.equal(response.model, "qwen2.5-coder:7b");
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, "https://example.ollama.test/api/generate");
+  assert.equal(requests[0].body.model, "qwen2.5-coder:7b");
+  assert.equal(requests[0].body.stream, false);
+  assert.equal(requests[0].body.format, "json");
+  assert.equal(requests[0].body.keep_alive, "5m");
+  assert.match(String(requests[0].body.prompt), /tenant-1/);
+  assert.match(String(requests[0].body.prompt), /No markdown/);
+  assert.deepEqual(response.raw, {
+    mode: "structured",
+    format: "json",
+    done: true,
+    doneReason: "stop",
+  });
+});
+
+test("ollama interpreter reports invalid structured payloads", async () => {
+  const cases: Array<{
+    response: string;
+    error: RegExp;
+    expectedValue?: unknown;
+  }> = [
+    {
+      response: "",
+      error: /Structured response content is empty/,
+    },
+    {
+      response: "{not-json",
+      error: /Structured JSON parse failed/,
+    },
+    {
+      response: JSON.stringify({ type: "not-a-runtime-plan" }),
+      error: /Structured payload is not a valid RuntimePlan/,
+      expectedValue: { type: "not-a-runtime-plan" },
+    },
+  ];
+
+  for (const testCase of cases) {
+    let requestBody: Record<string, unknown> | undefined;
+    const llm = new OllamaLLMInterpreter({
+      fetchImpl: async (_input: RequestInfo | URL, init?: RequestInit) => {
+        requestBody = parseBody(init?.body);
+        return jsonResponse({
+          response: testCase.response,
+          done: true,
+        });
+      },
+    });
+
+    const response = await llm.generateStructuredResponse({
+      prompt: "build a runtime plan",
+      format: "runtime-plan",
+    });
+
+    assert.equal(response.valid, false);
+    assert.match(String(response.errors?.[0] ?? ""), testCase.error);
+    assert.deepEqual(response.value, testCase.expectedValue);
+    assert.equal(requestBody?.format, "json");
+  }
+});
+
+test("ollama structured requests preserve reliability and error handling", async () => {
+  const plan = {
+    id: "ollama_retry_plan",
+    version: 1,
+    capabilities: { domWrite: true },
+    root: { type: "text", value: "retried" },
+  };
+  let attempts = 0;
+  const requestBodies: Record<string, unknown>[] = [];
+  const llm = new OllamaLLMInterpreter({
+    reliability: {
+      maxRetries: 1,
+      retryBaseDelayMs: 1,
+      retryMaxDelayMs: 1,
+      retryJitterMs: 0,
+    },
+    fetchImpl: async (_input: RequestInfo | URL, init?: RequestInit) => {
+      attempts += 1;
+      requestBodies.push(parseBody(init?.body));
+      if (attempts === 1) {
+        return new Response(JSON.stringify({ error: "try again" }), {
+          status: 503,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return jsonResponse({
+        response: JSON.stringify(plan),
+        done: true,
+      });
+    },
+  });
+
+  const response = await llm.generateStructuredResponse({
+    prompt: "retry a runtime plan",
+    format: "runtime-plan",
+  });
+
+  assert.equal(response.valid, true);
+  assert.deepEqual(response.value, plan);
+  assert.equal(attempts, 2);
+  assert.ok(requestBodies.every((body) => body.format === "json"));
+
+  const failing = new OllamaLLMInterpreter({
+    reliability: { maxRetries: 0 },
+    fetchImpl: async () =>
+      new Response(JSON.stringify({ error: "invalid structured request" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      }),
+  });
+  await assert.rejects(
+    () =>
+      failing.generateStructuredResponse({
+        prompt: "fail a runtime plan",
+        format: "runtime-plan",
+      }),
+    /Ollama request failed \(400\): .*invalid structured request/,
+  );
+});
+
+test("ollama structured request timeout aborts the native request", async () => {
+  let aborted = false;
+  const llm = new OllamaLLMInterpreter({
+    timeoutMs: 20,
+    reliability: { maxRetries: 0 },
+    fetchImpl: async (_input: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal as AbortSignal | undefined;
+        const onAbort = () => {
+          aborted = true;
+          reject(createAbortError());
+        };
+        if (signal?.aborted) {
+          onAbort();
+          return;
+        }
+        signal?.addEventListener("abort", onAbort, { once: true });
+      }),
+  });
+
+  await assert.rejects(
+    () =>
+      llm.generateStructuredResponse({
+        prompt: "stall a runtime plan",
+        format: "runtime-plan",
+      }),
+    /Ollama request timed out after 20ms/,
+  );
+  assert.equal(aborted, true);
+});
+
 test("ollama interpreter streams text response chunks", async () => {
   const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
 
