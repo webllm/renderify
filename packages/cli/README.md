@@ -72,7 +72,9 @@ Playground listens only on `127.0.0.1` by default. To opt in to network access,
 pass `--host 0.0.0.0` or set `RENDERIFY_PLAYGROUND_HOST=0.0.0.0`; use a
 non-loopback binding only on a trusted network.
 
-Playground prints outbound LLM request/response payload logs to terminal by default (`[playground-llm]`) with sensitive values redacted.
+Playground prints outbound LLM request/response metadata summaries to the
+terminal by default (`[playground-llm]`). Prompt, generated content, unknown
+header values, and oversized bodies are not printed.
 
 When debug mode is enabled, playground also prints key inbound/outbound request summaries, exposes `/api/debug/stats`, and renders an in-page **Debug Stats** panel with manual/auto refresh.
 

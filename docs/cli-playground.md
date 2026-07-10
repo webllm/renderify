@@ -349,5 +349,9 @@ RENDERIFY_RUNTIME_BROWSER_SANDBOX_FAIL_CLOSED=true
 # Playground
 RENDERIFY_PLAYGROUND_HOST=127.0.0.1
 RENDERIFY_PLAYGROUND_PORT=4317
+RENDERIFY_PLAYGROUND_LLM_LOG=true
 PORT=4317
 ```
+
+LLM terminal logs contain bounded metadata summaries only. Prompt text,
+generated content, and non-allowlisted header values are redacted.

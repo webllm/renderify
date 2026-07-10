@@ -583,7 +583,62 @@ test("e2e: playground prints llm request/response logs by default", async () => 
     );
     assert.match(playgroundStdout, /"authorization":"\[REDACTED\]"/);
     assert.match(playgroundStdout, /"body":\{"model":"gpt-5-mini"/);
+    assert.match(playgroundStdout, /"contentRedacted":true/);
+    assert.doesNotMatch(playgroundStdout, /llm terminal log prompt/);
+    assert.doesNotMatch(playgroundStdout, /OpenAI provider plan/);
     assert.match(playgroundStdout, /"statusCode":200/);
+  } finally {
+    processHandle.kill("SIGTERM");
+    await onceExit(processHandle, 3000);
+    await close();
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("e2e: playground bounds and redacts oversized llm logs", async () => {
+  const tempDir = await mkdtemp(
+    path.join(os.tmpdir(), "renderify-e2e-playground-llm-log-bounded-"),
+  );
+  const port = await allocatePort();
+  const openaiPort = await allocatePort();
+  const requestMarker = "PRIVATE_REQUEST_MARKER";
+  const responseMarker = "PRIVATE_RESPONSE_MARKER";
+  const { close } = await startFakeOpenAIServer(openaiPort, {
+    responsePadding: `${responseMarker}${"y".repeat(70_000)}`,
+  });
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const processHandle = startPlayground(port, {
+    RENDERIFY_SESSION_FILE: path.join(tempDir, "session.json"),
+    RENDERIFY_LLM_PROVIDER: "openai",
+    RENDERIFY_LLM_API_KEY: "test-key",
+    RENDERIFY_LLM_BASE_URL: `http://127.0.0.1:${openaiPort}/v1`,
+    RENDERIFY_LLM_MODEL: "gpt-5-mini",
+  });
+  let playgroundStdout = "";
+  processHandle.stdout.on("data", (chunk: Buffer | string) => {
+    playgroundStdout += String(chunk);
+  });
+
+  try {
+    await waitForHealth(`${baseUrl}/api/health`, 10000);
+
+    const promptResponse = await fetchJson(`${baseUrl}/api/prompt`, {
+      method: "POST",
+      body: {
+        prompt: `${requestMarker}${"x".repeat(70_000)}`,
+      },
+    });
+    assert.equal(promptResponse.status, 200);
+
+    await waitForTextInOutput(
+      () =>
+        playgroundStdout.includes("[playground-llm]") &&
+        playgroundStdout.includes('"truncated":true'),
+      5000,
+      "bounded playground llm logs",
+    );
+    assert.doesNotMatch(playgroundStdout, new RegExp(requestMarker));
+    assert.doesNotMatch(playgroundStdout, new RegExp(responseMarker));
   } finally {
     processHandle.kill("SIGTERM");
     await onceExit(processHandle, 3000);
@@ -643,6 +698,8 @@ test("e2e: playground logs codex responses requests with sensitive headers redac
     assert.match(playgroundStdout, /"chatgpt-account-id":"\[REDACTED\]"/);
     assert.doesNotMatch(playgroundStdout, /acct_e2e_codex/);
     assert.match(playgroundStdout, /"body":\{"model":"gpt-5.5"/);
+    assert.match(playgroundStdout, /"contentRedacted":true/);
+    assert.doesNotMatch(playgroundStdout, /codex llm terminal log prompt/);
     assert.match(playgroundStdout, /"statusCode":200/);
   } finally {
     processHandle.kill("SIGTERM");
@@ -751,6 +808,7 @@ test("e2e: playground debug mode exposes inbound/outbound request distribution",
           count?: unknown;
         }>;
       };
+      recent?: unknown[];
     };
 
     assert.equal(statsBody.enabled, true);
@@ -771,6 +829,10 @@ test("e2e: playground debug mode exposes inbound/outbound request distribution",
     );
     assert.equal(typeof outboundModelRequest?.count, "number");
     assert.ok((outboundModelRequest?.count as number) >= 1);
+    assert.doesNotMatch(
+      JSON.stringify(statsBody.recent ?? []),
+      /debug stats prompt/,
+    );
   } finally {
     processHandle.kill("SIGTERM");
     await onceExit(processHandle, 3000);
@@ -1648,7 +1710,10 @@ async function fetchNdjson(
   return lines.map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 
-async function startFakeOpenAIServer(port: number): Promise<{
+async function startFakeOpenAIServer(
+  port: number,
+  options: { responsePadding?: string } = {},
+): Promise<{
   requests: Record<string, unknown>[];
   close: () => Promise<void>;
 }> {
@@ -1688,6 +1753,9 @@ async function startFakeOpenAIServer(port: number): Promise<{
         sendJson(res, 200, {
           id: "chatcmpl_e2e_openai",
           model: "gpt-5-mini",
+          ...(options.responsePadding
+            ? { debug_padding: options.responsePadding }
+            : {}),
           usage: {
             total_tokens: 64,
           },

@@ -86,9 +86,16 @@ const AUTO_MANIFEST_INTEGRITY_TIMEOUT_MS = 8000;
 const REMOTE_MODULE_INTEGRITY_FETCHER = new RemoteModuleIntegrityFetcher();
 const DEBUG_RECENT_LOG_LIMIT = 120;
 const LLM_LOG_INLINE_LIMIT = 10_000;
-const LLM_LOG_TEXT_LIMIT = 4_000;
+const LLM_LOG_BODY_MAX_BYTES = 64 * 1024;
+const LLM_LOG_BODY_READ_TIMEOUT_MS = 5_000;
 const LLM_SENSITIVE_KEY_PATTERN =
   /(account|api[-_]?key|authorization|token|secret|password|cookie|session)/i;
+const LLM_SAFE_HEADER_NAMES = new Set([
+  "accept",
+  "content-length",
+  "content-type",
+  "user-agent",
+]);
 const { readFile } = fs.promises;
 
 interface PlaygroundDebugAggregate {
@@ -1975,19 +1982,45 @@ function extractLoggableRequestBody(body: RequestInit["body"]): unknown {
       return "";
     }
 
+    const size = Buffer.byteLength(body);
+    if (size > LLM_LOG_BODY_MAX_BYTES) {
+      return {
+        type: looksLikeJson(trimmed) ? "json" : "text",
+        size,
+        truncated: true,
+        contentRedacted: true,
+        stream: detectsStreamFlag(body),
+      };
+    }
+
     if (looksLikeJson(trimmed)) {
       try {
-        return redactForLlmLog(JSON.parse(trimmed) as unknown);
+        return summarizeLlmJsonBody(JSON.parse(trimmed) as unknown, size);
       } catch {
-        return clampDebugText(trimmed, LLM_LOG_TEXT_LIMIT);
+        return {
+          type: "text",
+          size,
+          contentRedacted: true,
+          stream: detectsStreamFlag(body),
+        };
       }
     }
 
-    return clampDebugText(trimmed, LLM_LOG_TEXT_LIMIT);
+    return {
+      type: "text",
+      size,
+      contentRedacted: true,
+    };
   }
 
   if (body instanceof URLSearchParams) {
-    return redactForLlmLog(Object.fromEntries(body.entries()));
+    const encoded = body.toString();
+    return {
+      type: "urlencoded",
+      size: Buffer.byteLength(encoded),
+      fieldCount: [...body.keys()].length,
+      contentRedacted: true,
+    };
   }
 
   if (typeof Buffer !== "undefined" && Buffer.isBuffer(body)) {
@@ -2026,8 +2059,18 @@ async function extractLoggableResponseBody(
   response: Response,
 ): Promise<unknown> {
   try {
-    const text = await response.clone().text();
-    const trimmed = text.trim();
+    const body = await readBoundedLlmResponseBody(response);
+    if (body.truncated || body.timedOut) {
+      return {
+        type: "body",
+        sizeAtLeast: body.byteLength,
+        ...(body.truncated ? { truncated: true } : {}),
+        ...(body.timedOut ? { timedOut: true } : {}),
+        contentRedacted: true,
+      };
+    }
+
+    const trimmed = body.text.trim();
     if (trimmed.length === 0) {
       return undefined;
     }
@@ -2037,18 +2080,93 @@ async function extractLoggableResponseBody(
     ).toLowerCase();
     if (contentType.includes("application/json") || looksLikeJson(trimmed)) {
       try {
-        return redactForLlmLog(JSON.parse(trimmed) as unknown);
+        return summarizeLlmJsonBody(
+          JSON.parse(trimmed) as unknown,
+          body.byteLength,
+        );
       } catch {
-        return clampDebugText(trimmed, LLM_LOG_TEXT_LIMIT);
+        return {
+          type: "text",
+          size: body.byteLength,
+          contentRedacted: true,
+        };
       }
     }
 
-    return clampDebugText(trimmed, LLM_LOG_TEXT_LIMIT);
+    return {
+      type: "text",
+      size: body.byteLength,
+      contentRedacted: true,
+    };
   } catch (error) {
     return {
-      parseError: error instanceof Error ? error.message : String(error),
+      readError: error instanceof Error ? error.name : "UnknownError",
     };
   }
+}
+
+async function readBoundedLlmResponseBody(response: Response): Promise<{
+  text: string;
+  byteLength: number;
+  truncated: boolean;
+  timedOut: boolean;
+}> {
+  const clone = response.clone();
+  const declaredLength = clone.headers.get("content-length")?.trim();
+  if (
+    declaredLength &&
+    /^\d+$/.test(declaredLength) &&
+    Number(declaredLength) > LLM_LOG_BODY_MAX_BYTES
+  ) {
+    cancelResponseClone(clone);
+    return {
+      text: "",
+      byteLength: LLM_LOG_BODY_MAX_BYTES,
+      truncated: true,
+      timedOut: false,
+    };
+  }
+
+  if (!clone.body) {
+    return { text: "", byteLength: 0, truncated: false, timedOut: false };
+  }
+
+  const reader = clone.body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  let byteLength = 0;
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    void reader.cancel().catch(() => {});
+  }, LLM_LOG_BODY_READ_TIMEOUT_MS);
+
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        break;
+      }
+      if (chunk.value.byteLength > LLM_LOG_BODY_MAX_BYTES - byteLength) {
+        void reader.cancel().catch(() => {});
+        return { text: "", byteLength, truncated: true, timedOut: false };
+      }
+      byteLength += chunk.value.byteLength;
+      text += decoder.decode(chunk.value, { stream: true });
+    }
+    text += decoder.decode();
+    return { text, byteLength, truncated: false, timedOut };
+  } finally {
+    clearTimeout(timeout);
+    reader.releaseLock();
+  }
+}
+
+function cancelResponseClone(response: Response): void {
+  if (!response.body || response.body.locked) {
+    return;
+  }
+  void response.body.cancel().catch(() => {});
 }
 
 function extractHeaderEntries(
@@ -2100,41 +2218,100 @@ function extractResponseHeaderEntries(
 }
 
 function redactHeaderValue(name: string, value: string): string {
-  if (LLM_SENSITIVE_KEY_PATTERN.test(name)) {
+  if (
+    LLM_SENSITIVE_KEY_PATTERN.test(name) ||
+    !LLM_SAFE_HEADER_NAMES.has(name)
+  ) {
     return "[REDACTED]";
   }
   return clampDebugText(value, 400);
 }
 
-function redactForLlmLog(value: unknown, keyHint = "", depth = 0): unknown {
-  if (depth > 8) {
-    return "[MaxDepth]";
-  }
-
-  if (typeof value === "string") {
-    if (LLM_SENSITIVE_KEY_PATTERN.test(keyHint)) {
-      return "[REDACTED]";
-    }
-    return clampDebugText(value, LLM_LOG_TEXT_LIMIT);
-  }
-
-  if (Array.isArray(value)) {
-    return value.map((item) => redactForLlmLog(item, keyHint, depth + 1));
-  }
-
+function summarizeLlmJsonBody(
+  value: unknown,
+  size: number,
+): Record<string, unknown> {
+  const summary: Record<string, unknown> = {};
   if (isRecord(value)) {
-    const next: Record<string, unknown> = {};
-    for (const [key, item] of Object.entries(value)) {
-      if (LLM_SENSITIVE_KEY_PATTERN.test(key)) {
-        next[key] = "[REDACTED]";
-      } else {
-        next[key] = redactForLlmLog(item, key, depth + 1);
+    if (typeof value.model === "string") {
+      summary.model = clampDebugText(value.model, 200);
+    }
+    if (typeof value.stream === "boolean") {
+      summary.stream = value.stream;
+    }
+
+    const safeNumericKeys = [
+      "temperature",
+      "top_p",
+      "max_tokens",
+      "max_completion_tokens",
+      "max_output_tokens",
+      "n",
+    ];
+    for (const key of safeNumericKeys) {
+      if (typeof value[key] === "number" && Number.isFinite(value[key])) {
+        summary[key] = value[key];
       }
     }
-    return next;
+
+    addArrayCount(summary, "messagesCount", value.messages);
+    addArrayCount(summary, "toolsCount", value.tools);
+    addArrayCount(summary, "choicesCount", value.choices);
+    addArrayCount(summary, "candidatesCount", value.candidates);
+    addArrayCount(summary, "outputItemsCount", value.output);
+    if (Array.isArray(value.input)) {
+      summary.inputItemsCount = value.input.length;
+    } else if (value.input !== undefined) {
+      summary.hasInput = true;
+    }
+
+    const usage = summarizeLlmUsage(value.usage);
+    if (usage) {
+      summary.usage = usage;
+    }
+  } else if (Array.isArray(value)) {
+    summary.itemsCount = value.length;
   }
 
-  return value;
+  summary.type = "json";
+  summary.size = size;
+  summary.contentRedacted = true;
+  return summary;
+}
+
+function addArrayCount(
+  target: Record<string, unknown>,
+  key: string,
+  value: unknown,
+): void {
+  if (Array.isArray(value)) {
+    target[key] = value.length;
+  }
+}
+
+function summarizeLlmUsage(value: unknown): Record<string, number> | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const summary: Record<string, number> = {};
+  const safeKeys = [
+    "input_tokens",
+    "output_tokens",
+    "total_tokens",
+    "prompt_tokens",
+    "completion_tokens",
+  ];
+  for (const key of safeKeys) {
+    if (typeof value[key] === "number" && Number.isFinite(value[key])) {
+      summary[key] = value[key];
+    }
+  }
+  return Object.keys(summary).length > 0 ? summary : undefined;
+}
+
+function detectsStreamFlag(value: string): boolean {
+  return /["']stream["']\s*:\s*true\b/i.test(value);
 }
 
 function looksLikeJson(value: string): boolean {
@@ -2281,7 +2458,6 @@ function extractHeaderKeys(headers: RequestInit["headers"]): string[] {
 function summarizePromptDebugInput(prompt: string): Record<string, unknown> {
   return {
     promptLength: prompt.length,
-    promptPreview: clampDebugText(prompt),
   };
 }
 
