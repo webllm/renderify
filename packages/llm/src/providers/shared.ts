@@ -57,6 +57,7 @@ interface FetchWithReliabilityOptions {
 const DEFAULT_RETRY_STATUS_CODES = [
   408, 409, 425, 429, 500, 502, 503, 504,
 ] as const;
+const MAX_ERROR_RESPONSE_BYTES = 64 * 1024;
 
 const DEFAULT_RELIABILITY: ResolvedLLMReliabilityOptions = {
   maxRetries: 2,
@@ -232,6 +233,7 @@ export async function fetchWithReliability(
 
       const retryableStatus = reliability.retryStatusCodes.has(response.status);
       if (retryableStatus && attempt < maxAttempts) {
+        cancelResponseBody(response);
         await waitForRetry(attempt, reliability, options.init.signal);
         continue;
       }
@@ -372,21 +374,37 @@ export function tryParseJson(raw: string): JsonParseResult | JsonParseError {
 }
 
 export async function readErrorResponse(response: Response): Promise<string> {
+  let boundedBody: { text: string; truncated: boolean };
   try {
-    const body = (await response.json()) as {
-      error?: { message?: string };
-    };
-    if (body.error?.message) {
-      return body.error.message;
-    }
-    return JSON.stringify(body);
+    boundedBody = await readBoundedResponseBody(
+      response,
+      MAX_ERROR_RESPONSE_BYTES,
+    );
   } catch {
+    return "unknown error";
+  }
+
+  const raw = boundedBody.text.trim();
+  let details = raw;
+
+  if (raw.length > 0) {
     try {
-      return await response.text();
+      const parsed = JSON.parse(raw) as unknown;
+      details = extractErrorMessage(parsed) ?? JSON.stringify(parsed);
     } catch {
-      return "unknown error";
+      // The same bounded body remains available as plain text.
     }
   }
+
+  if (details.length === 0) {
+    details = "unknown error";
+  }
+
+  if (boundedBody.truncated) {
+    details += ` [response body truncated at ${MAX_ERROR_RESPONSE_BYTES} bytes]`;
+  }
+
+  return details;
 }
 
 export function consumeSseEvents(
@@ -526,6 +544,110 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   }
 
   return value as Record<string, unknown>;
+}
+
+function cancelResponseBody(response: Response): void {
+  if (!response.body) {
+    return;
+  }
+
+  try {
+    void response.body.cancel().catch(() => {
+      // A failed cleanup must not suppress the configured retry attempt.
+    });
+  } catch {
+    // A failed cleanup must not suppress the configured retry attempt.
+  }
+}
+
+async function readBoundedResponseBody(
+  response: Response,
+  maxBytes: number,
+): Promise<{ text: string; truncated: boolean }> {
+  if (!response.body) {
+    return {
+      text: "",
+      truncated: false,
+    };
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+  let reachedEndOfStream = false;
+  let truncated = false;
+
+  try {
+    while (byteLength < maxBytes) {
+      const { done, value } = await reader.read();
+      if (done) {
+        reachedEndOfStream = true;
+        break;
+      }
+      if (!value || value.byteLength === 0) {
+        continue;
+      }
+
+      const remaining = maxBytes - byteLength;
+      if (value.byteLength > remaining) {
+        chunks.push(value.slice(0, remaining));
+        byteLength += remaining;
+        truncated = true;
+        break;
+      }
+
+      chunks.push(value.slice());
+      byteLength += value.byteLength;
+    }
+
+    if (!reachedEndOfStream && !truncated && byteLength === maxBytes) {
+      // Probe without retaining more data so an exact-size body is not
+      // mislabeled as truncated; retained body memory remains bounded.
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          reachedEndOfStream = true;
+          break;
+        }
+        if (value && value.byteLength > 0) {
+          truncated = true;
+          break;
+        }
+      }
+    }
+  } finally {
+    await finalizeResponseBodyReader(reader, reachedEndOfStream);
+  }
+
+  const body = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  return {
+    text: new TextDecoder().decode(body),
+    truncated,
+  };
+}
+
+function extractErrorMessage(value: unknown): string | undefined {
+  const body = asRecord(value);
+  if (!body) {
+    return undefined;
+  }
+
+  const nestedError = asRecord(body.error);
+  const nestedMessage = nestedError?.message;
+  if (typeof nestedMessage === "string" && nestedMessage.trim().length > 0) {
+    return nestedMessage.trim();
+  }
+
+  const message = body.message;
+  return typeof message === "string" && message.trim().length > 0
+    ? message.trim()
+    : undefined;
 }
 
 function pickBoolean(

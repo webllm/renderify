@@ -6,6 +6,7 @@ import {
   createTimeoutAbortScope,
   fetchWithReliability,
   pickLLMReliabilityOptions,
+  readErrorResponse,
   resolveLLMReliabilityOptions,
   withTimeoutAbortScope,
 } from "../packages/llm/src/providers/shared";
@@ -80,6 +81,126 @@ test("llm reliability retries retryable status responses", async () => {
   assert.equal(response.status, 200);
   assert.equal(state.failures, 0);
   assert.equal(state.openUntil, 0);
+});
+
+test("llm reliability cancels retryable response bodies before retrying", async () => {
+  let attempts = 0;
+  let retryBodyCanceled = false;
+  const state = createLLMReliabilityState();
+  const reliability = resolveLLMReliabilityOptions({
+    maxRetries: 1,
+    retryBaseDelayMs: 1,
+    retryMaxDelayMs: 1,
+    retryJitterMs: 0,
+  });
+
+  const response = await fetchWithReliability({
+    fetchImpl: async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            cancel() {
+              retryBodyCanceled = true;
+            },
+          }),
+          { status: 503 },
+        );
+      }
+
+      assert.equal(retryBodyCanceled, true);
+      return new Response("ok", { status: 200 });
+    },
+    input: "https://llm.example.test",
+    init: {},
+    reliability,
+    state,
+    operationName: "llm fetch",
+  });
+
+  assert.equal(attempts, 2);
+  assert.equal(response.status, 200);
+  assert.equal(retryBodyCanceled, true);
+});
+
+test("llm reliability does not wait for response-body cancellation to retry", async () => {
+  let attempts = 0;
+  const state = createLLMReliabilityState();
+  const reliability = resolveLLMReliabilityOptions({
+    maxRetries: 1,
+    retryBaseDelayMs: 1,
+    retryMaxDelayMs: 1,
+    retryJitterMs: 0,
+  });
+
+  const response = await fetchWithReliability({
+    fetchImpl: async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            cancel: () => new Promise<void>(() => {}),
+          }),
+          { status: 503 },
+        );
+      }
+      return new Response("ok", { status: 200 });
+    },
+    input: "https://llm.example.test",
+    init: {},
+    reliability,
+    state,
+    operationName: "llm fetch",
+  });
+
+  assert.equal(attempts, 2);
+  assert.equal(response.status, 200);
+});
+
+test("llm reliability reads JSON and plain-text errors from one body consumption", async () => {
+  const jsonDetails = await readErrorResponse(
+    new Response(
+      JSON.stringify({
+        error: {
+          message: "JSON upstream failure",
+        },
+      }),
+    ),
+  );
+  assert.equal(jsonDetails, "JSON upstream failure");
+
+  const textDetails = await readErrorResponse(
+    new Response("plain-text upstream failure"),
+  );
+  assert.equal(textDetails, "plain-text upstream failure");
+});
+
+test("llm reliability bounds and cancels oversized error bodies", async () => {
+  let bodyCanceled = false;
+  const encoder = new TextEncoder();
+  const response = new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode("x".repeat(80 * 1024)));
+      },
+      cancel() {
+        bodyCanceled = true;
+      },
+    }),
+    { status: 500 },
+  );
+
+  const details = await readErrorResponse(response);
+
+  assert.equal(bodyCanceled, true);
+  assert.match(details, /\[response body truncated at 65536 bytes\]$/);
+  assert.ok(details.length < 66_000);
+
+  const exactLimitDetails = await readErrorResponse(
+    new Response("y".repeat(64 * 1024)),
+  );
+  assert.equal(exactLimitDetails.length, 64 * 1024);
+  assert.doesNotMatch(exactLimitDetails, /truncated/);
 });
 
 test("llm reliability does not retry network errors when disabled", async () => {
