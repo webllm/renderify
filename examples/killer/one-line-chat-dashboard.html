@@ -123,8 +123,8 @@
     <script type="importmap">
       {
         "imports": {
-          "@renderify/ir": "../../packages/ir/dist/ir.esm.js",
-          "@renderify/security": "../../packages/security/dist/security.esm.js",
+          "@renderify/ir": "../../packages/ir/dist/ir.mjs",
+          "@renderify/security": "../../packages/security/dist/security.mjs",
           "es-module-lexer": "https://ga.jspm.io/npm:es-module-lexer@1.7.0/dist/lexer.js",
           "preact": "https://ga.jspm.io/npm:preact@10.28.3/dist/preact.module.js",
           "preact/hooks": "https://ga.jspm.io/npm:preact@10.28.3/hooks/dist/hooks.module.js",
@@ -134,7 +134,7 @@
       }
     </script>
     <script type="module">
-      import { renderTrustedPlanInBrowser } from "../../packages/runtime/dist/runtime.esm.js";
+      import { renderTrustedPlanInBrowser } from "../../packages/runtime/dist/runtime.mjs";
 
       const plan = {
         specVersion: "runtime-plan/v1",

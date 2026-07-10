@@ -48,8 +48,8 @@ for (const name of REQUIRED_PACKAGES) {
     );
   }
 
-  expectEqual(pkg.main, `dist/${name}.cjs.js`, `${pkgPath} main`);
-  expectEqual(pkg.module, `dist/${name}.esm.js`, `${pkgPath} module`);
+  expectEqual(pkg.main, `dist/${name}.cjs`, `${pkgPath} main`);
+  expectEqual(pkg.module, `dist/${name}.mjs`, `${pkgPath} module`);
   expectEqual(pkg.types, `dist/${name}.d.ts`, `${pkgPath} types`);
 
   const rootExport = pkg.exports?.["."];
@@ -65,12 +65,12 @@ for (const name of REQUIRED_PACKAGES) {
   );
   expectEqual(
     rootExport.import,
-    `./dist/${name}.esm.js`,
+    `./dist/${name}.mjs`,
     `${pkgPath} exports["."].import`,
   );
   expectEqual(
     rootExport.require,
-    `./dist/${name}.cjs.js`,
+    `./dist/${name}.cjs`,
     `${pkgPath} exports["."].require`,
   );
 

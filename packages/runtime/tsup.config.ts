@@ -26,7 +26,7 @@ export default defineConfig({
   ],
   outExtension({ format }) {
     return {
-      js: format === "esm" ? ".esm.js" : ".cjs.js",
+      js: format === "esm" ? ".mjs" : ".cjs",
     };
   },
 });

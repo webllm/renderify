@@ -273,8 +273,8 @@
     <script type="importmap">
       {
         "imports": {
-          "@renderify/ir": "../../packages/ir/dist/ir.esm.js",
-          "@renderify/security": "../../packages/security/dist/security.esm.js",
+          "@renderify/ir": "../../packages/ir/dist/ir.mjs",
+          "@renderify/security": "../../packages/security/dist/security.mjs",
           "preact": "/node_modules/preact/dist/preact.module.js",
           "preact/hooks": "/node_modules/preact/hooks/dist/hooks.module.js",
           "preact/jsx-runtime": "/node_modules/preact/jsx-runtime/dist/jsxRuntime.module.js",
@@ -447,7 +447,7 @@
     </script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script type="module">
-      import { renderTrustedPlanInBrowser } from "../../packages/runtime/dist/runtime.esm.js";
+      import { renderTrustedPlanInBrowser } from "../../packages/runtime/dist/runtime.mjs";
 
       const appElement = document.getElementById("app");
       const statusElement = document.getElementById("runtime-status");

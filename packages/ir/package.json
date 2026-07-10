@@ -1,15 +1,15 @@
 {
   "name": "@renderify/ir",
   "version": "0.7.0",
-  "main": "dist/ir.cjs.js",
+  "main": "dist/ir.cjs",
   "types": "dist/ir.d.ts",
-  "module": "dist/ir.esm.js",
+  "module": "dist/ir.mjs",
   "exports": {
     ".": {
       "types": "./dist/ir.d.ts",
-      "import": "./dist/ir.esm.js",
-      "require": "./dist/ir.cjs.js",
-      "default": "./dist/ir.esm.js"
+      "import": "./dist/ir.mjs",
+      "require": "./dist/ir.cjs",
+      "default": "./dist/ir.mjs"
     },
     "./package.json": "./package.json"
   },

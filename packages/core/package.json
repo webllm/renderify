@@ -1,15 +1,15 @@
 {
   "name": "@renderify/core",
   "version": "0.7.0",
-  "main": "dist/core.cjs.js",
+  "main": "dist/core.cjs",
   "types": "dist/core.d.ts",
-  "module": "dist/core.esm.js",
+  "module": "dist/core.mjs",
   "exports": {
     ".": {
       "types": "./dist/core.d.ts",
-      "import": "./dist/core.esm.js",
-      "require": "./dist/core.cjs.js",
-      "default": "./dist/core.esm.js"
+      "import": "./dist/core.mjs",
+      "require": "./dist/core.cjs",
+      "default": "./dist/core.mjs"
     },
     "./package.json": "./package.json"
   },

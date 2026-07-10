@@ -1,15 +1,15 @@
 {
   "name": "@renderify/cli",
   "version": "0.7.0",
-  "main": "dist/cli.cjs.js",
+  "main": "dist/cli.cjs",
   "types": "dist/cli.d.ts",
-  "module": "dist/cli.esm.js",
+  "module": "dist/cli.mjs",
   "exports": {
     ".": {
       "types": "./dist/cli.d.ts",
-      "import": "./dist/cli.esm.js",
-      "require": "./dist/cli.cjs.js",
-      "default": "./dist/cli.esm.js"
+      "import": "./dist/cli.mjs",
+      "require": "./dist/cli.cjs",
+      "default": "./dist/cli.mjs"
     },
     "./package.json": "./package.json"
   },

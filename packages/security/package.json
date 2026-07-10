@@ -1,15 +1,15 @@
 {
   "name": "@renderify/security",
   "version": "0.7.0",
-  "main": "dist/security.cjs.js",
+  "main": "dist/security.cjs",
   "types": "dist/security.d.ts",
-  "module": "dist/security.esm.js",
+  "module": "dist/security.mjs",
   "exports": {
     ".": {
       "types": "./dist/security.d.ts",
-      "import": "./dist/security.esm.js",
-      "require": "./dist/security.cjs.js",
-      "default": "./dist/security.esm.js"
+      "import": "./dist/security.mjs",
+      "require": "./dist/security.cjs",
+      "default": "./dist/security.mjs"
     },
     "./package.json": "./package.json"
   },

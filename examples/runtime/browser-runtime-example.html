@@ -186,8 +186,8 @@
     <script type="importmap">
       {
         "imports": {
-          "@renderify/ir": "../../packages/ir/dist/ir.esm.js",
-          "@renderify/security": "../../packages/security/dist/security.esm.js"
+          "@renderify/ir": "../../packages/ir/dist/ir.mjs",
+          "@renderify/security": "../../packages/security/dist/security.mjs"
         }
       }
     </script>
@@ -197,7 +197,7 @@
       import {
         DefaultRuntimeManager,
         JspmModuleLoader,
-      } from "../../packages/runtime/dist/runtime.esm.js";
+      } from "../../packages/runtime/dist/runtime.mjs";
 
       const RenderifyCore = globalThis.RenderifyCore;
       if (!RenderifyCore) {

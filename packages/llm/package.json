@@ -2,15 +2,15 @@
   "name": "@renderify/llm",
   "version": "0.7.0",
   "description": "LLM providers for Renderify",
-  "main": "dist/llm.cjs.js",
+  "main": "dist/llm.cjs",
   "types": "dist/llm.d.ts",
-  "module": "dist/llm.esm.js",
+  "module": "dist/llm.mjs",
   "exports": {
     ".": {
       "types": "./dist/llm.d.ts",
-      "import": "./dist/llm.esm.js",
-      "require": "./dist/llm.cjs.js",
-      "default": "./dist/llm.esm.js"
+      "import": "./dist/llm.mjs",
+      "require": "./dist/llm.cjs",
+      "default": "./dist/llm.mjs"
     },
     "./package.json": "./package.json"
   },

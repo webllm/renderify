@@ -2,15 +2,15 @@
   "name": "renderify",
   "version": "0.7.0",
   "description": "Official Renderify SDK facade",
-  "main": "dist/renderify.cjs.js",
+  "main": "dist/renderify.cjs",
   "types": "dist/renderify.d.ts",
-  "module": "dist/renderify.esm.js",
+  "module": "dist/renderify.mjs",
   "exports": {
     ".": {
       "types": "./dist/renderify.d.ts",
-      "import": "./dist/renderify.esm.js",
-      "require": "./dist/renderify.cjs.js",
-      "default": "./dist/renderify.esm.js"
+      "import": "./dist/renderify.mjs",
+      "require": "./dist/renderify.cjs",
+      "default": "./dist/renderify.mjs"
     },
     "./package.json": "./package.json"
   },
