@@ -3122,6 +3122,162 @@ test("runtime source loader strips sourcemap directives from materialized module
   }
 });
 
+test("runtime source loader rejects circular remote imports without hanging", async () => {
+  const runtime = new DefaultRuntimeManager({
+    remoteFallbackCdnBases: [],
+    remoteFetchRetries: 0,
+    remoteFetchBackoffMs: 10,
+    remoteFetchTimeoutMs: 500,
+  });
+
+  const internals = runtime as unknown as {
+    createSourceModuleLoader: (
+      moduleManifest: RuntimeModuleManifest | undefined,
+      diagnostics: Array<{ code?: string; message?: string }>,
+    ) => {
+      materializeRemoteModule(url: string): Promise<string>;
+    };
+    browserModuleInflight: Map<string, Promise<string>>;
+  };
+
+  const moduleA = "https://cdn.example.com/a.js";
+  const moduleB = "https://cdn.example.com/b.js";
+  const diagnostics: Array<{ code?: string; message?: string }> = [];
+  const loader = internals.createSourceModuleLoader(undefined, diagnostics);
+  const fetchCounts = new Map<string, number>();
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    fetchCounts.set(url, (fetchCounts.get(url) ?? 0) + 1);
+    const code =
+      url === moduleA
+        ? 'import { b } from "./b.js"; export const a = b;'
+        : 'import { a } from "./a.js"; export const b = a;';
+    return new Response(code, {
+      status: 200,
+      headers: {
+        "content-type": "text/javascript; charset=utf-8",
+      },
+    });
+  }) as typeof fetch;
+
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await assert.rejects(
+      Promise.race([
+        loader.materializeRemoteModule(moduleA),
+        new Promise<string>((_resolve, reject) => {
+          timeout = setTimeout(
+            () => reject(new Error("circular materialization did not settle")),
+            500,
+          );
+        }),
+      ]),
+      /Circular remote module dependency is unsupported/,
+    );
+
+    assert.equal(fetchCounts.get(moduleA), 1);
+    assert.equal(fetchCounts.get(moduleB), 1);
+    assert.equal(internals.browserModuleInflight.size, 0);
+    assert.ok(
+      diagnostics.some(
+        (item) =>
+          item.code === "RUNTIME_SOURCE_IMPORT_CYCLE" &&
+          item.message?.includes(moduleA) &&
+          item.message.includes(moduleB),
+      ),
+    );
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+    globalThis.fetch = originalFetch;
+    await runtime.terminate();
+  }
+});
+
+test("runtime source loader rejects cycles between concurrent graph roots", async () => {
+  const runtime = new DefaultRuntimeManager({
+    remoteFallbackCdnBases: [],
+    remoteFetchRetries: 0,
+    remoteFetchBackoffMs: 10,
+    remoteFetchTimeoutMs: 500,
+  });
+
+  const internals = runtime as unknown as {
+    createSourceModuleLoader: (
+      moduleManifest: RuntimeModuleManifest | undefined,
+      diagnostics: Array<{ code?: string; message?: string }>,
+    ) => {
+      materializeRemoteModule(url: string): Promise<string>;
+    };
+    browserModuleInflight: Map<string, Promise<string>>;
+  };
+
+  const moduleA = "https://cdn.example.com/concurrent-a.js";
+  const moduleB = "https://cdn.example.com/concurrent-b.js";
+  const diagnostics: Array<{ code?: string; message?: string }> = [];
+  const loader = internals.createSourceModuleLoader(undefined, diagnostics);
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    const code =
+      url === moduleA
+        ? 'import { b } from "./concurrent-b.js"; export const a = b;'
+        : 'import { a } from "./concurrent-a.js"; export const b = a;';
+    return new Response(code, {
+      status: 200,
+      headers: {
+        "content-type": "text/javascript; charset=utf-8",
+      },
+    });
+  }) as typeof fetch;
+
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const materializations = Promise.allSettled([
+      loader.materializeRemoteModule(moduleA),
+      loader.materializeRemoteModule(moduleB),
+    ]);
+    const results = await Promise.race([
+      materializations,
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error("concurrent materialization did not settle")),
+          500,
+        );
+      }),
+    ]);
+
+    assert.deepEqual(
+      results.map((result) => result.status),
+      ["rejected", "rejected"],
+    );
+    assert.ok(
+      results.every(
+        (result) =>
+          result.status === "rejected" &&
+          result.reason instanceof Error &&
+          /Circular remote module dependency is unsupported/.test(
+            result.reason.message,
+          ),
+      ),
+    );
+    assert.equal(internals.browserModuleInflight.size, 0);
+    assert.ok(
+      diagnostics.some((item) => item.code === "RUNTIME_SOURCE_IMPORT_CYCLE"),
+    );
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+    globalThis.fetch = originalFetch;
+    await runtime.terminate();
+  }
+});
+
 test("runtime source loader maps remote preact imports to local node file URLs", async () => {
   const runtime = new DefaultRuntimeManager({
     remoteFallbackCdnBases: [],

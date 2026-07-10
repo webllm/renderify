@@ -69,11 +69,19 @@ const PREACT_LOCAL_ESM_ENTRYPOINTS = new Map<string, string>([
 const DEFAULT_MATERIALIZED_MODULE_URL_CACHE_MAX_ENTRIES = 1024;
 const DEFAULT_LOCAL_NODE_SPECIFIER_CACHE_MAX_ENTRIES = 512;
 
+type MaterializationDependencyGraph = Map<string, Map<string, number>>;
+
+const MATERIALIZATION_DEPENDENCY_GRAPHS = new WeakMap<
+  Map<string, Promise<string>>,
+  MaterializationDependencyGraph
+>();
+
 export class RuntimeSourceModuleLoader {
   private readonly moduleManifest: RuntimeModuleManifest | undefined;
   private readonly diagnostics: RuntimeDiagnostic[];
   private readonly materializedModuleUrlCache: Map<string, string>;
   private readonly materializedModuleInflight: Map<string, Promise<string>>;
+  private readonly materializationDependencyGraph: MaterializationDependencyGraph;
   private readonly remoteFallbackCdnBases: string[];
   private readonly remoteFetchTimeoutMs: number;
   private readonly remoteFetchRetries: number;
@@ -109,6 +117,9 @@ export class RuntimeSourceModuleLoader {
     this.diagnostics = options.diagnostics;
     this.materializedModuleUrlCache = options.materializedModuleUrlCache;
     this.materializedModuleInflight = options.materializedModuleInflight;
+    this.materializationDependencyGraph = getMaterializationDependencyGraph(
+      options.materializedModuleInflight,
+    );
     this.remoteFallbackCdnBases = options.remoteFallbackCdnBases;
     this.remoteFetchTimeoutMs = options.remoteFetchTimeoutMs;
     this.remoteFetchRetries = options.remoteFetchRetries;
@@ -155,6 +166,7 @@ export class RuntimeSourceModuleLoader {
   async resolveRuntimeImportSpecifier(
     specifier: string,
     parentUrl: string | undefined,
+    parentMaterializationKey?: string,
   ): Promise<string> {
     const trimmed = specifier.trim();
     if (trimmed.length === 0) {
@@ -176,7 +188,7 @@ export class RuntimeSourceModuleLoader {
     }
 
     if (isHttpUrl(trimmed)) {
-      return this.materializeRemoteModule(trimmed);
+      return this.materializeRemoteModule(trimmed, parentMaterializationKey);
     }
 
     if (
@@ -203,7 +215,7 @@ export class RuntimeSourceModuleLoader {
         return absolute;
       }
 
-      return this.materializeRemoteModule(absolute);
+      return this.materializeRemoteModule(absolute, parentMaterializationKey);
     }
 
     const resolved = this.resolveRuntimeSourceSpecifierFn(
@@ -221,7 +233,7 @@ export class RuntimeSourceModuleLoader {
     }
 
     if (isHttpUrl(resolved)) {
-      return this.materializeRemoteModule(resolved);
+      return this.materializeRemoteModule(resolved, parentMaterializationKey);
     }
 
     if (
@@ -241,13 +253,16 @@ export class RuntimeSourceModuleLoader {
         return absolute;
       }
 
-      return this.materializeRemoteModule(absolute);
+      return this.materializeRemoteModule(absolute, parentMaterializationKey);
     }
 
     return resolved;
   }
 
-  async materializeRemoteModule(url: string): Promise<string> {
+  async materializeRemoteModule(
+    url: string,
+    parentMaterializationKey?: string,
+  ): Promise<string> {
     const normalizedUrl = url.trim();
     if (normalizedUrl.length === 0) {
       return normalizedUrl;
@@ -276,49 +291,66 @@ export class RuntimeSourceModuleLoader {
       return cachedUrl;
     }
 
-    const inflight = this.materializedModuleInflight.get(cacheKey);
-    if (inflight) {
-      return inflight;
-    }
+    const releaseDependency = parentMaterializationKey
+      ? this.registerMaterializationDependency(
+          parentMaterializationKey,
+          cacheKey,
+        )
+      : undefined;
 
-    const loading = (async () => {
-      const fetched =
-        await this.fetchRemoteModuleCodeWithFallback(normalizedUrl);
-      const rewritten = await this.materializeFetchedModuleSource(fetched);
-
-      const inlineUrl = this.createInlineModuleUrlFn(rewritten);
-      setMapEntryWithLimit(
-        this.materializedModuleUrlCache,
-        cacheKey,
-        inlineUrl,
-        this.materializedModuleUrlCacheMaxEntries,
-      );
-      const fetchedIntegrity =
-        this.resolveExpectedIntegrity(
-          fetched.originalUrl,
-          normalizedUrl,
-          fetched.requestUrl,
-          fetched.url,
-        ) ?? expectedIntegrity;
-      setMapEntryWithLimit(
-        this.materializedModuleUrlCache,
-        this.createMaterializedCacheKey(fetched.url, fetchedIntegrity),
-        inlineUrl,
-        this.materializedModuleUrlCacheMaxEntries,
-      );
-      return inlineUrl;
-    })();
-
-    this.materializedModuleInflight.set(cacheKey, loading);
     try {
-      return await loading;
+      const inflight = this.materializedModuleInflight.get(cacheKey);
+      if (inflight) {
+        return await inflight;
+      }
+
+      const loading = (async () => {
+        const fetched =
+          await this.fetchRemoteModuleCodeWithFallback(normalizedUrl);
+        const rewritten = await this.materializeFetchedModuleSource(
+          fetched,
+          cacheKey,
+        );
+
+        const inlineUrl = this.createInlineModuleUrlFn(rewritten);
+        setMapEntryWithLimit(
+          this.materializedModuleUrlCache,
+          cacheKey,
+          inlineUrl,
+          this.materializedModuleUrlCacheMaxEntries,
+        );
+        const fetchedIntegrity =
+          this.resolveExpectedIntegrity(
+            fetched.originalUrl,
+            normalizedUrl,
+            fetched.requestUrl,
+            fetched.url,
+          ) ?? expectedIntegrity;
+        setMapEntryWithLimit(
+          this.materializedModuleUrlCache,
+          this.createMaterializedCacheKey(fetched.url, fetchedIntegrity),
+          inlineUrl,
+          this.materializedModuleUrlCacheMaxEntries,
+        );
+        return inlineUrl;
+      })();
+
+      this.materializedModuleInflight.set(cacheKey, loading);
+      try {
+        return await loading;
+      } finally {
+        if (this.materializedModuleInflight.get(cacheKey) === loading) {
+          this.materializedModuleInflight.delete(cacheKey);
+        }
+      }
     } finally {
-      this.materializedModuleInflight.delete(cacheKey);
+      releaseDependency?.();
     }
   }
 
   async materializeFetchedModuleSource(
     fetched: RemoteModuleFetchResult,
+    parentMaterializationKey?: string,
   ): Promise<string> {
     await this.verifyFetchedModuleIntegrity(fetched);
 
@@ -347,7 +379,11 @@ export class RuntimeSourceModuleLoader {
     const code = this.stripSourceMapDirectives(fetched.code);
 
     return this.rewriteImportsAsyncFn(code, async (childSpecifier) =>
-      this.resolveRuntimeImportSpecifier(childSpecifier, fetched.url),
+      this.resolveRuntimeImportSpecifier(
+        childSpecifier,
+        fetched.url,
+        parentMaterializationKey,
+      ),
     );
   }
 
@@ -999,12 +1035,118 @@ export class RuntimeSourceModuleLoader {
     return undefined;
   }
 
+  private registerMaterializationDependency(
+    parentKey: string,
+    childKey: string,
+  ): () => void {
+    const pathToParent = findMaterializationDependencyPath(
+      this.materializationDependencyGraph,
+      childKey,
+      parentKey,
+    );
+    if (pathToParent) {
+      const cycle = [parentKey, ...pathToParent]
+        .map(materializedCacheKeyToUrl)
+        .join(" -> ");
+      const message = `Circular remote module dependency is unsupported: ${cycle}`;
+      this.diagnostics.push({
+        level: "error",
+        code: "RUNTIME_SOURCE_IMPORT_CYCLE",
+        message,
+      });
+      throw new Error(message);
+    }
+
+    let children = this.materializationDependencyGraph.get(parentKey);
+    if (!children) {
+      children = new Map<string, number>();
+      this.materializationDependencyGraph.set(parentKey, children);
+    }
+    children.set(childKey, (children.get(childKey) ?? 0) + 1);
+
+    let released = false;
+    return () => {
+      if (released) {
+        return;
+      }
+      released = true;
+
+      const currentChildren =
+        this.materializationDependencyGraph.get(parentKey);
+      const count = currentChildren?.get(childKey);
+      if (!currentChildren || count === undefined) {
+        return;
+      }
+      if (count > 1) {
+        currentChildren.set(childKey, count - 1);
+        return;
+      }
+
+      currentChildren.delete(childKey);
+      if (currentChildren.size === 0) {
+        this.materializationDependencyGraph.delete(parentKey);
+      }
+    };
+  }
+
   private createMaterializedCacheKey(
     url: string,
     integrity: string | undefined,
   ): string {
     return integrity ? `${url}\u0000integrity:${integrity}` : url;
   }
+}
+
+function getMaterializationDependencyGraph(
+  inflight: Map<string, Promise<string>>,
+): MaterializationDependencyGraph {
+  const existing = MATERIALIZATION_DEPENDENCY_GRAPHS.get(inflight);
+  if (existing) {
+    return existing;
+  }
+
+  const created: MaterializationDependencyGraph = new Map();
+  MATERIALIZATION_DEPENDENCY_GRAPHS.set(inflight, created);
+  return created;
+}
+
+function findMaterializationDependencyPath(
+  graph: MaterializationDependencyGraph,
+  from: string,
+  to: string,
+): string[] | undefined {
+  if (from === to) {
+    return [from];
+  }
+
+  const pending: Array<{ key: string; path: string[] }> = [
+    { key: from, path: [from] },
+  ];
+  const visited = new Set<string>();
+
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (!current || visited.has(current.key)) {
+      continue;
+    }
+    visited.add(current.key);
+
+    for (const child of graph.get(current.key)?.keys() ?? []) {
+      const path = [...current.path, child];
+      if (child === to) {
+        return path;
+      }
+      if (!visited.has(child)) {
+        pending.push({ key: child, path });
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function materializedCacheKeyToUrl(cacheKey: string): string {
+  return cacheKey.split("\u0000integrity:", 1)[0] ?? cacheKey;
 }
 
 function normalizeCacheMaxEntries(value: number | undefined, fallback: number) {
