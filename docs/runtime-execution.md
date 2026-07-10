@@ -35,7 +35,7 @@ const runtime = new DefaultRuntimeManager({
   // Module manifest enforcement
   enforceModuleManifest: true,
 
-  // Isolation fallback behavior
+  // Trusted-only fallback when the reserved isolated-vm backend is unavailable
   allowIsolationFallback: false,
 
   // Supported spec versions
@@ -171,7 +171,11 @@ Source executes in the main page context. No isolation.
 
 ### isolated-vm
 
-Synchronous component execution in a VM-isolated context. The component function must be synchronous — async components are rejected. Uses fail-closed behavior when the isolation runtime is unavailable.
+This profile is reserved for a future secure component-isolation backend. The current runtime does not use Node's `node:vm` as a security boundary: host objects can expose paths back into the host realm, and loading a component before entering a VM already executes its module-level code outside the boundary.
+
+By default, requesting `isolated-vm` produces `RUNTIME_ISOLATION_UNAVAILABLE` and stops before dependency preflight, import loading, or component module loading. `probePlan()` follows the same rule.
+
+Trusted callers may opt into compatibility behavior with `allowIsolationFallback: true`. This emits `RUNTIME_ISOLATION_FALLBACK`, changes the effective profile to `standard`, and allows both module initialization and component code to run without isolation. Never enable this fallback for untrusted modules.
 
 ### sandbox-worker
 

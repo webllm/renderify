@@ -376,6 +376,18 @@ export class DefaultRuntimeManager implements RuntimeManager {
     }
 
     const capabilities = plan.capabilities ?? {};
+    const executionProfile = this.resolveAvailableExecutionProfile(
+      capabilities.executionProfile ?? this.defaultExecutionProfile,
+      diagnostics,
+    );
+    if (!executionProfile) {
+      return {
+        planId: plan.id,
+        diagnostics,
+        dependencies: [],
+      };
+    }
+
     const frame: ExecutionFrame = {
       startedAt: nowMs(),
       maxExecutionMs: capabilities.maxExecutionMs ?? this.defaultMaxExecutionMs,
@@ -383,8 +395,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
         capabilities.maxComponentInvocations ??
         this.defaultMaxComponentInvocations,
       componentInvocations: 0,
-      executionProfile:
-        capabilities.executionProfile ?? this.defaultExecutionProfile,
+      executionProfile,
     };
 
     const dependencies = await this.preflightPlanDependencies(
@@ -431,8 +442,24 @@ export class DefaultRuntimeManager implements RuntimeManager {
       };
     }
 
+    const capabilities = plan.capabilities ?? {};
+    const executionProfile = this.resolveAvailableExecutionProfile(
+      capabilities.executionProfile ?? this.defaultExecutionProfile,
+      diagnostics,
+    );
     const state = this.resolveState(plan, stateOverride);
     const appliedActions: RuntimeAction[] = [];
+    if (!executionProfile) {
+      return {
+        planId: plan.id,
+        root: plan.root,
+        diagnostics,
+        state: cloneJsonValue(state),
+        handledEvent: event,
+        appliedActions,
+      };
+    }
+
     this.applyEventTransitions({
       plan,
       state,
@@ -441,7 +468,6 @@ export class DefaultRuntimeManager implements RuntimeManager {
       appliedActions,
       diagnostics,
     });
-    const capabilities = plan.capabilities ?? {};
 
     const frame: ExecutionFrame = {
       startedAt: nowMs(),
@@ -450,8 +476,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
         capabilities.maxComponentInvocations ??
         this.defaultMaxComponentInvocations,
       componentInvocations: 0,
-      executionProfile:
-        capabilities.executionProfile ?? this.defaultExecutionProfile,
+      executionProfile,
       signal,
     };
 
@@ -758,6 +783,33 @@ export class DefaultRuntimeManager implements RuntimeManager {
     }
 
     return getValueByPath(state, source);
+  }
+
+  private resolveAvailableExecutionProfile(
+    requestedProfile: RuntimeExecutionProfile,
+    diagnostics: RuntimeDiagnostic[],
+  ): RuntimeExecutionProfile | undefined {
+    if (requestedProfile !== "isolated-vm") {
+      return requestedProfile;
+    }
+
+    if (this.allowIsolationFallback) {
+      diagnostics.push({
+        level: "warning",
+        code: "RUNTIME_ISOLATION_FALLBACK",
+        message:
+          'executionProfile "isolated-vm" has no secure isolation backend; allowIsolationFallback=true explicitly falls back to trusted "standard" execution',
+      });
+      return "standard";
+    }
+
+    diagnostics.push({
+      level: "error",
+      code: "RUNTIME_ISOLATION_UNAVAILABLE",
+      message:
+        'executionProfile "isolated-vm" has no secure isolation backend; refusing execution before module loading because allowIsolationFallback is false',
+    });
+    return undefined;
   }
 
   private persistResolvedState(
@@ -1179,7 +1231,6 @@ export class DefaultRuntimeManager implements RuntimeManager {
             "component",
             runtimeDiagnostics,
           ),
-        allowIsolationFallback: this.allowIsolationFallback,
         resolveRuntimeSpecifier: (
           specifier,
           manifest,

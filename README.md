@@ -122,8 +122,9 @@ flowchart TD
   - `source.runtime: "renderify"` for RuntimeNode-oriented execution
   - `source.runtime: "preact"` for hooks + React-compatible component rendering (trusted/relaxed policy mode)
 - Runtime sandbox profile:
-  - `executionProfile: "isolated-vm"` for VM-isolated sync component execution
-  - fail-closed by default when isolation runtime is unavailable
+  - `executionProfile: "isolated-vm"` is reserved for a future secure component isolation backend
+  - current runtimes fail closed before loading modules when that profile is requested
+  - trusted callers can explicitly set `allowIsolationFallback: true` to run it as `standard` without isolation
   - browser source sandbox with `sandbox-worker` / `sandbox-iframe` / `sandbox-shadowrealm` execution profiles
   - runtime-level controls: mode / timeout / fail-closed
 - LLM structured contract:

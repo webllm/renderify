@@ -378,7 +378,7 @@ Module fetching supports multi-CDN fallback using `Promise.any` for hedged reque
 
 ### Budget Racing
 
-Execution budgets constrain async paths via remaining-time calculation + `Promise.race()`. For synchronously blocking code, sandboxed execution (such as browser sandbox or `isolated-vm`) is still required to mitigate the risk of main-thread stalls.
+Execution budgets constrain async paths via remaining-time calculation + `Promise.race()`. For synchronously blocking code, a genuinely separate, terminable execution boundary is required to mitigate main-thread stalls. The `isolated-vm` profile is currently reserved and fails closed; Renderify deliberately does not treat Node's `node:vm` as that security boundary.
 
 ### Blob URL Cleanup
 

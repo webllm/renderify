@@ -101,7 +101,7 @@ interface RuntimeCapabilities {
 ```ts
 type RuntimeExecutionProfile =
   | "standard" // Default, in-page execution
-  | "isolated-vm" // VM-isolated sync execution
+  | "isolated-vm" // Reserved; current runtimes fail closed before module loading
   | "sandbox-worker" // Web Worker sandbox
   | "sandbox-iframe" // iframe sandbox
   | "sandbox-shadowrealm"; // ShadowRealm sandbox

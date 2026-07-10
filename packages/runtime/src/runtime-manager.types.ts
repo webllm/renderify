@@ -77,6 +77,11 @@ export interface RuntimeManagerOptions {
   defaultExecutionProfile?: RuntimeExecutionProfile;
   supportedPlanSpecVersions?: string[];
   enforceModuleManifest?: boolean;
+  /**
+   * Allows the reserved `isolated-vm` profile to execute as trusted
+   * `standard` code when no secure isolation backend is available.
+   * Defaults to `false`; leave disabled for untrusted modules.
+   */
   allowIsolationFallback?: boolean;
   browserSourceSandboxMode?: RuntimeSourceSandboxMode;
   runtimeSourceJsxHelperMode?: RuntimeSourceJsxHelperMode;

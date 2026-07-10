@@ -1261,19 +1261,15 @@ test("runtime enforces maxImports capability", async () => {
   await runtime.terminate();
 });
 
-test("runtime supports isolated-vm execution profile for sync components", async () => {
-  const isolatedComponent: RuntimeComponentFactory = (props) => ({
-    type: "element",
-    tag: "span",
-    children: [{ type: "text", value: String(props.label ?? "iso") }],
-  });
-
+test("runtime isolated-vm profile fails closed before loading modules by default", async () => {
+  let loadCalls = 0;
   const runtime = new DefaultRuntimeManager({
-    moduleLoader: new MockLoader({
-      "npm:acme/iso": {
-        default: isolatedComponent,
+    moduleLoader: {
+      async load() {
+        loadCalls += 1;
+        throw new Error("module loading must not start");
       },
-    }),
+    },
   });
 
   await runtime.initialize();
@@ -1297,23 +1293,43 @@ test("runtime supports isolated-vm execution profile for sync components", async
 
   const result = await runtime.executePlan(plan);
 
-  assert.equal(result.root.type, "element");
-  if (result.root.type !== "element") {
-    throw new Error("expected element root");
-  }
-  assert.equal(result.root.tag, "span");
-  assert.equal(result.diagnostics.length, 0);
+  assert.equal(loadCalls, 0);
+  assert.equal(result.root.type, "component");
+  assert.ok(
+    result.diagnostics.some(
+      (item) =>
+        item.level === "error" && item.code === "RUNTIME_ISOLATION_UNAVAILABLE",
+    ),
+  );
+
+  const probe = await runtime.probePlan(plan);
+
+  assert.equal(loadCalls, 0);
+  assert.deepEqual(probe.dependencies, []);
+  assert.ok(
+    probe.diagnostics.some(
+      (item) =>
+        item.level === "error" && item.code === "RUNTIME_ISOLATION_UNAVAILABLE",
+    ),
+  );
 
   await runtime.terminate();
 });
 
-test("runtime isolated-vm profile rejects async component factories", async () => {
-  const asyncComponent: RuntimeComponentFactory = async () => ({
-    type: "text",
-    value: "async",
-  });
+test("runtime isolated-vm profile explicitly falls back to standard execution", async () => {
+  let componentExecutions = 0;
+  const asyncComponent: RuntimeComponentFactory = async (props) => {
+    componentExecutions += 1;
+    return {
+      type: "element",
+      tag: "span",
+      children: [{ type: "text", value: String(props.label ?? "fallback") }],
+    };
+  };
 
   const runtime = new DefaultRuntimeManager({
+    allowIsolationFallback: true,
+    enableDependencyPreflight: false,
     moduleLoader: new MockLoader({
       "npm:acme/async-iso": {
         default: asyncComponent,
@@ -1327,7 +1343,9 @@ test("runtime isolated-vm profile rejects async component factories", async () =
     specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
     id: "runtime_isolated_async_plan",
     version: 1,
-    root: createComponentNode("npm:acme/async-iso"),
+    root: createComponentNode("npm:acme/async-iso", "default", {
+      label: "trusted fallback",
+    }),
     imports: ["npm:acme/async-iso"],
     moduleManifest: {
       "npm:acme/async-iso": {
@@ -1343,9 +1361,24 @@ test("runtime isolated-vm profile rejects async component factories", async () =
 
   const result = await runtime.executePlan(plan);
 
+  assert.equal(componentExecutions, 1);
+  assert.equal(result.root.type, "element");
+  if (result.root.type !== "element") {
+    throw new Error("expected element root");
+  }
+  assert.equal(result.root.tag, "span");
+  assert.deepEqual(result.root.children, [
+    { type: "text", value: "trusted fallback" },
+  ]);
   assert.ok(
     result.diagnostics.some(
-      (item) => item.code === "RUNTIME_COMPONENT_EXEC_FAILED",
+      (item) =>
+        item.level === "warning" && item.code === "RUNTIME_ISOLATION_FALLBACK",
+    ),
+  );
+  assert.ok(
+    !result.diagnostics.some(
+      (item) => item.code === "RUNTIME_ISOLATION_UNAVAILABLE",
     ),
   );
 

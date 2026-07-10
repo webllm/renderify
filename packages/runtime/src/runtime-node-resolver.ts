@@ -34,7 +34,6 @@ export interface RuntimeNodeResolver {
     specifier: string,
     diagnostics: RuntimeDiagnostic[],
   ): boolean;
-  allowIsolationFallback: boolean;
   resolveRuntimeSpecifier(
     specifier: string,
     moduleManifest: RuntimeModuleManifest | undefined,
@@ -193,12 +192,7 @@ export async function resolveRuntimeNode(input: {
       props: resolveProps(node.props, context, state, event) ?? {},
       context: runtimeContext,
       children: resolvedChildren,
-      executionProfile: frame.executionProfile,
-      maxExecutionMs: frame.maxExecutionMs,
-      startedAt: frame.startedAt,
       timeoutMessage: `Component execution timed out: ${node.module}`,
-      allowIsolationFallback: resolver.allowIsolationFallback,
-      diagnostics,
       withRemainingBudget: resolver.withRemainingBudget,
     });
 

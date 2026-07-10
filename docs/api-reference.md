@@ -68,7 +68,7 @@ interface RuntimeCapabilities {
 
 type RuntimeExecutionProfile =
   | "standard"
-  | "isolated-vm"
+  | "isolated-vm" // Reserved; unavailable profiles fail closed before module loading
   | "sandbox-worker"
   | "sandbox-iframe"
   | "sandbox-shadowrealm";
@@ -350,6 +350,8 @@ interface RuntimeManagerOptions {
   defaultExecutionProfile?: RuntimeExecutionProfile;
   supportedPlanSpecVersions?: string[];
   enforceModuleManifest?: boolean;
+  // Trusted-only: execute unavailable isolated-vm requests as standard code.
+  // Defaults to false.
   allowIsolationFallback?: boolean;
   browserSourceSandboxMode?: "none" | "worker" | "iframe" | "shadowrealm";
   browserSourceSandboxTimeoutMs?: number;
