@@ -449,3 +449,44 @@ test("config applies jspm-only strict mode preset programmatically", async () =>
     allowDynamicSourceImports: false,
   });
 });
+
+test("config detaches loaded, set, get, and snapshot values", async () => {
+  const config = new DefaultRenderifyConfig();
+  const fallbackCdns = ["https://fallback.example"];
+  const securityPolicy = {
+    allowedNetworkHosts: ["allowed.example"],
+    allowArbitraryNetwork: false,
+  };
+
+  await config.load({
+    runtimeRemoteFallbackCdnBases: fallbackCdns,
+    securityPolicy,
+  });
+  fallbackCdns.push("https://mutated.example");
+  securityPolicy.allowedNetworkHosts.push("mutated.example");
+
+  const firstFallbacks = config.get<string[]>("runtimeRemoteFallbackCdnBases");
+  const firstPolicy = config.get<typeof securityPolicy>("securityPolicy");
+  assert.deepEqual(firstFallbacks, ["https://fallback.example"]);
+  assert.deepEqual(firstPolicy?.allowedNetworkHosts, ["allowed.example"]);
+
+  firstFallbacks?.push("https://read-mutation.example");
+  firstPolicy?.allowedNetworkHosts.push("read-mutation.example");
+  const snapshot = config.snapshot() as {
+    securityPolicy: typeof securityPolicy;
+  };
+  snapshot.securityPolicy.allowedNetworkHosts.push("snapshot-mutation.example");
+
+  const setValue = { nested: { enabled: true } };
+  config.set("custom", setValue);
+  setValue.nested.enabled = false;
+
+  assert.deepEqual(config.get("runtimeRemoteFallbackCdnBases"), [
+    "https://fallback.example",
+  ]);
+  assert.deepEqual(
+    config.get<typeof securityPolicy>("securityPolicy")?.allowedNetworkHosts,
+    ["allowed.example"],
+  );
+  assert.deepEqual(config.get("custom"), { nested: { enabled: true } });
+});

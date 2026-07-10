@@ -151,30 +151,67 @@ export class DefaultRenderifyConfig implements RenderifyConfig {
       ...(overrides ?? {}),
     } as RenderifyConfigValues;
 
-    this.config = applyDerivedConfig(merged, {
-      hasExplicitLlmModel,
-      hasExplicitLlmBaseUrl,
-      hasExplicitLlmTimeout,
-      hasExplicitSecurityProfile,
-      hasExplicitStrictSecurity,
-    });
+    this.config = cloneConfigValue(
+      applyDerivedConfig(merged, {
+        hasExplicitLlmModel,
+        hasExplicitLlmBaseUrl,
+        hasExplicitLlmTimeout,
+        hasExplicitSecurityProfile,
+        hasExplicitStrictSecurity,
+      }),
+      new WeakMap<object, unknown>(),
+    );
   }
 
   get<T = unknown>(key: string): T | undefined {
-    return this.config[key] as T | undefined;
+    return cloneConfigValue(this.config[key], new WeakMap<object, unknown>()) as
+      | T
+      | undefined;
   }
 
   set(key: string, value: unknown) {
-    this.config[key] = value;
+    this.config[key] = cloneConfigValue(value, new WeakMap<object, unknown>());
   }
 
   snapshot(): Readonly<Record<string, unknown>> {
-    return { ...this.config };
+    return cloneConfigValue(this.config, new WeakMap<object, unknown>());
   }
 
   async save() {
     // Persistence strategy is intentionally left to host applications.
   }
+}
+
+function cloneConfigValue<T>(value: T, seen: WeakMap<object, unknown>): T {
+  if (typeof value !== "object" || value === null) {
+    return value;
+  }
+
+  const existing = seen.get(value);
+  if (existing !== undefined) {
+    return existing as T;
+  }
+
+  if (Array.isArray(value)) {
+    const clone: unknown[] = [];
+    seen.set(value, clone);
+    for (const entry of value) {
+      clone.push(cloneConfigValue(entry, seen));
+    }
+    return clone as T;
+  }
+
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    return value;
+  }
+
+  const clone: Record<string, unknown> = {};
+  seen.set(value, clone);
+  for (const [key, entry] of Object.entries(value)) {
+    clone[key] = cloneConfigValue(entry, seen);
+  }
+  return clone as T;
 }
 
 function applyDerivedConfig(
