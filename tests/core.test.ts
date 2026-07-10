@@ -6,10 +6,12 @@ import {
   type RenderifyConfigValues,
 } from "../packages/core/src/config";
 import {
+  DefaultSecurityChecker as CoreDefaultSecurityChecker,
   createRenderifyApp,
   DefaultContextManager,
   DefaultCustomizationEngine,
   DefaultPerformanceOptimizer,
+  listSecurityProfiles as listCoreSecurityProfiles,
   PolicyRejectionError,
   type RenderifyCoreDependencies,
 } from "../packages/core/src/index";
@@ -33,6 +35,16 @@ import {
   type RuntimeExecutionInput,
 } from "../packages/runtime/src/index";
 import { DefaultSecurityChecker } from "../packages/security/src/index";
+
+test("core entry re-exports the security package API", () => {
+  assert.equal(CoreDefaultSecurityChecker, DefaultSecurityChecker);
+  assert.deepEqual(listCoreSecurityProfiles(), [
+    "strict",
+    "balanced",
+    "trusted",
+    "relaxed",
+  ]);
+});
 
 class RejectingConfig extends DefaultRenderifyConfig {
   async load(overrides?: Partial<RenderifyConfigValues>): Promise<void> {

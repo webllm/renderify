@@ -1285,6 +1285,7 @@ function isPlainDefaultSecurityChecker(
   );
 }
 
+export * from "@renderify/security";
 export * from "./api-integration";
 export * from "./codegen";
 export * from "./config";
@@ -1293,5 +1294,4 @@ export * from "./customization";
 export * from "./framework-adapters";
 export * from "./llm-interpreter";
 export * from "./performance";
-export * from "./security";
 export * from "./ui";
