@@ -53,6 +53,18 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      - name: Format check
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck and unit tests
+        run: pnpm test
+
+      - name: Compatibility contract tests
+        run: pnpm compat
+
       - name: Validate package metadata
         run: pnpm validate
 
