@@ -852,6 +852,10 @@ export const PLAYGROUND_HTML = `<!doctype html>
         renderFrameEl.title = "Rendered output";
         renderFrameEl.setAttribute("aria-label", "Rendered output");
         renderFrameEl.setAttribute("referrerpolicy", "no-referrer");
+        // Rendered markup is server-produced and must never gain script execution.
+        // allow-same-origin keeps parent-managed DOM interaction/style mirroring
+        // available while the omitted allow-scripts token blocks frame scripts.
+        renderFrameEl.setAttribute("sandbox", "allow-same-origin");
         renderFrameEl.src = "about:blank";
         renderFrameEl.addEventListener("load", () => {
           ensureRenderFrameRoot();
@@ -1157,40 +1161,22 @@ export const PLAYGROUND_HTML = `<!doctype html>
       const isRecord = (value) =>
         typeof value === "object" && value !== null && !Array.isArray(value);
 
-      const DEFAULT_PREACT_VERSION = "10.28.3";
-      const ESM_SH_BASE_URL = "https://esm.sh/";
-      const BABEL_STANDALONE_URLS = [
-        "https://unpkg.com/@babel/standalone/babel.min.js",
-        "https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js",
-      ];
-
-      let interactiveMountVersion = 0;
-      let interactiveBlobModuleUrl = null;
-      let babelStandalonePromise;
       let diagnosticsSnapshot = {};
       let debugRefreshTimer = null;
       let debugRefreshInFlight = false;
-
-      const resetInteractiveMount = () => {
-        interactiveMountVersion += 1;
-        if (interactiveBlobModuleUrl) {
-          URL.revokeObjectURL(interactiveBlobModuleUrl);
-          interactiveBlobModuleUrl = null;
-        }
-      };
 
       const writeDiagnostics = (payload) => {
         diagnosticsSnapshot = isRecord(payload) ? payload : {};
         diagnosticsEl.textContent = safeJson(diagnosticsSnapshot);
       };
 
-      const appendInteractiveWarning = (message) => {
+      const appendPlaygroundWarning = (code, message) => {
         const diagnostics = Array.isArray(diagnosticsSnapshot.diagnostics)
           ? diagnosticsSnapshot.diagnostics.slice()
           : [];
         diagnostics.push({
           level: "warning",
-          code: "PLAYGROUND_INTERACTIVE_MOUNT_FAILED",
+          code,
           message,
         });
         writeDiagnostics({
@@ -1287,22 +1273,20 @@ export const PLAYGROUND_HTML = `<!doctype html>
         return true;
       };
 
-      const applyTodoInteractiveFallbackIfNeeded = (promptText, mountState) => {
+      const applyTodoInteractiveFallbackIfNeeded = (promptText) => {
         if (!isTodoPromptText(promptText)) {
           return false;
         }
 
-        const fallbackNeeded =
-          Boolean(mountState && mountState.fallbackToStatic) ||
-          !hasRenderedTodoControls();
-        if (!fallbackNeeded) {
+        if (hasRenderedTodoControls()) {
           return false;
         }
 
         const mounted = mountBuiltinTodoFallback();
         if (mounted) {
-          appendInteractiveWarning(
-            "Using built-in interactive Todo fallback because generated source could not be mounted reliably.",
+          appendPlaygroundWarning(
+            "PLAYGROUND_TODO_FALLBACK",
+            "Using the built-in Todo fallback because the server-rendered output did not contain usable Todo controls.",
           );
         }
         return mounted;
@@ -1437,599 +1421,6 @@ export const PLAYGROUND_HTML = `<!doctype html>
         debugRefreshTimer = setInterval(() => {
           void refreshDebugStats({ silent: true });
         }, 2000);
-      };
-
-      const ensureBabelStandalone = async () => {
-        if (window.Babel && typeof window.Babel.transform === "function") {
-          return;
-        }
-
-        if (!babelStandalonePromise) {
-          babelStandalonePromise = (async () => {
-            const loadBabelFromUrl = (url) =>
-              new Promise((resolve, reject) => {
-                const existing = document.querySelector(
-                  "script[data-babel-standalone='1'][src='" + url + "']",
-                );
-                if (existing) {
-                  if (window.Babel && typeof window.Babel.transform === "function") {
-                    resolve();
-                    return;
-                  }
-
-                  existing.addEventListener("load", () => resolve(), { once: true });
-                  existing.addEventListener(
-                    "error",
-                    () =>
-                      reject(
-                        new Error("Failed to load Babel standalone from: " + url),
-                      ),
-                    { once: true },
-                  );
-                  return;
-                }
-
-                const script = document.createElement("script");
-                script.src = url;
-                script.async = true;
-                script.dataset.babelStandalone = "1";
-                script.onload = () => resolve();
-                script.onerror = () =>
-                  reject(new Error("Failed to load Babel standalone from: " + url));
-                document.head.appendChild(script);
-              });
-
-            let lastError = null;
-            for (const url of BABEL_STANDALONE_URLS) {
-              try {
-                await loadBabelFromUrl(url);
-                if (window.Babel && typeof window.Babel.transform === "function") {
-                  return;
-                }
-              } catch (error) {
-                lastError = error;
-              }
-            }
-
-            const detail =
-              lastError instanceof Error ? lastError.message : String(lastError);
-            throw new Error("Babel standalone is unavailable in playground: " + detail);
-          })();
-        }
-
-        await babelStandalonePromise;
-
-        if (!(window.Babel && typeof window.Babel.transform === "function")) {
-          throw new Error("Babel standalone is unavailable in playground.");
-        }
-      };
-
-      const isBareModuleSpecifier = (specifier) => {
-        const normalized = String(specifier ?? "").trim();
-        if (!normalized) {
-          return false;
-        }
-
-        if (
-          normalized.startsWith("./") ||
-          normalized.startsWith("../") ||
-          normalized.startsWith("/") ||
-          normalized.startsWith("http://") ||
-          normalized.startsWith("https://") ||
-          normalized.startsWith("data:") ||
-          normalized.startsWith("blob:")
-        ) {
-          return false;
-        }
-
-        const firstColonIndex = normalized.indexOf(":");
-        if (firstColonIndex > 0) {
-          return false;
-        }
-
-        return true;
-      };
-
-      const getManifestResolvedUrl = (planDetail, specifier) => {
-        if (!isRecord(planDetail) || !isRecord(planDetail.moduleManifest)) {
-          return undefined;
-        }
-        const descriptor = planDetail.moduleManifest[specifier];
-        if (!isRecord(descriptor)) {
-          return undefined;
-        }
-        const resolvedUrl = descriptor.resolvedUrl;
-        if (typeof resolvedUrl !== "string" || resolvedUrl.trim().length === 0) {
-          return undefined;
-        }
-        return resolvedUrl.trim();
-      };
-
-      const extractPreactVersion = (planDetail) => {
-        const candidates = [
-          getManifestResolvedUrl(planDetail, "preact"),
-          getManifestResolvedUrl(planDetail, "preact/hooks"),
-          getManifestResolvedUrl(planDetail, "preact/jsx-runtime"),
-        ];
-
-        for (const candidate of candidates) {
-          if (!candidate) {
-            continue;
-          }
-          const match = candidate.match(/preact@([^/]+)/);
-          if (match && typeof match[1] === "string" && match[1].trim()) {
-            return match[1].trim();
-          }
-        }
-
-        return DEFAULT_PREACT_VERSION;
-      };
-
-      const toEsmPreactUrl = (specifier, version) => {
-        if (specifier === "preact") {
-          return ESM_SH_BASE_URL + "preact@" + version;
-        }
-        if (specifier.startsWith("preact/")) {
-          return (
-            ESM_SH_BASE_URL +
-            "preact@" +
-            version +
-            "/" +
-            specifier.slice("preact/".length)
-          );
-        }
-        return undefined;
-      };
-
-      const extractJspmNpmSpecifier = (url) => {
-        try {
-          const parsed = new URL(String(url ?? ""));
-          const host = String(parsed.host ?? "").toLowerCase();
-          if (!host.endsWith("jspm.io")) {
-            return undefined;
-          }
-
-          const pathname = String(parsed.pathname ?? "");
-          if (!pathname.startsWith("/npm:")) {
-            return undefined;
-          }
-
-          const specifier = pathname.slice("/npm:".length).trim();
-          return specifier.length > 0 ? specifier : undefined;
-        } catch {
-          return undefined;
-        }
-      };
-
-      const hasExplicitNpmVersion = (specifier) => {
-        const normalized = String(specifier ?? "")
-          .trim()
-          .split("?")[0];
-        if (!normalized) {
-          return false;
-        }
-
-        if (normalized.startsWith("@")) {
-          const segments = normalized.split("/");
-          if (segments.length < 2) {
-            return false;
-          }
-
-          const scopedPackage = segments[1];
-          const versionIndex = scopedPackage.lastIndexOf("@");
-          return versionIndex > 0 && versionIndex < scopedPackage.length - 1;
-        }
-
-        const firstSegment = normalized.split("/")[0];
-        const versionIndex = firstSegment.lastIndexOf("@");
-        return versionIndex > 0 && versionIndex < firstSegment.length - 1;
-      };
-
-      const toEsmFallbackForUnpinnedJspmUrl = (url, planDetail) => {
-        const specifier = extractJspmNpmSpecifier(url);
-        if (!specifier || hasExplicitNpmVersion(specifier)) {
-          return undefined;
-        }
-
-        const preactVersion = extractPreactVersion(planDetail);
-        const aliasQuery = [
-          "alias=react:preact/compat,react-dom:preact/compat,react-dom/client:preact/compat,react/jsx-runtime:preact/jsx-runtime,react/jsx-dev-runtime:preact/jsx-runtime",
-          "target=es2022",
-          "deps=preact@" + preactVersion,
-        ].join("&");
-        const separator = specifier.includes("?") ? "&" : "?";
-        return ESM_SH_BASE_URL + specifier + separator + aliasQuery;
-      };
-
-      const extractNpmSpecifierVersion = (specifier) => {
-        const normalized = String(specifier ?? "")
-          .trim()
-          .split("?")[0];
-        if (!normalized) {
-          return undefined;
-        }
-
-        if (normalized.startsWith("@")) {
-          const segments = normalized.split("/");
-          if (segments.length < 2) {
-            return undefined;
-          }
-          const scopedPackage = segments[1];
-          const versionIndex = scopedPackage.lastIndexOf("@");
-          if (versionIndex <= 0 || versionIndex >= scopedPackage.length - 1) {
-            return undefined;
-          }
-          return scopedPackage.slice(versionIndex + 1);
-        }
-
-        const firstSegment = normalized.split("/")[0];
-        const versionIndex = firstSegment.lastIndexOf("@");
-        if (versionIndex <= 0 || versionIndex >= firstSegment.length - 1) {
-          return undefined;
-        }
-        return firstSegment.slice(versionIndex + 1);
-      };
-
-      const getManifestVersion = (planDetail, specifier) => {
-        if (!isRecord(planDetail) || !isRecord(planDetail.moduleManifest)) {
-          return undefined;
-        }
-
-        const descriptor = planDetail.moduleManifest[specifier];
-        if (!isRecord(descriptor)) {
-          return undefined;
-        }
-
-        if (
-          typeof descriptor.version === "string" &&
-          descriptor.version.trim().length > 0
-        ) {
-          return descriptor.version.trim();
-        }
-
-        const resolvedUrl = descriptor.resolvedUrl;
-        if (typeof resolvedUrl !== "string" || resolvedUrl.trim().length === 0) {
-          return undefined;
-        }
-
-        const jspmSpecifier = extractJspmNpmSpecifier(resolvedUrl);
-        if (!jspmSpecifier) {
-          return undefined;
-        }
-        return extractNpmSpecifierVersion(jspmSpecifier);
-      };
-
-      const withPinnedBareSpecifierVersion = (specifier, version) => {
-        const normalized = String(specifier ?? "").trim();
-        const normalizedVersion = String(version ?? "").trim();
-        if (!normalized || !normalizedVersion || hasExplicitNpmVersion(normalized)) {
-          return normalized;
-        }
-
-        if (normalized.startsWith("@")) {
-          const segments = normalized.split("/");
-          if (segments.length < 2) {
-            return normalized;
-          }
-          const scopedPackage = segments.slice(0, 2).join("/");
-          const subpath = segments.slice(2).join("/");
-          return (
-            scopedPackage +
-            "@" +
-            normalizedVersion +
-            (subpath ? "/" + subpath : "")
-          );
-        }
-
-        const segments = normalized.split("/");
-        const packageName = segments[0];
-        const subpath = segments.slice(1).join("/");
-        return (
-          packageName +
-          "@" +
-          normalizedVersion +
-          (subpath ? "/" + subpath : "")
-        );
-      };
-
-      const toMuiEsmBundleUrl = (specifier, planDetail) => {
-        const normalized = String(specifier ?? "").trim();
-        if (
-          !normalized ||
-          (!normalized.startsWith("@mui/material") &&
-            !normalized.startsWith("@mui/icons-material"))
-        ) {
-          return undefined;
-        }
-
-        const preactVersion = extractPreactVersion(planDetail);
-        const manifestVersion = getManifestVersion(planDetail, normalized);
-        const pinnedSpecifier = withPinnedBareSpecifierVersion(
-          normalized,
-          manifestVersion,
-        );
-        const query = [
-          "alias=react:preact/compat,react-dom:preact/compat,react-dom/client:preact/compat,react/jsx-runtime:preact/jsx-runtime,react/jsx-dev-runtime:preact/jsx-runtime",
-          "target=es2022",
-          "deps=preact@" + preactVersion,
-          "bundle",
-        ].join("&");
-        return ESM_SH_BASE_URL + pinnedSpecifier + "?" + query;
-      };
-
-      const toEsmShUrl = (specifier, planDetail) => {
-        const normalized = String(specifier ?? "").trim();
-        if (!normalized) {
-          return normalized;
-        }
-
-        if (!isBareModuleSpecifier(normalized)) {
-          return normalized;
-        }
-
-        // Always resolve preact-family imports via esm.sh in interactive mount,
-        // because some jspm preact entrypoints re-export bare "preact" specifiers.
-        if (normalized === "preact" || normalized.startsWith("preact/")) {
-          const preactVersion = extractPreactVersion(planDetail);
-          const esmPreactUrl = toEsmPreactUrl(normalized, preactVersion);
-          if (esmPreactUrl) {
-            return esmPreactUrl;
-          }
-        }
-
-        const muiBundleUrl = toMuiEsmBundleUrl(normalized, planDetail);
-        if (muiBundleUrl) {
-          return muiBundleUrl;
-        }
-
-        const manifestResolvedUrl = getManifestResolvedUrl(planDetail, normalized);
-        if (manifestResolvedUrl) {
-          const fallbackUnpinned = toEsmFallbackForUnpinnedJspmUrl(
-            manifestResolvedUrl,
-            planDetail,
-          );
-          if (fallbackUnpinned) {
-            return fallbackUnpinned;
-          }
-          return manifestResolvedUrl;
-        }
-
-        return ESM_SH_BASE_URL + normalized;
-      };
-
-      // Playground-only simplification: this regex-based rewrite can match
-      // comment/string literals. Production runtime paths must use lexer parsing.
-      const rewriteTranspiledImports = (code, planDetail) =>
-        String(code ?? "")
-          .replace(/\\bfrom\\s*["']([^"']+)["']/g, (full, specifier) =>
-            full.replace(specifier, toEsmShUrl(specifier, planDetail)),
-          )
-          .replace(/\\bimport\\s*["']([^"']+)["']/g, (full, specifier) =>
-            full.replace(specifier, toEsmShUrl(specifier, planDetail)),
-          )
-          .replace(
-            /\\bimport\\s*\\(\\s*["']([^"']+)["']\\s*\\)/g,
-            (full, specifier) =>
-              full.replace(specifier, toEsmShUrl(specifier, planDetail)),
-          );
-
-      const shouldMountPreactSource = (planDetail) => {
-        if (!isRecord(planDetail) || !isRecord(planDetail.source)) {
-          return false;
-        }
-        const runtime = String(planDetail.source.runtime ?? "")
-          .trim()
-          .toLowerCase();
-        const code = planDetail.source.code;
-        return runtime === "preact" && typeof code === "string" && code.trim().length > 0;
-      };
-
-      const shouldRunRenderifySource = (planDetail) => {
-        if (!isRecord(planDetail) || !isRecord(planDetail.source)) {
-          return false;
-        }
-        const runtime = String(planDetail.source.runtime ?? "")
-          .trim()
-          .toLowerCase();
-        const code = planDetail.source.code;
-        return runtime === "renderify" && typeof code === "string" && code.trim().length > 0;
-      };
-
-      const transpileSourceForInteractiveMount = (source, runtime) => {
-        const language = String(source.language ?? "jsx")
-          .trim()
-          .toLowerCase();
-        if (
-          language !== "js" &&
-          language !== "jsx" &&
-          language !== "ts" &&
-          language !== "tsx"
-        ) {
-          throw new Error("Unsupported source language for interactive mount: " + language);
-        }
-
-        if (runtime === "renderify" && (language === "jsx" || language === "tsx")) {
-          throw new Error(
-            "Renderify runtime interactive mount does not support JSX source without preact runtime.",
-          );
-        }
-
-        const presets = [];
-        if (language === "ts" || language === "tsx") {
-          presets.push("typescript");
-        }
-        if (runtime === "preact" && (language === "jsx" || language === "tsx")) {
-          presets.push([
-            "react",
-            {
-              runtime: "automatic",
-              importSource: "preact",
-            },
-          ]);
-        }
-
-        const transformed = window.Babel.transform(String(source.code ?? ""), {
-          sourceType: "module",
-          presets,
-          filename: "renderify-playground-source." + language,
-          babelrc: false,
-          configFile: false,
-          comments: false,
-        });
-
-        if (!isRecord(transformed) || typeof transformed.code !== "string") {
-          throw new Error("Babel returned empty code for interactive mount.");
-        }
-
-        return transformed.code;
-      };
-
-      const mountPreactSourceInteractively = async (
-        planDetail,
-        runtimeState,
-        mountVersion,
-      ) => {
-        if (!shouldMountPreactSource(planDetail)) {
-          return;
-        }
-
-        await ensureBabelStandalone();
-        if (mountVersion !== interactiveMountVersion) {
-          return;
-        }
-
-        const source = planDetail.source;
-        const transpiled = transpileSourceForInteractiveMount(source, "preact");
-        const rewritten = rewriteTranspiledImports(transpiled, planDetail);
-        const preactImportUrl = toEsmShUrl("preact", planDetail);
-        const exportNameRaw =
-          typeof source.exportName === "string" && source.exportName.trim().length > 0
-            ? source.exportName.trim()
-            : "default";
-
-        if (interactiveBlobModuleUrl) {
-          URL.revokeObjectURL(interactiveBlobModuleUrl);
-          interactiveBlobModuleUrl = null;
-        }
-
-        interactiveBlobModuleUrl = URL.createObjectURL(
-          new Blob([rewritten], { type: "text/javascript" }),
-        );
-
-        const sourceNamespace = await import(interactiveBlobModuleUrl);
-        if (mountVersion !== interactiveMountVersion) {
-          return;
-        }
-
-        const resolveComponentExport = (namespace, preferredExportName) => {
-          if (!isRecord(namespace)) {
-            return undefined;
-          }
-
-          const triedNames = new Set();
-          const queueName = (name) => {
-            const normalized = String(name ?? "").trim();
-            if (!normalized || triedNames.has(normalized)) {
-              return;
-            }
-            triedNames.add(normalized);
-          };
-          queueName(preferredExportName);
-          queueName("default");
-
-          for (const [name, value] of Object.entries(namespace)) {
-            if (typeof value === "function" && /^[A-Z]/.test(name)) {
-              queueName(name);
-            }
-          }
-
-          for (const [name, value] of Object.entries(namespace)) {
-            if (typeof value === "function") {
-              queueName(name);
-            }
-          }
-
-          for (const name of triedNames) {
-            const candidate = namespace[name];
-            if (typeof candidate === "function") {
-              return candidate;
-            }
-
-            if (
-              isRecord(candidate) &&
-              typeof candidate.default === "function"
-            ) {
-              return candidate.default;
-            }
-          }
-
-          return undefined;
-        };
-
-        const component = resolveComponentExport(sourceNamespace, exportNameRaw);
-        if (typeof component !== "function") {
-          throw new Error(
-            "Source export '" + exportNameRaw + "' is not a component function.",
-          );
-        }
-
-        const preactNamespace = await import(preactImportUrl);
-        if (mountVersion !== interactiveMountVersion) {
-          return;
-        }
-
-        if (
-          !isRecord(preactNamespace) ||
-          typeof preactNamespace.h !== "function" ||
-          typeof preactNamespace.render !== "function"
-        ) {
-          throw new Error("Failed to load Preact runtime for interactive mount.");
-        }
-
-        const runtimeInput = {
-          context: {},
-          state: isRecord(runtimeState) ? runtimeState : {},
-          event: null,
-        };
-        clearRenderOutputHtml();
-        const mountRootEl = resolveRenderRoot();
-        if (!mountRootEl) {
-          throw new Error("Render output container is not available for interactive mount.");
-        }
-        preactNamespace.render(
-          preactNamespace.h(component, runtimeInput),
-          mountRootEl,
-        );
-        if (renderIsolationMode === "iframe") {
-          updateRenderFrameHeight();
-        }
-        syncRenderOutputEmptyState();
-      };
-
-      const runRenderifySourceInteractively = async (planDetail, mountVersion) => {
-        if (!shouldRunRenderifySource(planDetail)) {
-          return;
-        }
-
-        await ensureBabelStandalone();
-        if (mountVersion !== interactiveMountVersion) {
-          return;
-        }
-
-        const source = planDetail.source;
-        const transpiled = transpileSourceForInteractiveMount(source, "renderify");
-        const rewritten = rewriteTranspiledImports(transpiled, planDetail);
-
-        if (interactiveBlobModuleUrl) {
-          URL.revokeObjectURL(interactiveBlobModuleUrl);
-          interactiveBlobModuleUrl = null;
-        }
-
-        interactiveBlobModuleUrl = URL.createObjectURL(
-          new Blob([rewritten], { type: "text/javascript" }),
-        );
-
-        await import(interactiveBlobModuleUrl);
       };
 
       const HASH_SOURCE_LANGUAGE_KEYS = {
@@ -2179,8 +1570,7 @@ export const PLAYGROUND_HTML = `<!doctype html>
         return payload;
       }
 
-      const applyRenderPayload = async (payload) => {
-        resetInteractiveMount();
+      const applyRenderPayload = (payload) => {
         setRenderOutputHtml(payload.html ?? "");
         planEditorEl.value = safeJson(payload.planDetail ?? {});
         displaySourceCode(payload.planDetail);
@@ -2189,57 +1579,9 @@ export const PLAYGROUND_HTML = `<!doctype html>
           state: payload.state ?? {},
           diagnostics: payload.diagnostics ?? [],
         });
-
-        const mountVersion = interactiveMountVersion;
-        const mountState = {
-          attempted: false,
-          fallbackToStatic: false,
-          message: undefined,
-        };
-
-        const requiresRenderifySourceMount =
-          shouldRunRenderifySource(payload.planDetail);
-
-        if (renderIsolationMode === "iframe" && requiresRenderifySourceMount) {
-          mountState.attempted = true;
-          mountState.fallbackToStatic = true;
-          mountState.message =
-            "Iframe isolation mode renders renderify runtime source as static HTML.";
-          appendInteractiveWarning(
-            "Iframe isolation mode renders renderify runtime source as static HTML. Use default scope isolation for source-level interactivity.",
-          );
-          return mountState;
-        }
-
-        try {
-          if (shouldMountPreactSource(payload.planDetail)) {
-            mountState.attempted = true;
-            await mountPreactSourceInteractively(
-              payload.planDetail,
-              payload.state ?? {},
-              mountVersion,
-            );
-          } else if (shouldRunRenderifySource(payload.planDetail)) {
-            mountState.attempted = true;
-            await runRenderifySourceInteractively(payload.planDetail, mountVersion);
-          }
-        } catch (error) {
-          if (mountVersion !== interactiveMountVersion) {
-            return mountState;
-          }
-          setRenderOutputHtml(payload.html ?? "");
-          const message = error instanceof Error ? error.message : String(error);
-          appendInteractiveWarning(message);
-          console.warn("[playground] interactive mount failed:", message);
-          mountState.fallbackToStatic = true;
-          mountState.message = message;
-        }
-
-        return mountState;
       };
 
       const resetRenderPanels = () => {
-        resetInteractiveMount();
         clearRenderOutputHtml();
         planEditorEl.value = "{}";
         writeDiagnostics({});
@@ -2251,15 +1593,12 @@ export const PLAYGROUND_HTML = `<!doctype html>
         setStatus(statusText || "Rendering plan...");
         try {
           const payload = await request("/api/plan", "POST", { plan });
-          const mountState = await applyRenderPayload(payload);
+          applyRenderPayload(payload);
           const todoFallbackApplied = applyTodoInteractiveFallbackIfNeeded(
             promptEl.value,
-            mountState,
           );
           if (todoFallbackApplied) {
             setStatus("Plan rendered (interactive todo fallback).");
-          } else if (mountState && mountState.fallbackToStatic) {
-            setStatus("Plan rendered (static fallback). See diagnostics.");
           } else {
             setStatus("Plan rendered.");
           }
@@ -2287,15 +1626,10 @@ export const PLAYGROUND_HTML = `<!doctype html>
         streamOutputEl.textContent = "[]";
         try {
           const payload = await request("/api/prompt", "POST", { prompt });
-          const mountState = await applyRenderPayload(payload);
-          const todoFallbackApplied = applyTodoInteractiveFallbackIfNeeded(
-            prompt,
-            mountState,
-          );
+          applyRenderPayload(payload);
+          const todoFallbackApplied = applyTodoInteractiveFallbackIfNeeded(prompt);
           if (todoFallbackApplied) {
             setStatus("Prompt rendered (interactive todo fallback).");
-          } else if (mountState && mountState.fallbackToStatic) {
-            setStatus("Prompt rendered (static fallback). See diagnostics.");
           } else {
             setStatus("Prompt rendered.");
           }
@@ -2321,7 +1655,6 @@ export const PLAYGROUND_HTML = `<!doctype html>
         const streamEvents = [];
         let streamErrorMessage;
         let streamCompleted = false;
-        let streamInteractiveFallback = false;
         let streamTodoFallback = false;
 
         try {
@@ -2375,12 +1708,9 @@ export const PLAYGROUND_HTML = `<!doctype html>
                 setRenderOutputHtml(event.html);
               }
               if (event.type === "final" && event.final) {
-                const mountState = await applyRenderPayload(event.final);
-                if (applyTodoInteractiveFallbackIfNeeded(prompt, mountState)) {
+                applyRenderPayload(event.final);
+                if (applyTodoInteractiveFallbackIfNeeded(prompt)) {
                   streamTodoFallback = true;
-                }
-                if (mountState && mountState.fallbackToStatic) {
-                  streamInteractiveFallback = true;
                 }
                 streamCompleted = true;
               }
@@ -2394,8 +1724,6 @@ export const PLAYGROUND_HTML = `<!doctype html>
 
           if (streamCompleted && streamTodoFallback) {
             setStatus("Stream completed (interactive todo fallback).");
-          } else if (streamCompleted && streamInteractiveFallback) {
-            setStatus("Stream completed (static fallback). See diagnostics.");
           } else {
             setStatus(
               streamCompleted
@@ -2452,7 +1780,6 @@ export const PLAYGROUND_HTML = `<!doctype html>
       }
 
       function clearAll() {
-        resetInteractiveMount();
         clearRenderOutputHtml();
         writeDiagnostics({});
         hideSourceCode();

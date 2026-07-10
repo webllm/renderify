@@ -1019,7 +1019,7 @@ test("e2e: playground hash plan64 auto-renders on load", async (t) => {
   }
 });
 
-test("e2e: playground hash js64 source auto-renders on load", async (t) => {
+test("e2e: playground hash source renders server output without browser re-execution", async (t) => {
   const tempDir = await mkdtemp(
     path.join(os.tmpdir(), "renderify-e2e-playground-hash-js64-"),
   );
@@ -1044,7 +1044,25 @@ test("e2e: playground hash js64 source auto-renders on load", async (t) => {
     }
 
     const page = await browser.newPage();
+    await page.addInitScript(() => {
+      const root = window as typeof window & {
+        __renderifyCreatedBlobUrls?: number;
+      };
+      root.__renderifyCreatedBlobUrls = 0;
+      const originalCreateObjectURL = URL.createObjectURL.bind(URL);
+      Object.defineProperty(URL, "createObjectURL", {
+        configurable: true,
+        value: (...args: Parameters<typeof URL.createObjectURL>) => {
+          root.__renderifyCreatedBlobUrls =
+            (root.__renderifyCreatedBlobUrls ?? 0) + 1;
+          return originalCreateObjectURL(...args);
+        },
+      });
+    });
     const sourceCode = [
+      "if (typeof document !== 'undefined') {",
+      "  document.documentElement.dataset.renderifySourceReexecuted = 'true';",
+      "}",
       "export default () => ({",
       "  type: 'element',",
       "  tag: 'section',",
@@ -1086,6 +1104,18 @@ test("e2e: playground hash js64 source auto-renders on load", async (t) => {
     assert.equal(parsed.id, "playground_hash_source_js64");
     assert.equal(parsed.source?.language, "js");
     assert.equal(parsed.source?.runtime, "renderify");
+
+    const browserExecution = await page.evaluate(() => ({
+      marker: document.documentElement.dataset.renderifySourceReexecuted,
+      blobUrls:
+        (
+          window as typeof window & {
+            __renderifyCreatedBlobUrls?: number;
+          }
+        ).__renderifyCreatedBlobUrls ?? 0,
+    }));
+    assert.equal(browserExecution.marker, undefined);
+    assert.equal(browserExecution.blobUrls, 0);
   } finally {
     await browser?.close();
     processHandle.kill("SIGTERM");

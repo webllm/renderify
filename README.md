@@ -246,6 +246,12 @@ By default, playground prints outbound LLM request/response payload logs in term
 
 When debug mode is enabled, playground logs key inbound/outbound request summaries, exposes `GET /api/debug/stats`, and shows an in-page **Debug Stats** panel with auto-refresh.
 
+The playground page does not execute `plan.source.code`. Source plans are
+processed behind the playground server's configured security/runtime boundary,
+and the browser displays the returned HTML while keeping source available for
+inspection. Hash payloads cannot enable browser-side source execution. The
+optional iframe display mode is sandboxed without script permission.
+
 ### Playground Hash Deep-Link
 
 The playground can auto-render from URL hash payloads:

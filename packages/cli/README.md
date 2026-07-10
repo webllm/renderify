@@ -71,6 +71,12 @@ Playground prints outbound LLM request/response payload logs to terminal by defa
 
 When debug mode is enabled, playground also prints key inbound/outbound request summaries, exposes `/api/debug/stats`, and renders an in-page **Debug Stats** panel with manual/auto refresh.
 
+The playground browser never transpiles or imports `plan.source.code`. It
+displays the HTML returned by the server-side security/runtime pipeline and
+keeps source available only for inspection. Source hash links use that same
+server path and cannot enable browser-side source execution. Iframe display
+mode is sandboxed without script permission.
+
 See `../../docs/getting-started.md` and `../../docs/security.md` for runtime and policy options.
 
 ## Notes

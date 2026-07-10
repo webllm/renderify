@@ -121,6 +121,13 @@ The playground provides a dedicated streaming action (`Stream Prompt`) powered b
 
 Switch to Plan mode to submit a raw RuntimePlan JSON object. This bypasses the LLM and goes directly through security → runtime → render.
 
+The browser only displays the serialized HTML returned by the playground
+server. It never transpiles, imports, or evaluates `plan.source.code` in the
+playground page. Source remains available in the source inspector, while all
+source handling stays behind the configured server-side security and runtime
+boundary. The optional iframe display mode also omits script permission from
+its sandbox.
+
 ### Probe Mode
 
 The playground can probe a plan for compatibility without executing it, similar to the `probe-plan` CLI command.
@@ -263,6 +270,11 @@ JSX64=$(node -e '
 
 open "http://127.0.0.1:4317/#jsx64=${JSX64}&runtime=preact"
 ```
+
+Opening a source deep-link submits the decoded plan to the local playground
+server. The page renders the server response but does not import the decoded
+source into its own JavaScript realm. Hash parameters cannot opt into a
+browser-side source execution mode.
 
 ### Supported Hash Parameters
 
