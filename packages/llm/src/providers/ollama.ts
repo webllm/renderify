@@ -11,6 +11,7 @@ import {
   createLLMReliabilityState,
   createTimeoutAbortScope,
   fetchWithReliability,
+  finalizeResponseBodyReader,
   formatContext,
   type LLMReliabilityOptions,
   pickFetch,
@@ -255,33 +256,39 @@ export class OllamaLLMInterpreter implements LLMInterpreter {
       const decoder = new TextDecoder();
       const reader = response.body.getReader();
       let buffer = "";
+      let reachedEndOfStream = false;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-          break;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            reachedEndOfStream = true;
+            break;
+          }
+
+          if (value) {
+            buffer += decoder.decode(value, { stream: true });
+          }
+
+          const parsed = consumeNdjsonPayloads(buffer);
+          buffer = parsed.remaining;
+
+          for (const payload of parsed.payloads) {
+            for (const chunk of processPayload(payload)) {
+              yield chunk;
+            }
+          }
         }
 
-        if (value) {
-          buffer += decoder.decode(value, { stream: true });
-        }
-
-        const parsed = consumeNdjsonPayloads(buffer);
-        buffer = parsed.remaining;
-
-        for (const payload of parsed.payloads) {
+        buffer += decoder.decode();
+        const finalParsed = consumeNdjsonPayloads(buffer, true);
+        for (const payload of finalParsed.payloads) {
           for (const chunk of processPayload(payload)) {
             yield chunk;
           }
         }
-      }
-
-      buffer += decoder.decode();
-      const finalParsed = consumeNdjsonPayloads(buffer, true);
-      for (const payload of finalParsed.payloads) {
-        for (const chunk of processPayload(payload)) {
-          yield chunk;
-        }
+      } finally {
+        await finalizeResponseBodyReader(reader, reachedEndOfStream);
       }
 
       if (!doneEmitted) {

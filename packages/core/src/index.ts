@@ -21,6 +21,7 @@ import type {
 } from "./customization";
 import type {
   LLMInterpreter,
+  LLMRequest,
   LLMResponse,
   LLMResponseStreamChunk,
   LLMStructuredRequest,
@@ -348,6 +349,23 @@ export class RenderifyApp {
     let promptAfterHook = prompt;
     let handoffToPlanFlow = false;
     let llmResponse: LLMResponse | undefined;
+    let prePlanMetricEnded = false;
+    let prePlanMetric: ReturnType<PerformanceOptimizer["endMeasurement"]>;
+    const endPrePlanMetric = () => {
+      if (handoffToPlanFlow) {
+        return undefined;
+      }
+
+      if (!prePlanMetricEnded) {
+        prePlanMetricEnded = true;
+        prePlanMetric = this.deps.performance.endMeasurement(metricLabel);
+      }
+      return prePlanMetric;
+    };
+    const handleAbort = () => {
+      endPrePlanMetric();
+    };
+    options.signal?.addEventListener("abort", handleAbort, { once: true });
 
     try {
       const pluginContextFactory = (hookName: PluginHook): PluginContext => ({
@@ -495,7 +513,7 @@ export class RenderifyApp {
             let latestChunk: LLMResponseStreamChunk | undefined;
             let chunkCount = 0;
 
-            for await (const chunk of this.deps.llm.generateResponseStream(
+            for await (const chunk of this.iterateLLMResponseStream(
               llmRequestBase,
             )) {
               this.throwIfAborted(options.signal);
@@ -577,7 +595,7 @@ export class RenderifyApp {
         let latestChunk: LLMResponseStreamChunk | undefined;
         let chunkCount = 0;
 
-        for await (const chunk of this.deps.llm.generateResponseStream(
+        for await (const chunk of this.iterateLLMResponseStream(
           llmRequestBase,
         )) {
           this.throwIfAborted(options.signal);
@@ -697,11 +715,14 @@ export class RenderifyApp {
       };
 
       if (!handoffToPlanFlow) {
-        const metric = this.deps.performance.endMeasurement(metricLabel);
+        const metric = endPrePlanMetric();
         this.emit("renderFailed", { traceId, metric, error });
       }
 
       throw error;
+    } finally {
+      options.signal?.removeEventListener("abort", handleAbort);
+      endPrePlanMetric();
     }
   }
 
@@ -776,9 +797,9 @@ export class RenderifyApp {
     params: ExecutePlanFlowParams,
   ): Promise<RenderPlanResult> {
     const { traceId, metricLabel, prompt, plan, target, signal } = params;
-    this.throwIfAborted(signal);
 
     try {
+      this.throwIfAborted(signal);
       const pluginContextFactory = (hookName: PluginHook): PluginContext => ({
         traceId,
         hookName,
@@ -871,6 +892,55 @@ export class RenderifyApp {
       const metric = this.deps.performance.endMeasurement(metricLabel);
       this.emit("renderFailed", { traceId, metric, prompt, error });
       throw error;
+    }
+  }
+
+  private async *iterateLLMResponseStream(
+    request: LLMRequest,
+  ): AsyncGenerator<LLMResponseStreamChunk> {
+    const generateResponseStream = this.deps.llm.generateResponseStream;
+    if (!generateResponseStream) {
+      return;
+    }
+
+    const iterable = generateResponseStream.call(this.deps.llm, request);
+    const iterator = iterable[Symbol.asyncIterator]();
+    let closePromise: Promise<void> | undefined;
+    const closeIterator = (): Promise<void> => {
+      if (!closePromise) {
+        if (!iterator.return) {
+          closePromise = Promise.resolve();
+        } else {
+          try {
+            closePromise = Promise.resolve(iterator.return()).then(
+              () => undefined,
+              () => undefined,
+            );
+          } catch {
+            closePromise = Promise.resolve();
+          }
+        }
+      }
+      return closePromise;
+    };
+    const handleAbort = () => {
+      void closeIterator();
+    };
+
+    request.signal?.addEventListener("abort", handleAbort, { once: true });
+
+    try {
+      while (true) {
+        this.throwIfAborted(request.signal);
+        const result = await iterator.next();
+        if (result.done) {
+          return;
+        }
+        yield result.value;
+      }
+    } finally {
+      request.signal?.removeEventListener("abort", handleAbort);
+      await closeIterator();
     }
   }
 

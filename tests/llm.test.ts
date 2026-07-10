@@ -1258,6 +1258,125 @@ test("ollama interpreter streams text response chunks", async () => {
   assert.equal(chunks[2].tokensUsed, 17);
 });
 
+test("builtin llm stream providers cancel response bodies on early return", async (t) => {
+  const cases: Array<{
+    name: string;
+    payload: string;
+    create: (fetchImpl: typeof fetch) => LLMInterpreter;
+  }> = [
+    {
+      name: "openai",
+      payload: `data: ${JSON.stringify({
+        model: "gpt-5-mini",
+        choices: [{ delta: { content: "openai" } }],
+      })}\n\n`,
+      create: (fetchImpl) =>
+        new OpenAILLMInterpreter({
+          apiKey: "test-key",
+          model: "gpt-5-mini",
+          fetchImpl,
+        }),
+    },
+    {
+      name: "openai-codex",
+      payload: `event: response.output_text.delta\ndata: ${JSON.stringify({
+        type: "response.output_text.delta",
+        delta: "codex",
+      })}\n\n`,
+      create: (fetchImpl) =>
+        new OpenAICodexLLMInterpreter({
+          accessToken: "codex-test-token",
+          model: "gpt-5.5",
+          fetchImpl,
+        }),
+    },
+    {
+      name: "anthropic",
+      payload: `event: content_block_delta\ndata: ${JSON.stringify({
+        type: "content_block_delta",
+        delta: { text: "anthropic" },
+      })}\n\n`,
+      create: (fetchImpl) =>
+        new AnthropicLLMInterpreter({
+          apiKey: "anthropic-key",
+          model: "claude-sonnet-4-5",
+          fetchImpl,
+        }),
+    },
+    {
+      name: "google",
+      payload: `data: ${JSON.stringify({
+        modelVersion: "gemini-2.5-flash",
+        candidates: [{ content: { parts: [{ text: "google" }] } }],
+      })}\n\n`,
+      create: (fetchImpl) =>
+        new GoogleLLMInterpreter({
+          apiKey: "google-key",
+          model: "gemini-2.5-flash",
+          fetchImpl,
+        }),
+    },
+    {
+      name: "ollama",
+      payload: `${JSON.stringify({
+        model: "qwen2.5-coder:7b",
+        response: "ollama",
+        done: false,
+      })}\n`,
+      create: (fetchImpl) =>
+        new OllamaLLMInterpreter({
+          model: "qwen2.5-coder:7b",
+          fetchImpl,
+        }),
+    },
+    {
+      name: "lmstudio",
+      payload: `data: ${JSON.stringify({
+        model: "qwen2.5-coder-7b-instruct",
+        choices: [{ delta: { content: "lmstudio" } }],
+      })}\n\n`,
+      create: (fetchImpl) =>
+        new LMStudioLLMInterpreter({
+          model: "qwen2.5-coder-7b-instruct",
+          fetchImpl,
+        }),
+    },
+  ];
+
+  for (const testCase of cases) {
+    await t.test(testCase.name, async () => {
+      let bodyCanceled = false;
+      const encoder = new TextEncoder();
+      const fetchImpl = async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(encoder.encode(testCase.payload));
+            },
+            cancel() {
+              bodyCanceled = true;
+            },
+          }),
+          { status: 200 },
+        );
+      const llm = testCase.create(fetchImpl);
+      const responseStream = llm.generateResponseStream?.({
+        prompt: "stop early",
+      });
+      assert.ok(responseStream);
+
+      const iterator = responseStream[Symbol.asyncIterator]();
+      const first = await iterator.next();
+      assert.equal(first.done, false);
+      assert.ok(first.value.delta.length > 0);
+
+      await iterator.return?.();
+
+      assert.equal(bodyCanceled, true);
+    });
+  }
+});
+
 test("llm provider registry can create builtin openai interpreter", async () => {
   const llm = createLLMInterpreter({
     provider: "openai",

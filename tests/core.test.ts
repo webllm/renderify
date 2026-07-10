@@ -343,6 +343,43 @@ class StreamingPlainTextLLM implements LLMInterpreter {
   }
 }
 
+class CleanupTrackingLLM implements LLMInterpreter {
+  streamClosed = false;
+
+  configure(_options: Record<string, unknown>): void {}
+
+  async generateResponse(req: LLMRequest): Promise<LLMResponse> {
+    return {
+      text: req.prompt,
+      model: "cleanup-tracking",
+    };
+  }
+
+  async *generateResponseStream(
+    req: LLMRequest,
+  ): AsyncIterable<LLMResponseStreamChunk> {
+    try {
+      yield {
+        delta: req.prompt,
+        text: req.prompt,
+        done: false,
+        index: 1,
+        model: "cleanup-tracking",
+      };
+
+      await new Promise<void>(() => undefined);
+    } finally {
+      this.streamClosed = true;
+    }
+  }
+
+  setPromptTemplate(): void {}
+
+  getPromptTemplate(): string | undefined {
+    return undefined;
+  }
+}
+
 class CountingIncrementalCodeGenerator extends DefaultCodeGenerator {
   public generatePlanCalls = 0;
   public pushDeltaCalls = 0;
@@ -765,6 +802,60 @@ test("core renderPromptStream emits error chunk before throwing", async () => {
   assert.ok(seenChunkTypes.includes("error"));
   assert.equal(errorChunkMessage, "stream exploded");
 
+  await app.stop();
+});
+
+test("core renderPromptStream closes upstream and metrics when consumer breaks", async () => {
+  const llm = new CleanupTrackingLLM();
+  const performance = new DefaultPerformanceOptimizer();
+  const app = createRenderifyApp(
+    createDependencies({
+      llm,
+      performance,
+    }),
+  );
+  await app.start();
+
+  for await (const chunk of app.renderPromptStream("stop after first chunk")) {
+    assert.equal(chunk.type, "llm-delta");
+    break;
+  }
+
+  assert.equal(llm.streamClosed, true);
+  assert.equal(performance.getMetrics().length, 1);
+
+  await app.stop();
+});
+
+test("core renderPromptStream closes upstream and metrics when signal aborts", async () => {
+  const llm = new CleanupTrackingLLM();
+  const performance = new DefaultPerformanceOptimizer();
+  const app = createRenderifyApp(
+    createDependencies({
+      llm,
+      performance,
+    }),
+  );
+  await app.start();
+
+  const controller = new AbortController();
+  const stream = app.renderPromptStream("abort after first chunk", {
+    signal: controller.signal,
+  });
+  const first = await stream.next();
+  assert.equal(first.done, false);
+  if (first.done) {
+    throw new Error("expected initial stream chunk");
+  }
+  assert.equal(first.value.type, "llm-delta");
+
+  controller.abort();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+
+  assert.equal(llm.streamClosed, true);
+  assert.equal(performance.getMetrics().length, 1);
+
+  await stream.return(undefined as never);
   await app.stop();
 });
 

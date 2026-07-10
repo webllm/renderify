@@ -276,6 +276,25 @@ export function resolveFetch(
   throw new Error(missingMessage);
 }
 
+export async function finalizeResponseBodyReader(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  reachedEndOfStream: boolean,
+): Promise<void> {
+  if (!reachedEndOfStream) {
+    try {
+      await reader.cancel();
+    } catch {
+      // Cleanup must not replace the stream error or an explicit consumer return.
+    }
+  }
+
+  try {
+    reader.releaseLock();
+  } catch {
+    // The reader can already be unlocked after an abort-triggered cancellation.
+  }
+}
+
 export function createTimeoutAbortScope(
   timeoutMs: number,
   upstreamSignal?: AbortSignal,

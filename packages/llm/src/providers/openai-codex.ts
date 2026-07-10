@@ -12,6 +12,7 @@ import {
   createLLMReliabilityState,
   createTimeoutAbortScope,
   fetchWithReliability,
+  finalizeResponseBodyReader,
   formatContext,
   type LLMReliabilityOptions,
   pickFetch,
@@ -480,6 +481,7 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
       const decoder = new TextDecoder();
       const reader = response.body.getReader();
       let buffer = "";
+      let reachedEndOfStream = false;
 
       try {
         while (true) {
@@ -488,6 +490,7 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
             abortScope.signal,
           );
           if (done) {
+            reachedEndOfStream = true;
             break;
           }
 
@@ -509,11 +512,7 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
           yield chunk;
         }
       } finally {
-        try {
-          reader.releaseLock();
-        } catch {
-          // The pending read may still be settling after an abort-triggered cancel.
-        }
+        await finalizeResponseBodyReader(reader, reachedEndOfStream);
       }
 
       if (!doneEmitted) {
@@ -731,6 +730,7 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
     let buffer = "";
     let completed: OpenAICodexResponsesPayload | undefined;
     let outputText = "";
+    let reachedEndOfStream = false;
 
     const processEvents = (events: Array<{ event?: string; data: string }>) => {
       for (const event of events) {
@@ -780,6 +780,7 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
       while (true) {
         const { done, value } = await readCodexStreamChunk(reader, signal);
         if (done) {
+          reachedEndOfStream = true;
           break;
         }
 
@@ -796,11 +797,7 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
       const finalEvents = consumeSseEvents(buffer, true);
       processEvents(finalEvents.events);
     } finally {
-      try {
-        reader.releaseLock();
-      } catch {
-        // The pending read may still be settling after an abort-triggered cancel.
-      }
+      await finalizeResponseBodyReader(reader, reachedEndOfStream);
     }
 
     if (!completed) {

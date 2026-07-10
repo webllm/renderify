@@ -12,6 +12,7 @@ import {
   createLLMReliabilityState,
   createTimeoutAbortScope,
   fetchWithReliability,
+  finalizeResponseBodyReader,
   formatContext,
   type LLMReliabilityOptions,
   pickFetch,
@@ -409,29 +410,35 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
       const decoder = new TextDecoder();
       const reader = response.body.getReader();
       let buffer = "";
+      let reachedEndOfStream = false;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-          break;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            reachedEndOfStream = true;
+            break;
+          }
+
+          if (value) {
+            buffer += decoder.decode(value, { stream: true });
+          }
+
+          const parsedEvents = consumeSseEvents(buffer);
+          buffer = parsedEvents.remaining;
+
+          for (const chunk of processEvents(parsedEvents.events)) {
+            yield chunk;
+          }
         }
 
-        if (value) {
-          buffer += decoder.decode(value, { stream: true });
-        }
-
-        const parsedEvents = consumeSseEvents(buffer);
-        buffer = parsedEvents.remaining;
-
-        for (const chunk of processEvents(parsedEvents.events)) {
+        buffer += decoder.decode();
+        const finalEvents = consumeSseEvents(buffer, true);
+        for (const chunk of processEvents(finalEvents.events)) {
           yield chunk;
         }
-      }
-
-      buffer += decoder.decode();
-      const finalEvents = consumeSseEvents(buffer, true);
-      for (const chunk of processEvents(finalEvents.events)) {
-        yield chunk;
+      } finally {
+        await finalizeResponseBodyReader(reader, reachedEndOfStream);
       }
 
       if (!doneEmitted) {
