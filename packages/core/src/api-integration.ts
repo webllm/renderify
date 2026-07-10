@@ -15,6 +15,9 @@ export interface ApiIntegration {
   ): Promise<TResponse>;
 }
 
+const MAX_API_ERROR_BODY_BYTES = 64 * 1024;
+const TRUNCATED_API_ERROR_SUFFIX = "… [truncated]";
+
 export class DefaultApiIntegration implements ApiIntegration {
   private readonly apis: Map<string, ApiDefinition> = new Map();
 
@@ -58,7 +61,10 @@ export class DefaultApiIntegration implements ApiIntegration {
 
       const response = await fetch(url, init);
       if (!response.ok) {
-        const bodyText = await response.text();
+        const bodyText = await readBoundedErrorBody(
+          response,
+          controller?.signal,
+        );
         throw new Error(
           `API ${name} failed with ${response.status}: ${bodyText}`,
         );
@@ -139,4 +145,79 @@ export class DefaultApiIntegration implements ApiIntegration {
 
     return setTimeout(() => controller.abort(), timeoutMs);
   }
+}
+
+async function readBoundedErrorBody(
+  response: Response,
+  signal?: AbortSignal,
+): Promise<string> {
+  if (!response.body) {
+    return response.statusText;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let output = "";
+  let bytesRead = 0;
+  let reachedEnd = false;
+  let truncated = false;
+  let abortHandler: (() => void) | undefined;
+
+  const abortPromise = new Promise<never>((_resolve, reject) => {
+    const rejectFromSignal = () => reject(resolveAbortReason(signal));
+    if (signal?.aborted) {
+      rejectFromSignal();
+      return;
+    }
+    abortHandler = rejectFromSignal;
+    signal?.addEventListener("abort", abortHandler, { once: true });
+  });
+
+  try {
+    while (bytesRead < MAX_API_ERROR_BODY_BYTES) {
+      const { done, value } = await Promise.race([reader.read(), abortPromise]);
+      if (done) {
+        reachedEnd = true;
+        output += decoder.decode();
+        break;
+      }
+
+      if (!value || value.length === 0) {
+        continue;
+      }
+
+      const remaining = MAX_API_ERROR_BODY_BYTES - bytesRead;
+      const accepted = value.subarray(0, remaining);
+      bytesRead += accepted.length;
+      output += decoder.decode(accepted, { stream: true });
+
+      if (
+        accepted.length < value.length ||
+        bytesRead >= MAX_API_ERROR_BODY_BYTES
+      ) {
+        truncated = true;
+        output += decoder.decode();
+        break;
+      }
+    }
+  } finally {
+    if (abortHandler) {
+      signal?.removeEventListener("abort", abortHandler);
+    }
+    if (!reachedEnd) {
+      void reader.cancel().catch(() => undefined);
+    }
+  }
+
+  return truncated ? `${output}${TRUNCATED_API_ERROR_SUFFIX}` : output;
+}
+
+function resolveAbortReason(signal?: AbortSignal): Error {
+  if (signal?.reason instanceof Error) {
+    return signal.reason;
+  }
+
+  const error = new Error("API request aborted");
+  error.name = "AbortError";
+  return error;
 }

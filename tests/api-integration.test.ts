@@ -194,6 +194,69 @@ test("api integration throws enriched error for non-OK response", async () => {
   }
 });
 
+test("api integration bounds and cancels oversized error bodies", async () => {
+  const integration = new DefaultApiIntegration();
+  registerDefaultApi(integration);
+  let cancelled = false;
+
+  const restoreFetch = installMockFetch(async () => {
+    return new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("x".repeat(128 * 1024)));
+        },
+        cancel() {
+          cancelled = true;
+        },
+      }),
+      { status: 502 },
+    );
+  });
+
+  try {
+    await assert.rejects(
+      () => integration.callApi("users"),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /API users failed with 502:/);
+        assert.match(error.message, /\[truncated\]$/);
+        assert.ok(error.message.length < 66_000);
+        return true;
+      },
+    );
+    assert.equal(cancelled, true);
+  } finally {
+    restoreFetch();
+  }
+});
+
+test("api integration timeout also bounds stalled error-body reads", async () => {
+  const integration = new DefaultApiIntegration();
+  registerDefaultApi(integration, { timeoutMs: 15 });
+  let cancelled = false;
+
+  const restoreFetch = installMockFetch(async () => {
+    return new Response(
+      new ReadableStream<Uint8Array>({
+        cancel() {
+          cancelled = true;
+        },
+      }),
+      { status: 503 },
+    );
+  });
+
+  try {
+    await assert.rejects(
+      () => integration.callApi("users"),
+      (error: unknown) => error instanceof Error && error.name === "AbortError",
+    );
+    assert.equal(cancelled, true);
+  } finally {
+    restoreFetch();
+  }
+});
+
 test("api integration supports timeout-driven abort", async () => {
   const integration = new DefaultApiIntegration();
   registerDefaultApi(integration, {
