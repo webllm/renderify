@@ -626,6 +626,9 @@ async function main() {
         };
 
         console.log(JSON.stringify(report, null, 2));
+        if (!report.ok) {
+          process.exitCode = 1;
+        }
         break;
       }
       case "render-plan": {

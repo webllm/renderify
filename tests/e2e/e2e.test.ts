@@ -251,9 +251,10 @@ test("e2e: cli probe-plan reports dependency preflight failures", async () => {
     const result = await runCli(["probe-plan", probePlanPath], {
       RENDERIFY_RUNTIME_PREFLIGHT: "true",
       RENDERIFY_RUNTIME_PREFLIGHT_FAIL_FAST: "true",
+      RENDERIFY_SECURITY_PROFILE: "trusted",
     });
 
-    assert.equal(result.code, 0, result.stderr);
+    assert.notEqual(result.code, 0, result.stderr);
     const report = JSON.parse(result.stdout.trim()) as {
       ok: boolean;
       dependencyStatuses?: Array<{

@@ -56,6 +56,8 @@ Output includes:
 ```
 
 This is side-effect free — no source or component logic is executed.
+The command exits with a non-zero status when the report's `ok` field is
+`false`, so it can be used directly as a CI compatibility gate.
 
 ### `render-plan` — Execute a Plan File
 
