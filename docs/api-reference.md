@@ -364,6 +364,7 @@ interface RuntimeManagerOptions {
   remoteFetchTimeoutMs?: number;
   remoteFetchRetries?: number;
   remoteFetchBackoffMs?: number;
+  remoteModuleMaxBytes?: number; // default: 8 MiB per response
   remoteFallbackCdnBases?: string[];
 }
 
@@ -401,6 +402,7 @@ class JspmModuleLoader implements RuntimeModuleLoader {
 interface JspmModuleLoaderOptions {
   cdnBaseUrl?: string;
   importMap?: Record<string, string>;
+  remoteModuleMaxBytes?: number; // default: 8 MiB per response
 }
 ```
 

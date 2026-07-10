@@ -61,6 +61,7 @@ If you use renderer-only integration, inspect these outputs on every render:
 | `failOnDependencyPreflightError` | `false` | Fast fail for strict CI/prod lanes | Lower tolerance for flaky CDNs |
 | `remoteFetchTimeoutMs` | `12000` | Prevents long hangs | Too low can create false timeouts |
 | `remoteFetchRetries` | `2` | Better resilience | More retries increase tail latency |
+| `remoteModuleMaxBytes` | `8388608` | Bounds memory per remote module | Too low rejects large bundles |
 | `remoteFallbackCdnBases` | `['https://esm.sh']` | Better availability | Must align with security host policy |
 | `browserSourceSandboxMode` | browser:`worker`, server:`none` | Isolation for untrusted source | Worker/iframe adds overhead |
 | `browserSourceSandboxTimeoutMs` | `4000` | Bounds worst-case source execution | Too low may cut valid workloads |

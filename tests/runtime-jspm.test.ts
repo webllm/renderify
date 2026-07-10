@@ -7,6 +7,32 @@ function createRemoteModuleResponse(input: {
   body?: string;
   onRead?: () => void;
 }): Response {
+  const bytes = new TextEncoder().encode(input.body ?? "export default 1;");
+  let delivered = false;
+  let locked = false;
+  const body = {
+    get locked() {
+      return locked;
+    },
+    cancel: async () => {},
+    getReader: () => {
+      locked = true;
+      return {
+        read: async () => {
+          if (delivered) {
+            return { done: true, value: undefined };
+          }
+          delivered = true;
+          input.onRead?.();
+          return { done: false, value: bytes };
+        },
+        cancel: async () => {},
+        releaseLock: () => {
+          locked = false;
+        },
+      };
+    },
+  };
   return {
     ok: true,
     status: 200,
@@ -14,11 +40,8 @@ function createRemoteModuleResponse(input: {
     headers: new Headers({
       "content-type": "text/javascript; charset=utf-8",
     }),
-    text: async () => {
-      input.onRead?.();
-      return input.body ?? "export default 1;";
-    },
-  } as Response;
+    body,
+  } as unknown as Response;
 }
 
 test("runtime-jspm resolves known overrides for preact/recharts", () => {
@@ -403,6 +426,51 @@ test("runtime-jspm materializes remote HTTP modules when System.import is unavai
       globalState.System = previousSystem;
     }
 
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("runtime-jspm forwards the configured remote module size limit", async () => {
+  const loader = new JspmModuleLoader({
+    remoteFetchRetries: 0,
+    remoteModuleMaxBytes: 5,
+  });
+  const globalState = globalThis as unknown as {
+    System?: { import(url: string): Promise<unknown> };
+  };
+  const previousSystem = globalState.System;
+  const previousFetch = globalThis.fetch;
+  delete globalState.System;
+  globalThis.fetch = (async () =>
+    new Response("abcdef", {
+      status: 200,
+      headers: {
+        "content-length": "6",
+        "content-type": "text/javascript; charset=utf-8",
+      },
+    })) as typeof fetch;
+
+  try {
+    await assert.rejects(
+      loader.load("https://cdn.example.com/oversized.mjs"),
+      /exceeds maximum response size of 5 bytes/,
+    );
+    const internals = loader as unknown as {
+      cache: Map<string, unknown>;
+      inflight: Map<string, Promise<unknown>>;
+      remoteMaterializedUrlCache: Map<string, string>;
+      remoteMaterializedInflight: Map<string, Promise<string>>;
+    };
+    assert.equal(internals.cache.size, 0);
+    assert.equal(internals.inflight.size, 0);
+    assert.equal(internals.remoteMaterializedUrlCache.size, 0);
+    assert.equal(internals.remoteMaterializedInflight.size, 0);
+  } finally {
+    if (previousSystem === undefined) {
+      delete globalState.System;
+    } else {
+      globalState.System = previousSystem;
+    }
     globalThis.fetch = previousFetch;
   }
 });

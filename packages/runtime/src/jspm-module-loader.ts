@@ -3,6 +3,7 @@ import {
   type RuntimeDiagnostic,
   type RuntimeModuleManifest,
 } from "@renderify/ir";
+import { FALLBACK_REMOTE_MODULE_MAX_BYTES } from "./runtime-defaults";
 import { isNodeRuntime } from "./runtime-environment";
 import type {
   RuntimeModuleLoader,
@@ -23,6 +24,8 @@ export interface JspmModuleLoaderOptions {
   remoteFetchTimeoutMs?: number;
   remoteFetchRetries?: number;
   remoteFetchBackoffMs?: number;
+  /** Maximum response-body bytes accepted for one remote module. */
+  remoteModuleMaxBytes?: number;
   moduleCacheMaxEntries?: number;
   remoteMaterializedUrlCacheMaxEntries?: number;
 }
@@ -96,6 +99,7 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
   private readonly remoteFetchTimeoutMs: number;
   private readonly remoteFetchRetries: number;
   private readonly remoteFetchBackoffMs: number;
+  private readonly remoteModuleMaxBytes: number;
   private readonly moduleCacheMaxEntries: number;
   private readonly remoteMaterializedUrlCacheMaxEntries: number;
   private cache = new Map<string, unknown>();
@@ -128,6 +132,10 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
     this.remoteFetchBackoffMs = normalizeNonNegativeInteger(
       options.remoteFetchBackoffMs,
       DEFAULT_REMOTE_FETCH_BACKOFF_MS,
+    );
+    this.remoteModuleMaxBytes = normalizePositiveInteger(
+      options.remoteModuleMaxBytes,
+      FALLBACK_REMOTE_MODULE_MAX_BYTES,
     );
     this.moduleCacheMaxEntries = normalizePositiveInteger(
       options.moduleCacheMaxEntries,
@@ -488,6 +496,7 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
       remoteFetchTimeoutMs: this.remoteFetchTimeoutMs,
       remoteFetchRetries: this.remoteFetchRetries,
       remoteFetchBackoffMs: this.remoteFetchBackoffMs,
+      remoteModuleMaxBytes: this.remoteModuleMaxBytes,
       materializedModuleUrlCacheMaxEntries:
         this.remoteMaterializedUrlCacheMaxEntries,
       materializationBudget: options.materializationBudget,

@@ -53,6 +53,7 @@ import {
   FALLBACK_REMOTE_FETCH_BACKOFF_MS,
   FALLBACK_REMOTE_FETCH_RETRIES,
   FALLBACK_REMOTE_FETCH_TIMEOUT_MS,
+  FALLBACK_REMOTE_MODULE_MAX_BYTES,
   FALLBACK_RUNTIME_SOURCE_JSX_HELPER_MODE,
   FALLBACK_RUNTIME_SOURCE_LOCAL_SPECIFIER_CACHE_MAX_ENTRIES,
   normalizeFallbackCdnBases,
@@ -140,6 +141,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
   private remoteFetchTimeoutMs: number;
   private remoteFetchRetries: number;
   private remoteFetchBackoffMs: number;
+  private remoteModuleMaxBytes: number;
   private remoteFallbackCdnBases: string[];
   private browserModuleUrlCacheMaxEntries: number;
   private runtimeSourceLocalSpecifierCacheMaxEntries: number;
@@ -183,6 +185,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
     this.remoteFetchTimeoutMs = FALLBACK_REMOTE_FETCH_TIMEOUT_MS;
     this.remoteFetchRetries = FALLBACK_REMOTE_FETCH_RETRIES;
     this.remoteFetchBackoffMs = FALLBACK_REMOTE_FETCH_BACKOFF_MS;
+    this.remoteModuleMaxBytes = FALLBACK_REMOTE_MODULE_MAX_BYTES;
     this.remoteFallbackCdnBases = [...FALLBACK_REMOTE_FALLBACK_CDN_BASES];
     this.browserModuleUrlCacheMaxEntries =
       FALLBACK_BROWSER_MODULE_URL_CACHE_MAX_ENTRIES;
@@ -293,6 +296,13 @@ export class DefaultRuntimeManager implements RuntimeManager {
       this.remoteFetchBackoffMs = normalizeNonNegativeInteger(
         options.remoteFetchBackoffMs,
         FALLBACK_REMOTE_FETCH_BACKOFF_MS,
+      );
+    }
+
+    if (applyDefaults || options.remoteModuleMaxBytes !== undefined) {
+      this.remoteModuleMaxBytes = normalizePositiveInteger(
+        options.remoteModuleMaxBytes,
+        FALLBACK_REMOTE_MODULE_MAX_BYTES,
       );
     }
 
@@ -1046,6 +1056,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
       remoteFetchTimeoutMs: this.remoteFetchTimeoutMs,
       remoteFetchRetries: this.remoteFetchRetries,
       remoteFetchBackoffMs: this.remoteFetchBackoffMs,
+      remoteModuleMaxBytes: this.remoteModuleMaxBytes,
       materializedModuleUrlCacheMaxEntries:
         this.browserModuleUrlCacheMaxEntries,
       localNodeSpecifierUrlCacheMaxEntries:

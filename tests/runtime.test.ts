@@ -633,6 +633,32 @@ function createRemoteModuleResponse(input: {
   onRead?: () => void;
 }): Response {
   const status = input.status ?? 200;
+  const bytes = new TextEncoder().encode(input.body ?? "export default 1;");
+  let delivered = false;
+  let locked = false;
+  const body = {
+    get locked() {
+      return locked;
+    },
+    cancel: async () => {},
+    getReader: () => {
+      locked = true;
+      return {
+        read: async () => {
+          if (delivered) {
+            return { done: true, value: undefined };
+          }
+          delivered = true;
+          input.onRead?.();
+          return { done: false, value: bytes };
+        },
+        cancel: async () => {},
+        releaseLock: () => {
+          locked = false;
+        },
+      };
+    },
+  };
   return {
     ok: status >= 200 && status < 300,
     status,
@@ -640,11 +666,39 @@ function createRemoteModuleResponse(input: {
     headers: new Headers({
       "content-type": "text/javascript; charset=utf-8",
     }),
-    text: async () => {
-      input.onRead?.();
-      return input.body ?? "export default 1;";
+    body,
+  } as unknown as Response;
+}
+
+function createRemoteModuleStreamResponse(input: {
+  chunks: string[];
+  contentType?: string;
+  contentLength?: string;
+  leaveOpen?: boolean;
+  onCancel?: () => void;
+}): Response {
+  const encoder = new TextEncoder();
+  const chunks = input.chunks.map((chunk) => encoder.encode(chunk));
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of chunks) {
+        controller.enqueue(chunk);
+      }
+      if (!input.leaveOpen) {
+        controller.close();
+      }
     },
-  } as Response;
+    cancel() {
+      input.onCancel?.();
+    },
+  });
+  const headers = new Headers({
+    "content-type": input.contentType ?? "text/javascript; charset=utf-8",
+  });
+  if (input.contentLength !== undefined) {
+    headers.set("content-length", input.contentLength);
+  }
+  return new Response(body, { status: 200, headers });
 }
 
 test("renderPlanInBrowser renders runtime node HTML without mount target", async () => {
@@ -2481,6 +2535,165 @@ test("runtime source loader aborts losing hedged requests after first success", 
     );
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test("runtime source loader rejects an oversized declared module before reading it", async () => {
+  const runtime = new DefaultRuntimeManager({
+    remoteFallbackCdnBases: [],
+    remoteFetchRetries: 0,
+    remoteModuleMaxBytes: 5,
+  });
+  const loader = (
+    runtime as unknown as {
+      createSourceModuleLoader: (
+        moduleManifest: RuntimeModuleManifest | undefined,
+        diagnostics: Array<{ code?: string }>,
+      ) => {
+        fetchRemoteModuleCodeWithFallback(url: string): Promise<unknown>;
+      };
+    }
+  ).createSourceModuleLoader(undefined, []);
+
+  let bodyCancellations = 0;
+  let bodyReads = 0;
+  const url = "https://cdn.example.com/declared-oversized.js";
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    ({
+      ok: true,
+      status: 200,
+      url,
+      headers: new Headers({
+        "content-length": "6",
+        "content-type": "text/javascript",
+      }),
+      body: {
+        locked: false,
+        cancel: async () => {
+          bodyCancellations += 1;
+        },
+      },
+      text: async () => {
+        bodyReads += 1;
+        return "abcdef";
+      },
+    }) as Response) as typeof fetch;
+
+  try {
+    await assert.rejects(
+      loader.fetchRemoteModuleCodeWithFallback(url),
+      /exceeds maximum response size of 5 bytes \(Content-Length: 6\)/,
+    );
+    await Promise.resolve();
+    assert.equal(bodyReads, 0);
+    assert.equal(bodyCancellations, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("runtime source loader enforces its limit on streamed module bodies", async () => {
+  for (const contentLength of [undefined, "1"] as const) {
+    const runtime = new DefaultRuntimeManager({
+      remoteFallbackCdnBases: [],
+      remoteFetchRetries: 0,
+      remoteModuleMaxBytes: 5,
+    });
+    const internals = runtime as unknown as {
+      createSourceModuleLoader: (
+        moduleManifest: RuntimeModuleManifest | undefined,
+        diagnostics: Array<{ code?: string }>,
+      ) => {
+        materializeRemoteModule(url: string): Promise<string>;
+      };
+      browserModuleUrlCache: Map<string, string>;
+      browserModuleInflight: Map<string, Promise<string>>;
+    };
+    const loader = internals.createSourceModuleLoader(undefined, []);
+    let bodyCancellations = 0;
+    const url = `https://cdn.example.com/stream-oversized-${contentLength ?? "absent"}.js`;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () =>
+      createRemoteModuleStreamResponse({
+        chunks: ["abc", "def"],
+        contentLength,
+        leaveOpen: true,
+        onCancel: () => {
+          bodyCancellations += 1;
+        },
+      })) as typeof fetch;
+
+    try {
+      await assert.rejects(
+        loader.materializeRemoteModule(url),
+        /exceeds maximum response size of 5 bytes/,
+      );
+      await Promise.resolve();
+      assert.equal(bodyCancellations, 1);
+      assert.equal(internals.browserModuleUrlCache.size, 0);
+      assert.equal(internals.browserModuleInflight.size, 0);
+    } finally {
+      globalThis.fetch = originalFetch;
+      await runtime.terminate();
+    }
+  }
+});
+
+test("runtime source loader accepts an exact-boundary integrity-pinned JSON module", async () => {
+  const url = "https://cdn.example.com/exact-boundary.json";
+  const body = '{"ok":true}';
+  const bodyBytes = Buffer.byteLength(body);
+  const integrity = `sha384-${createHash("sha384").update(body).digest("base64")}`;
+  const runtime = new DefaultRuntimeManager({
+    remoteFallbackCdnBases: [],
+    remoteFetchRetries: 0,
+    remoteModuleMaxBytes: bodyBytes,
+  });
+  const loader = (
+    runtime as unknown as {
+      createSourceModuleLoader: (
+        moduleManifest: RuntimeModuleManifest | undefined,
+        diagnostics: Array<{ code?: string }>,
+      ) => {
+        materializeRemoteModule(url: string): Promise<string>;
+      };
+    }
+  ).createSourceModuleLoader(
+    {
+      "test:exact-boundary": {
+        resolvedUrl: url,
+        integrity,
+        signer: "tests",
+      },
+    },
+    [],
+  );
+
+  let bodyCancellations = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    createRemoteModuleStreamResponse({
+      chunks: [body.slice(0, 4), body.slice(4)],
+      contentType: "application/json; charset=utf-8",
+      contentLength: String(bodyBytes),
+      onCancel: () => {
+        bodyCancellations += 1;
+      },
+    })) as typeof fetch;
+
+  try {
+    const moduleUrl = await loader.materializeRemoteModule(url);
+    assert.match(moduleUrl, /^data:text\/javascript;base64,/);
+    const source = Buffer.from(
+      moduleUrl.replace(/^data:text\/javascript;base64,/, ""),
+      "base64",
+    ).toString("utf8");
+    assert.match(source, /const __json = \{"ok":true\}/);
+    assert.equal(bodyCancellations, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await runtime.terminate();
   }
 });
 

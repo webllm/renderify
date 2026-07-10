@@ -114,6 +114,8 @@ export interface RuntimeManagerOptions {
   remoteFetchTimeoutMs?: number;
   remoteFetchRetries?: number;
   remoteFetchBackoffMs?: number;
+  /** Maximum response-body bytes accepted for one remote module. */
+  remoteModuleMaxBytes?: number;
   remoteFallbackCdnBases?: string[];
   browserModuleUrlCacheMaxEntries?: number;
   runtimeSourceLocalSpecifierCacheMaxEntries?: number;

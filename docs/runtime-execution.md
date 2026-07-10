@@ -53,6 +53,7 @@ const runtime = new DefaultRuntimeManager({
   remoteFetchTimeoutMs: 12000,
   remoteFetchRetries: 2,
   remoteFetchBackoffMs: 150,
+  remoteModuleMaxBytes: 8 * 1024 * 1024,
   remoteFallbackCdnBases: ["https://esm.sh", "https://cdn.jsdelivr.net"],
 
   // Browser sandbox

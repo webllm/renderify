@@ -37,6 +37,7 @@ export interface RuntimeSourceModuleLoaderOptions {
   remoteFetchTimeoutMs: number;
   remoteFetchRetries: number;
   remoteFetchBackoffMs: number;
+  remoteModuleMaxBytes: number;
   canMaterializeRuntimeModules: () => boolean;
   rewriteImportsAsync: (
     code: string,
@@ -94,6 +95,7 @@ export class RuntimeSourceModuleLoader {
   private readonly remoteFetchTimeoutMs: number;
   private readonly remoteFetchRetries: number;
   private readonly remoteFetchBackoffMs: number;
+  private readonly remoteModuleMaxBytes: number;
   private readonly canMaterializeRuntimeModulesFn: () => boolean;
   private readonly rewriteImportsAsyncFn: (
     code: string,
@@ -135,6 +137,7 @@ export class RuntimeSourceModuleLoader {
     this.remoteFetchTimeoutMs = options.remoteFetchTimeoutMs;
     this.remoteFetchRetries = options.remoteFetchRetries;
     this.remoteFetchBackoffMs = options.remoteFetchBackoffMs;
+    this.remoteModuleMaxBytes = options.remoteModuleMaxBytes;
     this.canMaterializeRuntimeModulesFn = options.canMaterializeRuntimeModules;
     this.rewriteImportsAsyncFn = options.rewriteImportsAsync;
     this.createInlineModuleUrlFn = options.createInlineModuleUrl;
@@ -530,7 +533,7 @@ export class RuntimeSourceModuleLoader {
 
         return {
           url: effectiveUrl,
-          code: await response.text(),
+          code: await this.readRemoteModuleText(response, effectiveUrl),
           contentType:
             response.headers.get("content-type")?.toLowerCase() ?? "",
           requestUrl: attempt,
@@ -552,6 +555,84 @@ export class RuntimeSourceModuleLoader {
     }
 
     throw lastError ?? new Error(`Failed to load module: ${attempt}`);
+  }
+
+  private async readRemoteModuleText(
+    response: Response,
+    effectiveUrl: string,
+  ): Promise<string> {
+    const declaredLength = response.headers.get("content-length")?.trim();
+    if (
+      declaredLength &&
+      /^\d+$/.test(declaredLength) &&
+      BigInt(declaredLength) > BigInt(this.remoteModuleMaxBytes)
+    ) {
+      this.cancelResponseBody(response);
+      throw this.createRemoteModuleSizeError(
+        effectiveUrl,
+        `Content-Length: ${declaredLength}`,
+      );
+    }
+
+    const body = response.body;
+    if (!body) {
+      return "";
+    }
+
+    const reader = body.getReader();
+    let bytes = new Uint8Array(Math.min(this.remoteModuleMaxBytes, 64 * 1024));
+    let receivedBytes = 0;
+    let complete = false;
+
+    try {
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) {
+          complete = true;
+          break;
+        }
+
+        if (
+          chunk.value.byteLength >
+          this.remoteModuleMaxBytes - receivedBytes
+        ) {
+          throw this.createRemoteModuleSizeError(effectiveUrl);
+        }
+        const nextReceivedBytes = receivedBytes + chunk.value.byteLength;
+        if (nextReceivedBytes > bytes.byteLength) {
+          const nextCapacity = Math.min(
+            this.remoteModuleMaxBytes,
+            Math.max(nextReceivedBytes, Math.max(1, bytes.byteLength * 2)),
+          );
+          const grown = new Uint8Array(nextCapacity);
+          grown.set(bytes.subarray(0, receivedBytes));
+          bytes = grown;
+        }
+        bytes.set(chunk.value, receivedBytes);
+        receivedBytes = nextReceivedBytes;
+      }
+      return new TextDecoder().decode(bytes.subarray(0, receivedBytes));
+    } catch (error) {
+      if (!complete) {
+        void reader.cancel().catch(() => {});
+      }
+      throw error;
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
+  private cancelResponseBody(response: Response): void {
+    if (!response.body || response.body.locked) {
+      return;
+    }
+    void response.body.cancel().catch(() => {});
+  }
+
+  private createRemoteModuleSizeError(url: string, detail?: string): Error {
+    return new Error(
+      `Remote module ${url} exceeds maximum response size of ${this.remoteModuleMaxBytes} bytes${detail ? ` (${detail})` : ""}`,
+    );
   }
 
   private createJsonProxyModuleSource(
