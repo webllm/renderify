@@ -222,6 +222,10 @@ Plan capabilities are validated against policy limits:
 }
 ```
 
+The same `maxAllowedImports` policy also caps the number of entries accepted in
+`moduleManifest`, so an unused or alias-heavy manifest cannot bypass the
+policy's import resource ceiling.
+
 ### 4. State Path Safety
 
 All state paths are checked for prototype pollution:

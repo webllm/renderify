@@ -300,6 +300,28 @@ test("security checker enforces capability quota limits", async () => {
   );
 });
 
+test("security checker rejects module manifests larger than the import policy", async () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize({
+    maxAllowedImports: 2,
+  });
+
+  const plan = createPlan("section");
+  plan.moduleManifest = {
+    first: { resolvedUrl: "npm:first", signer: "tests" },
+    second: { resolvedUrl: "npm:second", signer: "tests" },
+    third: { resolvedUrl: "npm:third", signer: "tests" },
+  };
+
+  const result = await checker.checkPlan(plan);
+  assert.equal(result.safe, false);
+  assert.ok(
+    result.issues.includes(
+      "moduleManifest entry count 3 exceeds policy limit 2",
+    ),
+  );
+});
+
 test("security checker allows vars.* action value references", async () => {
   const checker = new DefaultSecurityChecker();
   checker.initialize();

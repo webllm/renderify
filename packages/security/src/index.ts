@@ -938,6 +938,12 @@ export class DefaultSecurityChecker implements SecurityChecker {
 
   private checkModuleManifest(moduleManifest: RuntimeModuleManifest): string[] {
     const issues: string[] = [];
+    const entryCount = Object.keys(moduleManifest).length;
+    if (entryCount > this.policy.maxAllowedImports) {
+      issues.push(
+        `moduleManifest entry count ${entryCount} exceeds policy limit ${this.policy.maxAllowedImports}`,
+      );
+    }
 
     for (const [specifier, descriptor] of Object.entries(moduleManifest)) {
       if (specifier.trim().length === 0) {
