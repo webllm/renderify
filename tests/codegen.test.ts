@@ -333,6 +333,42 @@ test("codegen repairs compact JSX attribute spacing in source code", async () =>
   );
 });
 
+test("codegen does not apply source repair regexes to valid literals", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const sourceCode = [
+    'const compactMarkup = \'<inputtype="text"value="literal">\';',
+    "const closingBracePattern = /}/;",
+    "export default function LiteralDemo() {",
+    "  return <pre>{compactMarkup}:{closingBracePattern.source}</pre>;",
+    "}",
+  ].join("\n");
+  const planJson = JSON.stringify({
+    id: "source_valid_literals_plan",
+    version: 1,
+    capabilities: {
+      domWrite: true,
+    },
+    root: {
+      type: "element",
+      tag: "section",
+      children: [{ type: "text", value: "literal preservation" }],
+    },
+    source: {
+      language: "tsx",
+      runtime: "preact",
+      exportName: "default",
+      code: sourceCode,
+    },
+  });
+
+  const plan = await codegen.generatePlan({
+    prompt: "preserve valid source literals",
+    llmText: planJson,
+  });
+
+  assert.equal(plan.source?.code, sourceCode);
+});
+
 test("codegen infers source exportName from named exports when default export is absent", async () => {
   const codegen = new DefaultCodeGenerator();
   const planJson = JSON.stringify({

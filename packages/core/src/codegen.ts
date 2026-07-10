@@ -1131,6 +1131,14 @@ export class DefaultCodeGenerator implements CodeGenerator {
       return plan;
     }
 
+    const repairedSource = await this.repairInvalidSourceSyntax(source);
+    if (repairedSource) {
+      return {
+        ...plan,
+        source: repairedSource,
+      };
+    }
+
     if (!this.shouldUseTodoFallback(prompt)) {
       return plan;
     }
@@ -1422,12 +1430,7 @@ export class DefaultCodeGenerator implements CodeGenerator {
       runtime === "preact"
         ? this.rewritePortableMaterialUiSourceImports(shadcnPortableCode)
         : shadcnPortableCode;
-    const code = this.repairCompactJsxAttributeSpacing(
-      portableCode,
-      source.language,
-    );
-    const balancedCode = this.stripUnmatchedClosingBraces(code);
-    const exportReadyCode = this.ensureSourceExportAvailability(balancedCode);
+    const exportReadyCode = this.ensureSourceExportAvailability(portableCode);
 
     return {
       ...source,
@@ -1484,6 +1487,45 @@ export class DefaultCodeGenerator implements CodeGenerator {
     repaired = repaired.replace(/(["'}])(?=\{\.\.\.)/g, "$1 ");
 
     return repaired;
+  }
+
+  private async repairInvalidSourceSyntax(
+    source: RuntimeSourceModule,
+  ): Promise<RuntimeSourceModule | undefined> {
+    const compactSpacingRepaired = this.repairCompactJsxAttributeSpacing(
+      source.code,
+      source.language,
+    );
+    const unmatchedBracesRepaired = this.stripUnmatchedClosingBraces(
+      source.code,
+    );
+    const combinedRepair = this.stripUnmatchedClosingBraces(
+      compactSpacingRepaired,
+    );
+    const candidates = [
+      compactSpacingRepaired,
+      unmatchedBracesRepaired,
+      combinedRepair,
+    ];
+    const seen = new Set([source.code]);
+
+    for (const code of candidates) {
+      if (seen.has(code)) {
+        continue;
+      }
+      seen.add(code);
+
+      const candidate = {
+        ...source,
+        code,
+        exportName: this.normalizeSourceExportName(source.exportName, code),
+      };
+      if (await this.isSourceSyntaxValid(candidate)) {
+        return candidate;
+      }
+    }
+
+    return undefined;
   }
 
   private normalizeSourceExportName(
