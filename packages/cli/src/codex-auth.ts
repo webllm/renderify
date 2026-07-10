@@ -54,6 +54,11 @@ export interface CodexLoginOptions {
   fetchImpl?: typeof fetch;
   stdout?: NodeJS.WritableStream;
   now?: () => number;
+  /** Maximum duration for the complete device-code login flow. */
+  timeoutMs?: number;
+  /** Override the server-provided polling interval (primarily for tests). */
+  pollIntervalMs?: number;
+  signal?: AbortSignal;
 }
 
 export interface CodexAuthStoreOptions {
@@ -106,37 +111,83 @@ export function resolveCodexAuthFile(): string {
 export async function loginCodex(
   options: CodexLoginOptions = {},
 ): Promise<CodexAuthState> {
+  const timeoutMs = normalizeLoginTimeout(options.timeoutMs);
+  const deadline = new AbortController();
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    deadline.abort(new Error("Codex login timed out."));
+  }, timeoutMs);
+
+  const abortFromCaller = () => {
+    deadline.abort(options.signal?.reason);
+  };
+  if (options.signal?.aborted) {
+    abortFromCaller();
+  } else {
+    options.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  }
+
+  try {
+    return await loginCodexWithSignal(options, deadline.signal);
+  } catch (error) {
+    if (timedOut) {
+      throw new Error(
+        `Codex login timed out after ${formatDuration(timeoutMs)}.`,
+      );
+    }
+
+    if (deadline.signal.aborted) {
+      throw abortReason(deadline.signal.reason);
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", abortFromCaller);
+  }
+}
+
+async function loginCodexWithSignal(
+  options: CodexLoginOptions,
+  signal: AbortSignal,
+): Promise<CodexAuthState> {
   const fetchImpl = resolveFetch(options.fetchImpl);
   const stdout = options.stdout ?? process.stdout;
-  const userCodeResponse = await fetchImpl(
-    `${CODEX_AUTH_ISSUER}/api/accounts/deviceauth/usercode`,
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        client_id: CODEX_OAUTH_CLIENT_ID,
+  const userCodeResponse = await runAbortable(
+    () =>
+      fetchImpl(`${CODEX_AUTH_ISSUER}/api/accounts/deviceauth/usercode`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          client_id: CODEX_OAUTH_CLIENT_ID,
+        }),
+        signal,
       }),
-    },
+    signal,
   );
 
   if (!userCodeResponse.ok) {
     throw new Error(
-      `Codex device code request failed (${userCodeResponse.status}): ${await readResponseDetails(
-        userCodeResponse,
+      `Codex device code request failed (${userCodeResponse.status}): ${await runAbortable(
+        () => readResponseDetails(userCodeResponse),
+        signal,
       )}`,
     );
   }
 
-  const deviceData =
-    (await userCodeResponse.json()) as DeviceAuthUserCodePayload;
+  const deviceData = (await runAbortable(
+    () => userCodeResponse.json(),
+    signal,
+  )) as DeviceAuthUserCodePayload;
   const userCode = stringOrUndefined(deviceData.user_code);
   const deviceAuthId = stringOrUndefined(deviceData.device_auth_id);
-  const pollIntervalMs = Math.max(
-    3000,
-    Number(deviceData.interval ?? 5) * 1000,
-  );
+  const pollIntervalMs =
+    options.pollIntervalMs === undefined
+      ? Math.max(3000, Number(deviceData.interval ?? 5) * 1000)
+      : Math.max(0, Math.floor(options.pollIntervalMs));
 
   if (!userCode || !deviceAuthId) {
     throw new Error("Codex device code response missing required fields.");
@@ -149,22 +200,23 @@ export async function loginCodex(
   stdout.write(`     ${userCode}\n\n`);
   stdout.write("Waiting for sign-in... (press Ctrl+C to cancel)\n");
 
-  const startedAt = Date.now();
   let authorization: DeviceAuthTokenPayload | undefined;
-  while (Date.now() - startedAt < CODEX_DEVICE_AUTH_TIMEOUT_MS) {
-    await delay(pollIntervalMs);
-    const pollResponse = await fetchImpl(
-      `${CODEX_AUTH_ISSUER}/api/accounts/deviceauth/token`,
-      {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          device_auth_id: deviceAuthId,
-          user_code: userCode,
+  while (!signal.aborted) {
+    await delay(pollIntervalMs, undefined, { signal });
+    const pollResponse = await runAbortable(
+      () =>
+        fetchImpl(`${CODEX_AUTH_ISSUER}/api/accounts/deviceauth/token`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            device_auth_id: deviceAuthId,
+            user_code: userCode,
+          }),
+          signal,
         }),
-      },
+      signal,
     );
 
     if (pollResponse.status === 403 || pollResponse.status === 404) {
@@ -173,18 +225,22 @@ export async function loginCodex(
 
     if (!pollResponse.ok) {
       throw new Error(
-        `Codex device auth polling failed (${pollResponse.status}): ${await readResponseDetails(
-          pollResponse,
+        `Codex device auth polling failed (${pollResponse.status}): ${await runAbortable(
+          () => readResponseDetails(pollResponse),
+          signal,
         )}`,
       );
     }
 
-    authorization = (await pollResponse.json()) as DeviceAuthTokenPayload;
+    authorization = (await runAbortable(
+      () => pollResponse.json(),
+      signal,
+    )) as DeviceAuthTokenPayload;
     break;
   }
 
   if (!authorization) {
-    throw new Error("Codex login timed out after 15 minutes.");
+    throw abortReason(signal.reason);
   }
 
   const authorizationCode = stringOrUndefined(authorization.authorization_code);
@@ -195,36 +251,109 @@ export async function loginCodex(
     );
   }
 
-  const tokenResponse = await fetchImpl(CODEX_OAUTH_TOKEN_URL, {
-    method: "POST",
-    headers: {
-      "content-type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({
-      grant_type: "authorization_code",
-      code: authorizationCode,
-      redirect_uri: `${CODEX_AUTH_ISSUER}/deviceauth/callback`,
-      client_id: CODEX_OAUTH_CLIENT_ID,
-      code_verifier: codeVerifier,
-    }),
-  });
+  const tokenResponse = await runAbortable(
+    () =>
+      fetchImpl(CODEX_OAUTH_TOKEN_URL, {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code: authorizationCode,
+          redirect_uri: `${CODEX_AUTH_ISSUER}/deviceauth/callback`,
+          client_id: CODEX_OAUTH_CLIENT_ID,
+          code_verifier: codeVerifier,
+        }),
+        signal,
+      }),
+    signal,
+  );
 
   if (!tokenResponse.ok) {
     throw new Error(
-      `Codex token exchange failed (${tokenResponse.status}): ${await readResponseDetails(
-        tokenResponse,
+      `Codex token exchange failed (${tokenResponse.status}): ${await runAbortable(
+        () => readResponseDetails(tokenResponse),
+        signal,
       )}`,
     );
   }
 
-  const tokenPayload = (await tokenResponse.json()) as OAuthTokenPayload;
+  const tokenPayload = (await runAbortable(
+    () => tokenResponse.json(),
+    signal,
+  )) as OAuthTokenPayload;
   const tokens = normalizeOAuthTokenPayload(tokenPayload, options.now);
   const state = createCodexAuthState(tokens, {
     source: "device-code",
     now: options.now,
   });
-  await saveCodexAuthState(state, options);
+  await runAbortable(() => saveCodexAuthState(state, options), signal);
   return state;
+}
+
+async function runAbortable<T>(
+  operation: () => Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  if (signal.aborted) {
+    throw abortReason(signal.reason);
+  }
+
+  return await new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      cleanup();
+      reject(abortReason(signal.reason));
+    };
+    const cleanup = () => {
+      signal.removeEventListener("abort", onAbort);
+    };
+
+    signal.addEventListener("abort", onAbort, { once: true });
+    Promise.resolve()
+      .then(operation)
+      .then(
+        (value) => {
+          cleanup();
+          resolve(value);
+        },
+        (error) => {
+          cleanup();
+          reject(error);
+        },
+      );
+  });
+}
+
+function abortReason(reason: unknown): Error {
+  if (reason instanceof Error) {
+    return reason;
+  }
+
+  const error = new Error("Codex login cancelled.");
+  error.name = "AbortError";
+  return error;
+}
+
+function normalizeLoginTimeout(timeoutMs: number | undefined): number {
+  if (timeoutMs === undefined) {
+    return CODEX_DEVICE_AUTH_TIMEOUT_MS;
+  }
+
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    throw new Error("Codex login timeout must be a positive finite number.");
+  }
+
+  return Math.max(1, Math.floor(timeoutMs));
+}
+
+function formatDuration(durationMs: number): string {
+  if (durationMs % 60_000 === 0) {
+    const minutes = durationMs / 60_000;
+    return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
+  }
+
+  return `${durationMs} ms`;
 }
 
 export async function getCodexAuthStatus(
