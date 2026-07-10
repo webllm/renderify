@@ -287,7 +287,7 @@ test("openai interpreter validates structured runtime plan response", async () =
   };
   assert.equal(responseFormat.type, "json_schema");
   assert.equal(responseFormat.json_schema?.name, "runtime_plan");
-  assert.equal(responseFormat.json_schema?.strict, true);
+  assert.equal(responseFormat.json_schema?.strict, false);
 });
 
 test("openai interpreter marks invalid structured JSON as invalid result", async () => {

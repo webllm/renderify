@@ -489,7 +489,13 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
           type: "json_schema",
           json_schema: {
             name: "runtime_plan",
-            strict: req.strict !== false,
+            // RuntimePlan intentionally contains open-ended JSON objects for
+            // state, metadata, props, and module manifests. OpenAI strict
+            // structured output requires every object to be closed and every
+            // property to be required, so this schema cannot truthfully opt in
+            // to strict mode. Keep server-side schema guidance enabled and
+            // validate the returned value locally with isRuntimePlan instead.
+            strict: false,
             schema: RUNTIME_PLAN_JSON_SCHEMA,
           },
         },
