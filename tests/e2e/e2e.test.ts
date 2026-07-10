@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import {
   createServer,
@@ -11,6 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
+import { pathToFileURL } from "node:url";
 import { type Browser, chromium } from "playwright";
 
 interface CommandResult {
@@ -954,6 +956,93 @@ test("e2e: playground preserves explicit moduleManifest pins", async () => {
     assert.deepEqual(
       payload.planDetail?.moduleManifest?.[specifier],
       descriptor,
+    );
+  } finally {
+    processHandle.kill("SIGTERM");
+    await onceExit(processHandle, 3000);
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("e2e: strict playground hydrates missing module integrity", async () => {
+  const tempDir = await mkdtemp(
+    path.join(os.tmpdir(), "renderify-e2e-playground-manifest-integrity-"),
+  );
+  const port = await allocatePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const moduleUrl = "https://ga.jspm.io/npm:integrity-fixture@1.0.0/index.js";
+  const moduleSource = "export default 1;";
+  const fetchPreloadPath = path.join(tempDir, "fetch-preload.mjs");
+  await writeFile(
+    fetchPreloadPath,
+    [
+      "const originalFetch = globalThis.fetch;",
+      `const moduleUrl = ${JSON.stringify(moduleUrl)};`,
+      `const moduleSource = ${JSON.stringify(moduleSource)};`,
+      "globalThis.fetch = async (input, init) => {",
+      "  if (String(input) === moduleUrl) {",
+      "    return new Response(moduleSource, { status: 200 });",
+      "  }",
+      "  return await originalFetch(input, init);",
+      "};",
+    ].join("\n"),
+    "utf8",
+  );
+  const processHandle = startPlayground(port, {
+    NODE_OPTIONS: `--import=${pathToFileURL(fetchPreloadPath).href}`,
+    RENDERIFY_SECURITY_PROFILE: "strict",
+    RENDERIFY_SESSION_FILE: path.join(tempDir, "session.json"),
+  });
+  const specifier = "integrity-fixture";
+
+  try {
+    await waitForHealth(`${baseUrl}/api/health`, 10000);
+
+    const response = await fetchJson(`${baseUrl}/api/plan`, {
+      method: "POST",
+      body: {
+        plan: {
+          specVersion: "runtime-plan/v1",
+          id: "playground_strict_integrity_plan",
+          version: 1,
+          capabilities: {
+            domWrite: true,
+            allowedModules: [specifier],
+          },
+          imports: [specifier],
+          moduleManifest: {
+            [specifier]: {
+              resolvedUrl: moduleUrl,
+              version: "1.0.0",
+              signer: "user",
+            },
+          },
+          root: {
+            type: "element",
+            tag: "section",
+            children: [{ type: "text", value: "strict integrity" }],
+          },
+        },
+      },
+    });
+
+    assert.equal(response.status, 200);
+    const payload = response.body as {
+      planDetail?: {
+        moduleManifest?: Record<
+          string,
+          {
+            integrity?: unknown;
+          }
+        >;
+      };
+    };
+    const expectedIntegrity = `sha384-${createHash("sha384")
+      .update(moduleSource)
+      .digest("base64")}`;
+    assert.equal(
+      payload.planDetail?.moduleManifest?.[specifier]?.integrity,
+      expectedIntegrity,
     );
   } finally {
     processHandle.kill("SIGTERM");

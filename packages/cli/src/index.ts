@@ -23,7 +23,6 @@ import {
   collectComponentModules,
   collectRuntimeSourceImports,
   isRuntimePlan,
-  type RuntimeModuleDescriptor,
   type RuntimePlan,
 } from "@renderify/ir";
 import { createLLMInterpreter } from "@renderify/llm";
@@ -1516,33 +1515,34 @@ async function hydratePlaygroundPlanManifest(
   let changed = false;
 
   for (const specifier of bareSpecifiers) {
-    if (nextManifest[specifier]) {
-      continue;
+    let descriptor = nextManifest[specifier];
+    if (!descriptor) {
+      let resolvedUrl: string;
+      try {
+        resolvedUrl = options.moduleLoader.resolveSpecifier(specifier);
+      } catch {
+        continue;
+      }
+
+      descriptor = { resolvedUrl };
+      nextManifest[specifier] = descriptor;
+      changed = true;
     }
 
-    let resolvedUrl: string;
-    try {
-      resolvedUrl = options.moduleLoader.resolveSpecifier(specifier);
-    } catch {
-      continue;
-    }
-
-    const descriptor: RuntimeModuleDescriptor = {
-      resolvedUrl,
-    };
-
-    if (options.requireIntegrity && isHttpUrl(resolvedUrl)) {
+    if (
+      options.requireIntegrity &&
+      !descriptor.integrity &&
+      isHttpUrl(descriptor.resolvedUrl)
+    ) {
       const integrity = await fetchRemoteModuleIntegrity(
-        resolvedUrl,
+        descriptor.resolvedUrl,
         options.integrityTimeoutMs,
       );
       if (integrity) {
-        descriptor.integrity = integrity;
+        nextManifest[specifier] = { ...descriptor, integrity };
+        changed = true;
       }
     }
-
-    nextManifest[specifier] = descriptor;
-    changed = true;
   }
 
   if (!changed) {
