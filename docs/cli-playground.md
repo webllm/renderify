@@ -308,6 +308,10 @@ browser-side source execution mode.
 
 When a source deep-link contains bare import specifiers (e.g., `import { LineChart } from "recharts"`), the playground automatically resolves them via JSPM and hydrates the `moduleManifest`. You can override with explicit `manifest64`.
 
+When the active policy requires integrity, Playground hashes missing entries
+with the same network allowlist applied to every redirect. Integrity reads are
+limited to 8 MiB per module and successful hashes use a bounded cache.
+
 ## Environment Variables
 
 All CLI and playground behavior can be configured via environment:

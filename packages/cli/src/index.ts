@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import fs from "node:fs";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -41,6 +40,7 @@ import {
   resolveCodexRuntimeCredentials,
 } from "./codex-auth";
 import { PLAYGROUND_HTML } from "./playground-html";
+import { RemoteModuleIntegrityFetcher } from "./playground-integrity";
 import {
   formatPlaygroundUrlHost,
   getPlaygroundMutationRejectionReason,
@@ -83,7 +83,7 @@ const DEFAULT_PORT = 4317;
 const DEFAULT_PLAYGROUND_MAX_EXECUTION_MS = 15000;
 const JSON_BODY_LIMIT_BYTES = 1_000_000;
 const AUTO_MANIFEST_INTEGRITY_TIMEOUT_MS = 8000;
-const REMOTE_MODULE_INTEGRITY_CACHE = new Map<string, string>();
+const REMOTE_MODULE_INTEGRITY_FETCHER = new RemoteModuleIntegrityFetcher();
 const DEBUG_RECENT_LOG_LIMIT = 120;
 const LLM_LOG_INLINE_LIMIT = 10_000;
 const LLM_LOG_TEXT_LIMIT = 4_000;
@@ -513,8 +513,9 @@ async function main() {
     ),
     overrides: config.get("securityPolicy"),
   });
+  const hydrationSecurityPolicy = preloadSecurityChecker.getPolicy();
   const requireIntegrityForHydration =
-    preloadSecurityChecker.getPolicy().requireModuleIntegrity;
+    hydrationSecurityPolicy.requireModuleIntegrity;
 
   const customization = new DefaultCustomizationEngine();
   if (args.command === "playground") {
@@ -530,6 +531,11 @@ async function main() {
             moduleLoader: runtimeModuleLoader,
             requireIntegrity: requireIntegrityForHydration,
             integrityTimeoutMs: AUTO_MANIFEST_INTEGRITY_TIMEOUT_MS,
+            networkPolicy: {
+              allowArbitraryNetwork:
+                hydrationSecurityPolicy.allowArbitraryNetwork,
+              allowedNetworkHosts: hydrationSecurityPolicy.allowedNetworkHosts,
+            },
           });
         },
         beforeRuntime: async (payload) => {
@@ -1218,11 +1224,15 @@ async function handlePlaygroundRequest(
       const normalizedPlan = await normalizePlaygroundPlanInput(app, plan, {
         promptFallback: "playground:probe-plan",
       });
+      const securityPolicy = app.getSecurityChecker().getPolicy();
       const hydratedPlan = await hydratePlaygroundPlanManifest(normalizedPlan, {
         moduleLoader,
-        requireIntegrity: app.getSecurityChecker().getPolicy()
-          .requireModuleIntegrity,
+        requireIntegrity: securityPolicy.requireModuleIntegrity,
         integrityTimeoutMs: autoManifestIntegrityTimeoutMs,
+        networkPolicy: {
+          allowArbitraryNetwork: securityPolicy.allowArbitraryNetwork,
+          allowedNetworkHosts: securityPolicy.allowedNetworkHosts,
+        },
       });
 
       const security = await app.getSecurityChecker().checkPlan(hydratedPlan);
@@ -1499,6 +1509,10 @@ interface PlaygroundAutoManifestOptions {
   moduleLoader: JspmModuleLoader;
   requireIntegrity: boolean;
   integrityTimeoutMs: number;
+  networkPolicy: {
+    allowArbitraryNetwork: boolean;
+    allowedNetworkHosts: readonly string[];
+  };
 }
 
 async function hydratePlaygroundPlanManifest(
@@ -1537,9 +1551,12 @@ async function hydratePlaygroundPlanManifest(
       !descriptor.integrity &&
       isHttpUrl(descriptor.resolvedUrl)
     ) {
-      const integrity = await fetchRemoteModuleIntegrity(
+      const integrity = await REMOTE_MODULE_INTEGRITY_FETCHER.fetch(
         descriptor.resolvedUrl,
-        options.integrityTimeoutMs,
+        {
+          timeoutMs: options.integrityTimeoutMs,
+          networkPolicy: options.networkPolicy,
+        },
       );
       if (integrity) {
         nextManifest[specifier] = { ...descriptor, integrity };
@@ -1711,40 +1728,6 @@ function isHttpUrl(value: string): boolean {
     return parsed.protocol === "http:" || parsed.protocol === "https:";
   } catch {
     return false;
-  }
-}
-
-async function fetchRemoteModuleIntegrity(
-  url: string,
-  timeoutMs: number,
-): Promise<string | undefined> {
-  const cached = REMOTE_MODULE_INTEGRITY_CACHE.get(url);
-  if (cached) {
-    return cached;
-  }
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), Math.max(1, timeoutMs));
-
-  try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      return undefined;
-    }
-
-    const body = await response.arrayBuffer();
-    const digest = createHash("sha384")
-      .update(Buffer.from(body))
-      .digest("base64");
-    const integrity = `sha384-${digest}`;
-    REMOTE_MODULE_INTEGRITY_CACHE.set(url, integrity);
-    return integrity;
-  } catch {
-    return undefined;
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
