@@ -900,6 +900,68 @@ test("e2e: playground api auto-hydrates moduleManifest for bare specifiers", asy
   }
 });
 
+test("e2e: playground preserves explicit moduleManifest pins", async () => {
+  const tempDir = await mkdtemp(
+    path.join(os.tmpdir(), "renderify-e2e-playground-manifest-explicit-"),
+  );
+  const port = await allocatePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const processHandle = startPlayground(port, {
+    RENDERIFY_SESSION_FILE: path.join(tempDir, "session.json"),
+  });
+  const specifier = "npm:user-pinned-package@1.2.3";
+  const descriptor = {
+    resolvedUrl: "https://ga.jspm.io/npm:user-pinned-package@1.2.3/index.js",
+    version: "1.2.3",
+    integrity:
+      "sha384-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    signer: "user",
+  };
+
+  try {
+    await waitForHealth(`${baseUrl}/api/health`, 10000);
+
+    const response = await fetchJson(`${baseUrl}/api/plan`, {
+      method: "POST",
+      body: {
+        plan: {
+          specVersion: "runtime-plan/v1",
+          id: "playground_explicit_manifest_plan",
+          version: 1,
+          capabilities: {
+            domWrite: true,
+            allowedModules: [specifier],
+          },
+          imports: [specifier],
+          moduleManifest: {
+            [specifier]: descriptor,
+          },
+          root: {
+            type: "element",
+            tag: "section",
+            children: [{ type: "text", value: "explicit manifest" }],
+          },
+        },
+      },
+    });
+
+    assert.equal(response.status, 200);
+    const payload = response.body as {
+      planDetail?: {
+        moduleManifest?: Record<string, unknown>;
+      };
+    };
+    assert.deepEqual(
+      payload.planDetail?.moduleManifest?.[specifier],
+      descriptor,
+    );
+  } finally {
+    processHandle.kill("SIGTERM");
+    await onceExit(processHandle, 3000);
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("e2e: playground api accepts inline runtime source module specifiers", async () => {
   const tempDir = await mkdtemp(
     path.join(os.tmpdir(), "renderify-e2e-playground-inline-source-"),

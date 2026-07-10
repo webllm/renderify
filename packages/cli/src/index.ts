@@ -1508,20 +1508,9 @@ async function hydratePlaygroundPlanManifest(
     return plan;
   }
 
-  const strippedManifest = stripBareSpecifierManifestEntries(
-    plan.moduleManifest,
-    bareSpecifiers,
-  );
-  const planForAutoPin =
-    strippedManifest !== plan.moduleManifest
-      ? { ...plan, moduleManifest: strippedManifest }
-      : plan;
-  const autoPinnedPlan = await autoPinRuntimePlanModuleManifest(
-    planForAutoPin,
-    {
-      moduleLoader: options.moduleLoader,
-    },
-  );
+  const autoPinnedPlan = await autoPinRuntimePlanModuleManifest(plan, {
+    moduleLoader: options.moduleLoader,
+  });
 
   const nextManifest = { ...(autoPinnedPlan.moduleManifest ?? {}) };
   let changed = false;
@@ -1622,34 +1611,6 @@ function isBareModuleSpecifier(specifier: string): boolean {
     !trimmed.startsWith("data:") &&
     !trimmed.startsWith("blob:")
   );
-}
-
-function stripBareSpecifierManifestEntries(
-  manifest: RuntimePlan["moduleManifest"],
-  bareSpecifiers: string[],
-): RuntimePlan["moduleManifest"] {
-  if (!manifest) {
-    return manifest;
-  }
-
-  const bareSet = new Set(bareSpecifiers);
-  let removed = false;
-  const nextManifest: RuntimePlan["moduleManifest"] = {};
-
-  for (const [specifier, descriptor] of Object.entries(manifest)) {
-    if (bareSet.has(specifier)) {
-      removed = true;
-      continue;
-    }
-
-    nextManifest[specifier] = descriptor;
-  }
-
-  if (!removed) {
-    return manifest;
-  }
-
-  return Object.keys(nextManifest).length > 0 ? nextManifest : undefined;
 }
 
 const PLAYGROUND_SERVER_SAFE_SOURCE_IMPORTS = new Set([
