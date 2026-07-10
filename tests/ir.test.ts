@@ -21,6 +21,7 @@ import {
   isRuntimeSourceRuntime,
   isRuntimeStateModel,
   isSafePath,
+  type RuntimeNode,
   type RuntimeStateSnapshot,
   resolveRuntimePlanSpecVersion,
   setValueByPath,
@@ -36,8 +37,96 @@ test("isRuntimeNode validates supported node kinds", () => {
   );
 
   assert.equal(isRuntimeNode({ type: "element" }), false);
+  assert.equal(isRuntimeNode({ type: "element", tag: "" }), false);
+  assert.equal(isRuntimeNode({ type: "component", module: "" }), false);
   assert.equal(isRuntimeNode({ type: "unknown" }), false);
   assert.equal(isRuntimeNode("text"), false);
+});
+
+test("runtime node guards validate descendants, props, and component exports", () => {
+  const malformedDescendant = {
+    type: "element",
+    tag: "main",
+    children: [{ type: "text", value: 42 }],
+  };
+  const malformedProps = {
+    type: "element",
+    tag: "main",
+    props: { callback: () => undefined },
+  };
+  const malformedExport = {
+    type: "component",
+    module: "npm:widget",
+    exportName: "   ",
+  };
+
+  assert.equal(isRuntimeNode(malformedDescendant), false);
+  assert.equal(isRuntimeNode(malformedProps), false);
+  assert.equal(isRuntimeNode(malformedExport), false);
+  assert.equal(
+    isRuntimePlan({
+      id: "malformed_descendant_plan",
+      version: 1,
+      root: malformedDescendant,
+    }),
+    false,
+  );
+});
+
+test("runtime node guards reject cycles without invoking accessors", () => {
+  const cyclic: Record<string, unknown> = {
+    type: "element",
+    tag: "main",
+    children: [],
+  };
+  (cyclic.children as unknown[]).push(cyclic);
+
+  let getterCalls = 0;
+  const accessorNode: Record<string, unknown> = {};
+  Object.defineProperty(accessorNode, "type", {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      return "text";
+    },
+  });
+  Object.defineProperty(accessorNode, "value", {
+    enumerable: true,
+    value: "hidden",
+  });
+
+  assert.equal(isRuntimeNode(cyclic), false);
+  assert.equal(isRuntimeNode(accessorNode), false);
+  assert.equal(getterCalls, 0);
+
+  let visited = 0;
+  walkRuntimeNode(
+    cyclic as unknown as ReturnType<typeof createElementNode>,
+    () => {
+      visited += 1;
+    },
+  );
+  assert.equal(visited, 1);
+});
+
+test("runtime node guards and walkers handle very deep trees iteratively", () => {
+  const depth = 12_000;
+  let root: RuntimeNode = createTextNode("leaf");
+  for (let index = 0; index < depth; index += 1) {
+    root = createElementNode("div", undefined, [root]);
+  }
+
+  assert.equal(isRuntimeNode(root), true);
+
+  let count = 0;
+  let maximumDepth = 0;
+  walkRuntimeNode(root, (_node, nodeDepth) => {
+    count += 1;
+    maximumDepth = Math.max(maximumDepth, nodeDepth);
+  });
+
+  assert.equal(count, depth + 1);
+  assert.equal(maximumDepth, depth);
 });
 
 test("walkRuntimeNode traverses tree depth-first and collectComponentModules deduplicates", () => {

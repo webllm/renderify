@@ -3,6 +3,7 @@ import {
   createElementNode,
   createTextNode,
   isRuntimeNode,
+  isRuntimeNodeShallow,
   type RuntimeDiagnostic,
   type RuntimeEvent,
   type RuntimeExecutionContext,
@@ -70,7 +71,7 @@ export async function resolveRuntimeNode(input: {
     resolver,
   } = input;
 
-  if (!isRuntimeNode(node)) {
+  if (!isRuntimeNodeShallow(node)) {
     diagnostics.push({
       level: "error",
       code: "RUNTIME_NODE_INVALID",

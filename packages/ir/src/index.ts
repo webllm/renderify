@@ -226,25 +226,170 @@ export function createComponentNode(
 }
 
 export function isRuntimeNode(value: unknown): value is RuntimeNode {
-  if (typeof value !== "object" || value === null) {
-    return false;
+  const pending: Array<{ value: unknown; exiting: boolean }> = [
+    { value, exiting: false },
+  ];
+  const active = new WeakSet<object>();
+  const completed = new WeakSet<object>();
+
+  while (pending.length > 0) {
+    const entry = pending.pop();
+    if (!entry || typeof entry.value !== "object" || entry.value === null) {
+      return false;
+    }
+
+    if (entry.exiting) {
+      active.delete(entry.value);
+      completed.add(entry.value);
+      continue;
+    }
+
+    if (completed.has(entry.value)) {
+      continue;
+    }
+    if (active.has(entry.value)) {
+      return false;
+    }
+
+    const shape = inspectRuntimeNodeShape(entry.value);
+    if (!shape) {
+      return false;
+    }
+
+    active.add(entry.value);
+    pending.push({ value: entry.value, exiting: true });
+    for (let index = shape.children.length - 1; index >= 0; index -= 1) {
+      pending.push({ value: shape.children[index], exiting: false });
+    }
   }
 
-  const candidate = value as Partial<RuntimeNode>;
+  return true;
+}
 
-  if (candidate.type === "text") {
-    return typeof (candidate as RuntimeTextNode).value === "string";
+export function isRuntimeNodeShallow(value: unknown): value is RuntimeNode {
+  return inspectRuntimeNodeShape(value) !== undefined;
+}
+
+interface RuntimeNodeShape {
+  node: RuntimeNode;
+  children: unknown[];
+}
+
+function inspectRuntimeNodeShape(value: unknown): RuntimeNodeShape | undefined {
+  if (!isPlainJsonObject(value)) {
+    return undefined;
   }
 
-  if (candidate.type === "element") {
-    return typeof (candidate as RuntimeElementNode).tag === "string";
+  const type = readOwnDataProperty(value, "type");
+  if (!type?.present || typeof type.value !== "string") {
+    return undefined;
   }
 
-  if (candidate.type === "component") {
-    return typeof (candidate as RuntimeComponentNode).module === "string";
+  if (type.value === "text") {
+    const text = readOwnDataProperty(value, "value");
+    return text?.present && typeof text.value === "string"
+      ? { node: value as unknown as RuntimeTextNode, children: [] }
+      : undefined;
   }
 
-  return false;
+  const props = readOwnDataProperty(value, "props");
+  if (
+    !props ||
+    (props.present &&
+      props.value !== undefined &&
+      (!isPlainJsonObject(props.value) || !isJsonValue(props.value)))
+  ) {
+    return undefined;
+  }
+
+  const children = readRuntimeNodeChildren(value);
+  if (!children) {
+    return undefined;
+  }
+
+  if (type.value === "element") {
+    const tag = readOwnDataProperty(value, "tag");
+    return tag?.present &&
+      typeof tag.value === "string" &&
+      tag.value.trim().length > 0
+      ? { node: value as unknown as RuntimeElementNode, children }
+      : undefined;
+  }
+
+  if (type.value === "component") {
+    const module = readOwnDataProperty(value, "module");
+    if (
+      !module?.present ||
+      typeof module.value !== "string" ||
+      module.value.trim().length === 0
+    ) {
+      return undefined;
+    }
+
+    const exportName = readOwnDataProperty(value, "exportName");
+    if (
+      !exportName ||
+      (exportName.present &&
+        exportName.value !== undefined &&
+        (typeof exportName.value !== "string" ||
+          exportName.value.trim().length === 0))
+    ) {
+      return undefined;
+    }
+
+    return { node: value as unknown as RuntimeComponentNode, children };
+  }
+
+  return undefined;
+}
+
+function readRuntimeNodeChildren(
+  value: Record<string, unknown>,
+): unknown[] | undefined {
+  const property = readOwnDataProperty(value, "children");
+  if (!property) {
+    return undefined;
+  }
+  if (!property.present || property.value === undefined) {
+    return [];
+  }
+  if (!Array.isArray(property.value)) {
+    return undefined;
+  }
+
+  const children: unknown[] = [];
+  try {
+    for (let index = 0; index < property.value.length; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(
+        property.value,
+        String(index),
+      );
+      if (!descriptor || !("value" in descriptor)) {
+        return undefined;
+      }
+      children.push(descriptor.value);
+    }
+  } catch {
+    return undefined;
+  }
+  return children;
+}
+
+function readOwnDataProperty(
+  value: Record<string, unknown>,
+  key: string,
+): { present: boolean; value: unknown } | undefined {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor) {
+      return { present: false, value: undefined };
+    }
+    return "value" in descriptor
+      ? { present: true, value: descriptor.value }
+      : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function isJsonValue(value: unknown): value is JsonValue {
@@ -764,19 +909,32 @@ export function walkRuntimeNode(
   visitor: (node: RuntimeNode, depth: number) => void,
   depth = 0,
 ): void {
-  if (!isRuntimeNode(node)) {
-    return;
-  }
+  const pending: Array<{ value: unknown; depth: number }> = [
+    { value: node, depth },
+  ];
+  const visited = new WeakSet<object>();
 
-  visitor(node, depth);
+  while (pending.length > 0) {
+    const entry = pending.pop();
+    if (
+      !entry ||
+      typeof entry.value !== "object" ||
+      entry.value === null ||
+      visited.has(entry.value)
+    ) {
+      continue;
+    }
 
-  const children = node.type === "text" ? undefined : node.children;
-  if (!Array.isArray(children) || children.length === 0) {
-    return;
-  }
+    const shape = inspectRuntimeNodeShape(entry.value);
+    if (!shape) {
+      continue;
+    }
 
-  for (const child of children) {
-    walkRuntimeNode(child, visitor, depth + 1);
+    visited.add(entry.value);
+    visitor(shape.node, entry.depth);
+    for (let index = shape.children.length - 1; index >= 0; index -= 1) {
+      pending.push({ value: shape.children[index], depth: entry.depth + 1 });
+    }
   }
 }
 
