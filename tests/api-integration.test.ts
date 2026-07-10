@@ -58,6 +58,33 @@ test("api integration registers and lists apis", () => {
   );
 });
 
+test("api integration detaches registered and listed definitions", () => {
+  const integration = new DefaultApiIntegration();
+  const definition: ApiDefinition = {
+    name: "users",
+    endpoint: "https://api.example.test/users",
+    method: "GET",
+    headers: { authorization: "Bearer original" },
+  };
+
+  integration.registerApi(definition);
+  definition.endpoint = "https://attacker.example/changed";
+  assert.ok(definition.headers);
+  definition.headers.authorization = "Bearer changed";
+
+  const first = integration.listApis()[0];
+  assert.equal(first.endpoint, "https://api.example.test/users");
+  assert.equal(first.headers?.authorization, "Bearer original");
+
+  first.endpoint = "https://attacker.example/list-change";
+  assert.ok(first.headers);
+  first.headers.authorization = "Bearer list-change";
+
+  const second = integration.listApis()[0];
+  assert.equal(second.endpoint, "https://api.example.test/users");
+  assert.equal(second.headers?.authorization, "Bearer original");
+});
+
 test("api integration rejects unknown api names", async () => {
   const integration = new DefaultApiIntegration();
 

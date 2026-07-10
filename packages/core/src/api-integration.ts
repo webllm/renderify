@@ -22,11 +22,11 @@ export class DefaultApiIntegration implements ApiIntegration {
   private readonly apis: Map<string, ApiDefinition> = new Map();
 
   registerApi(api: ApiDefinition): void {
-    this.apis.set(api.name, api);
+    this.apis.set(api.name, cloneApiDefinition(api));
   }
 
   listApis(): ApiDefinition[] {
-    return [...this.apis.values()];
+    return [...this.apis.values()].map(cloneApiDefinition);
   }
 
   async callApi<TResponse = unknown>(
@@ -145,6 +145,13 @@ export class DefaultApiIntegration implements ApiIntegration {
 
     return setTimeout(() => controller.abort(), timeoutMs);
   }
+}
+
+function cloneApiDefinition(api: ApiDefinition): ApiDefinition {
+  return {
+    ...api,
+    ...(api.headers ? { headers: { ...api.headers } } : {}),
+  };
 }
 
 async function readBoundedErrorBody(
