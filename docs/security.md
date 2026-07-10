@@ -252,13 +252,22 @@ In strict profile:
   "moduleManifest": {
     "recharts": {
       "resolvedUrl": "https://ga.jspm.io/npm:recharts@3.3.0/es6/index.js",
-      "integrity": "sha384-abc123..." // Required in strict mode
+      "integrity": "sha384-OLBgp1GsljhM2TJ+sbHjaiH9txEUvgdDTAzHv2P24donTt6/529l+9Ua0vFImLlb"
     }
   }
 }
 ```
 
-Missing manifest entries for bare specifiers or missing integrity hashes for remote modules generate policy violations.
+Strict integrity coverage applies to every executable module reference in
+`plan.imports`, component nodes, `capabilities.allowedModules`, and static
+source imports. Bare specifiers require an exact-key manifest entry. Direct
+HTTP(S) references also require an exact-key entry whose `resolvedUrl` matches
+the referenced URL, so a URL cannot bypass manifest enforcement.
+
+Remote descriptors must provide at least one syntactically valid `sha256`,
+`sha384`, or `sha512` SRI token. Missing entries, mismatched direct-URL targets,
+missing hashes, and unsupported hash formats generate policy violations. The
+runtime separately verifies the declared digest against loaded module content.
 
 ## UI Renderer Security
 

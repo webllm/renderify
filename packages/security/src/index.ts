@@ -369,7 +369,10 @@ export class DefaultSecurityChecker implements SecurityChecker {
         issues.push(...this.checkModuleManifest(moduleManifest));
       }
 
-      if (this.policy.requireModuleManifestForBareSpecifiers) {
+      if (
+        this.policy.requireModuleManifestForBareSpecifiers ||
+        this.policy.requireModuleIntegrity
+      ) {
         issues.push(
           ...(await this.checkManifestCoverage(plan, moduleManifest)),
         );
@@ -814,12 +817,17 @@ export class DefaultSecurityChecker implements SecurityChecker {
 
       if (
         this.policy.requireModuleIntegrity &&
-        this.isUrl(descriptor.resolvedUrl) &&
-        (!descriptor.integrity || descriptor.integrity.trim().length === 0)
+        this.isUrl(descriptor.resolvedUrl)
       ) {
-        issues.push(
-          `moduleManifest entry requires integrity for remote module: ${specifier}`,
-        );
+        if (!descriptor.integrity || descriptor.integrity.trim().length === 0) {
+          issues.push(
+            `moduleManifest entry requires integrity for remote module: ${specifier}`,
+          );
+        } else if (!this.hasSupportedIntegrity(descriptor.integrity)) {
+          issues.push(
+            `moduleManifest entry has unsupported integrity format for remote module: ${specifier}`,
+          );
+        }
       }
 
       const resolvedCheck = this.checkModuleSpecifier(descriptor.resolvedUrl);
@@ -838,19 +846,15 @@ export class DefaultSecurityChecker implements SecurityChecker {
     const imports = plan.imports ?? [];
 
     for (const specifier of imports) {
-      if (this.isBareSpecifier(specifier)) {
-        requiredSpecifiers.add(specifier);
-      }
+      requiredSpecifiers.add(specifier);
     }
 
     for (const specifier of plan.capabilities?.allowedModules ?? []) {
-      if (this.isBareSpecifier(specifier)) {
-        requiredSpecifiers.add(specifier);
-      }
+      requiredSpecifiers.add(specifier);
     }
 
     walkNodes(plan.root, (node) => {
-      if (node.type === "component" && this.isBareSpecifier(node.module)) {
+      if (node.type === "component") {
         requiredSpecifiers.add(node.module);
       }
     });
@@ -858,15 +862,48 @@ export class DefaultSecurityChecker implements SecurityChecker {
     for (const sourceImport of await this.parseSourceImports(
       plan.source?.code ?? "",
     )) {
-      if (this.isBareSpecifier(sourceImport)) {
-        requiredSpecifiers.add(sourceImport);
-      }
+      requiredSpecifiers.add(sourceImport);
     }
 
     for (const specifier of requiredSpecifiers) {
-      if (!moduleManifest?.[specifier]) {
+      const descriptor = moduleManifest?.[specifier];
+      if (
+        this.policy.requireModuleManifestForBareSpecifiers &&
+        this.isBareSpecifier(specifier) &&
+        !descriptor
+      ) {
         issues.push(
           `Missing moduleManifest entry for bare specifier: ${specifier}`,
+        );
+      }
+
+      if (!this.policy.requireModuleIntegrity) {
+        continue;
+      }
+
+      if (this.isBareSpecifier(specifier) && !descriptor) {
+        if (!this.policy.requireModuleManifestForBareSpecifiers) {
+          issues.push(
+            `Missing moduleManifest entry required for integrity: ${specifier}`,
+          );
+        }
+        continue;
+      }
+
+      if (!this.isUrl(specifier)) {
+        continue;
+      }
+
+      if (!descriptor) {
+        issues.push(
+          `Missing moduleManifest entry required for remote module integrity: ${specifier}`,
+        );
+        continue;
+      }
+
+      if (!this.remoteUrlsMatch(specifier, descriptor.resolvedUrl)) {
+        issues.push(
+          `moduleManifest resolvedUrl does not match direct remote module reference: ${specifier}`,
         );
       }
     }
@@ -975,6 +1012,29 @@ export class DefaultSecurityChecker implements SecurityChecker {
     } catch {
       return false;
     }
+  }
+
+  private remoteUrlsMatch(reference: string, resolvedUrl: string): boolean {
+    try {
+      return new URL(reference).href === new URL(resolvedUrl).href;
+    } catch {
+      return false;
+    }
+  }
+
+  private hasSupportedIntegrity(integrity: string): boolean {
+    return integrity
+      .split(/\s+/)
+      .map((candidate) => candidate.trim())
+      .some((candidate) => {
+        if (/^sha256-[A-Za-z0-9+/]{43}=$/.test(candidate)) {
+          return true;
+        }
+        if (/^sha384-[A-Za-z0-9+/]{64}$/.test(candidate)) {
+          return true;
+        }
+        return /^sha512-[A-Za-z0-9+/]{86}==$/.test(candidate);
+      });
   }
 
   private hasPathTraversalSequence(specifier: string): boolean {

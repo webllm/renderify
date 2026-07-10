@@ -13,6 +13,10 @@ import {
   listSecurityProfiles,
 } from "../packages/security/src/index";
 
+const REMOTE_MODULE_URL =
+  "https://ga.jspm.io/npm:nanoid@5.1.6/index.browser.js";
+const VALID_SHA384_INTEGRITY = `sha384-${"A".repeat(64)}`;
+
 function createPlan(rootTag = "section"): RuntimePlan & {
   capabilities: NonNullable<RuntimePlan["capabilities"]>;
 } {
@@ -478,6 +482,127 @@ test("security checker strict profile requires integrity for remote modules", as
   assert.ok(
     result.issues.some((issue) => issue.includes("requires integrity")),
   );
+});
+
+test("strict integrity policy requires manifests for every direct remote module reference", async () => {
+  const cases: Array<{
+    name: string;
+    apply: (plan: ReturnType<typeof createPlan>) => void;
+  }> = [
+    {
+      name: "plan import",
+      apply: (plan) => {
+        plan.imports = [REMOTE_MODULE_URL];
+      },
+    },
+    {
+      name: "component",
+      apply: (plan) => {
+        plan.root = createComponentNode(REMOTE_MODULE_URL);
+      },
+    },
+    {
+      name: "capability",
+      apply: (plan) => {
+        plan.capabilities.allowedModules = [REMOTE_MODULE_URL];
+      },
+    },
+    {
+      name: "source import",
+      apply: (plan) => {
+        plan.source = {
+          language: "js",
+          code: `import value from ${JSON.stringify(REMOTE_MODULE_URL)}; export default value;`,
+        };
+      },
+    },
+  ];
+
+  for (const testCase of cases) {
+    const checker = new DefaultSecurityChecker();
+    checker.initialize({
+      profile: "strict",
+      overrides: {
+        allowRuntimeSourceModules: true,
+      },
+    });
+    const plan = createPlan("section");
+    testCase.apply(plan);
+
+    const result = await checker.checkPlan(plan);
+    assert.equal(result.safe, false, testCase.name);
+    assert.ok(
+      result.issues.some((issue) =>
+        issue.includes(
+          "Missing moduleManifest entry required for remote module integrity",
+        ),
+      ),
+      testCase.name,
+    );
+  }
+});
+
+test("strict integrity policy rejects mismatched direct remote manifest targets", async () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize({ profile: "strict" });
+  const plan = createPlan("section");
+  plan.imports = [REMOTE_MODULE_URL];
+  plan.moduleManifest = {
+    [REMOTE_MODULE_URL]: {
+      resolvedUrl: "https://ga.jspm.io/npm:nanoid@5.1.5/index.browser.js",
+      integrity: VALID_SHA384_INTEGRITY,
+      signer: "tests",
+    },
+  };
+
+  const result = await checker.checkPlan(plan);
+  assert.equal(result.safe, false);
+  assert.ok(
+    result.issues.some((issue) =>
+      issue.includes(
+        "moduleManifest resolvedUrl does not match direct remote module reference",
+      ),
+    ),
+  );
+});
+
+test("strict integrity policy rejects unsupported integrity formats", async () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize({ profile: "strict" });
+  const plan = createPlan("section");
+  plan.imports = [REMOTE_MODULE_URL];
+  plan.moduleManifest = {
+    [REMOTE_MODULE_URL]: {
+      resolvedUrl: REMOTE_MODULE_URL,
+      integrity: "sha384-not-a-complete-digest",
+      signer: "tests",
+    },
+  };
+
+  const result = await checker.checkPlan(plan);
+  assert.equal(result.safe, false);
+  assert.ok(
+    result.issues.some((issue) =>
+      issue.includes("unsupported integrity format"),
+    ),
+  );
+});
+
+test("strict integrity policy accepts a covered direct remote module", async () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize({ profile: "strict" });
+  const plan = createPlan("section");
+  plan.imports = [REMOTE_MODULE_URL];
+  plan.moduleManifest = {
+    [REMOTE_MODULE_URL]: {
+      resolvedUrl: REMOTE_MODULE_URL,
+      integrity: VALID_SHA384_INTEGRITY,
+      signer: "tests",
+    },
+  };
+
+  const result = await checker.checkPlan(plan);
+  assert.equal(result.safe, true, result.issues.join("; "));
 });
 
 test("security checker allows internal inline runtime source specifiers without manifest entries", async () => {
