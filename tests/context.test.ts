@@ -89,3 +89,46 @@ test("context notifies subscribers on update and supports unsubscribe", async ()
 
   assert.deepEqual(calls, ["A:user_1", "B:user_1", "B:user_2"]);
 });
+
+test("context detaches updates, reads, and subscriber snapshots", async () => {
+  const manager = new DefaultContextManager();
+  await manager.initialize();
+
+  const input = {
+    flags: ["one"],
+    nested: { enabled: true },
+  };
+  manager.updateContext({ metadata: input });
+  input.flags.push("mutated");
+  input.nested.enabled = false;
+
+  const first = manager.getContext() as {
+    metadata: typeof input;
+  };
+  assert.deepEqual(first.metadata, {
+    flags: ["one"],
+    nested: { enabled: true },
+  });
+  first.metadata.flags.push("read-mutation");
+  first.metadata.nested.enabled = false;
+
+  const subscriberValues: boolean[] = [];
+  manager.subscribe((context) => {
+    const metadata = context.metadata as typeof input;
+    metadata.nested.enabled = false;
+  });
+  manager.subscribe((context) => {
+    const metadata = context.metadata as typeof input;
+    subscriberValues.push(metadata.nested.enabled);
+  });
+  manager.updateContext({ featureFlag: true });
+
+  const second = manager.getContext() as {
+    metadata: typeof input;
+  };
+  assert.deepEqual(second.metadata, {
+    flags: ["one"],
+    nested: { enabled: true },
+  });
+  assert.deepEqual(subscriberValues, [true]);
+});

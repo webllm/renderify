@@ -30,32 +30,31 @@ export class DefaultContextManager implements ContextManager {
   }
 
   getContext(): RenderifyContext {
-    return this.ctx;
+    return cloneContext(this.ctx);
   }
 
   updateContext(partialCtx: Partial<RenderifyContext>): void {
+    const partial = cloneContext(partialCtx as RenderifyContext);
     const nextUser =
-      partialCtx.user || this.ctx.user
+      partial.user || this.ctx.user
         ? {
-            id: partialCtx.user?.id ?? this.ctx.user?.id ?? "anonymous",
-            name: partialCtx.user?.name ?? this.ctx.user?.name,
-            role: partialCtx.user?.role ?? this.ctx.user?.role,
+            id: partial.user?.id ?? this.ctx.user?.id ?? "anonymous",
+            name: partial.user?.name ?? this.ctx.user?.name,
+            role: partial.user?.role ?? this.ctx.user?.role,
           }
         : undefined;
 
     const nextApp =
-      partialCtx.app || this.ctx.app
+      partial.app || this.ctx.app
         ? {
-            version:
-              partialCtx.app?.version ?? this.ctx.app?.version ?? "0.1.0",
-            environment:
-              partialCtx.app?.environment ?? this.ctx.app?.environment,
+            version: partial.app?.version ?? this.ctx.app?.version ?? "0.1.0",
+            environment: partial.app?.environment ?? this.ctx.app?.environment,
           }
         : undefined;
 
     this.ctx = {
       ...this.ctx,
-      ...partialCtx,
+      ...partial,
       user: nextUser,
       app: nextApp,
     };
@@ -72,7 +71,43 @@ export class DefaultContextManager implements ContextManager {
 
   private notify(): void {
     for (const cb of this.listeners) {
-      cb(this.ctx);
+      cb(this.getContext());
     }
   }
+}
+
+function cloneContext(context: RenderifyContext): RenderifyContext {
+  return cloneContextValue(context, new WeakMap<object, unknown>());
+}
+
+function cloneContextValue<T>(value: T, seen: WeakMap<object, unknown>): T {
+  if (typeof value !== "object" || value === null) {
+    return value;
+  }
+
+  const existing = seen.get(value);
+  if (existing !== undefined) {
+    return existing as T;
+  }
+
+  if (Array.isArray(value)) {
+    const clone: unknown[] = [];
+    seen.set(value, clone);
+    for (const entry of value) {
+      clone.push(cloneContextValue(entry, seen));
+    }
+    return clone as T;
+  }
+
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    return value;
+  }
+
+  const clone: Record<string, unknown> = {};
+  seen.set(value, clone);
+  for (const [key, entry] of Object.entries(value)) {
+    clone[key] = cloneContextValue(entry, seen);
+  }
+  return clone as T;
 }
