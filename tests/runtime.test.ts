@@ -3192,21 +3192,77 @@ test("runtime enforces moduleManifest for bare component specifiers by default",
   await runtime.terminate();
 });
 
-test("runtime blocks execution when module integrity verification fails", async () => {
+test("runtime never falls back to an unverified loader for integrity-pinned modules", async () => {
+  let ordinaryLoadCalls = 0;
+  const runtime = new DefaultRuntimeManager({
+    enableDependencyPreflight: false,
+    moduleLoader: {
+      async load() {
+        ordinaryLoadCalls += 1;
+        return {
+          default: () => createTextNode("unverified code executed"),
+        };
+      },
+    },
+  });
+  await runtime.initialize();
+
+  const moduleCode = "export default () => ({ type: 'text', value: 'safe' });";
+  const integrity = `sha384-${createHash("sha384").update(moduleCode).digest("base64")}`;
+  const remoteUrl = "https://ga.jspm.io/npm:demo@1/index.js";
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "runtime_integrity_loader_contract_plan",
+    version: 1,
+    root: createComponentNode("npm:demo"),
+    capabilities: {
+      domWrite: true,
+    },
+    moduleManifest: {
+      "npm:demo": {
+        resolvedUrl: remoteUrl,
+        integrity,
+        signer: "tests",
+      },
+    },
+  };
+
+  const result = await runtime.executePlan(plan);
+
+  assert.equal(ordinaryLoadCalls, 0);
+  assert.ok(
+    result.diagnostics.some(
+      (item) => item.code === "RUNTIME_INTEGRITY_LOADER_UNSUPPORTED",
+    ),
+  );
+  assert.equal(result.root.type, "element");
+
+  await runtime.terminate();
+});
+
+test("runtime rejects the exact module bytes when integrity verification fails", async () => {
+  const moduleLoader = new JspmModuleLoader({
+    remoteFallbackCdnBases: ["https://ga.jspm.io"],
+    remoteFetchRetries: 0,
+  });
   const runtime = new DefaultRuntimeManager({
     remoteFetchTimeoutMs: 500,
     enableDependencyPreflight: false,
+    moduleLoader,
   });
   await runtime.initialize();
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () => {
-    return new Response("export default 1;", {
-      status: 200,
-      headers: {
-        "content-type": "text/javascript; charset=utf-8",
+    return new Response(
+      "export default () => ({ type: 'text', value: 'tampered' });",
+      {
+        status: 200,
+        headers: {
+          "content-type": "text/javascript; charset=utf-8",
+        },
       },
-    });
+    );
   }) as typeof fetch;
 
   try {
@@ -3214,14 +3270,14 @@ test("runtime blocks execution when module integrity verification fails", async 
       specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
       id: "runtime_integrity_mismatch_plan",
       version: 1,
-      root: createElementNode("div", undefined, [createTextNode("fallback")]),
+      root: createComponentNode("npm:demo"),
       capabilities: {
         domWrite: true,
       },
       moduleManifest: {
         "npm:demo": {
           resolvedUrl: "https://ga.jspm.io/npm:demo@1/index.js",
-          integrity: "sha384-invalid",
+          integrity: `sha384-${createHash("sha384").update("trusted bytes").digest("base64")}`,
           signer: "tests",
         },
       },
@@ -3240,14 +3296,20 @@ test("runtime blocks execution when module integrity verification fails", async 
   }
 });
 
-test("runtime accepts module manifest entry when integrity verification succeeds", async () => {
+test("runtime imports the same module bytes that passed integrity verification", async () => {
+  const moduleLoader = new JspmModuleLoader({
+    remoteFallbackCdnBases: ["https://ga.jspm.io"],
+    remoteFetchRetries: 0,
+  });
   const runtime = new DefaultRuntimeManager({
     remoteFetchTimeoutMs: 500,
     enableDependencyPreflight: false,
+    moduleLoader,
   });
   await runtime.initialize();
 
-  const moduleCode = "export default 1;";
+  const moduleCode =
+    "export default () => ({ type: 'text', value: 'verified bytes' });";
   const integrity = `sha384-${createHash("sha384").update(moduleCode).digest("base64")}`;
 
   const originalFetch = globalThis.fetch;
@@ -3265,7 +3327,7 @@ test("runtime accepts module manifest entry when integrity verification succeeds
       specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
       id: "runtime_integrity_ok_plan",
       version: 1,
-      root: createElementNode("div", undefined, [createTextNode("ok")]),
+      root: createComponentNode("npm:demo"),
       capabilities: {
         domWrite: true,
       },
@@ -3279,17 +3341,94 @@ test("runtime accepts module manifest entry when integrity verification succeeds
     };
 
     const result = await runtime.executePlan(plan);
+    assert.deepEqual(result.root, createTextNode("verified bytes"));
     assert.equal(
       result.diagnostics.some(
         (item) =>
           item.code === "RUNTIME_INTEGRITY_MISMATCH" ||
-          item.code === "RUNTIME_INTEGRITY_CHECK_FAILED",
+          item.code === "RUNTIME_INTEGRITY_LOADER_UNSUPPORTED",
       ),
       false,
     );
   } finally {
     globalThis.fetch = originalFetch;
     await runtime.terminate();
+  }
+});
+
+test("JSPM verified loads never reuse an unverified module cache entry", async () => {
+  const moduleLoader = new JspmModuleLoader({
+    remoteFallbackCdnBases: ["https://ga.jspm.io"],
+    remoteFetchRetries: 0,
+  });
+  const remoteUrl = "https://ga.jspm.io/npm:cache-demo@1/index.js";
+  const unverifiedCode = "export default 'unverified cache entry';";
+  const verifiedCode = "export default 'verified cache entry';";
+  const integrity = `sha384-${createHash("sha384").update(verifiedCode).digest("base64")}`;
+  let responseCode = unverifiedCode;
+  let fetchCalls = 0;
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    return new Response(responseCode, {
+      status: 200,
+      headers: {
+        "content-type": "text/javascript; charset=utf-8",
+      },
+    });
+  }) as typeof fetch;
+
+  try {
+    const unverified = (await moduleLoader.load(remoteUrl)) as {
+      default?: unknown;
+    };
+    responseCode = verifiedCode;
+    const verified = (await moduleLoader.loadVerified(
+      remoteUrl,
+      integrity,
+    )) as { default?: unknown };
+
+    assert.equal(unverified.default, "unverified cache entry");
+    assert.equal(verified.default, "verified cache entry");
+    assert.equal(fetchCalls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("JSPM fallback responses remain bound to the original integrity", async () => {
+  const moduleLoader = new JspmModuleLoader({
+    remoteFallbackCdnBases: ["https://esm.sh"],
+    remoteFetchBackoffMs: 0,
+    remoteFetchRetries: 0,
+  });
+  const remoteUrl = "https://ga.jspm.io/npm:fallback-demo@1/index.js";
+  const trustedCode = "export default 'trusted fallback';";
+  const tamperedCode = "export default 'tampered fallback';";
+  const integrity = `sha384-${createHash("sha384").update(trustedCode).digest("base64")}`;
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input) => {
+    const url = String(input);
+    if (url === remoteUrl) {
+      return new Response("upstream unavailable", { status: 503 });
+    }
+    return new Response(tamperedCode, {
+      status: 200,
+      headers: {
+        "content-type": "text/javascript; charset=utf-8",
+      },
+    });
+  }) as typeof fetch;
+
+  try {
+    await assert.rejects(
+      () => moduleLoader.loadVerified(remoteUrl, integrity),
+      /Integrity mismatch for module/,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });
 

@@ -4,6 +4,26 @@ const SUPPORTED_INTEGRITY_ALGORITHMS = new Map<string, string>([
   ["sha512", "SHA-512"],
 ]);
 
+export class RuntimeModuleIntegrityError extends Error {
+  readonly code = "RUNTIME_INTEGRITY_MISMATCH";
+
+  constructor(moduleUrl: string) {
+    super(`Integrity mismatch for module: ${moduleUrl}`);
+    this.name = "RuntimeModuleIntegrityError";
+  }
+}
+
+export function isRuntimeModuleIntegrityError(
+  error: unknown,
+): error is RuntimeModuleIntegrityError {
+  return (
+    error instanceof RuntimeModuleIntegrityError ||
+    (typeof error === "object" &&
+      error !== null &&
+      (error as { code?: unknown }).code === "RUNTIME_INTEGRITY_MISMATCH")
+  );
+}
+
 export async function verifyModuleIntegrity(input: {
   content: string;
   integrity: string;

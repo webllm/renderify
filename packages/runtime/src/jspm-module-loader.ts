@@ -1,6 +1,7 @@
 import {
   DEFAULT_JSPM_SPECIFIER_OVERRIDES,
   type RuntimeDiagnostic,
+  type RuntimeModuleManifest,
 } from "@renderify/ir";
 import type { RuntimeModuleLoader } from "./index";
 import { isNodeRuntime } from "./runtime-environment";
@@ -91,6 +92,8 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
   private readonly remoteMaterializedUrlCacheMaxEntries: number;
   private readonly cache = new Map<string, unknown>();
   private readonly inflight = new Map<string, Promise<unknown>>();
+  private readonly verifiedCache = new Map<string, unknown>();
+  private readonly verifiedInflight = new Map<string, Promise<unknown>>();
   private readonly remoteMaterializationDiagnostics: RuntimeDiagnostic[] = [];
   private readonly remoteMaterializedUrlCache = new Map<string, string>();
   private readonly remoteMaterializedInflight = new Map<
@@ -160,10 +163,74 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
     }
   }
 
+  async loadVerified(specifier: string, integrity: string): Promise<unknown> {
+    const resolved = this.resolveSpecifier(specifier);
+    if (!this.isUrl(resolved)) {
+      throw new Error(
+        `Integrity-pinned loading requires an HTTP(S) module URL: ${resolved}`,
+      );
+    }
+
+    const normalizedIntegrity = integrity.trim();
+    if (normalizedIntegrity.length === 0) {
+      throw new Error(`Module integrity cannot be empty: ${resolved}`);
+    }
+
+    const cacheKey = `${resolved}\u0000integrity:${normalizedIntegrity}`;
+    if (this.verifiedCache.has(cacheKey)) {
+      return this.verifiedCache.get(cacheKey);
+    }
+
+    const inflight = this.verifiedInflight.get(cacheKey);
+    if (inflight) {
+      return inflight;
+    }
+
+    const loading = (async () => {
+      const manifest: RuntimeModuleManifest = {
+        [resolved]: {
+          resolvedUrl: resolved,
+          integrity: normalizedIntegrity,
+        },
+      };
+      const diagnostics: RuntimeDiagnostic[] = [];
+      const loader = this.createRemoteSourceModuleLoader(manifest, diagnostics);
+      const materializedUrl = await loader.resolveRuntimeImportSpecifier(
+        resolved,
+        undefined,
+      );
+      const loaded = await import(/* webpackIgnore: true */ materializedUrl);
+      setMapEntryWithLimit(
+        this.verifiedCache,
+        cacheKey,
+        loaded,
+        this.moduleCacheMaxEntries,
+      );
+      return loaded;
+    })();
+
+    this.verifiedInflight.set(cacheKey, loading);
+    try {
+      return await loading;
+    } finally {
+      this.verifiedInflight.delete(cacheKey);
+    }
+  }
+
   async unload(specifier: string): Promise<void> {
     const resolved = this.resolveSpecifier(specifier);
     this.cache.delete(resolved);
     this.inflight.delete(resolved);
+    for (const key of this.verifiedCache.keys()) {
+      if (key.startsWith(`${resolved}\u0000integrity:`)) {
+        this.verifiedCache.delete(key);
+      }
+    }
+    for (const key of this.verifiedInflight.keys()) {
+      if (key.startsWith(`${resolved}\u0000integrity:`)) {
+        this.verifiedInflight.delete(key);
+      }
+    }
   }
 
   resolveSpecifier(specifier: string): string {
@@ -324,9 +391,21 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
       return this.remoteSourceModuleLoader;
     }
 
-    this.remoteSourceModuleLoader = new RuntimeSourceModuleLoader({
-      moduleManifest: undefined,
-      diagnostics: this.remoteMaterializationDiagnostics,
+    this.remoteSourceModuleLoader = this.createRemoteSourceModuleLoader(
+      undefined,
+      this.remoteMaterializationDiagnostics,
+    );
+
+    return this.remoteSourceModuleLoader;
+  }
+
+  private createRemoteSourceModuleLoader(
+    moduleManifest: RuntimeModuleManifest | undefined,
+    diagnostics: RuntimeDiagnostic[],
+  ): RuntimeSourceModuleLoader {
+    return new RuntimeSourceModuleLoader({
+      moduleManifest,
+      diagnostics,
       materializedModuleUrlCache: this.remoteMaterializedUrlCache,
       materializedModuleInflight: this.remoteMaterializedInflight,
       remoteFallbackCdnBases: this.remoteFallbackCdnBases,
@@ -335,7 +414,7 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
       remoteFetchBackoffMs: this.remoteFetchBackoffMs,
       materializedModuleUrlCacheMaxEntries:
         this.remoteMaterializedUrlCacheMaxEntries,
-      canMaterializeRuntimeModules: () => typeof Buffer !== "undefined",
+      canMaterializeRuntimeModules: () => this.canMaterializeRemoteModules(),
       rewriteImportsAsync: (code, resolver) =>
         rewriteImportsAsync(code, resolver),
       createInlineModuleUrl: (code) => this.createInlineModuleUrl(code),
@@ -348,8 +427,6 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
       },
       isRemoteUrlAllowed: () => true,
     });
-
-    return this.remoteSourceModuleLoader;
   }
 
   private createInlineModuleUrl(code: string): string {
@@ -358,8 +435,22 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
       return `data:text/javascript;base64,${encoded}`;
     }
 
-    throw new Error(
-      "Node remote module materialization requires Buffer support",
+    if (typeof TextEncoder !== "undefined" && typeof btoa === "function") {
+      const bytes = new TextEncoder().encode(code);
+      let binary = "";
+      for (const byte of bytes) {
+        binary += String.fromCharCode(byte);
+      }
+      return `data:text/javascript;base64,${btoa(binary)}`;
+    }
+
+    throw new Error("Remote module materialization is unavailable");
+  }
+
+  private canMaterializeRemoteModules(): boolean {
+    return (
+      typeof Buffer !== "undefined" ||
+      (typeof TextEncoder !== "undefined" && typeof btoa === "function")
     );
   }
 }

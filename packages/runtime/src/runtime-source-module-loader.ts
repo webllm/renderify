@@ -14,7 +14,10 @@ import {
   isLikelyUnpinnedJspmNpmUrl,
   type RemoteModuleFetchResult,
 } from "./module-fetch";
-import { verifyModuleIntegrity } from "./module-integrity";
+import {
+  RuntimeModuleIntegrityError,
+  verifyModuleIntegrity,
+} from "./module-integrity";
 import { isBrowserRuntime, isNodeRuntime } from "./runtime-environment";
 import { isHttpUrl } from "./runtime-specifier";
 
@@ -250,7 +253,12 @@ export class RuntimeSourceModuleLoader {
       return normalizedUrl;
     }
 
-    if (isBrowserRuntime() && this.shouldPreserveRemoteImport(normalizedUrl)) {
+    const expectedIntegrity = this.resolveExpectedIntegrity(normalizedUrl);
+    if (
+      !expectedIntegrity &&
+      isBrowserRuntime() &&
+      this.shouldPreserveRemoteImport(normalizedUrl)
+    ) {
       if (!this.isRemoteImportAllowed(normalizedUrl)) {
         throw new Error(
           `Remote module URL is blocked by runtime network policy: ${normalizedUrl}`,
@@ -259,12 +267,16 @@ export class RuntimeSourceModuleLoader {
       return normalizedUrl;
     }
 
-    const cachedUrl = this.materializedModuleUrlCache.get(normalizedUrl);
+    const cacheKey = this.createMaterializedCacheKey(
+      normalizedUrl,
+      expectedIntegrity,
+    );
+    const cachedUrl = this.materializedModuleUrlCache.get(cacheKey);
     if (cachedUrl) {
       return cachedUrl;
     }
 
-    const inflight = this.materializedModuleInflight.get(normalizedUrl);
+    const inflight = this.materializedModuleInflight.get(cacheKey);
     if (inflight) {
       return inflight;
     }
@@ -277,24 +289,31 @@ export class RuntimeSourceModuleLoader {
       const inlineUrl = this.createInlineModuleUrlFn(rewritten);
       setMapEntryWithLimit(
         this.materializedModuleUrlCache,
-        normalizedUrl,
+        cacheKey,
         inlineUrl,
         this.materializedModuleUrlCacheMaxEntries,
       );
+      const fetchedIntegrity =
+        this.resolveExpectedIntegrity(
+          fetched.originalUrl,
+          normalizedUrl,
+          fetched.requestUrl,
+          fetched.url,
+        ) ?? expectedIntegrity;
       setMapEntryWithLimit(
         this.materializedModuleUrlCache,
-        fetched.url,
+        this.createMaterializedCacheKey(fetched.url, fetchedIntegrity),
         inlineUrl,
         this.materializedModuleUrlCacheMaxEntries,
       );
       return inlineUrl;
     })();
 
-    this.materializedModuleInflight.set(normalizedUrl, loading);
+    this.materializedModuleInflight.set(cacheKey, loading);
     try {
       return await loading;
     } finally {
-      this.materializedModuleInflight.delete(normalizedUrl);
+      this.materializedModuleInflight.delete(cacheKey);
     }
   }
 
@@ -440,6 +459,7 @@ export class RuntimeSourceModuleLoader {
           contentType:
             response.headers.get("content-type")?.toLowerCase() ?? "",
           requestUrl: attempt,
+          originalUrl,
         };
       } catch (error) {
         if (this.isAbortError(error, signal)) {
@@ -915,9 +935,11 @@ export class RuntimeSourceModuleLoader {
   private async verifyFetchedModuleIntegrity(
     fetched: RemoteModuleFetchResult,
   ): Promise<void> {
-    const expectedIntegrity =
-      this.integrityByResolvedUrl.get(fetched.requestUrl) ??
-      this.integrityByResolvedUrl.get(fetched.url);
+    const expectedIntegrity = this.resolveExpectedIntegrity(
+      fetched.originalUrl,
+      fetched.requestUrl,
+      fetched.url,
+    );
     if (!expectedIntegrity) {
       return;
     }
@@ -935,7 +957,29 @@ export class RuntimeSourceModuleLoader {
       code: "RUNTIME_SOURCE_INTEGRITY_FAILED",
       message: `Runtime source module integrity mismatch: ${fetched.url}`,
     });
-    throw new Error(`Integrity mismatch for module: ${fetched.url}`);
+    throw new RuntimeModuleIntegrityError(fetched.originalUrl ?? fetched.url);
+  }
+
+  private resolveExpectedIntegrity(
+    ...urls: Array<string | undefined>
+  ): string | undefined {
+    for (const url of urls) {
+      if (!url) {
+        continue;
+      }
+      const integrity = this.integrityByResolvedUrl.get(url.trim());
+      if (integrity) {
+        return integrity;
+      }
+    }
+    return undefined;
+  }
+
+  private createMaterializedCacheKey(
+    url: string,
+    integrity: string | undefined,
+  ): string {
+    return integrity ? `${url}\u0000integrity:${integrity}` : url;
   }
 }
 

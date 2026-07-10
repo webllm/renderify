@@ -25,8 +25,8 @@ import {
   resolveRuntimePlanSpecVersion,
   setValueByPath,
 } from "@renderify/ir";
-import { fetchWithTimeout, type RemoteModuleFetchResult } from "./module-fetch";
-import { verifyModuleIntegrity } from "./module-integrity";
+import type { RemoteModuleFetchResult } from "./module-fetch";
+import { isRuntimeModuleIntegrityError } from "./module-integrity";
 import {
   hasExceededBudget as hasRuntimeExceededBudget,
   isAbortError as isRuntimeAbortError,
@@ -513,29 +513,6 @@ export class DefaultRuntimeManager implements RuntimeManager {
     const maxImports = capabilities.maxImports ?? this.defaultMaxImports;
     const imports = plan.imports ?? [];
 
-    await this.verifyModuleManifestIntegrities(
-      plan.moduleManifest,
-      diagnostics,
-    );
-    if (
-      diagnostics.some(
-        (item) =>
-          item.level === "error" &&
-          (item.code === "RUNTIME_INTEGRITY_MISMATCH" ||
-            item.code === "RUNTIME_INTEGRITY_CHECK_FAILED"),
-      )
-    ) {
-      this.persistResolvedState(plan.id, state, stateOverride);
-      return {
-        planId: plan.id,
-        root: plan.root,
-        diagnostics,
-        state: cloneJsonValue(state),
-        handledEvent: event,
-        appliedActions,
-      };
-    }
-
     if (this.enableDependencyPreflight) {
       await this.preflightPlanDependencies(plan, diagnostics, frame);
       if (
@@ -567,7 +544,10 @@ export class DefaultRuntimeManager implements RuntimeManager {
       maxImports,
       moduleManifest: plan.moduleManifest,
       diagnostics,
-      moduleLoader: this.moduleLoader,
+      moduleLoader: this.createIntegrityAwareModuleLoader(
+        plan.moduleManifest,
+        diagnostics,
+      ),
       resolveRuntimeSpecifier: (
         specifier,
         moduleManifest,
@@ -862,7 +842,10 @@ export class DefaultRuntimeManager implements RuntimeManager {
     return preflightRuntimePlanDependencies({
       plan,
       diagnostics,
-      moduleLoader: this.moduleLoader,
+      moduleLoader: this.createIntegrityAwareModuleLoader(
+        plan.moduleManifest,
+        diagnostics,
+      ),
       withRemainingBudget: (operation, timeoutMessage) =>
         withRuntimeRemainingBudget(operation, frame, timeoutMessage),
       resolveRuntimeSourceSpecifier: (
@@ -908,71 +891,6 @@ export class DefaultRuntimeManager implements RuntimeManager {
       isAborted: () => isRuntimeAborted(frame.signal),
       hasExceededBudget: () => hasRuntimeExceededBudget(frame),
     });
-  }
-
-  private async verifyModuleManifestIntegrities(
-    moduleManifest: RuntimeModuleManifest | undefined,
-    diagnostics: RuntimeDiagnostic[],
-  ): Promise<void> {
-    if (!moduleManifest) {
-      return;
-    }
-
-    for (const [specifier, descriptor] of Object.entries(moduleManifest)) {
-      const expectedIntegrity = descriptor.integrity?.trim();
-      const resolvedUrl = descriptor.resolvedUrl?.trim();
-      if (
-        !expectedIntegrity ||
-        !resolvedUrl ||
-        (!resolvedUrl.startsWith("http://") &&
-          !resolvedUrl.startsWith("https://"))
-      ) {
-        continue;
-      }
-
-      if (!this.isRemoteUrlAllowed(resolvedUrl)) {
-        diagnostics.push({
-          level: "error",
-          code: "RUNTIME_NETWORK_POLICY_BLOCKED",
-          message: `Blocked remote manifest module by runtime network policy: ${resolvedUrl}`,
-        });
-        continue;
-      }
-
-      try {
-        const response = await fetchWithTimeout(
-          resolvedUrl,
-          this.remoteFetchTimeoutMs,
-        );
-        if (!response.ok) {
-          diagnostics.push({
-            level: "error",
-            code: "RUNTIME_INTEGRITY_CHECK_FAILED",
-            message: `Failed to fetch module for integrity check: ${specifier} (${response.status})`,
-          });
-          continue;
-        }
-
-        const content = await response.text();
-        const verified = await verifyModuleIntegrity({
-          content,
-          integrity: expectedIntegrity,
-        });
-        if (!verified) {
-          diagnostics.push({
-            level: "error",
-            code: "RUNTIME_INTEGRITY_MISMATCH",
-            message: `Module integrity mismatch: ${specifier} -> ${resolvedUrl}`,
-          });
-        }
-      } catch (error) {
-        diagnostics.push({
-          level: "error",
-          code: "RUNTIME_INTEGRITY_CHECK_FAILED",
-          message: `${specifier}: ${this.errorToMessage(error)}`,
-        });
-      }
-    }
   }
 
   private async resolveSourceRoot(
@@ -1254,7 +1172,10 @@ export class DefaultRuntimeManager implements RuntimeManager {
       diagnostics,
       frame,
       resolver: {
-        moduleLoader: this.moduleLoader,
+        moduleLoader: this.createIntegrityAwareModuleLoader(
+          moduleManifest,
+          diagnostics,
+        ),
         isResolvedSpecifierAllowed: (specifier, runtimeDiagnostics) =>
           this.isResolvedSpecifierAllowed(
             specifier,
@@ -1288,6 +1209,107 @@ export class DefaultRuntimeManager implements RuntimeManager {
         errorToMessage: (error) => this.errorToMessage(error),
       },
     });
+  }
+
+  private createIntegrityAwareModuleLoader(
+    moduleManifest: RuntimeModuleManifest | undefined,
+    diagnostics: RuntimeDiagnostic[],
+  ): RuntimeModuleLoader | undefined {
+    const moduleLoader = this.moduleLoader;
+    if (!moduleLoader) {
+      return undefined;
+    }
+
+    return {
+      load: async (specifier) => {
+        const expectedIntegrities = new Set<string>();
+        for (const descriptor of Object.values(moduleManifest ?? {})) {
+          if (
+            descriptor.resolvedUrl.trim() === specifier.trim() &&
+            descriptor.integrity?.trim()
+          ) {
+            expectedIntegrities.add(descriptor.integrity.trim());
+          }
+        }
+
+        if (expectedIntegrities.size === 0 || !this.isHttpUrl(specifier)) {
+          return moduleLoader.load(specifier);
+        }
+
+        if (expectedIntegrities.size > 1) {
+          const message = `Conflicting integrity values for remote module: ${specifier}`;
+          this.pushDiagnosticOnce(diagnostics, {
+            level: "error",
+            code: "RUNTIME_INTEGRITY_CONFLICT",
+            message,
+          });
+          throw new Error(message);
+        }
+
+        const expectedIntegrity = expectedIntegrities.values().next().value;
+        if (!expectedIntegrity) {
+          return moduleLoader.load(specifier);
+        }
+
+        if (!moduleLoader.loadVerified) {
+          const message = `Module loader cannot verify integrity-pinned remote module: ${specifier}`;
+          this.pushDiagnosticOnce(diagnostics, {
+            level: "error",
+            code: "RUNTIME_INTEGRITY_LOADER_UNSUPPORTED",
+            message,
+          });
+          throw new Error(message);
+        }
+
+        try {
+          return await moduleLoader.loadVerified.call(
+            moduleLoader,
+            specifier,
+            expectedIntegrity,
+          );
+        } catch (error) {
+          if (isRuntimeModuleIntegrityError(error)) {
+            this.pushDiagnosticOnce(diagnostics, {
+              level: "error",
+              code: "RUNTIME_INTEGRITY_MISMATCH",
+              message: `Module integrity mismatch: ${specifier}`,
+            });
+          }
+          throw error;
+        }
+      },
+      ...(moduleLoader.unload
+        ? {
+            unload: (specifier) =>
+              moduleLoader.unload?.call(moduleLoader, specifier) ??
+              Promise.resolve(),
+          }
+        : {}),
+    };
+  }
+
+  private isHttpUrl(value: string): boolean {
+    try {
+      const parsed = new URL(value);
+      return parsed.protocol === "http:" || parsed.protocol === "https:";
+    } catch {
+      return false;
+    }
+  }
+
+  private pushDiagnosticOnce(
+    diagnostics: RuntimeDiagnostic[],
+    diagnostic: RuntimeDiagnostic,
+  ): void {
+    if (
+      diagnostics.some(
+        (item) =>
+          item.code === diagnostic.code && item.message === diagnostic.message,
+      )
+    ) {
+      return;
+    }
+    diagnostics.push(diagnostic);
   }
 
   private ensureInitialized(): void {

@@ -102,3 +102,4 @@ await runtime.terminate();
 - Direct `DefaultRuntimeManager` instances reject `plan.source` unless trusted callers explicitly set `allowRuntimeSourceExecution: true`.
 - `renderTrustedPlanInBrowser` is the dedicated helper for reviewed source plans; the default `renderPlanInBrowser` policy accepts declarative plans only.
 - Browser sandbox modes (`worker` / `iframe`) are containment aids, not trusted security boundaries, and do not enable source execution under strict or balanced policy.
+- Integrity-pinned remote components/imports require `RuntimeModuleLoader.loadVerified`; the built-in JSPM loader verifies the response it materializes and executes.

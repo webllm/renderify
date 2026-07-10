@@ -119,6 +119,15 @@ Non-JS modules are converted to executable proxies:
 - **CSS imports** — fetched and injected as `<style>` elements via a proxy module
 - **JSON imports** — fetched and re-exported as ESM default exports
 
+For an HTTP(S) manifest entry with `integrity`, runtime imports use the module
+loader's `loadVerified()` contract. Verification and evaluation share one
+materialized response; the runtime does not prefetch one response and later
+execute a second response. A custom loader without verified loading fails
+closed with `RUNTIME_INTEGRITY_LOADER_UNSUPPORTED`. The built-in
+`JspmModuleLoader` verifies raw response bytes before rewriting imports or
+evaluating the materialized module, keeps verified and unverified caches
+separate, and applies the original digest to fallback-CDN responses.
+
 ## Source Module Execution
 
 `DefaultRuntimeManager` rejects plans containing `plan.source` by default with

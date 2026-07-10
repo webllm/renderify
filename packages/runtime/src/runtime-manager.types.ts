@@ -30,6 +30,12 @@ export interface CompileOptions {
 
 export interface RuntimeModuleLoader {
   load(specifier: string): Promise<unknown>;
+  /**
+   * Loads the exact module bytes covered by `integrity` and rejects before
+   * evaluation when verification fails. Required for integrity-pinned remote
+   * modules; `load()` is never used as a fallback for those modules.
+   */
+  loadVerified?(specifier: string, integrity: string): Promise<unknown>;
   unload?(specifier: string): Promise<void>;
 }
 

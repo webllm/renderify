@@ -5,6 +5,8 @@ export interface RemoteModuleFetchResult {
   code: string;
   contentType: string;
   requestUrl: string;
+  /** Original URL before retry, fallback-CDN selection, or redirects. */
+  originalUrl?: string;
 }
 
 export const DEFAULT_ESM_CDN_BASE = "https://esm.sh";

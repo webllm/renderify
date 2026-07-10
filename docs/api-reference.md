@@ -367,6 +367,14 @@ interface RuntimeManagerOptions {
   remoteFallbackCdnBases?: string[];
 }
 
+interface RuntimeModuleLoader {
+  load(specifier: string): Promise<unknown>;
+  // Must verify fetched bytes before evaluating them. Runtime never falls
+  // back to load() for an integrity-pinned HTTP(S) module.
+  loadVerified?(specifier: string, integrity: string): Promise<unknown>;
+  unload?(specifier: string): Promise<void>;
+}
+
 interface RuntimeExecutionInput {
   plan: RuntimePlan;
   context?: RuntimeExecutionContext;
@@ -386,6 +394,7 @@ interface CompileOptions {
 class JspmModuleLoader implements RuntimeModuleLoader {
   constructor(options?: JspmModuleLoaderOptions);
   load(specifier: string): Promise<unknown>;
+  loadVerified(specifier: string, integrity: string): Promise<unknown>;
   resolveSpecifier(specifier: string): string;
 }
 
