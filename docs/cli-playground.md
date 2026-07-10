@@ -82,10 +82,11 @@ Starts a local HTTP server with an interactive playground UI.
 ```bash
 pnpm playground
 # or
-pnpm cli -- playground [port]
+pnpm cli -- playground [port] [--host <host>]
 ```
 
-Default port: `4317`. Override with:
+By default, the server listens only on `127.0.0.1` and uses port `4317`.
+Override either value explicitly:
 
 ```bash
 RENDERIFY_PLAYGROUND_PORT=8080 pnpm playground
@@ -93,7 +94,15 @@ RENDERIFY_PLAYGROUND_PORT=8080 pnpm playground
 PORT=8080 pnpm playground
 # or
 pnpm cli -- playground 8080
+
+# Opt in to access from another host on a trusted network
+pnpm cli -- playground --host 0.0.0.0
+# or
+RENDERIFY_PLAYGROUND_HOST=0.0.0.0 pnpm playground
 ```
+
+Binding to a non-loopback address exposes the development server to the
+reachable network. Keep the default unless remote access is intentional.
 
 ### `help` — Print Usage
 
@@ -328,6 +337,7 @@ RENDERIFY_RUNTIME_BROWSER_SANDBOX_TIMEOUT_MS=4000
 RENDERIFY_RUNTIME_BROWSER_SANDBOX_FAIL_CLOSED=true
 
 # Playground
+RENDERIFY_PLAYGROUND_HOST=127.0.0.1
 RENDERIFY_PLAYGROUND_PORT=4317
 PORT=4317
 ```

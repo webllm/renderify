@@ -204,6 +204,7 @@ pnpm cli -- render-plan examples/runtime/counter-plan.json
 
 # Browser playground
 pnpm playground
+pnpm cli -- playground --host 0.0.0.0 # trusted networks only
 pnpm cli -- playground --debug
 pnpm cli -- playground --no-llm-log
 RENDERIFY_PLAYGROUND_DEBUG=1 pnpm playground
@@ -242,6 +243,10 @@ RENDERIFY_RUNTIME_BROWSER_SANDBOX_FAIL_CLOSED=true pnpm playground
 # Force text/TSX generation path instead of structured RuntimePlan
 RENDERIFY_LLM_USE_STRUCTURED_OUTPUT=false pnpm playground
 ```
+
+The playground listens only on `127.0.0.1` by default. Remote access requires
+an explicit `--host <host>` option or `RENDERIFY_PLAYGROUND_HOST` override; use
+a non-loopback binding only on a trusted network.
 
 By default, playground prints outbound LLM request/response payload logs in terminal (`[playground-llm]`) with sensitive fields redacted. Use `--no-llm-log` or `RENDERIFY_PLAYGROUND_LLM_LOG=false` to disable.
 

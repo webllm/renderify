@@ -42,6 +42,12 @@ import {
   resolveCodexRuntimeCredentials,
 } from "./codex-auth";
 import { PLAYGROUND_HTML } from "./playground-html";
+import {
+  formatPlaygroundUrlHost,
+  listenForPlayground,
+  normalizePlaygroundHost,
+  resolvePlaygroundHost,
+} from "./playground-network";
 
 interface CliArgs {
   command:
@@ -57,6 +63,7 @@ interface CliArgs {
   prompt?: string;
   planFile?: string;
   port?: number;
+  host?: string;
   debug?: boolean;
   llmLog?: boolean;
 }
@@ -64,6 +71,7 @@ interface CliArgs {
 interface PlaygroundServerOptions {
   app: RenderifyApp;
   port: number;
+  host: string;
   moduleLoader: JspmModuleLoader;
   autoManifestIntegrityTimeoutMs: number;
   debug: boolean;
@@ -634,9 +642,14 @@ async function main() {
       }
       case "playground": {
         const port = args.port ?? resolvePlaygroundPort();
+        const host = resolvePlaygroundHost(
+          args.host,
+          process.env.RENDERIFY_PLAYGROUND_HOST,
+        );
         await runPlaygroundServer({
           app: renderifyApp,
           port,
+          host,
           moduleLoader: runtimeModuleLoader,
           autoManifestIntegrityTimeoutMs: AUTO_MANIFEST_INTEGRITY_TIMEOUT_MS,
           debug: args.debug ?? resolvePlaygroundDebugMode(),
@@ -665,10 +678,15 @@ function parsePositiveIntFromEnv(rawValue?: string): number | undefined {
 
 function parsePlaygroundArgs(args: string[]): CliArgs {
   let port: number | undefined;
+  let host: string | undefined;
   let debug: boolean | undefined;
   let llmLog: boolean | undefined;
 
-  for (const token of args) {
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index];
+    if (token === undefined) {
+      continue;
+    }
     const normalized = token.trim();
     if (normalized.length === 0) {
       continue;
@@ -694,6 +712,21 @@ function parsePlaygroundArgs(args: string[]): CliArgs {
       continue;
     }
 
+    if (normalized === "--host") {
+      const value = args[index + 1];
+      if (value === undefined || value.trim().startsWith("--")) {
+        throw new Error("Playground option --host requires a host value");
+      }
+      host = normalizePlaygroundHost(value);
+      index += 1;
+      continue;
+    }
+
+    if (normalized.startsWith("--host=")) {
+      host = normalizePlaygroundHost(normalized.slice("--host=".length));
+      continue;
+    }
+
     if (normalized.startsWith("--")) {
       throw new Error(`Unknown playground option: ${normalized}`);
     }
@@ -708,6 +741,7 @@ function parsePlaygroundArgs(args: string[]): CliArgs {
   return {
     command: "playground",
     port,
+    host,
     debug,
     llmLog,
   };
@@ -904,7 +938,7 @@ function printHelp(): void {
   renderify plan <prompt>                    Print runtime plan JSON
   renderify probe-plan <file>                Probe RuntimePlan dependencies and policy compatibility
   renderify render-plan <file>               Execute RuntimePlan JSON file
-  renderify playground [port] [--debug] [--no-llm-log]      Start browser runtime playground
+  renderify playground [port] [--host <host>] [--debug] [--no-llm-log]      Start browser runtime playground
   renderify auth codex login|status|logout   Manage OpenAI Codex OAuth credentials`);
 }
 
@@ -925,6 +959,7 @@ async function runPlaygroundServer(
   const {
     app,
     port,
+    host,
     moduleLoader,
     autoManifestIntegrityTimeoutMs,
     debug,
@@ -951,20 +986,14 @@ async function runPlaygroundServer(
   });
 
   try {
-    await new Promise<void>((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(port, () => {
-        server.off("error", reject);
-        resolve();
-      });
-    });
+    await listenForPlayground(server, port, host);
 
     const info = server.address();
     const resolvedPort =
       typeof info === "object" && info !== null
         ? (info as AddressInfo).port
         : port;
-    const baseUrl = `http://127.0.0.1:${resolvedPort}`;
+    const baseUrl = `http://${formatPlaygroundUrlHost(host)}:${resolvedPort}`;
     console.log(`Renderify playground is running at ${baseUrl}`);
     if (debugTracer) {
       console.log(

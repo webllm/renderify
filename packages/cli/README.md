@@ -29,7 +29,7 @@ renderify run <prompt>          # Render prompt and print HTML
 renderify plan <prompt>         # Print RuntimePlan JSON
 renderify probe-plan <file>     # Probe plan dependencies and policy compatibility
 renderify render-plan <file>    # Execute RuntimePlan JSON file and print HTML
-renderify playground [port] [--debug] [--no-llm-log]  # Start browser playground server
+renderify playground [port] [--host <host>] [--debug] [--no-llm-log]  # Start browser playground server
 renderify auth codex login|status|logout              # Manage OpenAI Codex OAuth
 ```
 
@@ -66,6 +66,11 @@ RENDERIFY_LLM_PROVIDER=openai-codex renderify playground
 - `RENDERIFY_SECURITY_PROFILE` (`strict`, `balanced`, `trusted`, `relaxed`)
 - `RENDERIFY_PLAYGROUND_DEBUG` (`1`, `true`, `yes`, `on`)
 - `RENDERIFY_PLAYGROUND_LLM_LOG` (`true`, `false`, default `true`)
+- `RENDERIFY_PLAYGROUND_HOST` (defaults to `127.0.0.1`)
+
+Playground listens only on `127.0.0.1` by default. To opt in to network access,
+pass `--host 0.0.0.0` or set `RENDERIFY_PLAYGROUND_HOST=0.0.0.0`; use a
+non-loopback binding only on a trusted network.
 
 Playground prints outbound LLM request/response payload logs to terminal by default (`[playground-llm]`) with sensitive values redacted.
 

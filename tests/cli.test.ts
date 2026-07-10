@@ -72,7 +72,10 @@ test("cli shows help text", async () => {
 
   assert.equal(result.code, 0);
   assert.match(result.stdout, /Usage:/);
-  assert.match(result.stdout, /renderify playground \[port\]/);
+  assert.match(
+    result.stdout,
+    /renderify playground \[port\] \[--host <host>\]/,
+  );
   assert.match(result.stdout, /renderify auth codex login\|status\|logout/);
 });
 
@@ -95,6 +98,20 @@ test("cli validates unknown playground option", async () => {
 
   assert.notEqual(result.code, 0);
   assert.match(result.stderr, /Unknown playground option: --trace/);
+});
+
+test("cli requires a value for the playground host option", async () => {
+  const result = await runCli(["playground", "--host"]);
+
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /Playground option --host requires a host value/);
+});
+
+test("cli rejects an empty inline playground host", async () => {
+  const result = await runCli(["playground", "--host="]);
+
+  assert.notEqual(result.code, 0);
+  assert.match(result.stderr, /Playground host cannot be empty/);
 });
 
 test("cli requires plan file for probe-plan", async () => {
