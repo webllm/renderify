@@ -284,29 +284,10 @@ export class RuntimeSourceModuleLoader {
     }
 
     const expectedIntegrity = this.resolveExpectedIntegrity(normalizedUrl);
-    if (
-      !expectedIntegrity &&
-      isBrowserRuntime() &&
-      !this.materializationBudget &&
-      this.shouldPreserveRemoteImport(normalizedUrl)
-    ) {
-      if (!this.isRemoteImportAllowed(normalizedUrl)) {
-        throw new Error(
-          `Remote module URL is blocked by runtime network policy: ${normalizedUrl}`,
-        );
-      }
-      return normalizedUrl;
-    }
-
     const cacheKey = this.createMaterializedCacheKey(
       normalizedUrl,
       expectedIntegrity,
     );
-    const cachedUrl = this.materializedModuleUrlCache.get(cacheKey);
-    if (cachedUrl) {
-      return cachedUrl;
-    }
-
     try {
       if (this.materializationBudget) {
         claimRuntimeModuleMaterialization(
@@ -320,6 +301,24 @@ export class RuntimeSourceModuleLoader {
         this.pushMaterializationLimitDiagnostic(error.message);
       }
       throw error;
+    }
+
+    if (
+      !expectedIntegrity &&
+      isBrowserRuntime() &&
+      this.shouldPreserveRemoteImport(normalizedUrl)
+    ) {
+      if (!this.isRemoteImportAllowed(normalizedUrl)) {
+        throw new Error(
+          `Remote module URL is blocked by runtime network policy: ${normalizedUrl}`,
+        );
+      }
+      return normalizedUrl;
+    }
+
+    const cachedUrl = this.materializedModuleUrlCache.get(cacheKey);
+    if (cachedUrl) {
+      return cachedUrl;
     }
 
     const releaseDependency = parentMaterializationKey
