@@ -261,6 +261,77 @@ test("security checker supports profile initialization", async () => {
   assert.equal(checker.getProfile(), "strict");
 });
 
+test("security profile policies return detached array snapshots", () => {
+  const first = getSecurityProfilePolicy("strict");
+  const second = getSecurityProfilePolicy("strict");
+  const expectedSecond = JSON.stringify(second);
+
+  first.blockedTags.push("section");
+  first.allowedModules.push("unsafe-module");
+  first.allowedNetworkHosts.push("evil.example.com");
+  first.allowedExecutionProfiles.splice(0);
+  first.supportedSpecVersions.push("unsafe-version");
+  first.sourceBannedPatternStrings.splice(0);
+
+  assert.equal(JSON.stringify(second), expectedSecond);
+});
+
+test("security checker detaches initialized policy arrays from callers", () => {
+  const blockedTags = ["script"];
+  const allowedModules = ["npm:"];
+  const allowedNetworkHosts = ["ga.jspm.io"];
+  const allowedExecutionProfiles: Array<"standard" | "isolated-vm"> = [
+    "standard",
+  ];
+  const supportedSpecVersions = [DEFAULT_RUNTIME_PLAN_SPEC_VERSION];
+  const sourceBannedPatternStrings = ["\\beval\\s*\\("];
+  const checker = new DefaultSecurityChecker();
+
+  checker.initialize({
+    overrides: {
+      blockedTags,
+      allowedModules,
+      allowedNetworkHosts,
+      allowedExecutionProfiles,
+      supportedSpecVersions,
+      sourceBannedPatternStrings,
+    },
+  });
+
+  blockedTags.push("section");
+  allowedModules.push("unsafe-module");
+  allowedNetworkHosts.push("evil.example.com");
+  allowedExecutionProfiles.push("isolated-vm");
+  supportedSpecVersions.push("unsafe-version");
+  sourceBannedPatternStrings.splice(0);
+
+  const policy = checker.getPolicy();
+  assert.deepEqual(policy.blockedTags, ["script"]);
+  assert.deepEqual(policy.allowedModules, ["npm:"]);
+  assert.deepEqual(policy.allowedNetworkHosts, ["ga.jspm.io"]);
+  assert.deepEqual(policy.allowedExecutionProfiles, ["standard"]);
+  assert.deepEqual(policy.supportedSpecVersions, [
+    DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+  ]);
+  assert.deepEqual(policy.sourceBannedPatternStrings, ["\\beval\\s*\\("]);
+});
+
+test("security checker returns detached policy array snapshots", () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize({ profile: "strict" });
+  const expected = getSecurityProfilePolicy("strict");
+  const snapshot = checker.getPolicy();
+
+  snapshot.blockedTags.push("section");
+  snapshot.allowedModules.push("unsafe-module");
+  snapshot.allowedNetworkHosts.push("evil.example.com");
+  snapshot.allowedExecutionProfiles.splice(0);
+  snapshot.supportedSpecVersions.push("unsafe-version");
+  snapshot.sourceBannedPatternStrings.splice(0);
+
+  assert.deepEqual(checker.getPolicy(), expected);
+});
+
 test("security checker precompiles source banned patterns on initialize", async () => {
   const checker = new DefaultSecurityChecker();
   checker.initialize({

@@ -297,7 +297,7 @@ export class DefaultSecurityChecker implements SecurityChecker {
     const profile = normalized.profile ?? DEFAULT_SECURITY_PROFILE;
     const basePolicy = getSecurityProfilePolicy(profile);
 
-    this.policy = {
+    this.policy = clonePolicy({
       ...basePolicy,
       ...normalized.overrides,
       blockedTags: normalized.overrides?.blockedTags ?? basePolicy.blockedTags,
@@ -315,7 +315,7 @@ export class DefaultSecurityChecker implements SecurityChecker {
       sourceBannedPatternStrings:
         normalized.overrides?.sourceBannedPatternStrings ??
         basePolicy.sourceBannedPatternStrings,
-    };
+    });
     this.sourceBannedPatterns = compileSourceBannedPatterns(
       this.policy.sourceBannedPatternStrings,
     );
@@ -323,7 +323,7 @@ export class DefaultSecurityChecker implements SecurityChecker {
   }
 
   getPolicy(): RuntimeSecurityPolicy {
-    return { ...this.policy };
+    return clonePolicy(this.policy);
   }
 
   getProfile(): RuntimeSecurityProfile {
