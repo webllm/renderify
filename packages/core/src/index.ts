@@ -886,13 +886,13 @@ export class RenderifyApp {
         traceId,
         metric,
         prompt,
-        planId: planForPolicy.id,
+        planId: runtimeInput.plan.id,
       });
 
       return {
         traceId,
-        plan: planForPolicy,
-        security: securityResult,
+        plan: runtimeInput.plan,
+        security: runtimeSecurityResult,
         execution: runtimeExecution,
         html,
       };

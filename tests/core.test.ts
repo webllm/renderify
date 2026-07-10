@@ -759,6 +759,95 @@ test("core rechecks policy after beforeRuntime hook plan mutations", async () =>
   await app.stop();
 });
 
+test("core reports the plan and security result used after beforeRuntime", async () => {
+  const customization = new DefaultCustomizationEngine();
+  const executedPlanIds: string[] = [];
+  const renderedPlanIds: string[] = [];
+  const runtime = new ContextCapturingRuntime();
+  const security = new DefaultSecurityChecker();
+  const originalExecute = runtime.execute.bind(runtime);
+  const originalCheckPlan = security.checkPlan.bind(security);
+  runtime.execute = async (input) => {
+    executedPlanIds.push(input.plan.id);
+    return originalExecute(input);
+  };
+  security.checkPlan = async (plan) => {
+    const result = await originalCheckPlan(plan);
+    return {
+      ...result,
+      diagnostics: [
+        ...result.diagnostics,
+        {
+          level: "info",
+          code: `CHECKED_${plan.id}`,
+          message: `Checked ${plan.id}`,
+        },
+      ],
+    };
+  };
+  customization.registerPlugin({
+    name: "replace-plan-before-runtime",
+    hooks: {
+      beforeRuntime: (payload) => {
+        const input = payload as RuntimeExecutionInput;
+        return {
+          ...input,
+          plan: {
+            ...input.plan,
+            id: "core_runtime_replaced_plan",
+            root: createTextNode("replaced before runtime"),
+          },
+        };
+      },
+    },
+  });
+  const app = createRenderifyApp(
+    createDependencies({
+      customization,
+      runtime,
+      security,
+    }),
+  );
+  app.on("rendered", (payload) => {
+    const event = payload as { planId?: string };
+    if (event.planId) {
+      renderedPlanIds.push(event.planId);
+    }
+  });
+  await app.start();
+
+  const result = await app.renderPlan({
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "core_runtime_original_plan",
+    version: 1,
+    root: createTextNode("original"),
+    capabilities: {
+      domWrite: true,
+    },
+  });
+
+  assert.equal(result.plan.id, "core_runtime_replaced_plan");
+  assert.equal(result.execution.planId, "core_runtime_replaced_plan");
+  assert.match(result.html, /replaced before runtime/);
+  assert.equal(result.security.safe, true);
+  assert.equal(
+    result.security.diagnostics.some(
+      (diagnostic) => diagnostic.code === "CHECKED_core_runtime_replaced_plan",
+    ),
+    true,
+  );
+  assert.equal(
+    result.security.diagnostics.some(
+      (diagnostic) => diagnostic.code === "CHECKED_core_runtime_original_plan",
+    ),
+    false,
+  );
+  assert.deepEqual(executedPlanIds, ["core_runtime_replaced_plan"]);
+  assert.deepEqual(renderedPlanIds, ["core_runtime_replaced_plan"]);
+
+  await app.stop();
+});
+
 test("core prefers structured llm output when available", async () => {
   const app = createRenderifyApp(
     createDependencies({
