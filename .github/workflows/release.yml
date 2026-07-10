@@ -50,6 +50,9 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Smoke test package artifacts
+        run: pnpm artifacts:smoke
+
       - name: Publish
         run: pnpm release
         env:

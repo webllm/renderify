@@ -8,6 +8,7 @@
     "preinstall": "node scripts/ensure-pnpm.js",
     "build": "turbo run build:repo",
     "build:repo": "pnpm -r --filter \"./packages/*\" run build:repo",
+    "artifacts:smoke": "node scripts/smoke-package-artifacts.mjs",
     "validate": "turbo run validate:repo",
     "validate:repo": "node scripts/validate-package-metadata.mjs",
     "typecheck": "turbo run typecheck:repo",
