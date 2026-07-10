@@ -119,6 +119,12 @@ The JSON schema enforces:
 
 If structured output fails or is disabled, the LLM generates free-form text. The code generator then attempts to extract a RuntimePlan:
 
+`generateStructuredResponse()` is a single-response contract. Accordingly,
+`renderPromptStream()` emits a structured result as one complete `llm-delta`
+after it arrives. For real transport-level deltas and progressive previews,
+disable structured output and use a provider that implements
+`generateResponseStream()`.
+
 1. Look for a complete RuntimePlan JSON in the text
 2. Extract fenced code blocks (`tsx, `jsx, etc.)
 3. Fall back to wrapping the text as a text node

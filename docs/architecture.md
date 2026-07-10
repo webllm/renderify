@@ -159,16 +159,22 @@ The LLM generates fenced code blocks. The codegen stage extracts the source code
 
 ## Streaming Architecture
 
-The streaming pipeline (`renderPromptStream`) provides progressive UI updates:
+The streaming pipeline (`renderPromptStream`) provides progressive UI updates
+when the selected provider exposes `generateResponseStream()`:
 
 ```
 LLM tokens ──▶ llm-delta chunks ──▶ preview renders ──▶ final render
 ```
 
-1. **llm-delta** — each token from the LLM is emitted as a chunk
+1. **llm-delta** — each transport delta from the LLM is emitted as a chunk
 2. **preview** — at configurable intervals, the accumulated text is parsed and rendered as a preview
 3. **final** — after LLM completion, the full pipeline executes and emits the final result
 4. **error** — if any stage fails, an error chunk is emitted before the exception propagates
+
+Structured generation is a single-response provider contract. When it is
+enabled, `renderPromptStream()` emits one complete `llm-delta` after that
+response arrives; it does not fabricate intermediate token chunks. Disable
+structured output when token-by-token progress is required.
 
 ## Plugin Hook Architecture
 

@@ -481,28 +481,17 @@ export class RenderifyApp {
           structuredResponse.text.trim().length > 0
         ) {
           const fullText = structuredResponse.text;
-          const chunkSize = Math.max(256, Math.floor(fullText.length / 4));
-          let latestText = "";
+          yield {
+            type: "llm-delta",
+            traceId,
+            prompt: promptAfterHook,
+            llmText: fullText,
+            delta: fullText,
+          };
 
-          for (let offset = 0; offset < fullText.length; offset += chunkSize) {
-            const delta = fullText.slice(offset, offset + chunkSize);
-            latestText += delta;
-            const done = latestText.length >= fullText.length;
-
-            yield {
-              type: "llm-delta",
-              traceId,
-              prompt: promptAfterHook,
-              llmText: latestText,
-              delta,
-            };
-
-            if (done) {
-              const previewChunk = await buildPreviewChunk(latestText, delta);
-              if (previewChunk) {
-                yield previewChunk;
-              }
-            }
+          const previewChunk = await buildPreviewChunk(fullText, fullText);
+          if (previewChunk) {
+            yield previewChunk;
           }
 
           llmResponse = {

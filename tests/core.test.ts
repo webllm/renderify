@@ -979,13 +979,19 @@ test("core renderPromptStream prefers structured output when available", async (
   await app.start();
 
   const seen = new Set<string>();
+  const deltas: string[] = [];
   let finalHtml = "";
+  let finalLlmText = "";
   let llmMode = "";
 
   for await (const chunk of app.renderPromptStream("structured stream")) {
     seen.add(chunk.type);
+    if (chunk.type === "llm-delta") {
+      deltas.push(chunk.delta ?? "");
+    }
     if (chunk.type === "final" && chunk.final) {
       finalHtml = chunk.final.html;
+      finalLlmText = chunk.final.llm.text;
       const raw = chunk.final.llm.raw as { mode?: string } | undefined;
       llmMode = raw?.mode ?? "";
     }
@@ -993,6 +999,7 @@ test("core renderPromptStream prefers structured output when available", async (
 
   assert.ok(seen.has("llm-delta"));
   assert.ok(seen.has("final"));
+  assert.deepEqual(deltas, [finalLlmText]);
   assert.match(finalHtml, /Structured: structured stream/);
   assert.equal(llmMode, "structured");
 
