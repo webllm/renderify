@@ -251,8 +251,9 @@ pnpm version-packages
 pnpm release
 ```
 
-Release automation publishes only from a SemVer tag such as `v0.8.0`. The
-release workflow validates the tag, runs formatting, lint, type, unit and
+Release automation publishes only from a valid SemVer tag such as `v0.8.0`.
+The tag version must match `packages/renderify/package.json`. The release
+workflow validates both values, runs formatting, lint, type, unit and
 compatibility checks, then validates package metadata and built entry points
 before publishing to npm with provenance.
 
