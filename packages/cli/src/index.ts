@@ -545,31 +545,6 @@ async function main() {
             },
           });
         },
-        beforeRuntime: async (payload) => {
-          if (
-            !isRecord(payload) ||
-            !("plan" in payload) ||
-            !isRuntimePlan(payload.plan)
-          ) {
-            return payload;
-          }
-
-          const runtimeInput = payload as {
-            plan: RuntimePlan;
-          };
-          if (
-            !(await shouldSkipPlaygroundServerSourceExecution(
-              runtimeInput.plan,
-            ))
-          ) {
-            return payload;
-          }
-
-          return {
-            ...payload,
-            plan: createPlaygroundClientOnlyExecutionPlan(runtimeInput.plan),
-          };
-        },
       },
     });
   }
@@ -1638,95 +1613,6 @@ function isBareModuleSpecifier(specifier: string): boolean {
     !trimmed.startsWith("data:") &&
     !trimmed.startsWith("blob:")
   );
-}
-
-const PLAYGROUND_SERVER_SAFE_SOURCE_IMPORTS = new Set([
-  "preact",
-  "preact/hooks",
-  "preact/compat",
-  "preact/jsx-runtime",
-  "react",
-  "react-dom",
-  "react-dom/client",
-  "react/jsx-runtime",
-  "react/jsx-dev-runtime",
-  "renderify",
-]);
-
-async function shouldSkipPlaygroundServerSourceExecution(
-  plan: RuntimePlan,
-): Promise<boolean> {
-  const source = plan.source;
-  if (!source || source.runtime !== "preact") {
-    return false;
-  }
-
-  const imports = await collectRuntimeSourceImports(source.code);
-  if (imports.length === 0) {
-    return false;
-  }
-
-  for (const specifier of imports) {
-    if (!isPlaygroundServerSafeSourceImport(specifier)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-function isPlaygroundServerSafeSourceImport(specifier: string): boolean {
-  const trimmed = specifier.trim();
-  if (trimmed.length === 0) {
-    return true;
-  }
-
-  if (
-    trimmed.startsWith("./") ||
-    trimmed.startsWith("../") ||
-    trimmed.startsWith("/") ||
-    trimmed.startsWith("data:") ||
-    trimmed.startsWith("blob:")
-  ) {
-    return true;
-  }
-
-  const lower = trimmed.toLowerCase();
-  if (PLAYGROUND_SERVER_SAFE_SOURCE_IMPORTS.has(lower)) {
-    return true;
-  }
-
-  if (!isHttpUrl(trimmed)) {
-    return false;
-  }
-
-  return (
-    lower.includes("preact") ||
-    lower.includes("react/jsx-runtime") ||
-    lower.includes("react/jsx-dev-runtime")
-  );
-}
-
-function createPlaygroundClientOnlyExecutionPlan(
-  plan: RuntimePlan,
-): RuntimePlan {
-  const { source: _source, ...withoutSource } = plan;
-  const nextCapabilities = plan.capabilities
-    ? {
-        ...plan.capabilities,
-        domWrite: true,
-        allowedModules: [],
-      }
-    : {
-        domWrite: true,
-        allowedModules: [],
-      };
-
-  return {
-    ...withoutSource,
-    imports: [],
-    capabilities: nextCapabilities,
-  };
 }
 
 function isHttpUrl(value: string): boolean {

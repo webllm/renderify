@@ -965,6 +965,104 @@ test("e2e: playground api auto-hydrates moduleManifest for bare specifiers", asy
   }
 });
 
+test("e2e: playground executes preact source with an explicitly mapped third-party import", async () => {
+  const tempDir = await mkdtemp(
+    path.join(os.tmpdir(), "renderify-e2e-playground-third-party-source-"),
+  );
+  const port = await allocatePort();
+  const dependencyPort = await allocatePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const specifier = "playground-test-widget";
+  const dependencySource =
+    'export const label = "server third-party source executed";';
+  const dependencyUrl = `http://127.0.0.1:${dependencyPort}/widget.js`;
+  const dependencyServer = createServer((_req, res) => {
+    const body = Buffer.from(dependencySource, "utf8");
+    res.statusCode = 200;
+    res.setHeader("content-type", "text/javascript; charset=utf-8");
+    res.setHeader("content-length", body.length);
+    res.end(body);
+  });
+  await new Promise<void>((resolve, reject) => {
+    dependencyServer.once("error", reject);
+    dependencyServer.listen(dependencyPort, "127.0.0.1", () => {
+      dependencyServer.off("error", reject);
+      resolve();
+    });
+  });
+  const processHandle = startPlayground(port, {
+    RENDERIFY_SECURITY_PROFILE: "relaxed",
+    RENDERIFY_SESSION_FILE: path.join(tempDir, "session.json"),
+  });
+
+  try {
+    await waitForHealth(`${baseUrl}/api/health`, 10000);
+
+    const response = await fetchJson(`${baseUrl}/api/plan`, {
+      method: "POST",
+      body: {
+        plan: {
+          specVersion: "runtime-plan/v1",
+          id: "playground_third_party_source_plan",
+          version: 1,
+          capabilities: {
+            domWrite: true,
+            allowedModules: [specifier],
+          },
+          imports: [specifier],
+          moduleManifest: {
+            [specifier]: {
+              resolvedUrl: dependencyUrl,
+            },
+          },
+          root: {
+            type: "element",
+            tag: "section",
+            children: [{ type: "text", value: "fallback-only" }],
+          },
+          source: {
+            language: "tsx",
+            runtime: "preact",
+            code: [
+              `import { label } from "${specifier}";`,
+              "export default function App() {",
+              "  return <section>{label}</section>;",
+              "}",
+            ].join("\n"),
+          },
+        },
+      },
+    });
+
+    assert.equal(response.status, 200, JSON.stringify(response.body));
+    const payload = response.body as {
+      html?: unknown;
+      diagnostics?: Array<{ level?: unknown; code?: unknown }>;
+      planDetail?: {
+        source?: unknown;
+      };
+    };
+
+    assert.match(
+      String(payload.html ?? ""),
+      /server third-party source executed/,
+    );
+    assert.doesNotMatch(String(payload.html ?? ""), /fallback-only/);
+    assert.ok(payload.planDetail?.source);
+    assert.equal(
+      (payload.diagnostics ?? []).some(
+        (diagnostic) => diagnostic.level === "error",
+      ),
+      false,
+    );
+  } finally {
+    processHandle.kill("SIGTERM");
+    await onceExit(processHandle, 3000);
+    await closeServer(dependencyServer);
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("e2e: playground preserves explicit moduleManifest pins", async () => {
   const tempDir = await mkdtemp(
     path.join(os.tmpdir(), "renderify-e2e-playground-manifest-explicit-"),
