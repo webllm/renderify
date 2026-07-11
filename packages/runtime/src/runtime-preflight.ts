@@ -121,7 +121,7 @@ export async function runDependencyPreflight(
 
 export interface RuntimeDependencyProbeExecutor {
   moduleLoader?: {
-    load(specifier: string): Promise<unknown>;
+    load(specifier: string, signal?: AbortSignal): Promise<unknown>;
   };
   isResolvedSpecifierAllowed?(
     specifier: string,
@@ -129,7 +129,7 @@ export interface RuntimeDependencyProbeExecutor {
     diagnostics: RuntimeDiagnostic[],
   ): boolean;
   withRemainingBudget<T>(
-    operation: () => Promise<T>,
+    operation: (signal?: AbortSignal) => Promise<T>,
     timeoutMessage: string,
   ): Promise<T>;
   resolveRuntimeSourceSpecifier(
@@ -154,10 +154,12 @@ export interface RuntimeDependencyProbeExecutor {
     url: string,
     moduleManifest: RuntimeModuleManifest | undefined,
     diagnostics: RuntimeDiagnostic[],
+    signal?: AbortSignal,
   ): Promise<string>;
   fetchRemoteModuleCodeWithFallback(
     url: string,
     diagnostics: RuntimeDiagnostic[],
+    signal?: AbortSignal,
   ): Promise<unknown>;
   isAbortError(error: unknown): boolean;
   errorToMessage(error: unknown): string;
@@ -223,7 +225,7 @@ export async function executeDependencyProbe(
         }
 
         await executor.withRemainingBudget(
-          () => loader.load(loaderCandidate),
+          (signal) => loader.load(loaderCandidate, signal),
           timeoutMessage,
         );
         return {
@@ -252,17 +254,19 @@ export async function executeDependencyProbe(
           };
         }
 
-        await executor.withRemainingBudget(async () => {
+        await executor.withRemainingBudget(async (signal) => {
           if (executor.canMaterializeBrowserModules()) {
             await executor.materializeBrowserRemoteModule(
               resolved,
               moduleManifest,
               diagnostics,
+              signal,
             );
           } else {
             await executor.fetchRemoteModuleCodeWithFallback(
               resolved,
               diagnostics,
+              signal,
             );
           }
         }, timeoutMessage);
@@ -305,7 +309,7 @@ export async function executeDependencyProbe(
       }
 
       await executor.withRemainingBudget(
-        () => moduleLoader.load(resolved),
+        (signal) => moduleLoader.load(resolved, signal),
         timeoutMessage,
       );
       return {
@@ -399,7 +403,7 @@ export async function executeDependencyProbe(
 
   try {
     await executor.withRemainingBudget(
-      () => moduleLoader.load(resolved),
+      (signal) => moduleLoader.load(resolved, signal),
       `Dependency preflight timed out: ${resolved}`,
     );
     return {

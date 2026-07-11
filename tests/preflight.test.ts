@@ -49,7 +49,7 @@ function createExecutor(
       },
     },
     async withRemainingBudget<T>(
-      operation: () => Promise<T>,
+      operation: (signal?: AbortSignal) => Promise<T>,
       _timeoutMessage: string,
     ): Promise<T> {
       return operation();

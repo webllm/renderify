@@ -361,7 +361,7 @@ interface RuntimeManagerOptions {
   browserSourceSandboxFailClosed?: boolean;
   enableDependencyPreflight?: boolean;
   failOnDependencyPreflightError?: boolean;
-  remoteFetchTimeoutMs?: number;
+  remoteFetchTimeoutMs?: number; // covers response headers and full body reads
   remoteFetchRetries?: number;
   remoteFetchBackoffMs?: number;
   remoteModuleMaxBytes?: number; // default: 8 MiB per response
@@ -369,10 +369,14 @@ interface RuntimeManagerOptions {
 }
 
 interface RuntimeModuleLoader {
-  load(specifier: string): Promise<unknown>;
+  load(specifier: string, signal?: AbortSignal): Promise<unknown>;
   // Must verify fetched bytes before evaluating them. Runtime never falls
   // back to load() for an integrity-pinned HTTP(S) module.
-  loadVerified?(specifier: string, integrity: string): Promise<unknown>;
+  loadVerified?(
+    specifier: string,
+    integrity: string,
+    signal?: AbortSignal,
+  ): Promise<unknown>;
   unload?(specifier: string): Promise<void>;
 }
 
@@ -394,8 +398,12 @@ interface CompileOptions {
 ```ts
 class JspmModuleLoader implements RuntimeModuleLoader {
   constructor(options?: JspmModuleLoaderOptions);
-  load(specifier: string): Promise<unknown>;
-  loadVerified(specifier: string, integrity: string): Promise<unknown>;
+  load(specifier: string, signal?: AbortSignal): Promise<unknown>;
+  loadVerified(
+    specifier: string,
+    integrity: string,
+    signal?: AbortSignal,
+  ): Promise<unknown>;
   resolveSpecifier(specifier: string): string;
 }
 

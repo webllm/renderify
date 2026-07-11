@@ -38,7 +38,7 @@ export interface RuntimeSourceExecutionInput {
   browserSourceSandboxTimeoutMs: number;
   browserSourceSandboxFailClosed: boolean;
   withRemainingBudget: <T>(
-    operation: () => Promise<T>,
+    operation: (signal?: AbortSignal) => Promise<T>,
     timeoutMessage: string,
   ) => Promise<T>;
   transpileRuntimeSource: (source: RuntimeSourceModule) => Promise<string>;
@@ -55,6 +55,7 @@ export interface RuntimeSourceExecutionInput {
     code: string,
     moduleManifest: RuntimeModuleManifest | undefined,
     diagnostics: RuntimeDiagnostic[],
+    signal?: AbortSignal,
   ) => Promise<unknown>;
   normalizeSourceOutput: (output: unknown) => RuntimeNode | undefined;
   shouldUsePreactSourceRuntime: (source: RuntimeSourceModule) => boolean;
@@ -117,11 +118,11 @@ export async function executeRuntimeSourceRoot(
         frame.executionProfile === "sandbox-shadowrealm";
       try {
         const sandboxResult = await input.withRemainingBudget(
-          () =>
+          (signal) =>
             executeSourceInBrowserSandbox({
               mode: sandboxMode,
               timeoutMs: browserSourceSandboxTimeoutMs,
-              signal: frame.signal,
+              signal,
               request: {
                 renderifySandbox: "runtime-source",
                 id: `sandbox_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`,
@@ -175,11 +176,12 @@ export async function executeRuntimeSourceRoot(
     }
 
     const namespace = await input.withRemainingBudget(
-      () =>
+      (signal) =>
         input.importSourceModuleFromCode(
           rewritten,
           plan.moduleManifest,
           diagnostics,
+          signal,
         ),
       "Runtime source module loading timed out",
     );

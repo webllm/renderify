@@ -184,8 +184,13 @@ test("module-fetch fetchWithTimeout passes AbortSignal and resolves response", a
   });
 
   try {
-    const response = await fetchWithTimeout("https://x.test", 100);
-    assert.equal(response.status, 200);
+    const status = await fetchWithTimeout("https://x.test", 100, {
+      consume: async (response) => {
+        assert.equal(await response.text(), "ok");
+        return response.status;
+      },
+    });
+    assert.equal(status, 200);
     assert.equal(sawSignal, true);
   } finally {
     restoreFetch();
@@ -210,8 +215,12 @@ test("module-fetch fetchWithTimeout aborts long-running request", async () => {
 
   try {
     await assert.rejects(
-      () => fetchWithTimeout("https://x.test", 10),
-      (error: unknown) => error instanceof Error && error.name === "AbortError",
+      () =>
+        fetchWithTimeout("https://x.test", 10, {
+          consume: (response) => response.text(),
+        }),
+      (error: unknown) =>
+        error instanceof Error && error.name === "TimeoutError",
     );
   } finally {
     restoreFetch();

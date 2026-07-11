@@ -20,10 +20,10 @@ export interface RuntimePlanPreflightInput {
   plan: RuntimePlan;
   diagnostics: RuntimeDiagnostic[];
   moduleLoader?: {
-    load(specifier: string): Promise<unknown>;
+    load(specifier: string, signal?: AbortSignal): Promise<unknown>;
   };
   withRemainingBudget<T>(
-    operation: () => Promise<T>,
+    operation: (signal?: AbortSignal) => Promise<T>,
     timeoutMessage: string,
   ): Promise<T>;
   resolveRuntimeSourceSpecifier(
@@ -51,10 +51,12 @@ export interface RuntimePlanPreflightInput {
     url: string,
     moduleManifest: RuntimeModuleManifest | undefined,
     diagnostics: RuntimeDiagnostic[],
+    signal?: AbortSignal,
   ): Promise<string>;
   fetchRemoteModuleCodeWithFallback(
     url: string,
     diagnostics: RuntimeDiagnostic[],
+    signal?: AbortSignal,
   ): Promise<unknown>;
   isAbortError(error: unknown): boolean;
   errorToMessage(error: unknown): string;
@@ -108,10 +110,20 @@ export async function preflightRuntimePlanDependencies(
             true,
           isHttpUrl,
           canMaterializeBrowserModules: () => canMaterializeBrowserModules(),
-          materializeBrowserRemoteModule: (url, manifest, diagnostics) =>
-            input.materializeBrowserRemoteModule(url, manifest, diagnostics),
-          fetchRemoteModuleCodeWithFallback: (url, diagnostics) =>
-            input.fetchRemoteModuleCodeWithFallback(url, diagnostics),
+          materializeBrowserRemoteModule: (
+            url,
+            manifest,
+            diagnostics,
+            signal,
+          ) =>
+            input.materializeBrowserRemoteModule(
+              url,
+              manifest,
+              diagnostics,
+              signal,
+            ),
+          fetchRemoteModuleCodeWithFallback: (url, diagnostics, signal) =>
+            input.fetchRemoteModuleCodeWithFallback(url, diagnostics, signal),
           isAbortError: (error) => input.isAbortError(error),
           errorToMessage: (error) => input.errorToMessage(error),
         },

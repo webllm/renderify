@@ -103,7 +103,7 @@ export async function executeComponentFactory(input: {
   children: RuntimeNode[];
   timeoutMessage: string;
   withRemainingBudget<T>(
-    operation: () => Promise<T>,
+    operation: (signal?: AbortSignal) => Promise<T>,
     timeoutMessage: string,
   ): Promise<T>;
 }): Promise<RuntimeNode | string> {

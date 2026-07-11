@@ -30,7 +30,7 @@ export interface RuntimeNodeResolutionFrame {
 
 export interface RuntimeNodeResolver {
   moduleLoader?: {
-    load(specifier: string): Promise<unknown>;
+    load(specifier: string, signal?: AbortSignal): Promise<unknown>;
   };
   isResolvedSpecifierAllowed?(
     specifier: string,
@@ -43,7 +43,7 @@ export interface RuntimeNodeResolver {
     usage: "import" | "component" | "source-import",
   ): string | undefined;
   withRemainingBudget<T>(
-    operation: () => Promise<T>,
+    operation: (signal?: AbortSignal) => Promise<T>,
     timeoutMessage: string,
   ): Promise<T>;
   resolveNode(node: RuntimeNode): Promise<RuntimeNode>;
@@ -160,7 +160,7 @@ export async function resolveRuntimeNode(input: {
 
   try {
     const loaded = await resolver.withRemainingBudget(
-      () => moduleLoader.load(resolvedComponentSpecifier),
+      (signal) => moduleLoader.load(resolvedComponentSpecifier, signal),
       `Component module timed out: ${resolvedComponentSpecifier}`,
     );
 

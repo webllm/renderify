@@ -31,7 +31,7 @@ export function isAbortError(error: unknown): boolean {
 }
 
 export async function withRemainingBudget<T>(
-  operation: () => Promise<T>,
+  operation: (signal?: AbortSignal) => Promise<T>,
   frame: RuntimeBudgetFrame,
   timeoutMessage: string,
 ): Promise<T> {
@@ -43,9 +43,14 @@ export async function withRemainingBudget<T>(
 
   let timer: ReturnType<typeof setTimeout> | undefined;
   let onAbort: (() => void) | undefined;
+  let timedOut = false;
+  const operationController =
+    typeof AbortController === "undefined" ? undefined : new AbortController();
 
   const timeoutPromise = new Promise<T>((_resolve, reject) => {
     timer = setTimeout(() => {
+      timedOut = true;
+      operationController?.abort();
       reject(new Error(timeoutMessage));
     }, remainingMs);
   });
@@ -55,6 +60,7 @@ export async function withRemainingBudget<T>(
     signal &&
     new Promise<T>((_resolve, reject) => {
       const handleAbort = () => {
+        operationController?.abort();
         reject(createAbortError("Runtime execution aborted"));
       };
       onAbort = handleAbort;
@@ -62,10 +68,20 @@ export async function withRemainingBudget<T>(
     });
 
   try {
+    const operationPromise = operation(
+      operationController?.signal ?? frame.signal,
+    );
     const pending = abortPromise
-      ? [operation(), timeoutPromise, abortPromise]
-      : [operation(), timeoutPromise];
-    return await Promise.race(pending);
+      ? [operationPromise, timeoutPromise, abortPromise]
+      : [operationPromise, timeoutPromise];
+    try {
+      return await Promise.race(pending);
+    } catch (error) {
+      if (timedOut && !frame.signal?.aborted) {
+        throw new Error(timeoutMessage);
+      }
+      throw error;
+    }
   } finally {
     if (timer !== undefined) {
       clearTimeout(timer);
@@ -73,5 +89,6 @@ export async function withRemainingBudget<T>(
     if (signal && onAbort) {
       signal.removeEventListener("abort", onAbort);
     }
+    operationController?.abort();
   }
 }

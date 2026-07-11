@@ -18,12 +18,22 @@ function nowMs(): number {
 }
 
 test("withRemainingBudget rejects when execution budget is exhausted", async () => {
+  let operationAborted = false;
   await assert.rejects(
     () =>
       withRemainingBudget(
-        async () => {
-          await new Promise<void>((resolve) => {
-            setTimeout(resolve, 30);
+        async (signal) => {
+          await new Promise<void>((_resolve, reject) => {
+            signal?.addEventListener(
+              "abort",
+              () => {
+                operationAborted = true;
+                const error = new Error("operation aborted");
+                error.name = "AbortError";
+                reject(error);
+              },
+              { once: true },
+            );
           });
           return "late";
         },
@@ -35,6 +45,7 @@ test("withRemainingBudget rejects when execution budget is exhausted", async () 
       ),
     /budget exceeded/,
   );
+  assert.equal(operationAborted, true);
 });
 
 test("withRemainingBudget throws AbortError when signal is already aborted", async () => {

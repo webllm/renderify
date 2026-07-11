@@ -7,7 +7,7 @@ export interface RuntimePlanImportResolutionInput {
   moduleManifest: RuntimeModuleManifest | undefined;
   diagnostics: RuntimeDiagnostic[];
   moduleLoader?: {
-    load(specifier: string): Promise<unknown>;
+    load(specifier: string, signal?: AbortSignal): Promise<unknown>;
   };
   resolveRuntimeSpecifier(
     specifier: string,
@@ -21,7 +21,7 @@ export interface RuntimePlanImportResolutionInput {
   isAborted(): boolean;
   hasExceededBudget(): boolean;
   withRemainingBudget<T>(
-    operation: () => Promise<T>,
+    operation: (signal?: AbortSignal) => Promise<T>,
     timeoutMessage: string,
   ): Promise<T>;
   isAbortError(error: unknown): boolean;
@@ -90,7 +90,7 @@ export async function resolveRuntimePlanImports(
 
     try {
       await input.withRemainingBudget(
-        () => moduleLoader.load(resolvedSpecifier),
+        (signal) => moduleLoader.load(resolvedSpecifier, signal),
         `Import timed out: ${resolvedSpecifier}`,
       );
     } catch (error) {

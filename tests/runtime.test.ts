@@ -285,7 +285,11 @@ function installBrowserSandboxGlobals(workerCtor: unknown): () => void {
   Object.defineProperty(root, "window", {
     configurable: true,
     writable: true,
-    value: {} as Window,
+    value: {
+      location: {
+        origin: "http://127.0.0.1:4317",
+      },
+    } as Window,
   });
   Object.defineProperty(root, "document", {
     configurable: true,
@@ -1175,6 +1179,57 @@ test("runtime resolves component nodes through module loader", async () => {
   await runtime.terminate();
 });
 
+test("runtime execution budget aborts in-flight module loading", async () => {
+  let receivedSignal = false;
+  let loadAborted = false;
+  const runtime = new DefaultRuntimeManager({
+    enableDependencyPreflight: false,
+    moduleLoader: {
+      async load(_specifier, signal) {
+        receivedSignal = signal instanceof AbortSignal;
+        return await new Promise<unknown>((_resolve, reject) => {
+          signal?.addEventListener(
+            "abort",
+            () => {
+              loadAborted = true;
+              const error = new Error("module load aborted");
+              error.name = "AbortError";
+              reject(error);
+            },
+            { once: true },
+          );
+        });
+      },
+    },
+  });
+  await runtime.initialize();
+
+  const plan = createPlan(createTextNode("fallback"), [
+    "npm:acme/stalled-module",
+  ]);
+  plan.capabilities = {
+    ...plan.capabilities,
+    maxExecutionMs: 20,
+  };
+  const startedAt = Date.now();
+
+  try {
+    const result = await runtime.executePlan(plan);
+    assert.ok(Date.now() - startedAt < 500);
+    assert.equal(receivedSignal, true);
+    assert.equal(loadAborted, true);
+    assert.ok(
+      result.diagnostics.some(
+        (item) =>
+          item.code === "RUNTIME_IMPORT_FAILED" &&
+          item.message.includes("Import timed out"),
+      ),
+    );
+  } finally {
+    await runtime.terminate();
+  }
+});
+
 test("runtime tolerates malformed child node payloads without throwing", async () => {
   const runtime = new DefaultRuntimeManager();
   await runtime.initialize();
@@ -1564,6 +1619,94 @@ test("runtime isolated-vm profile fails closed before loading modules by default
   );
 
   await runtime.terminate();
+});
+
+test("runtime explicit browser sandbox profiles fail closed outside a browser", async () => {
+  let loadCalls = 0;
+  let transpileCalls = 0;
+  const hostMarker = "__renderifyExplicitBrowserSandboxProof";
+  const host = globalThis as Record<string, unknown>;
+  Reflect.deleteProperty(host, hostMarker);
+
+  const runtime = new DefaultRuntimeManager({
+    allowRuntimeSourceExecution: true,
+    allowIsolationFallback: true,
+    enableDependencyPreflight: false,
+    moduleLoader: {
+      async load() {
+        loadCalls += 1;
+        return {};
+      },
+    },
+    sourceTranspiler: {
+      async transpile(input) {
+        transpileCalls += 1;
+        return input.code;
+      },
+    },
+  });
+
+  await runtime.initialize();
+
+  try {
+    for (const executionProfile of [
+      "sandbox-worker",
+      "sandbox-iframe",
+      "sandbox-shadowrealm",
+    ] as const) {
+      const plan: RuntimePlan = {
+        specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+        id: `runtime_${executionProfile}_outside_browser_plan`,
+        version: 1,
+        root: createTextNode("fallback"),
+        imports: ["npm:acme/must-not-load"],
+        moduleManifest: {
+          "npm:acme/must-not-load": {
+            resolvedUrl: "npm:acme/must-not-load",
+            signer: "tests",
+          },
+        },
+        capabilities: {
+          domWrite: true,
+          executionProfile,
+        },
+        source: {
+          language: "js",
+          code: [
+            `globalThis.${hostMarker} = true;`,
+            "export default () => ({ type: 'text', value: 'unsafe' });",
+          ].join("\n"),
+        },
+      };
+
+      const probe = await runtime.probePlan(plan);
+      const result = await runtime.executePlan(plan);
+
+      assert.deepEqual(probe.dependencies, []);
+      assert.equal(result.root, plan.root);
+      assert.ok(
+        probe.diagnostics.some(
+          (item) =>
+            item.level === "error" &&
+            item.code === "RUNTIME_ISOLATION_UNAVAILABLE",
+        ),
+      );
+      assert.ok(
+        result.diagnostics.some(
+          (item) =>
+            item.level === "error" &&
+            item.code === "RUNTIME_ISOLATION_UNAVAILABLE",
+        ),
+      );
+    }
+
+    assert.equal(loadCalls, 0);
+    assert.equal(transpileCalls, 0);
+    assert.equal(host[hostMarker], undefined);
+  } finally {
+    Reflect.deleteProperty(host, hostMarker);
+    await runtime.terminate();
+  }
 });
 
 test("runtime isolated-vm profile explicitly falls back to standard execution", async () => {
@@ -3284,7 +3427,7 @@ test("runtime source loader preserves preact remote imports in browser runtime",
   try {
     const resolved = await loader.materializeRemoteModule(preactUrl);
     assert.equal(resolved, preactUrl);
-    assert.equal(fetchCount, 0);
+    assert.equal(fetchCount, 1);
   } finally {
     globalThis.fetch = originalFetch;
     restoreGlobals();
@@ -3330,7 +3473,7 @@ test("runtime source loader preserves local preact node_modules imports in brows
   try {
     const resolved = await loader.materializeRemoteModule(preactUrl);
     assert.equal(resolved, preactUrl);
-    assert.equal(fetchCount, 0);
+    assert.equal(fetchCount, 1);
   } finally {
     globalThis.fetch = originalFetch;
     restoreGlobals();

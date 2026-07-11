@@ -153,14 +153,15 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
     });
   }
 
-  async load(specifier: string): Promise<unknown> {
-    return this.loadWithOptions(specifier, {});
+  async load(specifier: string, signal?: AbortSignal): Promise<unknown> {
+    return this.loadWithOptions(specifier, { signal });
   }
 
   private async loadWithOptions(
     specifier: string,
     options: RuntimeModuleLoadOptions,
   ): Promise<unknown> {
+    throwIfAborted(options.signal);
     const resolved = this.resolveSpecifier(specifier);
     this.assertRemoteUrlAllowed(resolved);
 
@@ -171,13 +172,16 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
       return cache.get(resolved);
     }
 
-    const inflight = inflightEntries.get(resolved);
-    if (inflight) {
-      return inflight;
+    if (!options.signal) {
+      const inflight = inflightEntries.get(resolved);
+      if (inflight) {
+        return inflight;
+      }
     }
 
     const loading = (async () => {
       const loaded = await this.importWithBestEffort(resolved, options);
+      throwIfAborted(options.signal);
       setBudgetedMapEntryWithLimit(
         cache,
         resolved,
@@ -188,16 +192,26 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
       return loaded;
     })();
 
-    inflightEntries.set(resolved, loading);
+    if (!options.signal) {
+      inflightEntries.set(resolved, loading);
+    }
     try {
-      return await loading;
+      const loaded = await loading;
+      throwIfAborted(options.signal);
+      return loaded;
     } finally {
-      inflightEntries.delete(resolved);
+      if (!options.signal) {
+        inflightEntries.delete(resolved);
+      }
     }
   }
 
-  async loadVerified(specifier: string, integrity: string): Promise<unknown> {
-    return this.loadVerifiedWithOptions(specifier, integrity, {});
+  async loadVerified(
+    specifier: string,
+    integrity: string,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    return this.loadVerifiedWithOptions(specifier, integrity, { signal });
   }
 
   private async loadVerifiedWithOptions(
@@ -205,6 +219,7 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
     integrity: string,
     options: RuntimeModuleLoadOptions,
   ): Promise<unknown> {
+    throwIfAborted(options.signal);
     const resolved = this.resolveSpecifier(specifier);
     if (!this.isUrl(resolved)) {
       throw new Error(
@@ -225,9 +240,11 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
       return verifiedCache.get(cacheKey);
     }
 
-    const inflight = verifiedInflight.get(cacheKey);
-    if (inflight) {
-      return inflight;
+    if (!options.signal) {
+      const inflight = verifiedInflight.get(cacheKey);
+      if (inflight) {
+        return inflight;
+      }
     }
 
     const loading = (async () => {
@@ -248,6 +265,7 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
         undefined,
       );
       const loaded = await import(/* webpackIgnore: true */ materializedUrl);
+      throwIfAborted(options.signal);
       setBudgetedMapEntryWithLimit(
         verifiedCache,
         cacheKey,
@@ -258,11 +276,17 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
       return loaded;
     })();
 
-    verifiedInflight.set(cacheKey, loading);
+    if (!options.signal) {
+      verifiedInflight.set(cacheKey, loading);
+    }
     try {
-      return await loading;
+      const loaded = await loading;
+      throwIfAborted(options.signal);
+      return loaded;
     } finally {
-      verifiedInflight.delete(cacheKey);
+      if (!options.signal) {
+        verifiedInflight.delete(cacheKey);
+      }
     }
   }
 
@@ -343,16 +367,20 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
   ): Promise<unknown> {
     if (
       this.isUrl(resolved) &&
-      (!this.allowArbitraryNetwork || options.materializationBudget)
+      (!this.allowArbitraryNetwork ||
+        options.materializationBudget ||
+        options.signal)
     ) {
-      const rewrittenSpecifier = await (options.materializationBudget
-        ? this.createRemoteSourceModuleLoader(
-            undefined,
-            options.diagnostics ?? this.remoteMaterializationDiagnostics,
-            options,
-          )
-        : this.getRemoteSourceModuleLoader()
-      ).resolveRuntimeImportSpecifier(resolved, undefined);
+      const sourceLoader =
+        options.materializationBudget || options.signal
+          ? this.createRemoteSourceModuleLoader(
+              undefined,
+              options.diagnostics ?? this.remoteMaterializationDiagnostics,
+              options,
+            )
+          : this.getRemoteSourceModuleLoader();
+      const rewrittenSpecifier =
+        await sourceLoader.resolveRuntimeImportSpecifier(resolved, undefined);
       return import(/* webpackIgnore: true */ rewrittenSpecifier);
     }
 
@@ -500,6 +528,7 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
       materializedModuleUrlCacheMaxEntries:
         this.remoteMaterializedUrlCacheMaxEntries,
       materializationBudget: options.materializationBudget,
+      signal: options.signal,
       canMaterializeRuntimeModules: () => this.canMaterializeRemoteModules(),
       rewriteImportsAsync: (code, resolver) =>
         rewriteImportsAsync(code, resolver),
@@ -549,6 +578,16 @@ export class JspmModuleLoader implements RuntimeModuleLoader {
       (typeof TextEncoder !== "undefined" && typeof btoa === "function")
     );
   }
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) {
+    return;
+  }
+
+  const error = new Error("The operation was aborted");
+  error.name = "AbortError";
+  throw error;
 }
 
 function normalizePositiveInteger(

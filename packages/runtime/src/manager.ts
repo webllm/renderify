@@ -833,6 +833,18 @@ export class DefaultRuntimeManager implements RuntimeManager {
     requestedProfile: RuntimeExecutionProfile,
     diagnostics: RuntimeDiagnostic[],
   ): RuntimeExecutionProfile | undefined {
+    if (
+      isBrowserSandboxExecutionProfile(requestedProfile) &&
+      !isBrowserRuntime()
+    ) {
+      diagnostics.push({
+        level: "error",
+        code: "RUNTIME_ISOLATION_UNAVAILABLE",
+        message: `executionProfile "${requestedProfile}" requires a browser sandbox backend; refusing execution before module loading because the current runtime is not a browser`,
+      });
+      return undefined;
+    }
+
     if (requestedProfile !== "isolated-vm") {
       return requestedProfile;
     }
@@ -911,17 +923,25 @@ export class DefaultRuntimeManager implements RuntimeManager {
         ),
       isResolvedSpecifierAllowed: (specifier, usage, runtimeDiagnostics) =>
         this.isResolvedSpecifierAllowed(specifier, usage, runtimeDiagnostics),
-      materializeBrowserRemoteModule: (url, manifest, runtimeDiagnostics) =>
+      materializeBrowserRemoteModule: (
+        url,
+        manifest,
+        runtimeDiagnostics,
+        signal,
+      ) =>
         this.createSourceModuleLoader(
           manifest,
           runtimeDiagnostics,
           frame.materializationBudget,
+          signal,
         ).materializeRemoteModule(url),
-      fetchRemoteModuleCodeWithFallback: (url, runtimeDiagnostics) =>
+      fetchRemoteModuleCodeWithFallback: (url, runtimeDiagnostics, signal) =>
         this.createSourceModuleLoader(
           undefined,
           runtimeDiagnostics,
-        ).fetchRemoteModuleCodeWithFallback(url),
+          undefined,
+          signal,
+        ).fetchRemoteModuleCodeWithFallback(url, signal),
       isAbortError: (error) => isRuntimeAbortError(error),
       errorToMessage: (error) => this.errorToMessage(error),
       isAborted: () => isRuntimeAborted(frame.signal),
@@ -974,11 +994,17 @@ export class DefaultRuntimeManager implements RuntimeManager {
           defaultMode: this.browserSourceSandboxMode,
           isBrowserRuntime: isBrowserRuntime(),
         }),
-      importSourceModuleFromCode: (code, manifest, runtimeDiagnostics) =>
+      importSourceModuleFromCode: (
+        code,
+        manifest,
+        runtimeDiagnostics,
+        signal,
+      ) =>
         this.createSourceModuleLoader(
           manifest,
           runtimeDiagnostics,
           frame.materializationBudget,
+          signal,
         ).importSourceModuleFromCode(code),
       normalizeSourceOutput: (output) => this.normalizeSourceOutput(output),
       shouldUsePreactSourceRuntime,
@@ -1046,6 +1072,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
     moduleManifest: RuntimeModuleManifest | undefined,
     diagnostics: RuntimeDiagnostic[],
     materializationBudget?: RuntimeModuleMaterializationBudget,
+    signal?: AbortSignal,
   ): RuntimeSourceModuleLoader {
     return new RuntimeSourceModuleLoader({
       moduleManifest,
@@ -1062,6 +1089,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
       localNodeSpecifierUrlCacheMaxEntries:
         this.runtimeSourceLocalSpecifierCacheMaxEntries,
       materializationBudget,
+      signal,
       canMaterializeRuntimeModules: () =>
         canMaterializeBrowserModules() || typeof Buffer !== "undefined",
       rewriteImportsAsync: (code, resolver) =>
@@ -1263,7 +1291,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
     }
 
     return {
-      load: async (specifier) => {
+      load: async (specifier, signal) => {
         const expectedIntegrities = new Set<string>();
         for (const descriptor of Object.values(moduleManifest ?? {})) {
           if (
@@ -1278,6 +1306,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
           return loadRuntimeModuleWithBudget(moduleLoader, specifier, {
             materializationBudget,
             diagnostics,
+            signal,
           });
         }
 
@@ -1296,6 +1325,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
           return loadRuntimeModuleWithBudget(moduleLoader, specifier, {
             materializationBudget,
             diagnostics,
+            signal,
           });
         }
 
@@ -1317,6 +1347,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
             {
               materializationBudget,
               diagnostics,
+              signal,
             },
           );
         } catch (error) {
@@ -1386,4 +1417,14 @@ export class DefaultRuntimeManager implements RuntimeManager {
 
     return String(error);
   }
+}
+
+function isBrowserSandboxExecutionProfile(
+  profile: RuntimeExecutionProfile,
+): boolean {
+  return (
+    profile === "sandbox-worker" ||
+    profile === "sandbox-iframe" ||
+    profile === "sandbox-shadowrealm"
+  );
 }

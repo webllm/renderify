@@ -65,6 +65,10 @@ const runtime = new DefaultRuntimeManager({
 await runtime.initialize();
 ```
 
+`remoteFetchTimeoutMs` covers response headers and complete response-body
+consumption. Execution-budget and caller abort signals are forwarded to module
+loaders so cooperative loaders can cancel in-flight I/O before returning.
+
 ## Module Loading
 
 ### JSPM Module Loader
@@ -185,6 +189,13 @@ Source code
 
 Each module is fetched, its imports are recursively rewritten, and it's stored as a blob URL. This solves the browser limitation where bare specifiers are not supported in native ESM.
 
+Browser Preact singleton imports are the controlled exception: same-origin
+installed Preact paths and recognized Preact CDN package paths remain native so
+hooks share one runtime instance. Before returning a native URL, Renderify
+fetches and recursively audits its graph against module budgets, response-size
+limits, redirects, and network policy. Preact-looking paths on other origins
+are materialized normally.
+
 ## Execution Profiles
 
 ### Standard (default)
@@ -229,7 +240,9 @@ Browser sandbox execution profiles apply to declarative plans and `source.runtim
 For explicit `sandbox-worker`, `sandbox-iframe`, and `sandbox-shadowrealm`
 execution profiles, sandbox failure is always terminal. Setting
 `browserSourceSandboxFailClosed: false` does not permit an unsafe same-thread
-fallback for those profiles.
+fallback for those profiles. Requesting one of these browser-only profiles in a
+non-browser runtime fails with `RUNTIME_ISOLATION_UNAVAILABLE` before dependency
+or source loading begins.
 
 ```bash
 RENDERIFY_RUNTIME_BROWSER_SANDBOX_MODE=shadowrealm

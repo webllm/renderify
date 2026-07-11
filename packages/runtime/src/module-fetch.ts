@@ -229,39 +229,77 @@ export function createUrlProxyModuleSource(url: string): string {
   ].join("\n");
 }
 
-export async function fetchWithTimeout(
+export interface FetchWithTimeoutOptions<T> {
+  signal?: AbortSignal;
+  consume(response: Response, signal: AbortSignal | undefined): Promise<T> | T;
+}
+
+export async function fetchWithTimeout<T>(
   url: string,
   timeoutMs: number,
-  options: { signal?: AbortSignal } = {},
-): Promise<Response> {
+  options: FetchWithTimeoutOptions<T>,
+): Promise<T> {
   const externalSignal = options.signal;
   if (externalSignal?.aborted) {
     throw createAbortError();
   }
 
-  if (typeof AbortController === "undefined") {
-    return fetch(url);
-  }
-
-  const controller = new AbortController();
+  const controller =
+    typeof AbortController === "undefined" ? undefined : new AbortController();
+  const timeoutError = new Error(
+    `Remote fetch timed out after ${timeoutMs}ms: ${url}`,
+  );
+  timeoutError.name = "TimeoutError";
+  let timedOut = false;
+  let rejectExternalAbort: ((error: Error) => void) | undefined;
   const handleExternalAbort = () => {
-    controller.abort();
+    controller?.abort();
+    rejectExternalAbort?.(createAbortError());
   };
   externalSignal?.addEventListener("abort", handleExternalAbort, {
     once: true,
   });
 
-  const timer = setTimeout(() => {
-    controller.abort();
-  }, timeoutMs);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<T>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      controller?.abort();
+      reject(timeoutError);
+    }, timeoutMs);
+  });
+  const abortPromise = externalSignal
+    ? new Promise<T>((_resolve, reject) => {
+        rejectExternalAbort = reject;
+      })
+    : undefined;
+  const operationPromise = (async () => {
+    const response = await fetch(url, {
+      signal: controller?.signal ?? externalSignal,
+    });
+    return await options.consume(
+      response,
+      controller?.signal ?? externalSignal,
+    );
+  })();
 
   try {
-    return await fetch(url, {
-      signal: controller.signal,
-    });
+    return await Promise.race(
+      abortPromise
+        ? [operationPromise, timeoutPromise, abortPromise]
+        : [operationPromise, timeoutPromise],
+    );
+  } catch (error) {
+    if (timedOut && !externalSignal?.aborted) {
+      throw timeoutError;
+    }
+    throw error;
   } finally {
-    clearTimeout(timer);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+    }
     externalSignal?.removeEventListener("abort", handleExternalAbort);
+    controller?.abort();
   }
 }
 

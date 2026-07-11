@@ -14,6 +14,7 @@ export interface RuntimeModuleMaterializationBudget {
 export interface RuntimeModuleLoadOptions {
   materializationBudget?: RuntimeModuleMaterializationBudget;
   diagnostics?: RuntimeDiagnostic[];
+  signal?: AbortSignal;
 }
 
 interface BudgetAwareRuntimeModuleLoader {
@@ -45,7 +46,7 @@ export function loadRuntimeModuleWithBudget(
   const implementation = BUDGET_AWARE_RUNTIME_MODULE_LOADERS.get(loader);
   return implementation
     ? implementation.load(specifier, options)
-    : loader.load(specifier);
+    : loader.load(specifier, options.signal);
 }
 
 export function loadVerifiedRuntimeModuleWithBudget(
@@ -63,7 +64,7 @@ export function loadVerifiedRuntimeModuleWithBudget(
       `Module loader cannot verify integrity-pinned remote module: ${specifier}`,
     );
   }
-  return loader.loadVerified(specifier, integrity);
+  return loader.loadVerified(specifier, integrity, options.signal);
 }
 
 export class RuntimeModuleMaterializationLimitError extends Error {

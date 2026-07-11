@@ -51,6 +51,7 @@ export interface RuntimeSourceModuleLoaderOptions {
     requireManifest?: boolean,
   ) => string;
   isRemoteUrlAllowed?: (url: string) => boolean;
+  signal?: AbortSignal;
   materializedModuleUrlCacheMaxEntries?: number;
   localNodeSpecifierUrlCacheMaxEntries?: number;
   materializationBudget?: RuntimeModuleMaterializationBudget;
@@ -75,6 +76,36 @@ const PREACT_LOCAL_ESM_ENTRYPOINTS = new Map<string, string>([
   ["preact/jsx-runtime", "jsx-runtime/dist/jsxRuntime.mjs"],
   ["preact/compat", "compat/dist/compat.mjs"],
 ]);
+const PREACT_COMPANION_CANONICAL_SPECIFIERS = new Map<string, string>([
+  ["preact", "preact"],
+  ["preact/hooks", "preact/hooks"],
+  ["preact/jsx-runtime", "preact/jsx-runtime"],
+  ["preact/jsx-dev-runtime", "preact/jsx-runtime"],
+  ["preact/compat", "preact/compat"],
+  ["react", "preact/compat"],
+  ["react-dom", "preact/compat"],
+  ["react-dom/client", "preact/compat"],
+  ["react/jsx-runtime", "preact/jsx-runtime"],
+  ["react/jsx-dev-runtime", "preact/jsx-runtime"],
+]);
+const PREACT_BROWSER_FILE_ENTRYPOINTS = new Map<string, string>([
+  ["preact", "dist/preact.module.js"],
+  ["preact/hooks", "hooks/dist/hooks.module.js"],
+  ["preact/jsx-runtime", "jsx-runtime/dist/jsxRuntime.module.js"],
+  ["preact/compat", "compat/dist/compat.module.js"],
+]);
+const PREACT_ESM_SH_SUBPATHS = new Map<string, string>([
+  ["preact", ""],
+  ["preact/hooks", "/hooks"],
+  ["preact/jsx-runtime", "/jsx-runtime"],
+  ["preact/compat", "/compat"],
+]);
+const PREACT_BROWSER_FILE_PACKAGE_BASE_PATTERNS = [
+  /^(.*\/node_modules\/(?:\.pnpm\/preact@[^/]+\/node_modules\/)?preact)(?:\/|$)/i,
+  /^(\/npm:preact@[^/]+)(?:\/|$)/i,
+  /^(\/npm\/preact@[^/]+)(?:\/|$)/i,
+  /^(\/preact@[^/]+)(?:\/|$)/i,
+];
 const DEFAULT_MATERIALIZED_MODULE_URL_CACHE_MAX_ENTRIES = 1024;
 const DEFAULT_LOCAL_NODE_SPECIFIER_CACHE_MAX_ENTRIES = 512;
 
@@ -109,6 +140,7 @@ export class RuntimeSourceModuleLoader {
     requireManifest?: boolean,
   ) => string;
   private readonly isRemoteUrlAllowedFn: (url: string) => boolean;
+  private readonly signal: AbortSignal | undefined;
   private readonly materializedModuleUrlCacheMaxEntries: number;
   private readonly localNodeSpecifierUrlCacheMaxEntries: number;
   private readonly materializationBudget:
@@ -118,6 +150,11 @@ export class RuntimeSourceModuleLoader {
   private readonly localNodeSpecifierUrlCache = new Map<
     string,
     string | null
+  >();
+  private readonly auditedPreservedRemoteImports = new Set<string>();
+  private readonly preservedRemoteImportAuditInflight = new Map<
+    string,
+    Promise<void>
   >();
   private nodeModuleResolverPromise?: Promise<NodeModuleResolver | undefined>;
   private nodePathToFileUrlPromise?: Promise<NodePathToFileUrl | undefined>;
@@ -144,6 +181,7 @@ export class RuntimeSourceModuleLoader {
     this.resolveRuntimeSourceSpecifierFn =
       options.resolveRuntimeSourceSpecifier;
     this.isRemoteUrlAllowedFn = options.isRemoteUrlAllowed ?? (() => true);
+    this.signal = options.signal;
     this.materializedModuleUrlCacheMaxEntries = normalizeCacheMaxEntries(
       options.materializedModuleUrlCacheMaxEntries,
       DEFAULT_MATERIALIZED_MODULE_URL_CACHE_MAX_ENTRIES,
@@ -159,12 +197,14 @@ export class RuntimeSourceModuleLoader {
   }
 
   async importSourceModuleFromCode(code: string): Promise<unknown> {
+    this.throwIfAborted();
     if (this.canMaterializeRuntimeModulesFn()) {
       const rewrittenEntry = await this.rewriteImportsAsyncFn(
         code,
         async (specifier) =>
           this.resolveRuntimeImportSpecifier(specifier, undefined),
       );
+      this.throwIfAborted();
       const entryUrl = this.createInlineModuleUrlFn(rewrittenEntry);
       return import(/* webpackIgnore: true */ entryUrl);
     }
@@ -183,6 +223,7 @@ export class RuntimeSourceModuleLoader {
     parentUrl: string | undefined,
     parentMaterializationKey?: string,
   ): Promise<string> {
+    this.throwIfAborted();
     const trimmed = specifier.trim();
     if (trimmed.length === 0) {
       return trimmed;
@@ -278,6 +319,7 @@ export class RuntimeSourceModuleLoader {
     url: string,
     parentMaterializationKey?: string,
   ): Promise<string> {
+    this.throwIfAborted();
     const normalizedUrl = url.trim();
     if (normalizedUrl.length === 0) {
       return normalizedUrl;
@@ -313,7 +355,18 @@ export class RuntimeSourceModuleLoader {
           `Remote module URL is blocked by runtime network policy: ${normalizedUrl}`,
         );
       }
-      return normalizedUrl;
+      const releaseDependency = parentMaterializationKey
+        ? this.registerMaterializationDependency(
+            parentMaterializationKey,
+            cacheKey,
+          )
+        : undefined;
+      try {
+        await this.auditPreservedRemoteImport(normalizedUrl, cacheKey);
+        return normalizedUrl;
+      } finally {
+        releaseDependency?.();
+      }
     }
 
     const cachedUrl = this.materializedModuleUrlCache.get(cacheKey);
@@ -425,7 +478,12 @@ export class RuntimeSourceModuleLoader {
 
   async fetchRemoteModuleCodeWithFallback(
     url: string,
+    signal: AbortSignal | undefined = this.signal,
   ): Promise<RemoteModuleFetchResult> {
+    if (signal?.aborted) {
+      throw createAbortError();
+    }
+
     const attempts = buildRemoteModuleAttemptUrls(
       url,
       this.remoteFallbackCdnBases,
@@ -449,12 +507,21 @@ export class RuntimeSourceModuleLoader {
     const attemptControllers = filteredAttempts.map(() =>
       this.createAbortController(),
     );
+    const abortAttempts = () => {
+      for (const controller of attemptControllers) {
+        controller?.abort();
+      }
+    };
+    signal?.addEventListener("abort", abortAttempts, { once: true });
+    if (signal?.aborted) {
+      abortAttempts();
+    }
     const fetchTasks = filteredAttempts.map((attempt, index) =>
       this.fetchRemoteModuleAttemptWithRetries(
         attempt,
         url,
         index === 0 ? 0 : hedgeDelayMs * index,
-        attemptControllers[index]?.signal,
+        attemptControllers[index]?.signal ?? signal,
       ),
     );
 
@@ -467,9 +534,8 @@ export class RuntimeSourceModuleLoader {
 
       throw error;
     } finally {
-      for (const controller of attemptControllers) {
-        controller?.abort();
-      }
+      signal?.removeEventListener("abort", abortAttempts);
+      abortAttempts();
     }
   }
 
@@ -486,33 +552,48 @@ export class RuntimeSourceModuleLoader {
     let lastError: unknown;
     for (let retry = 0; retry <= this.remoteFetchRetries; retry += 1) {
       try {
-        const response = await fetchWithTimeout(
+        const fetched = await fetchWithTimeout(
           attempt,
           this.remoteFetchTimeoutMs,
           {
             signal,
+            consume: async (response, timeoutSignal) => {
+              if (!response.ok) {
+                throw new Error(
+                  `Failed to load module ${attempt}: HTTP ${response.status}`,
+                );
+              }
+
+              const effectiveUrl = response.url || attempt;
+              this.assertEffectiveRemoteUrlAllowed(
+                originalUrl,
+                attempt,
+                effectiveUrl,
+              );
+              if (
+                isLikelyUnpinnedJspmNpmUrl(attempt) ||
+                isLikelyUnpinnedJspmNpmUrl(effectiveUrl)
+              ) {
+                throw new Error(
+                  `Failed to load module ${attempt}: non-executable JSPM package index endpoint`,
+                );
+              }
+
+              return {
+                url: effectiveUrl,
+                code: await this.readRemoteModuleText(
+                  response,
+                  effectiveUrl,
+                  timeoutSignal,
+                ),
+                contentType:
+                  response.headers.get("content-type")?.toLowerCase() ?? "",
+                requestUrl: attempt,
+                originalUrl,
+              };
+            },
           },
         );
-        if (!response.ok) {
-          throw new Error(
-            `Failed to load module ${attempt}: HTTP ${response.status}`,
-          );
-        }
-
-        const effectiveUrl = response.url || attempt;
-        this.assertEffectiveRemoteUrlAllowed(
-          originalUrl,
-          attempt,
-          effectiveUrl,
-        );
-        if (
-          isLikelyUnpinnedJspmNpmUrl(attempt) ||
-          isLikelyUnpinnedJspmNpmUrl(effectiveUrl)
-        ) {
-          throw new Error(
-            `Failed to load module ${attempt}: non-executable JSPM package index endpoint`,
-          );
-        }
 
         if (attempt !== originalUrl) {
           this.diagnostics.push({
@@ -530,14 +611,7 @@ export class RuntimeSourceModuleLoader {
           });
         }
 
-        return {
-          url: effectiveUrl,
-          code: await this.readRemoteModuleText(response, effectiveUrl),
-          contentType:
-            response.headers.get("content-type")?.toLowerCase() ?? "",
-          requestUrl: attempt,
-          originalUrl,
-        };
+        return fetched;
       } catch (error) {
         if (this.isAbortError(error, signal)) {
           throw error;
@@ -559,7 +633,12 @@ export class RuntimeSourceModuleLoader {
   private async readRemoteModuleText(
     response: Response,
     effectiveUrl: string,
+    signal?: AbortSignal,
   ): Promise<string> {
+    if (signal?.aborted) {
+      throw createAbortError();
+    }
+
     const declaredLength = response.headers.get("content-length")?.trim();
     if (
       declaredLength &&
@@ -582,10 +661,17 @@ export class RuntimeSourceModuleLoader {
     let bytes = new Uint8Array(Math.min(this.remoteModuleMaxBytes, 64 * 1024));
     let receivedBytes = 0;
     let complete = false;
+    const handleAbort = () => {
+      void reader.cancel(createAbortError()).catch(() => {});
+    };
+    signal?.addEventListener("abort", handleAbort, { once: true });
 
     try {
       while (true) {
         const chunk = await reader.read();
+        if (signal?.aborted) {
+          throw createAbortError();
+        }
         if (chunk.done) {
           complete = true;
           break;
@@ -617,6 +703,7 @@ export class RuntimeSourceModuleLoader {
       }
       throw error;
     } finally {
+      signal?.removeEventListener("abort", handleAbort);
       reader.releaseLock();
     }
   }
@@ -733,6 +820,12 @@ export class RuntimeSourceModuleLoader {
     return error instanceof Error && error.name === "AbortError";
   }
 
+  private throwIfAborted(): void {
+    if (this.signal?.aborted) {
+      throw createAbortError();
+    }
+  }
+
   private async delayWithSignal(
     ms: number,
     signal?: AbortSignal,
@@ -774,13 +867,166 @@ export class RuntimeSourceModuleLoader {
       return false;
     }
 
+    if (
+      (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+      parsed.username.length > 0 ||
+      parsed.password.length > 0
+    ) {
+      return false;
+    }
+
     const path = parsed.pathname.toLowerCase();
-    return (
-      path.includes("/npm:preact@") ||
-      path.includes("/npm:preact-render-to-string@") ||
-      path.includes("/node_modules/preact/") ||
-      path.includes("/node_modules/.pnpm/preact@")
+    const host = parsed.hostname.toLowerCase();
+    if (host === "ga.jspm.io" || host === "cdn.jspm.io") {
+      return /^\/npm:preact(?:-render-to-string)?@[^/]+(?:\/|$)/.test(path);
+    }
+    if (host === "esm.sh") {
+      return /^\/(?:v\d+\/)?preact(?:-render-to-string)?@[^/]+(?:\/|$)/.test(
+        path,
+      );
+    }
+    if (host === "cdn.jsdelivr.net") {
+      return /^\/npm\/preact(?:-render-to-string)?@[^/]+(?:\/|$)/.test(path);
+    }
+    if (host === "unpkg.com") {
+      return /^\/preact(?:-render-to-string)?@[^/]+(?:\/|$)/.test(path);
+    }
+
+    const browserOrigin = this.resolveBrowserOrigin();
+    if (!browserOrigin || parsed.origin !== browserOrigin) {
+      return false;
+    }
+
+    return /^\/node_modules\/(?:\.pnpm\/preact(?:-render-to-string)?@[^/]+\/node_modules\/)?preact(?:-render-to-string)?(?:\/|$)/.test(
+      path,
     );
+  }
+
+  private resolveBrowserOrigin(): string | undefined {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+    const origin = window.location?.origin;
+    return typeof origin === "string" && origin.length > 0 ? origin : undefined;
+  }
+
+  private async auditPreservedRemoteImport(
+    url: string,
+    cacheKey: string,
+  ): Promise<void> {
+    if (this.auditedPreservedRemoteImports.has(cacheKey)) {
+      return;
+    }
+
+    const existing = this.preservedRemoteImportAuditInflight.get(cacheKey);
+    if (existing) {
+      await existing;
+      return;
+    }
+
+    const audit = (async () => {
+      const fetched = await this.fetchRemoteModuleAttemptWithRetries(
+        url,
+        url,
+        0,
+        this.signal,
+      );
+      if (!this.shouldPreserveRemoteImport(fetched.url)) {
+        throw new Error(
+          `Preserved Preact module redirected outside trusted package paths: ${url} -> ${fetched.url}`,
+        );
+      }
+      await this.verifyFetchedModuleIntegrity(fetched);
+      if (!isJavaScriptModuleResponse(fetched)) {
+        throw new Error(
+          `Preserved Preact module is not JavaScript: ${fetched.url}`,
+        );
+      }
+
+      const code = this.stripSourceMapDirectives(fetched.code);
+      await this.rewriteImportsAsyncFn(code, async (childSpecifier) => {
+        const preservedCompanion = this.resolvePreservedPreactCompanionUrl(
+          childSpecifier,
+          fetched.url,
+        );
+        await this.resolveRuntimeImportSpecifier(
+          preservedCompanion ?? childSpecifier,
+          fetched.url,
+          cacheKey,
+        );
+        return childSpecifier;
+      });
+      this.auditedPreservedRemoteImports.add(cacheKey);
+    })();
+
+    this.preservedRemoteImportAuditInflight.set(cacheKey, audit);
+    try {
+      await audit;
+    } finally {
+      if (this.preservedRemoteImportAuditInflight.get(cacheKey) === audit) {
+        this.preservedRemoteImportAuditInflight.delete(cacheKey);
+      }
+    }
+  }
+
+  private resolvePreservedPreactCompanionUrl(
+    specifier: string,
+    parentUrl: string,
+  ): string | undefined {
+    const canonical = PREACT_COMPANION_CANONICAL_SPECIFIERS.get(
+      specifier.trim(),
+    );
+    if (!canonical) {
+      return undefined;
+    }
+
+    let parsed: URL;
+    try {
+      parsed = new URL(parentUrl);
+    } catch {
+      return undefined;
+    }
+
+    const fileEntry = PREACT_BROWSER_FILE_ENTRYPOINTS.get(canonical);
+    if (!fileEntry) {
+      return undefined;
+    }
+
+    const path = parsed.pathname;
+    const filePackageBase = this.resolvePreservedPreactFilePackageBase(path);
+    if (filePackageBase) {
+      return new URL(
+        `${filePackageBase}/${fileEntry}`,
+        parsed.origin,
+      ).toString();
+    }
+
+    if (parsed.hostname.toLowerCase() === "esm.sh") {
+      const esmPackageBase = path.match(
+        /^(\/(?:v\d+\/)?preact@[^/]+)(?:\/|$)/i,
+      )?.[1];
+      if (!esmPackageBase) {
+        return undefined;
+      }
+      const esmSubpath = PREACT_ESM_SH_SUBPATHS.get(canonical);
+      return esmSubpath === undefined
+        ? undefined
+        : new URL(`${esmPackageBase}${esmSubpath}`, parsed.origin).toString();
+    }
+
+    return undefined;
+  }
+
+  private resolvePreservedPreactFilePackageBase(
+    path: string,
+  ): string | undefined {
+    for (const pattern of PREACT_BROWSER_FILE_PACKAGE_BASE_PATTERNS) {
+      const base = path.match(pattern)?.[1];
+      if (base) {
+        return base;
+      }
+    }
+    return undefined;
   }
 
   private resolveExplicitManifestSpecifier(

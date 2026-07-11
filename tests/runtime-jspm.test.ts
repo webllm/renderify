@@ -475,6 +475,62 @@ test("runtime-jspm forwards the configured remote module size limit", async () =
   }
 });
 
+test("runtime-jspm aborts signal-scoped remote body reads", async () => {
+  const loader = new JspmModuleLoader({
+    remoteFallbackCdnBases: [],
+    remoteFetchRetries: 0,
+    remoteFetchTimeoutMs: 1000,
+  });
+  const globalState = globalThis as unknown as {
+    System?: { import(url: string): Promise<unknown> };
+  };
+  const previousSystem = globalState.System;
+  const previousFetch = globalThis.fetch;
+  let readerCancelled = false;
+  delete globalState.System;
+  globalThis.fetch = async () =>
+    new Response(
+      new ReadableStream<Uint8Array>({
+        start(streamController) {
+          streamController.enqueue(
+            new TextEncoder().encode("export default 1;"),
+          );
+        },
+        cancel() {
+          readerCancelled = true;
+        },
+      }),
+      {
+        status: 200,
+        headers: {
+          "content-type": "text/javascript; charset=utf-8",
+        },
+      },
+    );
+  const controller = new AbortController();
+  const abortTimer = setTimeout(() => controller.abort(), 20);
+
+  try {
+    await assert.rejects(
+      loader.load(
+        "https://modules.example/signal-scoped-stalled.mjs",
+        controller.signal,
+      ),
+      (error: unknown) => error instanceof Error && error.name === "AbortError",
+    );
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(readerCancelled, true);
+  } finally {
+    clearTimeout(abortTimer);
+    if (previousSystem === undefined) {
+      delete globalState.System;
+    } else {
+      globalState.System = previousSystem;
+    }
+    globalThis.fetch = previousFetch;
+  }
+});
+
 test("runtime-jspm falls back from unpinned jspm endpoints to esm.sh", async () => {
   const loader = new JspmModuleLoader({
     remoteFallbackCdnBases: ["https://esm.sh"],

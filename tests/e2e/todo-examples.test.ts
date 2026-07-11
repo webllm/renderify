@@ -124,12 +124,27 @@ test("e2e: runtime-plan hash todo example rehydrates from shared hash", async (t
       return value as
         | {
             planId?: string;
+            diagnostics?: Array<{
+              level?: string;
+              code?: string;
+              message?: string;
+            }>;
           }
         | undefined;
     })) as {
       planId?: string;
+      diagnostics?: Array<{
+        level?: string;
+        code?: string;
+        message?: string;
+      }>;
     };
     assert.equal(report.planId, "todo_runtimeplan_hash_demo");
+    assert.equal(
+      report.diagnostics?.some((diagnostic) => diagnostic.level === "error"),
+      false,
+      JSON.stringify(report.diagnostics),
+    );
 
     await page.fill("input.input", "hash synced task");
     await page.click("button:has-text('Add')");
