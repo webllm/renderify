@@ -711,7 +711,12 @@ export class DefaultRuntimeManager implements RuntimeManager {
       return;
     }
 
-    const transitionActions = input.plan.state.transitions[input.event.type];
+    const transitions = input.plan.state.transitions;
+    if (!Object.hasOwn(transitions, input.event.type)) {
+      return;
+    }
+
+    const transitionActions = transitions[input.event.type];
     if (!transitionActions || transitionActions.length === 0) {
       return;
     }

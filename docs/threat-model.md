@@ -110,6 +110,9 @@ and imports if the caller incorrectly treats model output as reviewed code.
 - Declarative `onClick` data becomes delegated runtime events. It never becomes
   an HTML `on*` attribute or evaluated JavaScript; case-variant event attribute
   names are rejected instead of falling through to HTML serialization.
+- Runtime transition dispatch uses own-property lookup, so event names such as
+  `constructor` and `__proto__` cannot resolve inherited prototype members as
+  action lists.
 - Model-context updates contain attacker-influenced state/event data. Hosts and
   models MUST treat it as untrusted context, not instructions with authority.
 - Tool arguments originate in the plan. Servers MUST validate them and require

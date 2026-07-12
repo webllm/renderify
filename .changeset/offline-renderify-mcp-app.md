@@ -19,6 +19,7 @@ browser CSP does not initialize WebAssembly for declarative-only plans. Treat
 cancellation and teardown as terminal so delayed tool responses cannot
 reactivate a view.
 Reject case-variant inline event attributes before HTML serialization.
+Ignore inherited object properties when resolving declarative transitions.
 Roll back the paired resource when MCP tool registration fails.
 Join concurrent controller disposal and always close the bridge after cleanup.
 Disconnect adapter-owned automatic resize observation at terminal lifecycle events.

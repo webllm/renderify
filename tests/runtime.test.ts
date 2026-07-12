@@ -1378,6 +1378,40 @@ test("runtime applies declarative transitions and persists plan state", async ()
   await runtime.terminate();
 });
 
+test("runtime ignores inherited transition property names", async () => {
+  const runtime = new DefaultRuntimeManager();
+  await runtime.initialize();
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "runtime_inherited_transition_plan",
+    version: 1,
+    root: createTextNode("Count={{state.count}}"),
+    state: {
+      initial: { count: 0 },
+      transitions: {
+        increment: [{ type: "increment", path: "count", by: 1 }],
+      },
+    },
+  };
+
+  try {
+    for (const eventType of ["constructor", "__proto__"]) {
+      const result = await runtime.executePlan(plan, undefined, {
+        type: eventType,
+      });
+      assert.deepEqual(result.appliedActions, []);
+      assert.equal(result.state?.count, 0);
+      assert.equal(result.root.type, "text");
+      assert.equal(
+        result.root.type === "text" ? result.root.value : undefined,
+        "Count=0",
+      );
+    }
+  } finally {
+    await runtime.terminate();
+  }
+});
+
 test("runtime enforces maxImports capability", async () => {
   const runtime = new DefaultRuntimeManager({
     moduleLoader: new MockLoader({
