@@ -76,6 +76,9 @@ sequenceDiagram
   change sanitized URL attributes after validation.
 - Unsafe, remote, and external-navigation URL attributes MUST be rejected by
   the shared URL inspector before the tool result is returned.
+- CSS `image-set()` and `-webkit-image-set()` functions MUST be rejected in
+  URL-bearing attributes and inline styles, including escaped or commented
+  spellings, because quoted candidates can initiate requests without `url()`.
 - Fragment-only `href` values MUST be checked against the owning element.
   Navigation and resource-loading elements such as `a`, `area`, and SVG
   `image` MUST be rejected because `srcdoc` documents inherit the host page's

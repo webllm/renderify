@@ -6,6 +6,7 @@ import type {
 } from "@renderify/ir";
 import { parseRuntimeEventBinding } from "@renderify/ir";
 import {
+  hasRuntimeCssImageSetFunction,
   inspectRuntimeUrlAttribute,
   isRuntimeUrlAttribute,
 } from "@renderify/security";
@@ -887,7 +888,7 @@ function serializeProps(
 
 function sanitizeInlineStyle(style: string): string | undefined {
   const normalized = style.trim();
-  if (normalized.length === 0) {
+  if (normalized.length === 0 || hasRuntimeCssImageSetFunction(normalized)) {
     return undefined;
   }
 

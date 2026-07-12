@@ -25,6 +25,7 @@ required for safe declarative events under a strict browser CSP.
 | Resolve relative browser view entries from the configured or current working directory | Unit | custom `viewEntry` bundle assertion |
 | Reject SVG animation and timed attribute mutation after URL validation | Unit + renderer regression | SMIL plan corpus and sanitized-tag assertions |
 | Reject fragment navigation and resource hrefs under an inherited HTTP `srcdoc` base URL | Unit + browser security | element-aware URL corpus and HTTP-origin view rejection |
+| Reject CSS `image-set()` string URLs in URL attributes and inline styles | Security + renderer + MCP + browser | direct, prefixed, escaped, and commented fixtures plus HTTP-origin request observation |
 | Allow declarative events but reject malformed inline handlers | Security regression | `tests/security.test.ts` |
 | Complete official handshake and teardown | Browser integration | official `AppBridge` in `tests/e2e/mcp-app.test.ts` |
 | Ignore a delayed tool result after teardown | Browser lifecycle | deferred official `tools/call` response in `tests/e2e/mcp-app.test.ts` |

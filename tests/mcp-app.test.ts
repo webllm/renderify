@@ -166,6 +166,32 @@ test("mcp-app rejects executable, remote, persistent, and oversized plans", () =
       code: "NETWORK_DISABLED",
     },
     {
+      name: "CSS image-set URL",
+      mutate: (plan) => {
+        plan.root = {
+          type: "element",
+          tag: "rect",
+          props: {
+            cursor: 'image-set("https://evil.example/cursor.png" 1x), auto',
+          },
+        };
+      },
+      code: "NETWORK_DISABLED",
+    },
+    {
+      name: "obfuscated CSS image-set URL",
+      mutate: (plan) => {
+        plan.root = {
+          type: "element",
+          tag: "rect",
+          props: {
+            cursor: 'image-s\\65 t("https://evil.example/cursor.png" 1x), auto',
+          },
+        };
+      },
+      code: "NETWORK_DISABLED",
+    },
+    {
       name: "storage",
       mutate: (plan) => {
         plan.capabilities = { storage: ["localStorage"] };

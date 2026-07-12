@@ -312,6 +312,8 @@ const FUNCTIONAL_IRI_RUNTIME_ATTRIBUTE_NAMES = new Set([
   "shape-outside",
   "stroke",
 ]);
+const CSS_IMAGE_SET_FUNCTION_PATTERN =
+  /(?:^|[^a-z0-9_-])(?:-webkit-)?image-set\s*\(/i;
 const SAFE_NON_NETWORK_URL_PROTOCOLS = new Set(["mailto:", "tel:"]);
 const SAFE_NON_NETWORK_PROTOCOL_ATTRIBUTE_NAMES = new Set([
   "href",
@@ -351,6 +353,12 @@ export function isRuntimeUrlAttribute(attributeName: string): boolean {
     LIST_RUNTIME_URL_ATTRIBUTE_NAMES.has(normalized) ||
     SOURCE_SET_RUNTIME_URL_ATTRIBUTE_NAMES.has(normalized) ||
     FUNCTIONAL_IRI_RUNTIME_ATTRIBUTE_NAMES.has(normalized)
+  );
+}
+
+export function hasRuntimeCssImageSetFunction(value: string): boolean {
+  return CSS_IMAGE_SET_FUNCTION_PATTERN.test(
+    normalizeCssForUrlSecurityInspection(value),
   );
 }
 
@@ -1287,7 +1295,10 @@ function splitRuntimeUrlAttributeValue(
 
 function extractFunctionalIriReferences(value: string): string[] | undefined {
   const normalized = normalizeCssForUrlSecurityInspection(value);
-  if (normalized.length === 0) {
+  if (
+    normalized.length === 0 ||
+    CSS_IMAGE_SET_FUNCTION_PATTERN.test(normalized)
+  ) {
     return undefined;
   }
 

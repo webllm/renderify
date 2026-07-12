@@ -218,6 +218,48 @@ function createFragmentNavigationPlan(): RuntimePlan {
   };
 }
 
+function createCssImageSetAttributePlan(): RuntimePlan {
+  return {
+    specVersion: "runtime-plan/v1",
+    id: "css_image_set_attribute_plan",
+    version: 1,
+    capabilities: { domWrite: true },
+    root: {
+      type: "element",
+      tag: "svg",
+      children: [
+        {
+          type: "element",
+          tag: "rect",
+          props: {
+            id: "image-set-cursor",
+            cursor: 'image-set("https://evil.example/cursor.png" 1x), auto',
+          },
+        },
+      ],
+    },
+  };
+}
+
+function createCssImageSetStylePlan(): RuntimePlan {
+  return {
+    specVersion: "runtime-plan/v1",
+    id: "css_image_set_style_plan",
+    version: 1,
+    capabilities: { domWrite: true },
+    root: {
+      type: "element",
+      tag: "div",
+      props: {
+        id: "image-set-style",
+        style:
+          'background-image:image-set("https://evil.example/image.png" 1x)',
+      },
+      children: [{ type: "text", value: "Safe content" }],
+    },
+  };
+}
+
 test("e2e: official AppBridge drives the offline Renderify MCP App lifecycle", async () => {
   const hostBundle = await bundleOfficialHostBridge();
   const viewBundle = await bundleRenderifyMcpView();
@@ -612,16 +654,30 @@ test("e2e: rejected replacement plans release delegated listeners", async () => 
   }
 });
 
-test("e2e: HTTP srcdoc rejects inherited-base fragment navigation", async () => {
+test("e2e: HTTP srcdoc blocks browser-resolved URL escapes", async () => {
   const hostBundle = await bundleOfficialHostBridge();
   const viewBundle = await bundleRenderifyMcpView();
   const shell = await createRenderifyShell({ browserBundle: viewBundle.code });
-  const rejectedResult = asBrowserToolResult({
-    content: [{ type: "text", text: "Unsafe fragment navigation" }],
-    structuredContent: {
-      renderify: { plan: createFragmentNavigationPlan() },
+  const fixtures = [
+    {
+      plan: createFragmentNavigationPlan(),
+      status: "error",
+      selector: "#fragment-navigation",
+      rendered: false,
     },
-  });
+    {
+      plan: createCssImageSetAttributePlan(),
+      status: "error",
+      selector: "#image-set-cursor",
+      rendered: false,
+    },
+    {
+      plan: createCssImageSetStylePlan(),
+      status: "ready",
+      selector: "#image-set-style",
+      rendered: true,
+    },
+  ] as const;
 
   const hostRequests: string[] = [];
   const server = createServer((request, response) => {
@@ -650,60 +706,79 @@ test("e2e: HTTP srcdoc rejects inherited-base fragment navigation", async () => 
   page.on("pageerror", (error) => pageErrors.push(error.message));
 
   try {
-    await page.goto(`http://127.0.0.1:${address.port}/host`);
-    await page.addScriptTag({ content: hostBundle });
-    hostRequests.length = 0;
-    externalRequests.length = 0;
+    for (const fixture of fixtures) {
+      await page.goto(`http://127.0.0.1:${address.port}/host`);
+      await page.addScriptTag({ content: hostBundle });
+      hostRequests.length = 0;
+      externalRequests.length = 0;
+      pageErrors.length = 0;
 
-    await page.evaluate(
-      async ({ shellHtml, result }) => {
-        const hostModule = (
-          globalThis as unknown as { McpAppsHost: BrowserHostModule }
-        ).McpAppsHost;
-        const iframe = document.querySelector<HTMLIFrameElement>("#app");
-        if (!iframe?.contentWindow) {
-          throw new Error("MCP App iframe is unavailable");
-        }
+      const result = asBrowserToolResult({
+        content: [{ type: "text", text: "URL security fixture" }],
+        structuredContent: { renderify: { plan: fixture.plan } },
+      });
+      await page.evaluate(
+        async ({ shellHtml, toolResult }) => {
+          const hostModule = (
+            globalThis as unknown as { McpAppsHost: BrowserHostModule }
+          ).McpAppsHost;
+          const iframe = document.querySelector<HTMLIFrameElement>("#app");
+          if (!iframe?.contentWindow) {
+            throw new Error("MCP App iframe is unavailable");
+          }
 
-        const bridge = new hostModule.AppBridge(
+          const bridge = new hostModule.AppBridge(
+            null,
+            { name: "Renderify HTTP host", version: "1.0.0" },
+            { updateModelContext: { structuredContent: {} } },
+          );
+          bridge.onupdatemodelcontext = async () => ({});
+          bridge.oninitialized = () => {
+            void bridge.sendToolResult(toolResult);
+          };
+          await bridge.connect(
+            new hostModule.PostMessageTransport(
+              iframe.contentWindow,
+              iframe.contentWindow,
+            ),
+          );
+          iframe.srcdoc = shellHtml;
+        },
+        { shellHtml: shell.html, toolResult: result },
+      );
+
+      const app = page.frameLocator("#app");
+      await app
+        .locator(
+          `#renderify-mcp-root[data-renderify-status="${fixture.status}"]`,
+        )
+        .waitFor({ state: "attached" });
+      assert.equal(
+        await app.locator(fixture.selector).count(),
+        fixture.rendered ? 1 : 0,
+      );
+      if (fixture.rendered) {
+        assert.equal(
+          await app.locator(fixture.selector).getAttribute("style"),
           null,
-          { name: "Renderify HTTP host", version: "1.0.0" },
-          { updateModelContext: { structuredContent: {} } },
         );
-        bridge.onupdatemodelcontext = async () => ({});
-        bridge.oninitialized = () => {
-          void bridge.sendToolResult(result);
-        };
-        await bridge.connect(
-          new hostModule.PostMessageTransport(
-            iframe.contentWindow,
-            iframe.contentWindow,
-          ),
+      } else {
+        assert.equal(
+          await app.locator("#renderify-mcp-root").textContent(),
+          "This interactive view was rejected by its security policy.",
         );
-        iframe.srcdoc = shellHtml;
-      },
-      { shellHtml: shell.html, result: rejectedResult },
-    );
-
-    const app = page.frameLocator("#app");
-    await app
-      .locator('#renderify-mcp-root[data-renderify-status="error"]')
-      .waitFor({ state: "attached" });
-    assert.equal(await app.locator("#fragment-navigation").count(), 0);
-    assert.equal(
-      await app.locator("#renderify-mcp-root").textContent(),
-      "This interactive view was rejected by its security policy.",
-    );
-    assert.equal(
-      page
-        .frames()
-        .find((frame) => frame.name() === "app")
-        ?.url(),
-      "about:srcdoc",
-    );
-    assert.deepEqual(hostRequests, []);
-    assert.deepEqual(externalRequests, []);
-    assert.deepEqual(pageErrors, []);
+      }
+      assert.equal(
+        page
+          .frames()
+          .find((frame) => frame.name() === "app")
+          ?.url(),
+        "about:srcdoc",
+      );
+      assert.deepEqual(hostRequests, []);
+      assert.deepEqual(externalRequests, []);
+      assert.deepEqual(pageErrors, []);
+    }
   } finally {
     await browser.close();
     await new Promise<void>((resolve, reject) => {

@@ -11,6 +11,7 @@ classify relative URL references so the MCP boundary can reject navigation and
 resource paths, including control-character-obfuscated navigation protocols,
 restrict fragment-only hrefs to element types that cannot navigate or load the
 host page through an inherited `srcdoc` base URL,
+reject CSS `image-set()` string URLs in URL-bearing attributes and inline styles,
 reject browser-managed SVG animation and timed mutation elements before they can
 change sanitized URL attributes, and lazy-load the source import lexer so strict
 browser CSP does not initialize WebAssembly for declarative-only plans. Treat

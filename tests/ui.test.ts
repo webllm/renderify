@@ -228,6 +228,22 @@ test("ui renderer drops remote URLs from request-capable attributes", () => {
   assert.doesNotMatch(legacyAndSvgHtml, /\sstroke=/);
   assert.doesNotMatch(legacyAndSvgHtml, /\slowsrc=/);
   assert.doesNotMatch(legacyAndSvgHtml, /\sdynsrc=/);
+
+  for (const value of [
+    'image-set("https://evil.example.com/cursor.png" 1x), auto',
+    '-webkit-image-set("https://evil.example.com/cursor.png" 1x), auto',
+    'image-s\\65 t("https://evil.example.com/cursor.png" 1x), auto',
+    'image-/**/set("https://evil.example.com/cursor.png" 1x), auto',
+  ]) {
+    const html = renderer.renderNode(
+      createElementNode("rect", { cursor: value }),
+    );
+    assert.doesNotMatch(
+      html,
+      /\scursor=/,
+      `expected CSS image-set URL to be dropped: ${value}`,
+    );
+  }
 });
 
 test("ui renderer drops remote URLs after context and state interpolation", async () => {
@@ -374,6 +390,10 @@ test("ui renderer blocks additional css injection vectors", () => {
     "@im\\70ort url(https://evil.example/style.css);",
     "behavior:url(#default#time2);",
     "-moz-binding:url(https://evil.example/xbl.xml#payload);",
+    'background-image:image-set("https://evil.example/image.png" 1x);',
+    'background-image:-webkit-image-set("https://evil.example/image.png" 1x);',
+    'background-image:image-s\\65 t("https://evil.example/image.png" 1x);',
+    'background-image:image-/**/set("https://evil.example/image.png" 1x);',
   ];
 
   for (const styleValue of vectors) {

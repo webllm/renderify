@@ -101,6 +101,9 @@ and imports if the caller incorrectly treats model output as reviewed code.
   the embedding page's base URL. Navigation and resource-loading elements may
   not use those hrefs; only explicit local SVG references and functional IRIs
   are accepted.
+- CSS `image-set()` and `-webkit-image-set()` are rejected in URL-bearing
+  attributes and inline styles because quoted candidates can load without a
+  `url()` token; CSS escapes and comments are normalized before inspection.
 - Declarative `onClick` data becomes delegated runtime events. It never becomes
   an HTML `on*` attribute or evaluated JavaScript.
 - Model-context updates contain attacker-influenced state/event data. Hosts and

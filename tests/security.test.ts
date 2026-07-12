@@ -243,6 +243,31 @@ test("security checker rejects dangerous UI URL protocols in relaxed mode", asyn
   );
 });
 
+test("security checker rejects CSS image-set string URLs", async () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize({ profile: "relaxed" });
+
+  for (const value of [
+    'image-set("https://evil.example/cursor.png" 1x), auto',
+    '-webkit-image-set("https://evil.example/cursor.png" 1x), auto',
+    'image-s\\65 t("https://evil.example/cursor.png" 1x), auto',
+    'image-/**/set("https://evil.example/cursor.png" 1x), auto',
+  ]) {
+    const plan = createPlan("svg");
+    plan.root = createElementNode("rect", { cursor: value });
+
+    const result = await checker.checkPlan(plan);
+
+    assert.equal(result.safe, false, value);
+    assert.ok(
+      result.issues.some((issue) =>
+        issue.includes("Unsafe URL value in <rect> cursor attribute"),
+      ),
+      value,
+    );
+  }
+});
+
 test("security checker allows allowed JSPM module specifiers", async () => {
   const checker = new DefaultSecurityChecker();
   checker.initialize();
