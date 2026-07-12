@@ -21,10 +21,11 @@ export async function bundleRenderifyMcpView(
 ): Promise<RenderifyMcpViewBundle> {
   const { build } = await import("esbuild");
   const viewEntry = options.viewEntry ?? resolveDefaultViewEntry();
+  const resolveDir = path.resolve(options.resolveDir ?? process.cwd());
   const result = await build({
     stdin: {
       contents: `export * from ${JSON.stringify(viewEntry)};`,
-      resolveDir: options.resolveDir ?? path.dirname(viewEntry),
+      resolveDir,
       sourcefile: "renderify-mcp-view-entry.mjs",
       loader: "js",
     },

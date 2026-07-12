@@ -81,7 +81,9 @@ model-only by default.
 - `createRenderifyUiResource`, `createRenderifyShell`, `renderifyToolMeta`, and
   `renderifyToolResult` support custom registration flows.
 - `parseDeclarativeMcpPlan` enforces the offline plan contract.
-- `bundleRenderifyMcpView` emits the self-contained browser IIFE.
+- `bundleRenderifyMcpView` emits the self-contained browser IIFE. Relative
+  `viewEntry` paths resolve from `resolveDir`, or the current working directory
+  when `resolveDir` is omitted.
 - The `@renderify/mcp-app/view` export exposes the view entry for custom bundlers.
 
 ## Dependency limits

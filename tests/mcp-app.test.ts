@@ -12,6 +12,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { RuntimePlan } from "../packages/ir/src/index";
 import {
+  bundleRenderifyMcpView,
   createRenderifyShell,
   createRenderifyUiResource,
   DeclarativeMcpPlanError,
@@ -316,6 +317,24 @@ test("mcp-app shell normalizes provided browser bundles before hashing", async (
     () => createRenderifyShell({ browserBundle: "\r\n\t" }),
     /browserBundle must not be empty/,
   );
+});
+
+test("mcp-app bundler resolves relative view entries from its base directory", async () => {
+  const bundles = await Promise.all([
+    bundleRenderifyMcpView({
+      viewEntry: "./packages/mcp-app/src/view.ts",
+    }),
+    bundleRenderifyMcpView({
+      viewEntry: "./view.ts",
+      resolveDir: "./packages/mcp-app/src",
+    }),
+  ]);
+
+  for (const bundle of bundles) {
+    assert.ok(bundle.bytes > 0);
+    assert.equal(bundle.bytes, Buffer.byteLength(bundle.code, "utf8"));
+    assert.match(bundle.code, /RenderifyMcpApp/);
+  }
 });
 
 test("mcp-app resource metadata declares no network or browser permissions", async () => {

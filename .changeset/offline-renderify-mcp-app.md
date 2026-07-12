@@ -16,4 +16,6 @@ Treat app-called tool error results as failures without rendering their
 structured plan. Reuse the declarative renderer across replacement plans and
 detach delegated DOM listeners when the view ends. Normalize custom browser
 bundle line endings before hashing and reject explicitly empty bundles. Include
-the repository MIT license in the published package.
+support for relative view entries by using the configured or current working
+directory as the bundler base. Include the repository MIT license in the
+published package.
