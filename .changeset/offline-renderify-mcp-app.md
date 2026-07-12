@@ -11,3 +11,5 @@ classify relative URL references so the MCP boundary can reject navigation and
 resource paths, and lazy-load the source import lexer so strict browser CSP does
 not initialize WebAssembly for declarative-only plans. Treat cancellation and
 teardown as terminal so delayed tool responses cannot reactivate a view.
+Treat app-called tool error results as failures without rendering their
+structured plan.

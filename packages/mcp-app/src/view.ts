@@ -185,6 +185,15 @@ export async function startRenderifyMcpApp(
               if (!isCurrentSession(activeSession, generation)) {
                 return;
               }
+              if (result.isError) {
+                mount.dataset.renderifyToolError = "call-failed";
+                console.error(
+                  "[renderify/mcp-app] server tool returned an error result",
+                  extractText(result) ?? "Unknown server tool error",
+                );
+                await updateModelContext(activeSession, event);
+                return;
+              }
               delete mount.dataset.renderifyToolError;
               const nextPlan = readDeclarativePlanFromToolResult(result, {
                 maxBytes: maxPlanBytes,

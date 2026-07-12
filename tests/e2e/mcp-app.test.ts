@@ -144,9 +144,25 @@ function createDeferredRefreshPlan(): RuntimePlan {
           props: {
             id: "deferred-refresh",
             type: "button",
-            onClick: "tool:refresh_dashboard",
+            onClick: {
+              type: "tool:refresh_dashboard",
+              payload: { mode: "deferred" },
+            },
           },
           children: [{ type: "text", value: "Deferred refresh" }],
+        },
+        {
+          type: "element",
+          tag: "button",
+          props: {
+            id: "error-refresh",
+            type: "button",
+            onClick: {
+              type: "tool:refresh_dashboard",
+              payload: { mode: "error" },
+            },
+          },
+          children: [{ type: "text", value: "Error refresh" }],
         },
       ],
     },
@@ -169,6 +185,13 @@ test("e2e: official AppBridge drives the offline Renderify MCP App lifecycle", a
       planPayload(createTextPlan("late_plan", "LATE RESULT")),
     ),
   );
+  const errorResult = asBrowserToolResult(
+    renderifyToolResult(
+      planPayload(createTextPlan("error_plan", "ERROR PLAN RENDERED")),
+      { summary: "Expected tool failure" },
+    ),
+  );
+  errorResult.isError = true;
   const spoofedResult = asBrowserToolResult(
     renderifyToolResult(
       planPayload(createTextPlan("spoofed_plan", "SPOOFED RESULT")),
@@ -201,11 +224,13 @@ test("e2e: official AppBridge drives the offline Renderify MCP App lifecycle", a
         firstResult,
         nextResult,
         deferredResult,
+        toolErrorResult,
       }: {
         shellHtml: string;
         firstResult: BrowserToolResult;
         nextResult: BrowserToolResult;
         deferredResult: BrowserToolResult;
+        toolErrorResult: BrowserToolResult;
       }) => {
         const hostModule = (
           globalThis as unknown as { McpAppsHost: BrowserHostModule }
@@ -235,7 +260,10 @@ test("e2e: official AppBridge drives the offline Renderify MCP App lifecycle", a
         };
         bridge.oncalltool = async (params) => {
           state.toolCalls.push(params);
-          if (state.toolCalls.length > 1) {
+          if (params.arguments?.mode === "error") {
+            return toolErrorResult;
+          }
+          if (params.arguments?.mode === "deferred") {
             return new Promise<BrowserToolResult>((resolve) => {
               (
                 globalThis as unknown as {
@@ -275,6 +303,7 @@ test("e2e: official AppBridge drives the offline Renderify MCP App lifecycle", a
         firstResult: initialResult,
         nextResult: refreshedResult,
         deferredResult: lateResult,
+        toolErrorResult: errorResult,
       },
     );
 
@@ -361,12 +390,25 @@ test("e2e: official AppBridge drives the offline Renderify MCP App lifecycle", a
     assert.equal(state.toolCalls[0]?.name, "refresh_dashboard");
     assert.deepEqual(state.toolCalls[0]?.arguments, { source: "mcp-app" });
 
-    await app.locator("#deferred-refresh").click();
+    await app.locator("#error-refresh").click();
     await page.waitForFunction(() => {
       const hostState = (
         globalThis as unknown as { __mcpHostState?: BrowserHostState }
       ).__mcpHostState;
       return hostState?.toolCalls.length === 2;
+    });
+    await app
+      .locator('#renderify-mcp-root[data-renderify-tool-error="call-failed"]')
+      .waitFor({ state: "attached" });
+    assert.equal(await app.getByText("ERROR PLAN RENDERED").count(), 0);
+    assert.equal(await app.getByText("Refreshed safely").count(), 1);
+
+    await app.locator("#deferred-refresh").click();
+    await page.waitForFunction(() => {
+      const hostState = (
+        globalThis as unknown as { __mcpHostState?: BrowserHostState }
+      ).__mcpHostState;
+      return hostState?.toolCalls.length === 3;
     });
 
     await page.evaluate(async () => {
