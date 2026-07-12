@@ -29,6 +29,7 @@ required for safe declarative events under a strict browser CSP.
 | Enforce exact tool allowlist | Browser security | blocked and allowed button cases |
 | Make no external requests and produce no page errors | Browser security | Playwright request/error capture |
 | Publish both ESM/CJS root and view exports | Artifact | metadata validator and artifact smoke script |
+| Include the repository MIT license in the published package | Artifact | npm pack manifest and exact license-content check |
 
 ## Negative cases
 

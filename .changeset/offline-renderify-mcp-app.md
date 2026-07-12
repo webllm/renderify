@@ -13,4 +13,5 @@ not initialize WebAssembly for declarative-only plans. Treat cancellation and
 teardown as terminal so delayed tool responses cannot reactivate a view.
 Treat app-called tool error results as failures without rendering their
 structured plan. Reuse the declarative renderer across replacement plans and
-detach delegated DOM listeners when the view ends.
+detach delegated DOM listeners when the view ends. Include the repository MIT
+license in the published package.

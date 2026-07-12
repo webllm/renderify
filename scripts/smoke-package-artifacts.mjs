@@ -2,6 +2,7 @@
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -67,6 +68,24 @@ for (const [format, namespace] of [
     `${format} MCP App shell uses script unsafe-inline`,
   );
 }
+
+const mcpAppDirectory = path.join(root, "packages/mcp-app");
+assert.equal(
+  fs.readFileSync(path.join(mcpAppDirectory, "LICENSE"), "utf8"),
+  fs.readFileSync(path.join(root, "LICENSE"), "utf8"),
+  "@renderify/mcp-app LICENSE differs from the repository license",
+);
+const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+const packOutput = execFileSync(npmCommand, ["pack", "--dry-run", "--json"], {
+  cwd: mcpAppDirectory,
+  encoding: "utf8",
+  stdio: ["ignore", "pipe", "pipe"],
+});
+const [packManifest] = JSON.parse(packOutput);
+assert.ok(
+  packManifest?.files?.some((entry) => entry.path === "LICENSE"),
+  "@renderify/mcp-app package tarball is missing LICENSE",
+);
 
 for (const relativePath of [
   "packages/cli/dist/cli.mjs",
