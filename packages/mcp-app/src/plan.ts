@@ -204,10 +204,12 @@ function assertOfflineDeclarativePlan(plan: RuntimePlan): void {
       if (
         !inspection.safe ||
         inspection.remoteUrls.length > 0 ||
-        (inspection.relativeUrls ?? []).some(
+        inspection.relativeUrls === undefined ||
+        inspection.nonNetworkProtocolUrls === undefined ||
+        inspection.nonNetworkProtocolUrls.length > 0 ||
+        inspection.relativeUrls.some(
           (reference) => !isAllowedLocalFragmentReference(name, reference),
-        ) ||
-        hasNonDataAbsoluteScheme(value)
+        )
       ) {
         hasExternalOrUnsafeUrl = true;
       }
@@ -258,11 +260,6 @@ function isAllowedLocalFragmentReference(
     MCP_LOCAL_FRAGMENT_ATTRIBUTE_NAMES.has(attributeName.toLowerCase()) &&
     reference.startsWith("#")
   );
-}
-
-function hasNonDataAbsoluteScheme(value: string): boolean {
-  const scheme = value.trim().match(/^([A-Za-z][A-Za-z0-9+.-]*):/)?.[1];
-  return scheme !== undefined && scheme.toLowerCase() !== "data";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

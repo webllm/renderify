@@ -120,6 +120,28 @@ test("mcp-app rejects executable, remote, persistent, and oversized plans", () =
       code: "NETWORK_DISABLED",
     },
     {
+      name: "control-obfuscated mail navigation URL",
+      mutate: (plan) => {
+        plan.root = {
+          type: "element",
+          tag: "a",
+          props: { href: "mai\nlto:leak@example.com" },
+        };
+      },
+      code: "NETWORK_DISABLED",
+    },
+    {
+      name: "control-obfuscated telephone navigation URL",
+      mutate: (plan) => {
+        plan.root = {
+          type: "element",
+          tag: "a",
+          props: { href: "te\tl:+12025550123" },
+        };
+      },
+      code: "NETWORK_DISABLED",
+    },
+    {
       name: "relative navigation URL",
       mutate: (plan) => {
         plan.root = {

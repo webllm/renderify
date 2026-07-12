@@ -28,6 +28,7 @@ export interface RuntimeUrlAttributeInspection {
   safe: boolean;
   remoteUrls: URL[];
   relativeUrls?: string[];
+  nonNetworkProtocolUrls?: string[];
 }
 
 export interface RuntimeSecurityPolicy {
@@ -364,11 +365,13 @@ export function inspectRuntimeUrlAttribute(
       safe: false,
       remoteUrls: [],
       relativeUrls: [],
+      nonNetworkProtocolUrls: [],
     };
   }
 
   const remoteUrls: URL[] = [];
   const relativeUrls: string[] = [];
+  const nonNetworkProtocolUrls: string[] = [];
   for (const reference of references) {
     const inspected = inspectRuntimeUrlReference(
       reference,
@@ -379,6 +382,7 @@ export function inspectRuntimeUrlAttribute(
         safe: false,
         remoteUrls: [],
         relativeUrls: [],
+        nonNetworkProtocolUrls: [],
       };
     }
     if (inspected.remoteUrl) {
@@ -387,12 +391,16 @@ export function inspectRuntimeUrlAttribute(
     if (inspected.relativeUrl) {
       relativeUrls.push(inspected.relativeUrl);
     }
+    if (inspected.nonNetworkProtocolUrl) {
+      nonNetworkProtocolUrls.push(inspected.nonNetworkProtocolUrl);
+    }
   }
 
   return {
     safe: true,
     remoteUrls,
     relativeUrls,
+    nonNetworkProtocolUrls,
   };
 }
 
@@ -1306,6 +1314,7 @@ function inspectRuntimeUrlReference(
   safe: boolean;
   remoteUrl?: URL;
   relativeUrl?: string;
+  nonNetworkProtocolUrl?: string;
 } {
   const normalized = normalizeUrlForSecurityInspection(reference);
   if (normalized.length === 0 || normalized.includes("\\")) {
@@ -1340,10 +1349,11 @@ function inspectRuntimeUrlReference(
     }
   }
 
+  const safe =
+    allowSafeNonNetworkProtocol && SAFE_NON_NETWORK_URL_PROTOCOLS.has(protocol);
   return {
-    safe:
-      allowSafeNonNetworkProtocol &&
-      SAFE_NON_NETWORK_URL_PROTOCOLS.has(protocol),
+    safe,
+    ...(safe ? { nonNetworkProtocolUrl: normalized } : {}),
   };
 }
 

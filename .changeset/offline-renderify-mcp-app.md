@@ -8,9 +8,10 @@
 Add an official MCP Apps adapter for self-contained, offline declarative
 RuntimePlans. Share declarative event parsing across IR, security, and runtime,
 classify relative URL references so the MCP boundary can reject navigation and
-resource paths, and lazy-load the source import lexer so strict browser CSP does
-not initialize WebAssembly for declarative-only plans. Treat cancellation and
-teardown as terminal so delayed tool responses cannot reactivate a view.
+resource paths, including control-character-obfuscated navigation protocols,
+and lazy-load the source import lexer so strict browser CSP does not initialize
+WebAssembly for declarative-only plans. Treat cancellation and teardown as
+terminal so delayed tool responses cannot reactivate a view.
 Treat app-called tool error results as failures without rendering their
 structured plan. Reuse the declarative renderer across replacement plans and
 detach delegated DOM listeners when the view ends. Include the repository MIT

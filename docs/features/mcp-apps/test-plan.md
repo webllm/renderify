@@ -36,6 +36,7 @@ required for safe declarative events under a strict browser CSP.
 - Malformed structured content.
 - Missing or unsupported spec version.
 - Script-closing configuration and browser bundles.
+- Control-character-obfuscated `mailto:` and `tel:` navigation.
 - Host without server-tools capability.
 - Tool event outside the allowlist.
 - Message with the wrong `event.source`.
