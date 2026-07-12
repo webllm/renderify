@@ -27,6 +27,7 @@ export interface SecurityCheckResult {
 export interface RuntimeUrlAttributeInspection {
   safe: boolean;
   remoteUrls: URL[];
+  relativeUrls?: string[];
 }
 
 export interface RuntimeSecurityPolicy {
@@ -362,10 +363,12 @@ export function inspectRuntimeUrlAttribute(
     return {
       safe: false,
       remoteUrls: [],
+      relativeUrls: [],
     };
   }
 
   const remoteUrls: URL[] = [];
+  const relativeUrls: string[] = [];
   for (const reference of references) {
     const inspected = inspectRuntimeUrlReference(
       reference,
@@ -375,16 +378,21 @@ export function inspectRuntimeUrlAttribute(
       return {
         safe: false,
         remoteUrls: [],
+        relativeUrls: [],
       };
     }
     if (inspected.remoteUrl) {
       remoteUrls.push(inspected.remoteUrl);
+    }
+    if (inspected.relativeUrl) {
+      relativeUrls.push(inspected.relativeUrl);
     }
   }
 
   return {
     safe: true,
     remoteUrls,
+    relativeUrls,
   };
 }
 
@@ -1297,6 +1305,7 @@ function inspectRuntimeUrlReference(
 ): {
   safe: boolean;
   remoteUrl?: URL;
+  relativeUrl?: string;
 } {
   const normalized = normalizeUrlForSecurityInspection(reference);
   if (normalized.length === 0 || normalized.includes("\\")) {
@@ -1316,7 +1325,7 @@ function inspectRuntimeUrlReference(
 
   const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(normalized)?.[1];
   if (!scheme) {
-    return { safe: true };
+    return { safe: true, relativeUrl: normalized };
   }
 
   const protocol = `${scheme.toLowerCase()}:`;

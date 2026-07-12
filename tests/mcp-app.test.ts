@@ -120,6 +120,28 @@ test("mcp-app rejects executable, remote, persistent, and oversized plans", () =
       code: "NETWORK_DISABLED",
     },
     {
+      name: "relative navigation URL",
+      mutate: (plan) => {
+        plan.root = {
+          type: "element",
+          tag: "a",
+          props: { href: "/leak?secret=runtime-state" },
+        };
+      },
+      code: "NETWORK_DISABLED",
+    },
+    {
+      name: "relative resource URL",
+      mutate: (plan) => {
+        plan.root = {
+          type: "element",
+          tag: "img",
+          props: { src: "./dashboard.png" },
+        };
+      },
+      code: "NETWORK_DISABLED",
+    },
+    {
       name: "storage",
       mutate: (plan) => {
         plan.capabilities = { storage: ["localStorage"] };
@@ -159,6 +181,29 @@ test("mcp-app rejects executable, remote, persistent, and oversized plans", () =
       error instanceof DeclarativeMcpPlanError &&
       error.code === "PLAN_TOO_LARGE",
   );
+});
+
+test("mcp-app permits only non-network local fragment references", () => {
+  const plan = createPlan();
+  plan.root = {
+    type: "element",
+    tag: "section",
+    children: [
+      {
+        type: "element",
+        tag: "a",
+        props: { href: "#details" },
+        children: [{ type: "text", value: "Details" }],
+      },
+      {
+        type: "element",
+        tag: "path",
+        props: { fill: "url(#gradient)" },
+      },
+    ],
+  };
+
+  assert.doesNotThrow(() => parseDeclarativeMcpPlan(plan));
 });
 
 test("mcp-app tool payload uses official structured content and validates on both sides", () => {

@@ -12,6 +12,29 @@ import {
 export const DEFAULT_MCP_PLAN_MAX_BYTES = 512 * 1024;
 export const MAX_MCP_PLAN_MAX_BYTES = 5 * 1024 * 1024;
 
+const MCP_LOCAL_FRAGMENT_ATTRIBUTE_NAMES = new Set([
+  "href",
+  "usemap",
+  "xlink:href",
+  "xlinkhref",
+  "clip-path",
+  "clippath",
+  "cursor",
+  "fill",
+  "filter",
+  "marker",
+  "marker-end",
+  "marker-mid",
+  "marker-start",
+  "markerend",
+  "markermid",
+  "markerstart",
+  "mask",
+  "shape-inside",
+  "shape-outside",
+  "stroke",
+]);
+
 export type DeclarativeMcpPlanErrorCode =
   | "INVALID_LIMIT"
   | "INVALID_PLAN"
@@ -181,6 +204,9 @@ function assertOfflineDeclarativePlan(plan: RuntimePlan): void {
       if (
         !inspection.safe ||
         inspection.remoteUrls.length > 0 ||
+        (inspection.relativeUrls ?? []).some(
+          (reference) => !isAllowedLocalFragmentReference(name, reference),
+        ) ||
         hasNonDataAbsoluteScheme(value)
       ) {
         hasExternalOrUnsafeUrl = true;
@@ -222,6 +248,16 @@ function assertOfflineDeclarativePlan(plan: RuntimePlan): void {
       "Only the standard declarative execution profile is available in MCP Apps",
     );
   }
+}
+
+function isAllowedLocalFragmentReference(
+  attributeName: string,
+  reference: string,
+): boolean {
+  return (
+    MCP_LOCAL_FRAGMENT_ATTRIBUTE_NAMES.has(attributeName.toLowerCase()) &&
+    reference.startsWith("#")
+  );
 }
 
 function hasNonDataAbsoluteScheme(value: string): boolean {
