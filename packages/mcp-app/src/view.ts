@@ -14,6 +14,7 @@ import type {
 } from "@renderify/ir";
 import {
   createInteractiveSession,
+  DefaultUIRenderer,
   type RuntimeInteractiveSession,
 } from "@renderify/runtime";
 import {
@@ -67,6 +68,7 @@ export async function startRenderifyMcpApp(
       {},
       { autoResize: true, strict: true, allowUnsafeEval: false },
     );
+  const ui = new DefaultUIRenderer();
 
   let session: RuntimeInteractiveSession | undefined;
   let disposed = false;
@@ -95,6 +97,19 @@ export async function startRenderifyMcpApp(
     mount.dataset.renderifyStatus = status;
     if (message !== undefined) {
       mount.textContent = message;
+    }
+  };
+
+  const releaseRenderedView = async (): Promise<void> => {
+    const activeSession = session;
+    session = undefined;
+    try {
+      if (activeSession) {
+        await activeSession.terminate();
+      }
+    } finally {
+      ui.disposeTarget(mount);
+      mount.replaceChildren();
     }
   };
 
@@ -152,6 +167,7 @@ export async function startRenderifyMcpApp(
 
     let created: RuntimeInteractiveSession | undefined;
     created = await createInteractiveSession(plan, {
+      ui,
       target: {
         element: mount,
         onRuntimeEvent: async ({ event }) => {
@@ -203,7 +219,25 @@ export async function startRenderifyMcpApp(
                   if (!isCurrentSession(activeSession, generation)) {
                     return;
                   }
-                  await renderPlan(nextPlan);
+                  try {
+                    await renderPlan(nextPlan);
+                  } catch (error) {
+                    if (isInactive()) {
+                      return;
+                    }
+                    await releaseRenderedView();
+                    if (isInactive()) {
+                      return;
+                    }
+                    setStatus(
+                      "error",
+                      "This interactive view was rejected by its security policy.",
+                    );
+                    console.error(
+                      "[renderify/mcp-app] server tool result rejected",
+                      error,
+                    );
+                  }
                 });
                 return;
               }
@@ -244,6 +278,8 @@ export async function startRenderifyMcpApp(
     });
     if (isInactive() || renderGeneration !== generation) {
       await created.terminate();
+      ui.disposeTarget(mount);
+      mount.replaceChildren();
       return;
     }
     session = created;
@@ -253,6 +289,7 @@ export async function startRenderifyMcpApp(
 
   const consumeToolResult = async (result: CallToolResult): Promise<void> => {
     if (result.isError) {
+      await releaseRenderedView();
       setStatus(
         "error",
         extractText(result) ?? "The tool could not produce a view.",
@@ -263,6 +300,7 @@ export async function startRenderifyMcpApp(
       maxBytes: maxPlanBytes,
     });
     if (!plan) {
+      await releaseRenderedView();
       setStatus(
         "empty",
         extractText(result) ??
@@ -284,6 +322,7 @@ export async function startRenderifyMcpApp(
       try {
         await consumeToolResult(result);
       } catch (error) {
+        await releaseRenderedView();
         setStatus(
           "error",
           "This interactive view was rejected by its security policy.",
@@ -299,10 +338,7 @@ export async function startRenderifyMcpApp(
     terminated = true;
     renderGeneration += 1;
     void enqueue(async () => {
-      if (session) {
-        await session.terminate();
-        session = undefined;
-      }
+      await releaseRenderedView();
       setStatus("cancelled", reason ?? "Tool execution was cancelled.");
     });
   };
@@ -318,10 +354,7 @@ export async function startRenderifyMcpApp(
         renderGeneration += 1;
       }
       teardownPromise = enqueue(async () => {
-        if (session) {
-          await session.terminate();
-          session = undefined;
-        }
+        await releaseRenderedView();
         setStatus("terminated");
       });
     }
@@ -352,10 +385,7 @@ export async function startRenderifyMcpApp(
       }
       disposed = true;
       await enqueue(async () => {
-        if (session) {
-          await session.terminate();
-          session = undefined;
-        }
+        await releaseRenderedView();
       });
       await app.close();
       setStatus("disposed");

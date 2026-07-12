@@ -423,6 +423,7 @@ class DefaultUIRenderer implements UIRenderer {
     target?: RenderTarget,
   ): Promise<string>;
   renderNode(node: RuntimeNode): string;
+  disposeTarget(target: RenderTarget): void;
 }
 ```
 

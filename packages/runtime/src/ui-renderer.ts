@@ -125,6 +125,29 @@ export class DefaultUIRenderer implements UIRenderer {
     return this.renderNodeWithBindings(node).html;
   }
 
+  disposeTarget(target: RenderTarget): void {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    const resolvedTarget = this.resolveRenderTarget(target);
+    if (!resolvedTarget) {
+      return;
+    }
+
+    const { mountPoint } = resolvedTarget;
+    const session = this.mountSessions.get(mountPoint);
+    if (!session) {
+      return;
+    }
+
+    for (const [eventType, listener] of session.listeners.entries()) {
+      mountPoint.removeEventListener(eventType, listener);
+    }
+    session.listeners.clear();
+    this.mountSessions.delete(mountPoint);
+  }
+
   private renderNodeWithBindings(node: RuntimeNode): {
     html: string;
     eventBindings: SerializedEventBinding[];

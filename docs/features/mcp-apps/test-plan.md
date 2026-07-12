@@ -24,6 +24,7 @@ required for safe declarative events under a strict browser CSP.
 | Complete official handshake and teardown | Browser integration | official `AppBridge` in `tests/e2e/mcp-app.test.ts` |
 | Ignore a delayed tool result after teardown | Browser lifecycle | deferred official `tools/call` response in `tests/e2e/mcp-app.test.ts` |
 | Keep the current view when an app-called tool returns `isError` | Browser lifecycle | official error result with a valid structured plan |
+| Reuse and detach delegated DOM listeners across plan replacement, rejection, and teardown | Browser lifecycle | instrumented mount listener counts |
 | Ignore valid JSON-RPC from a sibling frame | Browser security | spoofed tool-result notification |
 | Enforce exact tool allowlist | Browser security | blocked and allowed button cases |
 | Make no external requests and produce no page errors | Browser security | Playwright request/error capture |

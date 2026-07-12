@@ -4,6 +4,7 @@ import { build } from "esbuild";
 import { chromium } from "playwright";
 import type { RuntimePlan } from "../../packages/ir/src/index";
 import {
+  bundleRenderifyMcpView,
   createRenderifyShell,
   planPayload,
   renderifyToolResult,
@@ -15,6 +16,11 @@ interface BrowserHostState {
   modelContexts: Array<Record<string, unknown>>;
   toolCalls: Array<{ name: string; arguments?: Record<string, unknown> }>;
   teardownResult?: Record<string, unknown>;
+}
+
+interface BrowserListenerStats {
+  added: Record<string, number>;
+  removed: Record<string, number>;
 }
 
 interface BrowserToolResult {
@@ -169,9 +175,25 @@ function createDeferredRefreshPlan(): RuntimePlan {
   };
 }
 
+function createOverDepthPlan(): RuntimePlan {
+  let root: RuntimePlan["root"] = { type: "text", value: "too deep" };
+  for (let index = 0; index < 10; index += 1) {
+    root = { type: "element", tag: "div", children: [root] };
+  }
+  return {
+    specVersion: "runtime-plan/v1",
+    id: "over_depth_plan",
+    version: 1,
+    capabilities: { domWrite: true },
+    root,
+  };
+}
+
 test("e2e: official AppBridge drives the offline Renderify MCP App lifecycle", async () => {
   const hostBundle = await bundleOfficialHostBridge();
+  const viewBundle = await bundleRenderifyMcpView();
   const shell = await createRenderifyShell({
+    browserBundle: instrumentMountListeners(viewBundle.code),
     allowedTools: ["refresh_dashboard"],
   });
   const initialResult = asBrowserToolResult(
@@ -335,6 +357,9 @@ test("e2e: official AppBridge drives the offline Renderify MCP App lifecycle", a
         .getAttribute("data-renderify-status"),
       "ready",
     );
+    let listenerStats = await readListenerStats(app);
+    assert.equal(listenerStats.added.click, 1);
+    assert.equal(listenerStats.removed.click ?? 0, 0);
 
     const initialized = await readHostState(page);
     assert.equal(initialized.initialized, 1);
@@ -389,6 +414,9 @@ test("e2e: official AppBridge drives the offline Renderify MCP App lifecycle", a
     assert.equal(state.toolCalls.length, 1);
     assert.equal(state.toolCalls[0]?.name, "refresh_dashboard");
     assert.deepEqual(state.toolCalls[0]?.arguments, { source: "mcp-app" });
+    listenerStats = await readListenerStats(app);
+    assert.equal(listenerStats.added.click, 1);
+    assert.equal(listenerStats.removed.click ?? 0, 0);
 
     await app.locator("#error-refresh").click();
     await page.waitForFunction(() => {
@@ -437,7 +465,105 @@ test("e2e: official AppBridge drives the offline Renderify MCP App lifecycle", a
         .getAttribute("data-renderify-status"),
       "terminated",
     );
+    listenerStats = await readListenerStats(app);
+    assert.equal(listenerStats.added.click, 1);
+    assert.equal(listenerStats.removed.click, 1);
     assert.deepEqual(externalRequests, []);
+    assert.deepEqual(pageErrors, []);
+  } finally {
+    await browser.close();
+  }
+});
+
+test("e2e: rejected replacement plans release delegated listeners", async () => {
+  const hostBundle = await bundleOfficialHostBridge();
+  const viewBundle = await bundleRenderifyMcpView();
+  const shell = await createRenderifyShell({
+    browserBundle: instrumentMountListeners(viewBundle.code),
+    allowedTools: ["replace_view"],
+  });
+  const initialResult = asBrowserToolResult(
+    renderifyToolResult(
+      planPayload({
+        specVersion: "runtime-plan/v1",
+        id: "replacement_source",
+        version: 1,
+        capabilities: { domWrite: true },
+        root: {
+          type: "element",
+          tag: "button",
+          props: {
+            id: "replace-view",
+            type: "button",
+            onClick: "tool:replace_view",
+          },
+          children: [{ type: "text", value: "Replace view" }],
+        },
+      }),
+    ),
+  );
+  const rejectedResult = asBrowserToolResult(
+    renderifyToolResult(planPayload(createOverDepthPlan())),
+  );
+
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+
+  try {
+    await page.setContent('<iframe id="app" sandbox="allow-scripts"></iframe>');
+    await page.addScriptTag({ content: hostBundle });
+    await page.evaluate(
+      async ({ shellHtml, firstResult, nextResult }) => {
+        const hostModule = (
+          globalThis as unknown as { McpAppsHost: BrowserHostModule }
+        ).McpAppsHost;
+        const iframe = document.querySelector<HTMLIFrameElement>("#app");
+        if (!iframe?.contentWindow) {
+          throw new Error("MCP App iframe is unavailable");
+        }
+
+        const bridge = new hostModule.AppBridge(
+          null,
+          { name: "Renderify rejection host", version: "1.0.0" },
+          {
+            serverTools: {},
+            updateModelContext: { structuredContent: {} },
+          },
+        );
+        bridge.onupdatemodelcontext = async () => ({});
+        bridge.oncalltool = async () => nextResult;
+        bridge.oninitialized = () => {
+          void bridge.sendToolResult(firstResult);
+        };
+        await bridge.connect(
+          new hostModule.PostMessageTransport(
+            iframe.contentWindow,
+            iframe.contentWindow,
+          ),
+        );
+        iframe.srcdoc = shellHtml;
+      },
+      {
+        shellHtml: shell.html,
+        firstResult: initialResult,
+        nextResult: rejectedResult,
+      },
+    );
+
+    const app = page.frameLocator("#app");
+    await app.locator("#replace-view").click();
+    await app
+      .locator('#renderify-mcp-root[data-renderify-status="error"]')
+      .waitFor({ state: "attached" });
+    assert.equal(
+      await app.locator("#renderify-mcp-root").textContent(),
+      "This interactive view was rejected by its security policy.",
+    );
+    const listenerStats = await readListenerStats(app);
+    assert.equal(listenerStats.added.click, 1);
+    assert.equal(listenerStats.removed.click, 1);
     assert.deepEqual(pageErrors, []);
   } finally {
     await browser.close();
@@ -466,6 +592,11 @@ async function bundleOfficialHostBridge(): Promise<string> {
   return code;
 }
 
+function instrumentMountListeners(bundle: string): string {
+  const instrumentation = `globalThis.__renderifyListenerStats={added:{},removed:{}};(function(){var add=EventTarget.prototype.addEventListener;var remove=EventTarget.prototype.removeEventListener;EventTarget.prototype.addEventListener=function(type){if(this&&this.id==="renderify-mcp-root"){var stats=globalThis.__renderifyListenerStats.added;stats[type]=(stats[type]||0)+1;}return add.apply(this,arguments);};EventTarget.prototype.removeEventListener=function(type){if(this&&this.id==="renderify-mcp-root"){var stats=globalThis.__renderifyListenerStats.removed;stats[type]=(stats[type]||0)+1;}return remove.apply(this,arguments);};})();`;
+  return `${instrumentation}${bundle}`;
+}
+
 function asBrowserToolResult(value: unknown): BrowserToolResult {
   return JSON.parse(JSON.stringify(value)) as BrowserToolResult;
 }
@@ -481,5 +612,21 @@ async function readHostState(
       throw new Error("MCP host state is unavailable");
     }
     return structuredClone(state);
+  });
+}
+
+async function readListenerStats(
+  app: import("playwright").FrameLocator,
+): Promise<BrowserListenerStats> {
+  return app.locator("body").evaluate(() => {
+    const stats = (
+      globalThis as unknown as {
+        __renderifyListenerStats?: BrowserListenerStats;
+      }
+    ).__renderifyListenerStats;
+    if (!stats) {
+      throw new Error("MCP listener stats are unavailable");
+    }
+    return structuredClone(stats);
   });
 }
