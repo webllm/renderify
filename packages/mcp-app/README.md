@@ -76,6 +76,9 @@ model-only by default.
 ## Public API
 
 - `registerRenderifyApp` composes one tool and one resource.
+- Its handler receives the parsed arguments plus the official MCP
+  `RequestHandlerExtra`, including request cancellation, authentication,
+  session, and transport context.
 - `MCP_UI_EXTENSION_ID`, `RESOURCE_MIME_TYPE`, and `getUiCapability` re-export
   the official capability-negotiation helpers.
 - `createRenderifyUiResource`, `createRenderifyShell`, `renderifyToolMeta`, and

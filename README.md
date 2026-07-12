@@ -416,6 +416,10 @@ await registerRenderifyApp(server, {
 });
 ```
 
+The handler's second argument is the official MCP request context, including
+`authInfo`, cancellation signal, session ID, and request metadata when supplied
+by the transport.
+
 Runtime source, imports, component modules, network access, timers, persistent
 storage, and undeclared UI-to-tool calls fail closed. See the
 [MCP Apps specification](docs/features/mcp-apps/spec.md) and

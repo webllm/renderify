@@ -90,6 +90,9 @@ sequenceDiagram
   and teardown response handling.
 - App-to-server tool calls MUST default to denied. Matching is exact and a host
   capability is required before a call is attempted.
+- `registerRenderifyApp` MUST forward the official SDK request context to its
+  handler for request-scoped authentication, authorization, cancellation, and
+  auditing.
 - Model context MUST contain only plan identity, current state, and the last
   declarative event; it MUST NOT copy the entire plan or metadata.
 
@@ -98,7 +101,9 @@ sequenceDiagram
 The resource requests no camera, microphone, geolocation, or clipboard
 permission. An allowlisted tool name is routing permission only; each server
 tool MUST still authenticate, authorize, validate arguments, and confirm
-sensitive side effects according to its own policy.
+sensitive side effects according to its own policy. Registered handlers receive
+the SDK `RequestHandlerExtra`, including `authInfo` and the cancellation signal,
+when the transport supplies them.
 
 ## Data changes
 

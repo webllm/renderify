@@ -19,6 +19,7 @@ required for safe declarative events under a strict browser CSP.
 | Reject source, modules, components, network, storage, timers, profiles, and oversize plans | Unit | `tests/mcp-app.test.ts` plan corpus |
 | Detach plans before returning or rendering | Unit | mutation-after-parse assertion |
 | Emit valid official resource/tool metadata | Schema + SDK integration | official Zod schemas and in-memory `McpServer`/`Client` |
+| Forward official request context with and without an input schema | SDK integration | handler argument, signal, request ID, and notification assertions |
 | Hash every inline script and escape configuration | Unit | CSP hash reconstruction and script-breakout fixture |
 | Normalize provided browser bundle line endings and reject empty or null-containing bundles | Unit | normalized CSP hash, byte-count, and rejection assertions |
 | Resolve relative browser view entries from the configured or current working directory | Unit | custom `viewEntry` bundle assertion |

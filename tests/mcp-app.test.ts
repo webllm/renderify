@@ -20,6 +20,7 @@ import {
   MCP_UI_EXTENSION_ID,
   parseDeclarativeMcpPlan,
   planPayload,
+  type RenderifyToolHandlerExtra,
   registerRenderifyApp,
   renderifyToolMeta,
   renderifyToolResult,
@@ -429,6 +430,9 @@ test("mcp-app resource metadata declares no network or browser permissions", asy
 test("mcp-app registers interoperable tools and resources with the official SDK", async () => {
   const server = new McpServer({ name: "renderify-test", version: "1.0.0" });
   let observedArgs: unknown;
+  let observedExtra: RenderifyToolHandlerExtra | undefined;
+  let observedNoSchemaArgs: unknown;
+  let observedNoSchemaExtra: RenderifyToolHandlerExtra | undefined;
   await registerRenderifyApp(server, {
     uri: "ui://renderify/dashboard",
     name: "Renderify dashboard",
@@ -436,11 +440,24 @@ test("mcp-app registers interoperable tools and resources with the official SDK"
       "globalThis.RenderifyMcpApp={startRenderifyMcpApp:async()=>{}};",
     toolName: "show_dashboard",
     toolInputSchema: z.object({ label: z.string() }),
-    handler: (args) => {
+    handler: (args, extra) => {
       observedArgs = args;
+      observedExtra = extra;
       const plan = createPlan();
       plan.metadata = { label: (args as { label: string }).label };
       return plan;
+    },
+  });
+  await registerRenderifyApp(server, {
+    uri: "ui://renderify/default-dashboard",
+    name: "Default Renderify dashboard",
+    browserBundle:
+      "globalThis.RenderifyMcpApp={startRenderifyMcpApp:async()=>{}};",
+    toolName: "show_default_dashboard",
+    handler: (args, extra) => {
+      observedNoSchemaArgs = args;
+      observedNoSchemaExtra = extra;
+      return createPlan();
     },
   });
 
@@ -486,7 +503,24 @@ test("mcp-app registers interoperable tools and resources with the official SDK"
       arguments: { label: "Quarterly" },
     });
     assert.deepEqual(observedArgs, { label: "Quarterly" });
+    assert.ok(observedExtra);
+    assert.ok(observedExtra.signal instanceof AbortSignal);
+    assert.notEqual(observedExtra.requestId, undefined);
+    assert.equal(typeof observedExtra.sendNotification, "function");
     assert.equal(extractRenderifyPlan(called)?.metadata?.label, "Quarterly");
+
+    const calledWithoutSchema = await client.callTool({
+      name: "show_default_dashboard",
+    });
+    assert.deepEqual(observedNoSchemaArgs, {});
+    assert.ok(observedNoSchemaExtra);
+    assert.ok(observedNoSchemaExtra.signal instanceof AbortSignal);
+    assert.notEqual(observedNoSchemaExtra.requestId, undefined);
+    assert.equal(typeof observedNoSchemaExtra.sendNotification, "function");
+    assert.equal(
+      extractRenderifyPlan(calledWithoutSchema)?.id,
+      "mcp_unit_plan",
+    );
   } finally {
     await client.close();
     await server.close();

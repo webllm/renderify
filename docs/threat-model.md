@@ -107,6 +107,9 @@ and imports if the caller incorrectly treats model output as reviewed code.
   models MUST treat it as untrusted context, not instructions with authority.
 - Tool arguments originate in the plan. Servers MUST validate them and require
   confirmation for destructive or sensitive effects.
+- The registration helper forwards the official request context so handlers can
+  inspect transport-provided authentication, cancellation, session, and request
+  metadata instead of relying only on attacker-controlled tool arguments.
 
 ## Residual risks
 

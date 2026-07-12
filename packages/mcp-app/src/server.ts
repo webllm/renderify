@@ -17,7 +17,12 @@ import type {
   RegisteredResource,
   RegisteredTool,
 } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
+import type {
+  CallToolResult,
+  ServerNotification,
+  ServerRequest,
+} from "@modelcontextprotocol/sdk/types.js";
 import { isRuntimePlan, type RuntimePlan } from "@renderify/ir";
 import {
   type ParseDeclarativeMcpPlanOptions,
@@ -86,6 +91,11 @@ export function extractRenderifyPlan(
 
 export type RenderifyToolVisibility = "model" | "app";
 
+export type RenderifyToolHandlerExtra = RequestHandlerExtra<
+  ServerRequest,
+  ServerNotification
+>;
+
 export function renderifyToolMeta(
   resourceUri: string,
   options: { visibility?: readonly RenderifyToolVisibility[] } = {},
@@ -152,9 +162,13 @@ export interface RegisterRenderifyAppOptions
   toolInputSchema?: McpUiAppToolConfig["inputSchema"];
   toolVisibility?: readonly RenderifyToolVisibility[];
   summary?: string | ((plan: RuntimePlan) => string);
-  handler:
-    | ((args: unknown) => RuntimePlan | RenderifyUiPayload)
-    | ((args: unknown) => Promise<RuntimePlan | RenderifyUiPayload>);
+  handler: (
+    args: unknown,
+    extra: RenderifyToolHandlerExtra,
+  ) =>
+    | RuntimePlan
+    | RenderifyUiPayload
+    | Promise<RuntimePlan | RenderifyUiPayload>;
 }
 
 export interface RegisteredRenderifyApp {
@@ -201,13 +215,12 @@ export async function registerRenderifyApp(
   );
 
   const toolName = normalizeToolName(options.toolName);
+  const hasInputSchema = options.toolInputSchema !== undefined;
   const toolConfig: McpUiAppToolConfig = {
     ...(options.toolTitle ? { title: options.toolTitle } : {}),
     description:
       options.toolDescription ?? "Render an offline interactive RuntimePlan",
-    ...(options.toolInputSchema
-      ? { inputSchema: options.toolInputSchema }
-      : {}),
+    ...(hasInputSchema ? { inputSchema: options.toolInputSchema } : {}),
     _meta: renderifyToolMeta(resource.uri, {
       visibility: options.toolVisibility,
     }),
@@ -217,8 +230,12 @@ export async function registerRenderifyApp(
     toolName,
     toolConfig,
     async (...callbackArgs: unknown[]) => {
-      const args = options.toolInputSchema === undefined ? {} : callbackArgs[0];
-      const produced = await options.handler(args);
+      const args = hasInputSchema ? callbackArgs[0] : {};
+      const extra = callbackArgs[hasInputSchema ? 1 : 0];
+      const produced = await options.handler(
+        args,
+        extra as RenderifyToolHandlerExtra,
+      );
       const payload = isRuntimePlan(produced)
         ? planPayload(produced, { maxBytes: options.maxPlanBytes })
         : planPayload(produced.plan, { maxBytes: options.maxPlanBytes });
