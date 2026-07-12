@@ -70,6 +70,9 @@ export async function startRenderifyMcpApp(
 
   let session: RuntimeInteractiveSession | undefined;
   let disposed = false;
+  let terminated = false;
+  let renderGeneration = 0;
+  let teardownPromise: Promise<void> | undefined;
   let queue = Promise.resolve();
 
   const enqueue = async <T>(operation: () => Promise<T>): Promise<T> => {
@@ -80,6 +83,13 @@ export async function startRenderifyMcpApp(
     );
     return run;
   };
+
+  const isInactive = (): boolean => disposed || terminated;
+  const isCurrentSession = (
+    candidate: RuntimeInteractiveSession,
+    generation: number,
+  ): boolean =>
+    !isInactive() && session === candidate && renderGeneration === generation;
 
   const setStatus = (status: string, message?: string): void => {
     mount.dataset.renderifyStatus = status;
@@ -92,7 +102,11 @@ export async function startRenderifyMcpApp(
     activeSession: RuntimeInteractiveSession,
     event?: RuntimeEvent,
   ): Promise<void> => {
-    if (config.enableModelContext === false) {
+    if (
+      config.enableModelContext === false ||
+      isInactive() ||
+      activeSession !== session
+    ) {
       return;
     }
     try {
@@ -106,22 +120,32 @@ export async function startRenderifyMcpApp(
           },
         },
       });
+      if (isInactive() || activeSession !== session) {
+        return;
+      }
       delete mount.dataset.renderifyContextError;
     } catch (error) {
+      if (isInactive() || activeSession !== session) {
+        return;
+      }
       mount.dataset.renderifyContextError = "true";
       console.error("[renderify/mcp-app] model context update failed", error);
     }
   };
 
   const renderPlan = async (candidate: unknown): Promise<void> => {
-    if (disposed) {
+    if (isInactive()) {
       return;
     }
     const plan = parseDeclarativeMcpPlan(candidate, { maxBytes: maxPlanBytes });
+    const generation = ++renderGeneration;
     const previous = session;
     session = undefined;
     if (previous) {
       await previous.terminate();
+    }
+    if (isInactive() || renderGeneration !== generation) {
+      return;
     }
     mount.replaceChildren();
     setStatus("loading");
@@ -131,7 +155,8 @@ export async function startRenderifyMcpApp(
       target: {
         element: mount,
         onRuntimeEvent: async ({ event }) => {
-          if (!created || disposed) {
+          const activeSession = created;
+          if (!activeSession || !isCurrentSession(activeSession, generation)) {
             return;
           }
           if (event.type.startsWith(toolEventPrefix)) {
@@ -141,7 +166,7 @@ export async function startRenderifyMcpApp(
               console.error(
                 `[renderify/mcp-app] runtime event requested disallowed tool: ${toolName}`,
               );
-              await updateModelContext(created, event);
+              await updateModelContext(activeSession, event);
               return;
             }
             if (!app.getHostCapabilities()?.serverTools) {
@@ -149,7 +174,7 @@ export async function startRenderifyMcpApp(
               console.error(
                 "[renderify/mcp-app] host does not expose server tools to this app",
               );
-              await updateModelContext(created, event);
+              await updateModelContext(activeSession, event);
               return;
             }
             try {
@@ -157,25 +182,36 @@ export async function startRenderifyMcpApp(
                 name: toolName,
                 arguments: event.payload ?? {},
               });
+              if (!isCurrentSession(activeSession, generation)) {
+                return;
+              }
               delete mount.dataset.renderifyToolError;
               const nextPlan = readDeclarativePlanFromToolResult(result, {
                 maxBytes: maxPlanBytes,
               });
               if (nextPlan) {
-                await enqueue(() => renderPlan(nextPlan));
+                await enqueue(async () => {
+                  if (!isCurrentSession(activeSession, generation)) {
+                    return;
+                  }
+                  await renderPlan(nextPlan);
+                });
                 return;
               }
             } catch (error) {
+              if (!isCurrentSession(activeSession, generation)) {
+                return;
+              }
               mount.dataset.renderifyToolError = "call-failed";
               console.error(
                 "[renderify/mcp-app] server tool call failed",
                 error,
               );
-              await updateModelContext(created, event);
+              await updateModelContext(activeSession, event);
               return;
             }
           }
-          await updateModelContext(created, event);
+          await updateModelContext(activeSession, event);
         },
       },
       securityInitialization: {
@@ -197,6 +233,10 @@ export async function startRenderifyMcpApp(
       },
       autoPinLatestModuleManifest: false,
     });
+    if (isInactive() || renderGeneration !== generation) {
+      await created.terminate();
+      return;
+    }
     session = created;
     setStatus("ready");
     await updateModelContext(created);
@@ -225,7 +265,13 @@ export async function startRenderifyMcpApp(
   };
 
   app.ontoolresult = (result) => {
+    if (isInactive()) {
+      return;
+    }
     void enqueue(async () => {
+      if (isInactive()) {
+        return;
+      }
       try {
         await consumeToolResult(result);
       } catch (error) {
@@ -238,6 +284,11 @@ export async function startRenderifyMcpApp(
     });
   };
   app.ontoolcancelled = ({ reason }) => {
+    if (isInactive()) {
+      return;
+    }
+    terminated = true;
+    renderGeneration += 1;
     void enqueue(async () => {
       if (session) {
         await session.terminate();
@@ -247,16 +298,25 @@ export async function startRenderifyMcpApp(
     });
   };
   app.onhostcontextchanged = (context) => {
-    applyHostContext(context);
+    if (!isInactive()) {
+      applyHostContext(context);
+    }
   };
   app.onteardown = async () => {
-    await enqueue(async () => {
-      if (session) {
-        await session.terminate();
-        session = undefined;
+    if (!teardownPromise) {
+      if (!terminated) {
+        terminated = true;
+        renderGeneration += 1;
       }
-      setStatus("terminated");
-    });
+      teardownPromise = enqueue(async () => {
+        if (session) {
+          await session.terminate();
+          session = undefined;
+        }
+        setStatus("terminated");
+      });
+    }
+    await teardownPromise;
     return {};
   };
 
@@ -265,8 +325,10 @@ export async function startRenderifyMcpApp(
     new PostMessageTransport(window.parent, window.parent);
   try {
     await app.connect(transport);
-    applyHostContext(app.getHostContext());
-    setStatus("connected");
+    if (!isInactive()) {
+      applyHostContext(app.getHostContext());
+      setStatus("connected");
+    }
   } catch (error) {
     setStatus("error", "Unable to connect this interactive view to its host.");
     throw error;

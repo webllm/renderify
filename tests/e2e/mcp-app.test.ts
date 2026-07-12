@@ -127,6 +127,32 @@ function createTextPlan(id: string, text: string): RuntimePlan {
   };
 }
 
+function createDeferredRefreshPlan(): RuntimePlan {
+  return {
+    specVersion: "runtime-plan/v1",
+    id: "refreshed_plan",
+    version: 1,
+    capabilities: { domWrite: true },
+    root: {
+      type: "element",
+      tag: "section",
+      children: [
+        { type: "text", value: "Refreshed safely" },
+        {
+          type: "element",
+          tag: "button",
+          props: {
+            id: "deferred-refresh",
+            type: "button",
+            onClick: "tool:refresh_dashboard",
+          },
+          children: [{ type: "text", value: "Deferred refresh" }],
+        },
+      ],
+    },
+  };
+}
+
 test("e2e: official AppBridge drives the offline Renderify MCP App lifecycle", async () => {
   const hostBundle = await bundleOfficialHostBridge();
   const shell = await createRenderifyShell({
@@ -136,8 +162,11 @@ test("e2e: official AppBridge drives the offline Renderify MCP App lifecycle", a
     renderifyToolResult(planPayload(createInteractivePlan())),
   );
   const refreshedResult = asBrowserToolResult(
+    renderifyToolResult(planPayload(createDeferredRefreshPlan())),
+  );
+  const lateResult = asBrowserToolResult(
     renderifyToolResult(
-      planPayload(createTextPlan("refreshed_plan", "Refreshed safely")),
+      planPayload(createTextPlan("late_plan", "LATE RESULT")),
     ),
   );
   const spoofedResult = asBrowserToolResult(
@@ -171,10 +200,12 @@ test("e2e: official AppBridge drives the offline Renderify MCP App lifecycle", a
         shellHtml,
         firstResult,
         nextResult,
+        deferredResult,
       }: {
         shellHtml: string;
         firstResult: BrowserToolResult;
         nextResult: BrowserToolResult;
+        deferredResult: BrowserToolResult;
       }) => {
         const hostModule = (
           globalThis as unknown as { McpAppsHost: BrowserHostModule }
@@ -204,6 +235,15 @@ test("e2e: official AppBridge drives the offline Renderify MCP App lifecycle", a
         };
         bridge.oncalltool = async (params) => {
           state.toolCalls.push(params);
+          if (state.toolCalls.length > 1) {
+            return new Promise<BrowserToolResult>((resolve) => {
+              (
+                globalThis as unknown as {
+                  __resolvePendingMcpTool: () => void;
+                }
+              ).__resolvePendingMcpTool = () => resolve(deferredResult);
+            });
+          }
           return nextResult;
         };
         bridge.oninitialized = () => {
@@ -234,6 +274,7 @@ test("e2e: official AppBridge drives the offline Renderify MCP App lifecycle", a
         shellHtml: shell.html,
         firstResult: initialResult,
         nextResult: refreshedResult,
+        deferredResult: lateResult,
       },
     );
 
@@ -320,6 +361,14 @@ test("e2e: official AppBridge drives the offline Renderify MCP App lifecycle", a
     assert.equal(state.toolCalls[0]?.name, "refresh_dashboard");
     assert.deepEqual(state.toolCalls[0]?.arguments, { source: "mcp-app" });
 
+    await app.locator("#deferred-refresh").click();
+    await page.waitForFunction(() => {
+      const hostState = (
+        globalThis as unknown as { __mcpHostState?: BrowserHostState }
+      ).__mcpHostState;
+      return hostState?.toolCalls.length === 2;
+    });
+
     await page.evaluate(async () => {
       const target = globalThis as unknown as {
         __mcpBridge: BrowserBridge;
@@ -333,6 +382,19 @@ test("e2e: official AppBridge drives the offline Renderify MCP App lifecycle", a
       .waitFor({ state: "attached" });
     state = await readHostState(page);
     assert.deepEqual(state.teardownResult, {});
+    await page.evaluate(() => {
+      (
+        globalThis as unknown as { __resolvePendingMcpTool: () => void }
+      ).__resolvePendingMcpTool();
+    });
+    await page.waitForTimeout(150);
+    assert.equal(await app.getByText("LATE RESULT").count(), 0);
+    assert.equal(
+      await app
+        .locator("#renderify-mcp-root")
+        .getAttribute("data-renderify-status"),
+      "terminated",
+    );
     assert.deepEqual(externalRequests, []);
     assert.deepEqual(pageErrors, []);
   } finally {
