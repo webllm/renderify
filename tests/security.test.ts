@@ -46,6 +46,32 @@ test("security checker blocks disallowed tags", async () => {
   assert.ok(result.diagnostics.length > 0);
 });
 
+test("security checker allows declarative event bindings without allowing inline handlers", async () => {
+  const checker = new DefaultSecurityChecker();
+  checker.initialize({ profile: "strict" });
+
+  const plan = createPlan("button");
+  plan.root = createElementNode("button", {
+    onClick: {
+      type: "increment",
+      payload: { delta: 1 },
+    },
+  });
+  const declarative = await checker.checkPlan(plan);
+  assert.equal(declarative.safe, true, declarative.issues.join("; "));
+
+  plan.root = createElementNode("button", {
+    onClick: { code: "alert(1)" },
+  });
+  const malformed = await checker.checkPlan(plan);
+  assert.equal(malformed.safe, false);
+  assert.ok(
+    malformed.issues.some((issue) =>
+      issue.includes("Inline event handler is not allowed: onClick"),
+    ),
+  );
+});
+
 test("security checker fail-closed rejects malformed plan payloads", async () => {
   const checker = new DefaultSecurityChecker();
   checker.initialize();

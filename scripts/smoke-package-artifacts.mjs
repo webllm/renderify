@@ -14,6 +14,7 @@ const libraryPackages = [
   "runtime",
   "core",
   "llm",
+  "mcp-app",
   "renderify",
 ];
 
@@ -32,6 +33,38 @@ for (const name of libraryPackages) {
   assert.ok(
     cjsNamespace && Object.keys(cjsNamespace).length > 0,
     `${name} CommonJS artifact has no exports`,
+  );
+}
+
+for (const relativePath of [
+  "packages/mcp-app/dist/view.mjs",
+  "packages/mcp-app/dist/view.cjs",
+]) {
+  const namespace = relativePath.endsWith(".mjs")
+    ? await import(pathToFileURL(path.join(root, relativePath)).href)
+    : require(path.join(root, relativePath));
+  assert.equal(
+    typeof namespace.startRenderifyMcpApp,
+    "function",
+    `${relativePath} is missing startRenderifyMcpApp`,
+  );
+}
+
+const mcpAppEsm = await import(
+  pathToFileURL(path.join(root, "packages/mcp-app/dist/mcp-app.mjs")).href
+);
+const mcpAppCjs = require(path.join(root, "packages/mcp-app/dist/mcp-app.cjs"));
+for (const [format, namespace] of [
+  ["ESM", mcpAppEsm],
+  ["CommonJS", mcpAppCjs],
+]) {
+  const shell = await namespace.createRenderifyShell();
+  assert.match(shell.html, /Content-Security-Policy/);
+  assert.equal(shell.csp.includes("unsafe-eval"), false);
+  assert.equal(
+    shell.csp.includes("script-src 'unsafe-inline'"),
+    false,
+    `${format} MCP App shell uses script unsafe-inline`,
   );
 }
 

@@ -25,6 +25,7 @@ renderify/
 │   ├── ir/           # @renderify/ir — Intermediate representation
 │   ├── runtime/      # @renderify/runtime — Execution engine
 │   ├── security/     # @renderify/security — Security policies
+│   ├── mcp-app/      # @renderify/mcp-app — Offline MCP Apps adapter
 │   ├── core/         # @renderify/core — Orchestration facade
 │   ├── llm/          # @renderify/llm — LLM providers
 │   ├── renderify/    # renderify — Official SDK facade
@@ -101,10 +102,16 @@ llm (depends on core, ir)
   ↑
 renderify (depends on core, ir, llm, runtime, security)
 
+mcp-app (depends on ir, security, runtime, official MCP Apps SDK)
+
 cli (depends on core, ir, llm, security, runtime)
 ```
 
 Changes to `@renderify/ir` may affect all packages. Changes to `renderify` and `@renderify/cli` typically affect nothing downstream.
+
+Changes to the MCP App plan surface, CSP, bridge lifecycle, or tool allowlist
+must update the feature spec and threat model and pass the official-bridge
+Chromium test without skipped cases.
 
 ## Build System
 

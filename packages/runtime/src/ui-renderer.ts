@@ -4,6 +4,7 @@ import type {
   RuntimeExecutionResult,
   RuntimeNode,
 } from "@renderify/ir";
+import { parseRuntimeEventBinding } from "@renderify/ir";
 import {
   inspectRuntimeUrlAttribute,
   isRuntimeUrlAttribute,
@@ -787,7 +788,7 @@ function serializeProps(
       continue;
     }
 
-    const eventSpec = parseRuntimeEventProp(key, rawValue);
+    const eventSpec = parseRuntimeEventBinding(key, rawValue);
     if (eventSpec) {
       const bindingId = `evt_${String(++context.nextBindingId)}`;
       context.eventBindings.push({
@@ -989,58 +990,6 @@ function sanitizeElementAttributes(element: Element): void {
   if (targetIsBlank && !relProvided) {
     element.setAttribute("rel", "noopener noreferrer");
   }
-}
-
-function parseRuntimeEventProp(
-  propName: string,
-  value: JsonValue,
-): { domEvent: string; runtimeEvent: RuntimeEvent } | undefined {
-  if (!/^on[A-Z]/.test(propName)) {
-    return undefined;
-  }
-
-  const domEvent = propName.slice(2).toLowerCase();
-  if (!/^[a-z][a-z0-9_-]*$/.test(domEvent)) {
-    return undefined;
-  }
-
-  if (typeof value === "string" && value.trim().length > 0) {
-    return {
-      domEvent,
-      runtimeEvent: {
-        type: value.trim(),
-      },
-    };
-  }
-
-  if (!isJsonObject(value)) {
-    return undefined;
-  }
-
-  const eventType = value.type;
-  if (typeof eventType !== "string" || eventType.trim().length === 0) {
-    return undefined;
-  }
-
-  const payload = value.payload;
-  const runtimeEvent: RuntimeEvent = {
-    type: eventType.trim(),
-  };
-
-  if (isJsonObject(payload)) {
-    runtimeEvent.payload = payload;
-  }
-
-  return {
-    domEvent,
-    runtimeEvent,
-  };
-}
-
-function isJsonObject(
-  value: JsonValue | undefined,
-): value is Record<string, JsonValue> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function escapeHtml(value: string): string {

@@ -54,7 +54,7 @@ LLMs are increasingly capable of generating UI code, but **there is no good way 
 | --- | --- |
 | **v0 / Bolt.new** | Requires a full build backend (Next.js compile + deploy). Not embeddable as a runtime in your own app. |
 | **Streamlit / Gradio** | Python-based, server-rendered. Not a frontend runtime. |
-| **MCP UI** | Limited to Markdown + a small fixed component set. Cannot express arbitrary UI. |
+| **MCP Apps** | Standardizes the host/resource envelope; applications still need a rendering model and security boundary. |
 | **Anthropic Artifacts** | Closed implementation, not open-source, not embeddable. |
 | **JSON schema renderers (A2UI, json-render)** | LLM fills parameters into a predefined component catalog. Cannot express anything outside the schema. |
 | **Sandpack / WebContainers** | Full in-browser bundlers — powerful but heavyweight, not optimized for the LLM → UI hot path. |
@@ -77,6 +77,7 @@ LLM output (JSX/TSX or structured plan)
 - **JSPM-only strict preset**: Set `RENDERIFY_RUNTIME_JSPM_ONLY_STRICT_MODE=true` to force strict profile + manifest/integrity enforcement + preflight fail-fast + no fallback CDNs.
 - **Dual input paths**: Accepts both structured JSON RuntimePlans (for precise LLM structured output) and raw TSX/JSX code blocks (for natural LLM text generation).
 - **LLM is optional**: You can use Renderify as a renderer-only runtime by supplying RuntimePlan/source from your own backend or model pipeline.
+- **Official MCP Apps adapter**: `@renderify/mcp-app` serves a self-contained `ui://` resource for offline declarative RuntimePlans, with official protocol lifecycle handling and a strict no-source/no-network boundary.
 - **Streaming-first rendering**: `renderPromptStream` emits `llm-delta` / `preview` / `final` chunks so chat UIs can progressively render.
 - **Pluggable at every stage**: 10 hook points (`beforeLLM`, `afterCodeGen`, `beforeRender`, etc.) let you inject custom logic without forking the core.
 
@@ -390,6 +391,36 @@ Auto-pin-latest workflow (`renderTrustedPlanInBrowser` default for reviewed sour
 
 Use `manifest-only` in production (`autoPinLatestModuleManifest: false`) when you want fully pre-pinned, reviewable dependency mappings.
 
+## MCP Apps (Offline Declarative)
+
+Use the dedicated adapter when an MCP tool should display a portable interactive
+view. This path intentionally accepts a narrower contract than the general
+runtime: element/text RuntimePlans and local state transitions only.
+
+```ts
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { registerRenderifyApp } from "@renderify/mcp-app";
+
+const server = new McpServer({ name: "dashboard", version: "1.0.0" });
+
+await registerRenderifyApp(server, {
+  uri: "ui://dashboard/main",
+  name: "Dashboard",
+  toolName: "show_dashboard",
+  handler: () => ({
+    specVersion: "runtime-plan/v1",
+    id: "dashboard",
+    version: 1,
+    root: { type: "text", value: "Hello from MCP Apps" },
+  }),
+});
+```
+
+Runtime source, imports, component modules, network access, timers, persistent
+storage, and undeclared UI-to-tool calls fail closed. See the
+[MCP Apps specification](docs/features/mcp-apps/spec.md) and
+[threat model](docs/threat-model.md).
+
 ## Package Topology
 
 | Package               | Responsibility                                                   |
@@ -398,6 +429,7 @@ Use `manifest-only` in production (`autoPinLatestModuleManifest: false`) when yo
 | `@renderify/ir`       | Runtime IR contracts (plan/node/state/action/event/capabilities) |
 | `@renderify/runtime`  | Runtime execution engine + JSPM loader + one-line embed API      |
 | `@renderify/security` | Policy profiles + plan/module/source static checks               |
+| `@renderify/mcp-app`  | Official MCP Apps adapter for offline declarative RuntimePlans   |
 | `@renderify/core`     | Legacy orchestration facade (optional compatibility layer)       |
 | `@renderify/llm`      | LLM provider package (OpenAI + OpenAI Codex + Anthropic + Google + local providers) |
 | `@renderify/cli`      | CLI + browser playground                                         |
@@ -411,6 +443,8 @@ Use `manifest-only` in production (`autoPinLatestModuleManifest: false`) when yo
 - Dependency verification model: [`docs/runtime-execution.md#verification-model`](docs/runtime-execution.md#verification-model)
 - Browser embedding: [`docs/browser-integration.md`](docs/browser-integration.md)
 - Security guide: [`docs/security.md`](docs/security.md)
+- Threat model: [`docs/threat-model.md`](docs/threat-model.md)
+- MCP Apps: [`docs/features/mcp-apps/spec.md`](docs/features/mcp-apps/spec.md)
 - Plugin system: [`docs/plugin-system.md`](docs/plugin-system.md)
 - Troubleshooting & FAQ: [`docs/troubleshooting-faq.md`](docs/troubleshooting-faq.md)
 - Cookbook / common integration patterns: [`docs/cookbook.md`](docs/cookbook.md)
@@ -421,6 +455,7 @@ Use `manifest-only` in production (`autoPinLatestModuleManifest: false`) when yo
 - Runtime plan flow: [`examples/runtime/browser-runtime-example.html`](examples/runtime/browser-runtime-example.html)
 - TSX runtime flow (Babel + JSPM): [`examples/runtime/browser-tsx-jspm-example.html`](examples/runtime/browser-tsx-jspm-example.html)
 - Recharts + Preact RuntimePlan: [`examples/runtime/recharts-dashboard-plan.json`](examples/runtime/recharts-dashboard-plan.json)
+- MCP Apps stdio server: [`examples/mcp-app/README.md`](examples/mcp-app/README.md)
 - Killer demo: one-line chat dashboard embed: [`examples/killer/one-line-chat-dashboard.html`](examples/killer/one-line-chat-dashboard.html)
 - Killer demo: one-line form/state/date-fns embed: [`examples/killer/one-line-chat-form.html`](examples/killer/one-line-chat-form.html)
 - Killer demo: one-line worker-sandbox source embed: [`examples/killer/one-line-sandbox-worker.html`](examples/killer/one-line-sandbox-worker.html)

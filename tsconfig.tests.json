@@ -2,6 +2,8 @@
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "composite": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
     "noEmit": true,
     "tsBuildInfoFile": "./.turbo/tsconfig.tests.tsbuildinfo"
   },
@@ -27,6 +29,9 @@
     },
     {
       "path": "packages/renderify"
+    },
+    {
+      "path": "packages/mcp-app"
     }
   ]
 }

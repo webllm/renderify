@@ -1,8 +1,3 @@
-import {
-  init as initModuleLexer,
-  parse as parseModuleImports,
-} from "es-module-lexer";
-
 const SOURCE_IMPORT_REWRITE_PATTERNS = [
   /\bfrom\s+["']([^"']+)["']/g,
   /\bimport\s+["']([^"']+)["']/g,
@@ -23,6 +18,9 @@ export async function parseRuntimeSourceImportRanges(
   }
 
   try {
+    const { init: initModuleLexer, parse: parseModuleImports } = await import(
+      "es-module-lexer"
+    );
     await initModuleLexer;
     const [imports] = parseModuleImports(source);
     const parsed: RuntimeSourceImportRange[] = [];

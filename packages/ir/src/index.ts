@@ -663,6 +663,54 @@ export function isRuntimeEvent(value: unknown): value is RuntimeEvent {
   return true;
 }
 
+export interface RuntimeEventBinding {
+  domEvent: string;
+  runtimeEvent: RuntimeEvent;
+}
+
+export function parseRuntimeEventBinding(
+  propName: string,
+  value: JsonValue,
+): RuntimeEventBinding | undefined {
+  if (!/^on[A-Z]/.test(propName)) {
+    return undefined;
+  }
+
+  const domEvent = propName.slice(2).toLowerCase();
+  if (!/^[a-z][a-z0-9_-]*$/.test(domEvent)) {
+    return undefined;
+  }
+
+  if (typeof value === "string" && value.trim().length > 0) {
+    return {
+      domEvent,
+      runtimeEvent: { type: value.trim() },
+    };
+  }
+
+  if (!isPlainJsonObject(value)) {
+    return undefined;
+  }
+
+  const eventType = value.type;
+  if (typeof eventType !== "string" || eventType.trim().length === 0) {
+    return undefined;
+  }
+
+  const payload = value.payload;
+  if (payload !== undefined && !isRuntimeStateSnapshot(payload)) {
+    return undefined;
+  }
+
+  return {
+    domEvent,
+    runtimeEvent: {
+      type: eventType.trim(),
+      ...(payload ? { payload } : {}),
+    },
+  };
+}
+
 export function isRuntimePlan(value: unknown): value is RuntimePlan {
   if (!isRecord(value)) {
     return false;

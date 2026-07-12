@@ -291,7 +291,12 @@ This render-time tag sanitization applies to the declarative RuntimeNode path. `
 
 ### Attribute Sanitization
 
-- **Event handlers** — `on*` attributes are stripped (converted to runtime event bindings instead)
+- **Event handlers** — valid declarative bindings such as
+  `onClick: "increment"` or `onClick: { type: "increment", payload: {...} }`
+  become delegated RuntimeEvents and never become HTML attributes or evaluated
+  code. Malformed/lowercase `on*` values are rejected or stripped. IR,
+  security, and runtime share `parseRuntimeEventBinding` so validation and
+  rendering use the same grammar.
 - **URL validation** — request-capable attributes such as `href`, `src`,
   `srcset`, `ping`, `action`, `poster`, legacy media attributes, and SVG
   functional IRIs reject active protocols and are checked against the security
@@ -377,3 +382,20 @@ console.log(moduleCheck.safe); // false
 | 4     | Source analysis | Static pattern matching for dangerous APIs              |
 | 5     | UI renderer     | XSS sanitization, attribute filtering, URL validation   |
 | 6     | Sandbox         | Optional Worker/iframe isolation for untrusted source   |
+
+## MCP Apps Offline Boundary
+
+`@renderify/mcp-app` is intentionally narrower than the general runtime. It
+accepts only explicit `runtime-plan/v1` element/text trees and rejects source,
+component nodes, imports, module manifests, network hosts, storage, timers, and
+non-standard execution profiles on both server and view sides.
+
+The generated resource uses hashed inline scripts, no `unsafe-eval`, no script
+`unsafe-inline`, no external MCP resource/connect/frame domains, and no browser
+permissions. The official `PostMessageTransport` validates that messages come
+from `window.parent`; app-to-server tool calls additionally require an exact
+local allowlist and host capability.
+
+These controls do not authorize server tools and cannot force a host to create
+a strong outer iframe sandbox. See the [feature specification](features/mcp-apps/spec.md)
+and [threat model](threat-model.md) for the complete contract and residual risk.

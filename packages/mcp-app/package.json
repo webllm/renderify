@@ -1,0 +1,73 @@
+{
+  "name": "@renderify/mcp-app",
+  "version": "0.0.0",
+  "description": "Offline declarative RuntimePlan adapter for MCP Apps",
+  "main": "dist/mcp-app.cjs",
+  "types": "dist/mcp-app.d.ts",
+  "module": "dist/mcp-app.mjs",
+  "exports": {
+    ".": {
+      "types": "./dist/mcp-app.d.ts",
+      "import": "./dist/mcp-app.mjs",
+      "require": "./dist/mcp-app.cjs",
+      "default": "./dist/mcp-app.mjs"
+    },
+    "./view": {
+      "types": "./dist/view.d.ts",
+      "import": "./dist/view.mjs",
+      "require": "./dist/view.cjs",
+      "default": "./dist/view.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "typecheck": "tsc -p tsconfig.json --pretty false --noEmit",
+    "lint": "biome lint src",
+    "clean": "node -e \"for (const dir of ['dist', 'dist-types']) require('node:fs').rmSync(dir, { recursive: true, force: true })\"",
+    "build:repo": "tsup --config tsup.config.ts",
+    "watch:repo": "tsup --config tsup.config.ts --watch"
+  },
+  "author": "unadlib",
+  "license": "MIT",
+  "keywords": [
+    "renderify",
+    "mcp",
+    "mcp-apps",
+    "model-context-protocol",
+    "generative-ui",
+    "runtime-plan"
+  ],
+  "homepage": "https://github.com/webllm/renderify#readme",
+  "bugs": {
+    "url": "https://github.com/webllm/renderify/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/webllm/renderify.git",
+    "directory": "packages/mcp-app"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "sideEffects": false,
+  "dependencies": {
+    "@modelcontextprotocol/ext-apps": "^1.7.4",
+    "@renderify/ir": "workspace:^",
+    "@renderify/runtime": "workspace:^",
+    "@renderify/security": "workspace:^",
+    "esbuild": "^0.28.1"
+  },
+  "peerDependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.25.0 || ^4.0.0"
+  }
+}

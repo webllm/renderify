@@ -23,6 +23,9 @@
       "path": "packages/runtime"
     },
     {
+      "path": "packages/mcp-app"
+    },
+    {
       "path": "./tsconfig.tests.json"
     }
   ]
