@@ -70,6 +70,20 @@ test("security checker allows declarative event bindings without allowing inline
       issue.includes("Inline event handler is not allowed: onClick"),
     ),
   );
+
+  for (const attributeName of ["OnClick", "ONCLICK"]) {
+    plan.root = createElementNode("button", {
+      [attributeName]: "globalThis.__renderifyInlineHandlerExecuted=1",
+    });
+    const caseVariant = await checker.checkPlan(plan);
+    assert.equal(caseVariant.safe, false, attributeName);
+    assert.ok(
+      caseVariant.issues.some((issue) =>
+        issue.includes(`Inline event handler is not allowed: ${attributeName}`),
+      ),
+      attributeName,
+    );
+  }
 });
 
 test("security checker fail-closed rejects malformed plan payloads", async () => {

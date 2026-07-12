@@ -539,7 +539,7 @@ export class DefaultSecurityChecker implements SecurityChecker {
             for (const [key, value] of Object.entries(node.props)) {
               if (
                 !this.policy.allowInlineEventHandlers &&
-                /^on[A-Z]|^on[a-z]/.test(key) &&
+                key.toLowerCase().startsWith("on") &&
                 !parseRuntimeEventBinding(key, value)
               ) {
                 issues.push(`Inline event handler is not allowed: ${key}`);

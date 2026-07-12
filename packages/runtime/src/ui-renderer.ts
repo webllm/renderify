@@ -852,7 +852,7 @@ function serializeProps(
       continue;
     }
 
-    if (key.startsWith("on")) {
+    if (normalizedKey.startsWith("on")) {
       continue;
     }
 

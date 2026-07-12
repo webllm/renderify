@@ -164,6 +164,25 @@ test("ui renderer drops unsafe javascript urls and adds rel for _blank", () => {
   assert.match(html, /rel="noopener noreferrer"/);
 });
 
+test("ui renderer drops case-variant inline event attributes", () => {
+  const renderer = new DefaultUIRenderer();
+
+  for (const attributeName of ["OnClick", "ONCLICK"]) {
+    const html = renderer.renderNode(
+      createElementNode(
+        "button",
+        {
+          [attributeName]: "globalThis.__renderifyInlineHandlerExecuted=1",
+        },
+        [createTextNode("Run")],
+      ),
+    );
+
+    assert.doesNotMatch(html, /onclick/i, attributeName);
+    assert.doesNotMatch(html, /__renderifyInlineHandlerExecuted/);
+  }
+});
+
 test("ui renderer drops dangerous and obfuscated URL protocols", () => {
   const renderer = new DefaultUIRenderer();
   const vectors = [

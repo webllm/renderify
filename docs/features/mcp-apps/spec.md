@@ -127,6 +127,8 @@ tool result field is `structuredContent.renderify.plan`.
 Declarative `onClick` values are runtime event bindings, not inline JavaScript.
 Parsing is shared by IR, security, and the renderer through
 `parseRuntimeEventBinding` so those layers cannot disagree about the format.
+Event-attribute names with non-canonical casing, such as `OnClick` or
+`ONCLICK`, are rejected rather than serialized as browser inline handlers.
 
 ## Technical design
 

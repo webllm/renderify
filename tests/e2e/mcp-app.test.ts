@@ -286,6 +286,24 @@ function createTemplatedRelativeUrlPlan(): RuntimePlan {
   };
 }
 
+function createCaseVariantInlineHandlerPlan(): RuntimePlan {
+  return {
+    specVersion: "runtime-plan/v1",
+    id: "case_variant_inline_handler_plan",
+    version: 1,
+    capabilities: { domWrite: true },
+    root: {
+      type: "element",
+      tag: "button",
+      props: {
+        id: "case-variant-inline-handler",
+        OnClick: "globalThis.__renderifyInlineHandlerExecuted=1",
+      },
+      children: [{ type: "text", value: "Run" }],
+    },
+  };
+}
+
 test("e2e: official AppBridge drives the offline Renderify MCP App lifecycle", async () => {
   const hostBundle = await bundleOfficialHostBridge();
   const viewBundle = await bundleRenderifyMcpView();
@@ -707,6 +725,12 @@ test("e2e: HTTP srcdoc blocks browser-resolved URL escapes", async () => {
       plan: createTemplatedRelativeUrlPlan(),
       status: "error",
       selector: "#templated-relative-url",
+      rendered: false,
+    },
+    {
+      plan: createCaseVariantInlineHandlerPlan(),
+      status: "error",
+      selector: "#case-variant-inline-handler",
       rendered: false,
     },
   ] as const;

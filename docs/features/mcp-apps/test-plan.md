@@ -28,6 +28,7 @@ required for safe declarative events under a strict browser CSP.
 | Reject CSS `image-set()` string URLs in URL attributes and inline styles | Security + renderer + MCP + browser | direct, prefixed, escaped, and commented fixtures plus HTTP-origin request observation |
 | Reject runtime templates in URL-bearing attributes before interpolation | MCP unit + browser security | state-derived relative URL fixture under an HTTP-origin `srcdoc` host |
 | Allow declarative events but reject malformed inline handlers | Security regression | `tests/security.test.ts` |
+| Reject case-variant inline event attributes before HTML serialization | Security + renderer + browser | `OnClick` and `ONCLICK` rejection fixtures |
 | Complete official handshake and teardown | Browser integration | official `AppBridge` in `tests/e2e/mcp-app.test.ts` |
 | Ignore a delayed tool result after teardown | Browser lifecycle | deferred official `tools/call` response in `tests/e2e/mcp-app.test.ts` |
 | Keep the current view when an app-called tool returns `isError` | Browser lifecycle | official error result with a valid structured plan |

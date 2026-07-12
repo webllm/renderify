@@ -108,7 +108,8 @@ and imports if the caller incorrectly treats model output as reviewed code.
   before execution prevents state, context, or event interpolation from
   introducing a relative or active URL after the boundary check.
 - Declarative `onClick` data becomes delegated runtime events. It never becomes
-  an HTML `on*` attribute or evaluated JavaScript.
+  an HTML `on*` attribute or evaluated JavaScript; case-variant event attribute
+  names are rejected instead of falling through to HTML serialization.
 - Model-context updates contain attacker-influenced state/event data. Hosts and
   models MUST treat it as untrusted context, not instructions with authority.
 - Tool arguments originate in the plan. Servers MUST validate them and require
