@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
 import test from "node:test";
 import { build } from "esbuild";
 import { chromium } from "playwright";
@@ -199,6 +200,21 @@ function createOverDepthPlan(): RuntimePlan {
     version: 1,
     capabilities: { domWrite: true },
     root,
+  };
+}
+
+function createFragmentNavigationPlan(): RuntimePlan {
+  return {
+    specVersion: "runtime-plan/v1",
+    id: "fragment_navigation_plan",
+    version: 1,
+    capabilities: { domWrite: true },
+    root: {
+      type: "element",
+      tag: "a",
+      props: { id: "fragment-navigation", href: "#host-route" },
+      children: [{ type: "text", value: "Leave the app" }],
+    },
   };
 }
 
@@ -593,6 +609,106 @@ test("e2e: rejected replacement plans release delegated listeners", async () => 
     assert.deepEqual(pageErrors, []);
   } finally {
     await browser.close();
+  }
+});
+
+test("e2e: HTTP srcdoc rejects inherited-base fragment navigation", async () => {
+  const hostBundle = await bundleOfficialHostBridge();
+  const viewBundle = await bundleRenderifyMcpView();
+  const shell = await createRenderifyShell({ browserBundle: viewBundle.code });
+  const rejectedResult = asBrowserToolResult({
+    content: [{ type: "text", text: "Unsafe fragment navigation" }],
+    structuredContent: {
+      renderify: { plan: createFragmentNavigationPlan() },
+    },
+  });
+
+  const hostRequests: string[] = [];
+  const server = createServer((request, response) => {
+    hostRequests.push(request.url ?? "");
+    response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    response.end(
+      '<!doctype html><iframe id="app" name="app" sandbox="allow-scripts"></iframe>',
+    );
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolve());
+  });
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newPage();
+  const externalRequests: string[] = [];
+  const pageErrors: string[] = [];
+  page.on("request", (request) => {
+    if (/^https?:/i.test(request.url())) {
+      externalRequests.push(request.url());
+    }
+  });
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+
+  try {
+    await page.goto(`http://127.0.0.1:${address.port}/host`);
+    await page.addScriptTag({ content: hostBundle });
+    hostRequests.length = 0;
+    externalRequests.length = 0;
+
+    await page.evaluate(
+      async ({ shellHtml, result }) => {
+        const hostModule = (
+          globalThis as unknown as { McpAppsHost: BrowserHostModule }
+        ).McpAppsHost;
+        const iframe = document.querySelector<HTMLIFrameElement>("#app");
+        if (!iframe?.contentWindow) {
+          throw new Error("MCP App iframe is unavailable");
+        }
+
+        const bridge = new hostModule.AppBridge(
+          null,
+          { name: "Renderify HTTP host", version: "1.0.0" },
+          { updateModelContext: { structuredContent: {} } },
+        );
+        bridge.onupdatemodelcontext = async () => ({});
+        bridge.oninitialized = () => {
+          void bridge.sendToolResult(result);
+        };
+        await bridge.connect(
+          new hostModule.PostMessageTransport(
+            iframe.contentWindow,
+            iframe.contentWindow,
+          ),
+        );
+        iframe.srcdoc = shellHtml;
+      },
+      { shellHtml: shell.html, result: rejectedResult },
+    );
+
+    const app = page.frameLocator("#app");
+    await app
+      .locator('#renderify-mcp-root[data-renderify-status="error"]')
+      .waitFor({ state: "attached" });
+    assert.equal(await app.locator("#fragment-navigation").count(), 0);
+    assert.equal(
+      await app.locator("#renderify-mcp-root").textContent(),
+      "This interactive view was rejected by its security policy.",
+    );
+    assert.equal(
+      page
+        .frames()
+        .find((frame) => frame.name() === "app")
+        ?.url(),
+      "about:srcdoc",
+    );
+    assert.deepEqual(hostRequests, []);
+    assert.deepEqual(externalRequests, []);
+    assert.deepEqual(pageErrors, []);
+  } finally {
+    await browser.close();
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
   }
 });
 

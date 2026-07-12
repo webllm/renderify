@@ -76,6 +76,10 @@ sequenceDiagram
   change sanitized URL attributes after validation.
 - Unsafe, remote, and external-navigation URL attributes MUST be rejected by
   the shared URL inspector before the tool result is returned.
+- Fragment-only `href` values MUST be checked against the owning element.
+  Navigation and resource-loading elements such as `a`, `area`, and SVG
+  `image` MUST be rejected because `srcdoc` documents inherit the host page's
+  base URL. Only explicit local-reference element/attribute pairs may pass.
 - The default plan-size limit MUST be 512 KiB and MUST be bounded above by the
   implementation limit.
 - The shell MUST declare zero external MCP resource/connect/frame domains and

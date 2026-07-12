@@ -210,13 +210,17 @@ test("mcp-app permits only non-network local fragment references", () => {
   const plan = createPlan();
   plan.root = {
     type: "element",
-    tag: "section",
+    tag: "svg",
     children: [
       {
         type: "element",
-        tag: "a",
-        props: { href: "#details" },
-        children: [{ type: "text", value: "Details" }],
+        tag: "use",
+        props: { href: "#shape" },
+      },
+      {
+        type: "element",
+        tag: "linearGradient",
+        props: { "xlink:href": "#base-gradient" },
       },
       {
         type: "element",
@@ -227,6 +231,32 @@ test("mcp-app permits only non-network local fragment references", () => {
   };
 
   assert.doesNotThrow(() => parseDeclarativeMcpPlan(plan));
+});
+
+test("mcp-app rejects fragment hrefs on navigation and resource elements", () => {
+  const cases: Array<{ tag: string; attribute: string }> = [
+    { tag: "a", attribute: "href" },
+    { tag: "area", attribute: "href" },
+    { tag: "image", attribute: "href" },
+    { tag: "image", attribute: "xlink:href" },
+  ];
+
+  for (const fixture of cases) {
+    const plan = createPlan();
+    plan.root = {
+      type: "element",
+      tag: fixture.tag,
+      props: { [fixture.attribute]: "#inherited-base-target" },
+    };
+
+    assert.throws(
+      () => parseDeclarativeMcpPlan(plan),
+      (error: unknown) =>
+        error instanceof DeclarativeMcpPlanError &&
+        error.code === "NETWORK_DISABLED",
+      `${fixture.tag} ${fixture.attribute}`,
+    );
+  }
 });
 
 test("mcp-app rejects browser-managed SVG animation and mutation elements", () => {

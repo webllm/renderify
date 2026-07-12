@@ -97,6 +97,10 @@ and imports if the caller incorrectly treats model output as reviewed code.
   to the MCP-specific exclusions.
 - SVG animation and timed mutation elements are rejected so browser-managed
   updates cannot change a URL attribute after validation.
+- Fragment-only hrefs are element-sensitive because a `srcdoc` app inherits
+  the embedding page's base URL. Navigation and resource-loading elements may
+  not use those hrefs; only explicit local SVG references and functional IRIs
+  are accepted.
 - Declarative `onClick` data becomes delegated runtime events. It never becomes
   an HTML `on*` attribute or evaluated JavaScript.
 - Model-context updates contain attacker-influenced state/event data. Hosts and

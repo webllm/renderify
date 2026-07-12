@@ -13,10 +13,7 @@ export const DEFAULT_MCP_PLAN_MAX_BYTES = 512 * 1024;
 export const MAX_MCP_PLAN_MAX_BYTES = 5 * 1024 * 1024;
 
 const MCP_LOCAL_FRAGMENT_ATTRIBUTE_NAMES = new Set([
-  "href",
   "usemap",
-  "xlink:href",
-  "xlinkhref",
   "clip-path",
   "clippath",
   "cursor",
@@ -33,6 +30,19 @@ const MCP_LOCAL_FRAGMENT_ATTRIBUTE_NAMES = new Set([
   "shape-inside",
   "shape-outside",
   "stroke",
+]);
+const MCP_LOCAL_FRAGMENT_HREF_ATTRIBUTE_NAMES = new Set([
+  "href",
+  "xlink:href",
+  "xlinkhref",
+]);
+const MCP_LOCAL_FRAGMENT_HREF_ELEMENT_NAMES = new Set([
+  "filter",
+  "lineargradient",
+  "pattern",
+  "radialgradient",
+  "textpath",
+  "use",
 ]);
 const MCP_SVG_ANIMATION_ELEMENT_NAMES = new Set([
   "animate",
@@ -230,7 +240,8 @@ function assertOfflineDeclarativePlan(plan: RuntimePlan): void {
         inspection.nonNetworkProtocolUrls === undefined ||
         inspection.nonNetworkProtocolUrls.length > 0 ||
         inspection.relativeUrls.some(
-          (reference) => !isAllowedLocalFragmentReference(name, reference),
+          (reference) =>
+            !isAllowedLocalFragmentReference(node.tag, name, reference),
         )
       ) {
         hasExternalOrUnsafeUrl = true;
@@ -275,13 +286,22 @@ function assertOfflineDeclarativePlan(plan: RuntimePlan): void {
 }
 
 function isAllowedLocalFragmentReference(
+  tagName: string,
   attributeName: string,
   reference: string,
 ): boolean {
-  return (
-    MCP_LOCAL_FRAGMENT_ATTRIBUTE_NAMES.has(attributeName.toLowerCase()) &&
-    reference.startsWith("#")
-  );
+  if (!reference.startsWith("#")) {
+    return false;
+  }
+
+  const normalizedAttributeName = attributeName.toLowerCase();
+  if (MCP_LOCAL_FRAGMENT_HREF_ATTRIBUTE_NAMES.has(normalizedAttributeName)) {
+    return MCP_LOCAL_FRAGMENT_HREF_ELEMENT_NAMES.has(
+      tagName.trim().toLowerCase(),
+    );
+  }
+
+  return MCP_LOCAL_FRAGMENT_ATTRIBUTE_NAMES.has(normalizedAttributeName);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
