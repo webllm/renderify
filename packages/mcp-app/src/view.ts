@@ -383,8 +383,10 @@ export async function startRenderifyMcpApp(
   const transport =
     dependencies.transport ??
     new PostMessageTransport(window.parent, window.parent);
+  let connected = false;
   try {
     await app.connect(transport);
+    connected = true;
     if (!isInactive()) {
       applyHostContext(app.getHostContext());
       if (ownsApp) {
@@ -393,6 +395,17 @@ export async function startRenderifyMcpApp(
       setStatus("connected");
     }
   } catch (error) {
+    stopAutoResizeNotifications();
+    if (connected) {
+      try {
+        await app.close();
+      } catch (closeError) {
+        console.error(
+          "[renderify/mcp-app] startup bridge cleanup failed",
+          closeError,
+        );
+      }
+    }
     setStatus("error", "Unable to connect this interactive view to its host.");
     throw error;
   }

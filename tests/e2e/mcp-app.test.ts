@@ -785,6 +785,66 @@ test("e2e: concurrent controller disposal joins one cleanup", async () => {
   }
 });
 
+test("e2e: post-connect startup failure closes the bridge", async () => {
+  const viewBundle = await bundleRenderifyMcpView();
+  let browser: Browser | undefined;
+
+  try {
+    browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    await page.setContent(
+      '<main id="renderify-mcp-root" data-renderify-mount></main>',
+    );
+    await page.addScriptTag({ content: viewBundle.code });
+
+    const result = await page.evaluate(async () => {
+      let closeCalls = 0;
+      const fakeApp: Record<string, unknown> = {};
+      Reflect.set(fakeApp, "connect", async () => {});
+      Reflect.set(fakeApp, "getHostContext", () => {
+        throw new Error("host context failed");
+      });
+      Reflect.set(fakeApp, "close", async () => {
+        closeCalls += 1;
+      });
+      const view = (
+        globalThis as unknown as {
+          RenderifyMcpApp: {
+            startRenderifyMcpApp: (
+              config: Record<string, never>,
+              dependencies: { app: typeof fakeApp },
+            ) => Promise<unknown>;
+          };
+        }
+      ).RenderifyMcpApp;
+
+      let message: string | undefined;
+      try {
+        await view.startRenderifyMcpApp({}, { app: fakeApp });
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
+
+      const mount = document.getElementById("renderify-mcp-root");
+      return {
+        closeCalls,
+        message,
+        status: mount?.dataset.renderifyStatus,
+        text: mount?.textContent,
+      };
+    });
+
+    assert.deepEqual(result, {
+      closeCalls: 1,
+      message: "host context failed",
+      status: "error",
+      text: "Unable to connect this interactive view to its host.",
+    });
+  } finally {
+    await browser?.close();
+  }
+});
+
 test("e2e: HTTP srcdoc blocks browser-resolved URL escapes", async () => {
   const hostBundle = await bundleOfficialHostBridge();
   const viewBundle = await bundleRenderifyMcpView();

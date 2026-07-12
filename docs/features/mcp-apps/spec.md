@@ -159,6 +159,7 @@ for dependency ownership.
 - Invalid or over-limit plans render a generic rejection message and execute
   nothing.
 - Missing MCP Apps support leaves the text summary available.
+- A failure after bridge connection closes that bridge before startup rejects.
 - Missing host tool capability or a non-allowlisted name performs no tool call.
 - Model-context failure is recorded on the mount element and does not grant new
   capability or break local interaction.
