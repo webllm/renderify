@@ -338,19 +338,21 @@ test("e2e: official AppBridge drives the offline Renderify MCP App lifecycle", a
   const externalRequests: string[] = [];
   const pageErrors: string[] = [];
   const consoleMessages: string[] = [];
-  const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage();
-  page.on("request", (request) => {
-    if (/^https?:/i.test(request.url())) {
-      externalRequests.push(request.url());
-    }
-  });
-  page.on("pageerror", (error) => pageErrors.push(error.message));
-  page.on("console", (message) =>
-    consoleMessages.push(`${message.type()}: ${message.text()}`),
-  );
 
+  let browser: Browser | undefined;
   try {
+    browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    page.on("request", (request) => {
+      if (/^https?:/i.test(request.url())) {
+        externalRequests.push(request.url());
+      }
+    });
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+    page.on("console", (message) =>
+      consoleMessages.push(`${message.type()}: ${message.text()}`),
+    );
+
     await page.setContent(
       '<iframe id="app" name="app" sandbox="allow-scripts"></iframe><iframe id="attacker" name="attacker"></iframe>',
     );
@@ -599,7 +601,7 @@ test("e2e: official AppBridge drives the offline Renderify MCP App lifecycle", a
     assert.deepEqual(externalRequests, []);
     assert.deepEqual(pageErrors, []);
   } finally {
-    await browser.close();
+    await browser?.close();
   }
 });
 
@@ -634,12 +636,14 @@ test("e2e: rejected replacement plans release delegated listeners", async () => 
     renderifyToolResult(planPayload(createOverDepthPlan())),
   );
 
-  const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage();
   const pageErrors: string[] = [];
-  page.on("pageerror", (error) => pageErrors.push(error.message));
 
+  let browser: Browser | undefined;
   try {
+    browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+
     await page.setContent('<iframe id="app" sandbox="allow-scripts"></iframe>');
     await page.addScriptTag({ content: hostBundle });
     await page.evaluate(
@@ -694,7 +698,7 @@ test("e2e: rejected replacement plans release delegated listeners", async () => 
     assert.equal(listenerStats.removed.click, 1);
     assert.deepEqual(pageErrors, []);
   } finally {
-    await browser.close();
+    await browser?.close();
   }
 });
 
