@@ -148,6 +148,19 @@ function createDeferredRefreshPlan(): RuntimePlan {
           type: "element",
           tag: "button",
           props: {
+            id: "same-refresh",
+            type: "button",
+            onClick: {
+              type: "tool:refresh_dashboard",
+              payload: { mode: "same" },
+            },
+          },
+          children: [{ type: "text", value: "Refresh same view" }],
+        },
+        {
+          type: "element",
+          tag: "button",
+          props: {
             id: "deferred-refresh",
             type: "button",
             onClick: {
@@ -418,12 +431,25 @@ test("e2e: official AppBridge drives the offline Renderify MCP App lifecycle", a
     assert.equal(listenerStats.added.click, 1);
     assert.equal(listenerStats.removed.click ?? 0, 0);
 
-    await app.locator("#error-refresh").click();
+    await app.locator("#same-refresh").click();
     await page.waitForFunction(() => {
       const hostState = (
         globalThis as unknown as { __mcpHostState?: BrowserHostState }
       ).__mcpHostState;
       return hostState?.toolCalls.length === 2;
+    });
+    await app.getByText("Refreshed safely").waitFor({ state: "visible" });
+    assert.equal(await app.locator("#same-refresh").count(), 1);
+    listenerStats = await readListenerStats(app);
+    assert.equal(listenerStats.added.click, 1);
+    assert.equal(listenerStats.removed.click ?? 0, 0);
+
+    await app.locator("#error-refresh").click();
+    await page.waitForFunction(() => {
+      const hostState = (
+        globalThis as unknown as { __mcpHostState?: BrowserHostState }
+      ).__mcpHostState;
+      return hostState?.toolCalls.length === 3;
     });
     await app
       .locator('#renderify-mcp-root[data-renderify-tool-error="call-failed"]')
@@ -436,7 +462,7 @@ test("e2e: official AppBridge drives the offline Renderify MCP App lifecycle", a
       const hostState = (
         globalThis as unknown as { __mcpHostState?: BrowserHostState }
       ).__mcpHostState;
-      return hostState?.toolCalls.length === 3;
+      return hostState?.toolCalls.length === 4;
     });
 
     await page.evaluate(async () => {

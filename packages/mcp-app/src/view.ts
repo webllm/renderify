@@ -162,7 +162,8 @@ export async function startRenderifyMcpApp(
     if (isInactive() || renderGeneration !== generation) {
       return;
     }
-    mount.replaceChildren();
+    // Keep the DOM aligned with the shared renderer's mount-session cache.
+    // The next render will reconcile changed markup or reuse identical markup.
     setStatus("loading");
 
     let created: RuntimeInteractiveSession | undefined;
