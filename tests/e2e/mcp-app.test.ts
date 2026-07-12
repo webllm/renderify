@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import test from "node:test";
 import { build } from "esbuild";
-import { chromium } from "playwright";
+import { type Browser, chromium } from "playwright";
 import type { RuntimePlan } from "../../packages/ir/src/index";
 import {
   bundleRenderifyMcpView,
@@ -723,21 +723,23 @@ test("e2e: HTTP srcdoc blocks browser-resolved URL escapes", async () => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", () => resolve());
   });
-  const address = server.address();
-  assert.ok(address && typeof address !== "string");
 
-  const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage();
-  const externalRequests: string[] = [];
-  const pageErrors: string[] = [];
-  page.on("request", (request) => {
-    if (/^https?:/i.test(request.url())) {
-      externalRequests.push(request.url());
-    }
-  });
-  page.on("pageerror", (error) => pageErrors.push(error.message));
-
+  let browser: Browser | undefined;
   try {
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+
+    browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    const externalRequests: string[] = [];
+    const pageErrors: string[] = [];
+    page.on("request", (request) => {
+      if (/^https?:/i.test(request.url())) {
+        externalRequests.push(request.url());
+      }
+    });
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+
     for (const fixture of fixtures) {
       await page.goto(`http://127.0.0.1:${address.port}/host`);
       await page.addScriptTag({ content: hostBundle });
@@ -812,10 +814,13 @@ test("e2e: HTTP srcdoc blocks browser-resolved URL escapes", async () => {
       assert.deepEqual(pageErrors, []);
     }
   } finally {
-    await browser.close();
-    await new Promise<void>((resolve, reject) => {
-      server.close((error) => (error ? reject(error) : resolve()));
-    });
+    try {
+      await browser?.close();
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
   }
 });
 
