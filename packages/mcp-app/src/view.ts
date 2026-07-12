@@ -75,6 +75,7 @@ export async function startRenderifyMcpApp(
   let terminated = false;
   let renderGeneration = 0;
   let teardownPromise: Promise<void> | undefined;
+  let disposePromise: Promise<void> | undefined;
   let queue = Promise.resolve();
 
   const enqueue = async <T>(operation: () => Promise<T>): Promise<T> => {
@@ -380,16 +381,24 @@ export async function startRenderifyMcpApp(
   return {
     app,
     getSession: () => session,
-    dispose: async () => {
-      if (disposed) {
-        return;
+    dispose: () => {
+      if (!disposePromise) {
+        disposed = true;
+        disposePromise = (async () => {
+          try {
+            await enqueue(async () => {
+              await releaseRenderedView();
+            });
+          } finally {
+            try {
+              await app.close();
+            } finally {
+              setStatus("disposed");
+            }
+          }
+        })();
       }
-      disposed = true;
-      await enqueue(async () => {
-        await releaseRenderedView();
-      });
-      await app.close();
-      setStatus("disposed");
+      return disposePromise;
     },
   };
 }

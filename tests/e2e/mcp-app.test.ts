@@ -702,6 +702,80 @@ test("e2e: rejected replacement plans release delegated listeners", async () => 
   }
 });
 
+test("e2e: concurrent controller disposal joins one cleanup", async () => {
+  const viewBundle = await bundleRenderifyMcpView();
+  let browser: Browser | undefined;
+
+  try {
+    browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    await page.setContent(
+      '<main id="renderify-mcp-root" data-renderify-mount></main>',
+    );
+    await page.addScriptTag({ content: viewBundle.code });
+
+    const result = await page.evaluate(async () => {
+      let closeCalls = 0;
+      let resolveClose: (() => void) | undefined;
+      const fakeApp: Record<string, unknown> = {};
+      Reflect.set(fakeApp, "connect", async () => {});
+      Reflect.set(fakeApp, "getHostContext", () => undefined);
+      Reflect.set(fakeApp, "close", () => {
+        closeCalls += 1;
+        return new Promise<void>((resolve) => {
+          resolveClose = resolve;
+        });
+      });
+      const view = (
+        globalThis as unknown as {
+          RenderifyMcpApp: {
+            startRenderifyMcpApp: (
+              config: Record<string, never>,
+              dependencies: { app: typeof fakeApp },
+            ) => Promise<{ dispose(): Promise<void> }>;
+          };
+        }
+      ).RenderifyMcpApp;
+      const controller = await view.startRenderifyMcpApp({}, { app: fakeApp });
+
+      let firstSettled = false;
+      let secondSettled = false;
+      const first = controller.dispose().then(() => {
+        firstSettled = true;
+      });
+      const second = controller.dispose().then(() => {
+        secondSettled = true;
+      });
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      const beforeClose = { firstSettled, secondSettled, closeCalls };
+
+      if (!resolveClose) {
+        throw new Error("App close was not started");
+      }
+      resolveClose();
+      await Promise.all([first, second]);
+
+      return {
+        beforeClose,
+        afterClose: { firstSettled, secondSettled, closeCalls },
+      };
+    });
+
+    assert.deepEqual(result.beforeClose, {
+      firstSettled: false,
+      secondSettled: false,
+      closeCalls: 1,
+    });
+    assert.deepEqual(result.afterClose, {
+      firstSettled: true,
+      secondSettled: true,
+      closeCalls: 1,
+    });
+  } finally {
+    await browser?.close();
+  }
+});
+
 test("e2e: HTTP srcdoc blocks browser-resolved URL escapes", async () => {
   const hostBundle = await bundleOfficialHostBridge();
   const viewBundle = await bundleRenderifyMcpView();

@@ -163,6 +163,8 @@ for dependency ownership.
 - Model-context failure is recorded on the mount element and does not grant new
   capability or break local interaction.
 - Teardown terminates the active runtime before the official response is sent.
+- Concurrent controller `dispose()` calls join the same cleanup, and bridge
+  closure still runs if session cleanup fails.
 
 ## Test strategy
 

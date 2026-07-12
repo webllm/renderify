@@ -31,6 +31,7 @@ required for safe declarative events under a strict browser CSP.
 | Allow declarative events but reject malformed inline handlers | Security regression | `tests/security.test.ts` |
 | Reject case-variant inline event attributes before HTML serialization | Security + renderer + browser | `OnClick` and `ONCLICK` rejection fixtures |
 | Complete official handshake and teardown | Browser integration | official `AppBridge` in `tests/e2e/mcp-app.test.ts` |
+| Join concurrent controller disposal and close the bridge once | Browser lifecycle | delayed fake-app close with two concurrent `dispose()` callers |
 | Ignore a delayed tool result after teardown | Browser lifecycle | deferred official `tools/call` response in `tests/e2e/mcp-app.test.ts` |
 | Keep the current view when an app-called tool returns `isError` | Browser lifecycle | official error result with a valid structured plan |
 | Keep identical replacement markup mounted while refreshing its session metadata | Browser lifecycle | same-plan app-tool replacement assertion |
