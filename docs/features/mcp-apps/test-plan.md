@@ -20,6 +20,7 @@ required for safe declarative events under a strict browser CSP.
 | Detach plans before returning or rendering | Unit | mutation-after-parse assertion |
 | Emit valid official resource/tool metadata | Schema + SDK integration | official Zod schemas and in-memory `McpServer`/`Client` |
 | Hash every inline script and escape configuration | Unit | CSP hash reconstruction and script-breakout fixture |
+| Normalize provided browser bundle line endings and reject empty bundles | Unit | normalized CSP hash and byte-count assertions |
 | Allow declarative events but reject malformed inline handlers | Security regression | `tests/security.test.ts` |
 | Complete official handshake and teardown | Browser integration | official `AppBridge` in `tests/e2e/mcp-app.test.ts` |
 | Ignore a delayed tool result after teardown | Browser lifecycle | deferred official `tools/call` response in `tests/e2e/mcp-app.test.ts` |

@@ -55,12 +55,10 @@ export async function createRenderifyShell(
   options: CreateRenderifyShellOptions = {},
 ): Promise<RenderifyShell> {
   const mountId = normalizeMountId(options.mountId);
-  const bundle = options.browserBundle
-    ? {
-        code: normalizeBrowserBundle(options.browserBundle),
-        bytes: new TextEncoder().encode(options.browserBundle).byteLength,
-      }
-    : await bundleRenderifyMcpView(options);
+  const bundle =
+    options.browserBundle !== undefined
+      ? createProvidedBrowserBundle(options.browserBundle)
+      : await bundleRenderifyMcpView(options);
 
   const config = {
     mountId,
@@ -164,10 +162,22 @@ function assertSafeInlineScript(value: string, label: string): void {
 }
 
 function normalizeBrowserBundle(value: string): string {
-  if (value.trim().length === 0) {
+  const normalized = value.replace(/\r\n?/g, "\n");
+  if (normalized.trim().length === 0) {
     throw new Error("browserBundle must not be empty");
   }
-  return value;
+  return normalized;
+}
+
+function createProvidedBrowserBundle(value: string): {
+  code: string;
+  bytes: number;
+} {
+  const code = normalizeBrowserBundle(value);
+  return {
+    code,
+    bytes: new TextEncoder().encode(code).byteLength,
+  };
 }
 
 function normalizeMountId(value: string | undefined): string {

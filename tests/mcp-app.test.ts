@@ -291,6 +291,33 @@ test("mcp-app shell is self-contained and hashes every inline script", async () 
   );
 });
 
+test("mcp-app shell normalizes provided browser bundles before hashing", async () => {
+  const browserBundle =
+    "globalThis.RenderifyMcpApp={\r\nstartRenderifyMcpApp:async()=>{}\r};\r\n";
+  const normalizedBundle = browserBundle.replace(/\r\n?/g, "\n");
+  const shell = await createRenderifyShell({ browserBundle });
+  const scripts = [...shell.html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(
+    (match) => match[1] ?? "",
+  );
+
+  assert.equal(scripts[0], normalizedBundle);
+  assert.equal(shell.bundleBytes, Buffer.byteLength(normalizedBundle, "utf8"));
+  assert.doesNotMatch(shell.html, /\r/);
+  const hash = createHash("sha256")
+    .update(normalizedBundle, "utf8")
+    .digest("base64");
+  assert.ok(shell.csp.includes(`'sha256-${hash}'`));
+
+  await assert.rejects(
+    () => createRenderifyShell({ browserBundle: "" }),
+    /browserBundle must not be empty/,
+  );
+  await assert.rejects(
+    () => createRenderifyShell({ browserBundle: "\r\n\t" }),
+    /browserBundle must not be empty/,
+  );
+});
+
 test("mcp-app resource metadata declares no network or browser permissions", async () => {
   const resource = await createRenderifyUiResource({
     uri: "ui://renderify/dashboard",
