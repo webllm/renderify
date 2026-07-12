@@ -112,5 +112,6 @@ module loading without a new security decision and threat-model update.
 - `pnpm artifacts:smoke`
 
 The full contract and threat model are documented in
-[MCP Apps](/docs/features/mcp-apps/spec.md) and
-[MCP App threat model](/docs/threat-model.md).
+[MCP Apps](https://github.com/webllm/renderify/blob/main/docs/features/mcp-apps/spec.md)
+and the
+[MCP App threat model](https://github.com/webllm/renderify/blob/main/docs/threat-model.md).

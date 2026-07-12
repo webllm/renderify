@@ -70,6 +70,11 @@ for (const [format, namespace] of [
 }
 
 const mcpAppDirectory = path.join(root, "packages/mcp-app");
+assert.doesNotMatch(
+  fs.readFileSync(path.join(mcpAppDirectory, "README.md"), "utf8"),
+  /\]\(\/docs\//,
+  "@renderify/mcp-app README contains repository-root links that break on npm",
+);
 assert.equal(
   fs.readFileSync(path.join(mcpAppDirectory, "LICENSE"), "utf8"),
   fs.readFileSync(path.join(root, "LICENSE"), "utf8"),
