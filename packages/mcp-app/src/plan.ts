@@ -34,6 +34,14 @@ const MCP_LOCAL_FRAGMENT_ATTRIBUTE_NAMES = new Set([
   "shape-outside",
   "stroke",
 ]);
+const MCP_SVG_ANIMATION_ELEMENT_NAMES = new Set([
+  "animate",
+  "animatecolor",
+  "animatemotion",
+  "animatetransform",
+  "discard",
+  "set",
+]);
 
 export type DeclarativeMcpPlanErrorCode =
   | "INVALID_LIMIT"
@@ -179,15 +187,29 @@ function assertOfflineDeclarativePlan(plan: RuntimePlan): void {
   }
 
   let hasComponentNode = false;
+  let hasSvgAnimationElement = false;
   walkRuntimeNode(plan.root, (node) => {
     if (node.type === "component") {
       hasComponentNode = true;
+    }
+    if (
+      node.type === "element" &&
+      MCP_SVG_ANIMATION_ELEMENT_NAMES.has(node.tag.trim().toLowerCase())
+    ) {
+      hasSvgAnimationElement = true;
     }
   });
   if (hasComponentNode) {
     throw new DeclarativeMcpPlanError(
       "COMPONENT_NODES_DISABLED",
       "Component nodes are disabled in offline MCP Apps",
+    );
+  }
+
+  if (hasSvgAnimationElement) {
+    throw new DeclarativeMcpPlanError(
+      "TIMERS_DISABLED",
+      "SVG animation and timed mutation elements are disabled in MCP Apps",
     );
   }
 

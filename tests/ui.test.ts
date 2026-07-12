@@ -129,6 +129,23 @@ test("ui renderer blocks style/base/form tags at render time", () => {
   assert.doesNotMatch(formHtml, />x</);
 });
 
+test("ui renderer blocks generic SVG attribute mutation elements", () => {
+  const renderer = new DefaultUIRenderer();
+
+  for (const tag of ["animate", "set"]) {
+    const html = renderer.renderNode(
+      createElementNode(tag, {
+        attributeName: "href",
+        to: "https://evil.example/leak",
+      }),
+    );
+
+    assert.match(html, new RegExp(`data-renderify-sanitized-tag="${tag}"`));
+    assert.doesNotMatch(html, new RegExp(`<${tag}`));
+    assert.doesNotMatch(html, /evil\.example/);
+  }
+});
+
 test("ui renderer drops unsafe javascript urls and adds rel for _blank", () => {
   const renderer = new DefaultUIRenderer();
   const html = renderer.renderNode(

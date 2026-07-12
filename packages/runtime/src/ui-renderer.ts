@@ -736,6 +736,8 @@ const BLOCKED_TAG_NAMES = new Set([
   "meta",
   "base",
   "form",
+  "animate",
+  "set",
 ]);
 
 const BLOCKED_ATTRIBUTE_NAMES = new Set([

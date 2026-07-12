@@ -229,6 +229,43 @@ test("mcp-app permits only non-network local fragment references", () => {
   assert.doesNotThrow(() => parseDeclarativeMcpPlan(plan));
 });
 
+test("mcp-app rejects browser-managed SVG animation and mutation elements", () => {
+  for (const tag of [
+    "animate",
+    "animateColor",
+    "animateMotion",
+    "animateTransform",
+    "discard",
+    "set",
+  ]) {
+    const plan = createPlan();
+    plan.root = {
+      type: "element",
+      tag: "svg",
+      children: [
+        {
+          type: "element",
+          tag,
+          props: {
+            attributeName: "href",
+            to: "https://evil.example/leak",
+            begin: "0s",
+            fill: "freeze",
+          },
+        },
+      ],
+    };
+
+    assert.throws(
+      () => parseDeclarativeMcpPlan(plan),
+      (error: unknown) =>
+        error instanceof DeclarativeMcpPlanError &&
+        error.code === "TIMERS_DISABLED",
+      tag,
+    );
+  }
+});
+
 test("mcp-app tool payload uses official structured content and validates on both sides", () => {
   assert.equal(MCP_UI_EXTENSION_ID, "io.modelcontextprotocol/ui");
   const result = renderifyToolResult(planPayload(createPlan()), {

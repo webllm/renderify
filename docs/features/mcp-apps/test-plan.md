@@ -22,6 +22,7 @@ required for safe declarative events under a strict browser CSP.
 | Hash every inline script and escape configuration | Unit | CSP hash reconstruction and script-breakout fixture |
 | Normalize provided browser bundle line endings and reject empty bundles | Unit | normalized CSP hash and byte-count assertions |
 | Resolve relative browser view entries from the configured or current working directory | Unit | custom `viewEntry` bundle assertion |
+| Reject SVG animation and timed attribute mutation after URL validation | Unit + renderer regression | SMIL plan corpus and sanitized-tag assertions |
 | Allow declarative events but reject malformed inline handlers | Security regression | `tests/security.test.ts` |
 | Complete official handshake and teardown | Browser integration | official `AppBridge` in `tests/e2e/mcp-app.test.ts` |
 | Ignore a delayed tool result after teardown | Browser lifecycle | deferred official `tools/call` response in `tests/e2e/mcp-app.test.ts` |
@@ -39,6 +40,7 @@ required for safe declarative events under a strict browser CSP.
 - Missing or unsupported spec version.
 - Script-closing configuration and browser bundles.
 - Control-character-obfuscated `mailto:` and `tel:` navigation.
+- SVG animation or timed mutation of URL attributes.
 - Host without server-tools capability.
 - Tool event outside the allowlist.
 - Message with the wrong `event.source`.

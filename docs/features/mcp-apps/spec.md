@@ -72,6 +72,8 @@ sequenceDiagram
 - `source`, component nodes, non-empty `imports`, non-empty `moduleManifest`,
   external modules, network hosts, timers, persistent storage, and non-standard
   execution profiles MUST be rejected.
+- SVG animation and timed mutation elements MUST be rejected because they can
+  change sanitized URL attributes after validation.
 - Unsafe, remote, and external-navigation URL attributes MUST be rejected by
   the shared URL inspector before the tool result is returned.
 - The default plan-size limit MUST be 512 KiB and MUST be bounded above by the

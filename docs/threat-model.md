@@ -95,6 +95,8 @@ and imports if the caller incorrectly treats model output as reviewed code.
   the original MCP message before view validation.
 - Strict policy limits depth, node count, transitions, and actions in addition
   to the MCP-specific exclusions.
+- SVG animation and timed mutation elements are rejected so browser-managed
+  updates cannot change a URL attribute after validation.
 - Declarative `onClick` data becomes delegated runtime events. It never becomes
   an HTML `on*` attribute or evaluated JavaScript.
 - Model-context updates contain attacker-influenced state/event data. Hosts and
