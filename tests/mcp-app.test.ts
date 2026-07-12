@@ -600,3 +600,54 @@ test("mcp-app registers interoperable tools and resources with the official SDK"
     await server.close();
   }
 });
+
+test("mcp-app rolls back its resource when tool registration fails", async () => {
+  const server = new McpServer({
+    name: "renderify-registration-test",
+    version: "1.0.0",
+  });
+  const browserBundle =
+    "globalThis.RenderifyMcpApp={startRenderifyMcpApp:async()=>{}};";
+  await registerRenderifyApp(server, {
+    uri: "ui://renderify/registered",
+    name: "Registered Renderify app",
+    browserBundle,
+    toolName: "duplicate_tool",
+    handler: () => createPlan(),
+  });
+
+  await assert.rejects(
+    () =>
+      registerRenderifyApp(server, {
+        uri: "ui://renderify/orphaned",
+        name: "Orphaned Renderify app",
+        browserBundle,
+        toolName: "duplicate_tool",
+        handler: () => createPlan(),
+      }),
+    /already registered/,
+  );
+
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
+  const client = new Client({
+    name: "registration-test-client",
+    version: "1.0.0",
+  });
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+
+  try {
+    assert.deepEqual(
+      (await client.listResources()).resources.map((entry) => entry.uri),
+      ["ui://renderify/registered"],
+    );
+    assert.deepEqual(
+      (await client.listTools()).tools.map((entry) => entry.name),
+      ["duplicate_tool"],
+    );
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});

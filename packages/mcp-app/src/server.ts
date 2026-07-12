@@ -192,6 +192,17 @@ export async function registerRenderifyApp(
   options: RegisterRenderifyAppOptions,
 ): Promise<RegisteredRenderifyApp> {
   const resource = await createRenderifyUiResource(options);
+  const toolName = normalizeToolName(options.toolName);
+  const hasInputSchema = options.toolInputSchema !== undefined;
+  const toolConfig: McpUiAppToolConfig = {
+    ...(options.toolTitle ? { title: options.toolTitle } : {}),
+    description:
+      options.toolDescription ?? "Render an offline interactive RuntimePlan",
+    ...(hasInputSchema ? { inputSchema: options.toolInputSchema } : {}),
+    _meta: renderifyToolMeta(resource.uri, {
+      visibility: options.toolVisibility,
+    }),
+  };
   const resourceMeta = { ui: resource.uiMeta };
   const resourceRegistration = registerAppResource(
     server,
@@ -214,41 +225,36 @@ export async function registerRenderifyApp(
     }),
   );
 
-  const toolName = normalizeToolName(options.toolName);
-  const hasInputSchema = options.toolInputSchema !== undefined;
-  const toolConfig: McpUiAppToolConfig = {
-    ...(options.toolTitle ? { title: options.toolTitle } : {}),
-    description:
-      options.toolDescription ?? "Render an offline interactive RuntimePlan",
-    ...(hasInputSchema ? { inputSchema: options.toolInputSchema } : {}),
-    _meta: renderifyToolMeta(resource.uri, {
-      visibility: options.toolVisibility,
-    }),
-  };
-  const toolRegistration = registerToolWithUnknownInput(
-    server,
-    toolName,
-    toolConfig,
-    async (...callbackArgs: unknown[]) => {
-      const args = hasInputSchema ? callbackArgs[0] : {};
-      const extra = callbackArgs[hasInputSchema ? 1 : 0];
-      const produced = await options.handler(
-        args,
-        extra as RenderifyToolHandlerExtra,
-      );
-      const payload = isRuntimePlan(produced)
-        ? planPayload(produced, { maxBytes: options.maxPlanBytes })
-        : planPayload(produced.plan, { maxBytes: options.maxPlanBytes });
-      const summary =
-        typeof options.summary === "function"
-          ? options.summary(payload.plan)
-          : options.summary;
-      return renderifyToolResult(payload, {
-        maxBytes: options.maxPlanBytes,
-        ...(summary ? { summary } : {}),
-      });
-    },
-  );
+  let toolRegistration: RegisteredTool;
+  try {
+    toolRegistration = registerToolWithUnknownInput(
+      server,
+      toolName,
+      toolConfig,
+      async (...callbackArgs: unknown[]) => {
+        const args = hasInputSchema ? callbackArgs[0] : {};
+        const extra = callbackArgs[hasInputSchema ? 1 : 0];
+        const produced = await options.handler(
+          args,
+          extra as RenderifyToolHandlerExtra,
+        );
+        const payload = isRuntimePlan(produced)
+          ? planPayload(produced, { maxBytes: options.maxPlanBytes })
+          : planPayload(produced.plan, { maxBytes: options.maxPlanBytes });
+        const summary =
+          typeof options.summary === "function"
+            ? options.summary(payload.plan)
+            : options.summary;
+        return renderifyToolResult(payload, {
+          maxBytes: options.maxPlanBytes,
+          ...(summary ? { summary } : {}),
+        });
+      },
+    );
+  } catch (error) {
+    resourceRegistration.remove();
+    throw error;
+  }
 
   return { resource, resourceRegistration, toolRegistration };
 }

@@ -76,6 +76,8 @@ model-only by default.
 ## Public API
 
 - `registerRenderifyApp` composes one tool and one resource.
+- Registration is atomic from the helper's perspective: if tool registration
+  fails, its resource registration is removed before the error is rethrown.
 - Its handler receives the parsed arguments plus the official MCP
   `RequestHandlerExtra`, including request cancellation, authentication,
   session, and transport context.

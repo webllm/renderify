@@ -19,6 +19,7 @@ browser CSP does not initialize WebAssembly for declarative-only plans. Treat
 cancellation and teardown as terminal so delayed tool responses cannot
 reactivate a view.
 Reject case-variant inline event attributes before HTML serialization.
+Roll back the paired resource when MCP tool registration fails.
 Forward the official SDK request context to registered handlers so they can use
 transport-provided authentication, cancellation, session, and request metadata.
 Treat app-called tool error results as failures without rendering their

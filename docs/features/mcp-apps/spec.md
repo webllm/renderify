@@ -99,6 +99,8 @@ sequenceDiagram
 - `registerRenderifyApp` MUST forward the official SDK request context to its
   handler for request-scoped authentication, authorization, cancellation, and
   auditing.
+- `registerRenderifyApp` MUST remove its resource registration if the paired
+  tool cannot be registered.
 - Model context MUST contain only plan identity, current state, and the last
   declarative event; it MUST NOT copy the entire plan or metadata.
 
