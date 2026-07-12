@@ -165,6 +165,8 @@ for dependency ownership.
 - Teardown terminates the active runtime before the official response is sent.
 - Concurrent controller `dispose()` calls join the same cleanup, and bridge
   closure still runs if session cleanup fails.
+- Adapter-owned automatic resize observation MUST be disconnected on
+  cancellation, teardown, or controller disposal.
 
 ## Test strategy
 

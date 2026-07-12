@@ -21,6 +21,7 @@ reactivate a view.
 Reject case-variant inline event attributes before HTML serialization.
 Roll back the paired resource when MCP tool registration fails.
 Join concurrent controller disposal and always close the bridge after cleanup.
+Disconnect adapter-owned automatic resize observation at terminal lifecycle events.
 Forward the official SDK request context to registered handlers so they can use
 transport-provided authentication, cancellation, session, and request metadata.
 Treat app-called tool error results as failures without rendering their

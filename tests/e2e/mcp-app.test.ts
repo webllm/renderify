@@ -24,6 +24,11 @@ interface BrowserListenerStats {
   removed: Record<string, number>;
 }
 
+interface BrowserResizeObserverStats {
+  created: number;
+  disconnected: number;
+}
+
 interface BrowserToolResult {
   content: Array<{ type: "text"; text: string }>;
   structuredContent?: Record<string, unknown>;
@@ -598,6 +603,10 @@ test("e2e: official AppBridge drives the offline Renderify MCP App lifecycle", a
     listenerStats = await readListenerStats(app);
     assert.equal(listenerStats.added.click, 1);
     assert.equal(listenerStats.removed.click, 1);
+    assert.deepEqual(await readResizeObserverStats(app), {
+      created: 1,
+      disconnected: 1,
+    });
     assert.deepEqual(externalRequests, []);
     assert.deepEqual(pageErrors, []);
   } finally {
@@ -949,7 +958,7 @@ async function bundleOfficialHostBridge(): Promise<string> {
 }
 
 function instrumentMountListeners(bundle: string): string {
-  const instrumentation = `globalThis.__renderifyListenerStats={added:{},removed:{}};(function(){var add=EventTarget.prototype.addEventListener;var remove=EventTarget.prototype.removeEventListener;EventTarget.prototype.addEventListener=function(type){if(this&&this.id==="renderify-mcp-root"){var stats=globalThis.__renderifyListenerStats.added;stats[type]=(stats[type]||0)+1;}return add.apply(this,arguments);};EventTarget.prototype.removeEventListener=function(type){if(this&&this.id==="renderify-mcp-root"){var stats=globalThis.__renderifyListenerStats.removed;stats[type]=(stats[type]||0)+1;}return remove.apply(this,arguments);};})();`;
+  const instrumentation = `globalThis.__renderifyListenerStats={added:{},removed:{}};globalThis.__renderifyResizeObserverStats={created:0,disconnected:0};(function(){var add=EventTarget.prototype.addEventListener;var remove=EventTarget.prototype.removeEventListener;EventTarget.prototype.addEventListener=function(type){if(this&&this.id==="renderify-mcp-root"){var stats=globalThis.__renderifyListenerStats.added;stats[type]=(stats[type]||0)+1;}return add.apply(this,arguments);};EventTarget.prototype.removeEventListener=function(type){if(this&&this.id==="renderify-mcp-root"){var stats=globalThis.__renderifyListenerStats.removed;stats[type]=(stats[type]||0)+1;}return remove.apply(this,arguments);};var NativeResizeObserver=globalThis.ResizeObserver;globalThis.ResizeObserver=class extends NativeResizeObserver{constructor(callback){super(callback);globalThis.__renderifyResizeObserverStats.created+=1;}disconnect(){globalThis.__renderifyResizeObserverStats.disconnected+=1;return super.disconnect();}};})();`;
   return `${instrumentation}${bundle}`;
 }
 
@@ -982,6 +991,22 @@ async function readListenerStats(
     ).__renderifyListenerStats;
     if (!stats) {
       throw new Error("MCP listener stats are unavailable");
+    }
+    return structuredClone(stats);
+  });
+}
+
+async function readResizeObserverStats(
+  app: import("playwright").FrameLocator,
+): Promise<BrowserResizeObserverStats> {
+  return app.locator("body").evaluate(() => {
+    const stats = (
+      globalThis as unknown as {
+        __renderifyResizeObserverStats?: BrowserResizeObserverStats;
+      }
+    ).__renderifyResizeObserverStats;
+    if (!stats) {
+      throw new Error("MCP resize observer stats are unavailable");
     }
     return structuredClone(stats);
   });

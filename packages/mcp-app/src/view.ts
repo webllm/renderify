@@ -58,6 +58,7 @@ export async function startRenderifyMcpApp(
   const maxPlanBytes = config.maxPlanBytes ?? DEFAULT_MCP_PLAN_MAX_BYTES;
   const allowedTools = new Set(config.allowedTools ?? []);
   const toolEventPrefix = config.toolEventPrefix ?? "tool:";
+  const ownsApp = dependencies.app === undefined;
   const app =
     dependencies.app ??
     new App(
@@ -66,7 +67,7 @@ export async function startRenderifyMcpApp(
         version: config.appVersion ?? resolveRenderifyMcpAppVersion(),
       },
       {},
-      { autoResize: true, strict: true, allowUnsafeEval: false },
+      { autoResize: false, strict: true, allowUnsafeEval: false },
     );
   const ui = new DefaultUIRenderer();
 
@@ -76,6 +77,7 @@ export async function startRenderifyMcpApp(
   let renderGeneration = 0;
   let teardownPromise: Promise<void> | undefined;
   let disposePromise: Promise<void> | undefined;
+  let stopAutoResize: (() => void) | undefined;
   let queue = Promise.resolve();
 
   const enqueue = async <T>(operation: () => Promise<T>): Promise<T> => {
@@ -88,6 +90,18 @@ export async function startRenderifyMcpApp(
   };
 
   const isInactive = (): boolean => disposed || terminated;
+  const stopAutoResizeNotifications = (): void => {
+    const stop = stopAutoResize;
+    stopAutoResize = undefined;
+    try {
+      stop?.();
+    } catch (error) {
+      console.error(
+        "[renderify/mcp-app] resize observer cleanup failed",
+        error,
+      );
+    }
+  };
   const isCurrentSession = (
     candidate: RuntimeInteractiveSession,
     generation: number,
@@ -339,6 +353,7 @@ export async function startRenderifyMcpApp(
     }
     terminated = true;
     renderGeneration += 1;
+    stopAutoResizeNotifications();
     void enqueue(async () => {
       await releaseRenderedView();
       setStatus("cancelled", reason ?? "Tool execution was cancelled.");
@@ -355,6 +370,7 @@ export async function startRenderifyMcpApp(
         terminated = true;
         renderGeneration += 1;
       }
+      stopAutoResizeNotifications();
       teardownPromise = enqueue(async () => {
         await releaseRenderedView();
         setStatus("terminated");
@@ -371,6 +387,9 @@ export async function startRenderifyMcpApp(
     await app.connect(transport);
     if (!isInactive()) {
       applyHostContext(app.getHostContext());
+      if (ownsApp) {
+        stopAutoResize = app.setupSizeChangedNotifications();
+      }
       setStatus("connected");
     }
   } catch (error) {
@@ -384,6 +403,7 @@ export async function startRenderifyMcpApp(
     dispose: () => {
       if (!disposePromise) {
         disposed = true;
+        stopAutoResizeNotifications();
         disposePromise = (async () => {
           try {
             await enqueue(async () => {
