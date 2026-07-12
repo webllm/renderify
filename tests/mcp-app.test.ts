@@ -354,6 +354,14 @@ test("mcp-app shell normalizes provided browser bundles before hashing", async (
     () => createRenderifyShell({ browserBundle: "\r\n\t" }),
     /browserBundle must not be empty/,
   );
+  await assert.rejects(
+    () =>
+      createRenderifyShell({
+        browserBundle:
+          "globalThis.beforeNull=true;/*\u0000*/globalThis.afterNull=true;",
+      }),
+    /browserBundle must not contain null characters/,
+  );
 });
 
 test("mcp-app bundler resolves relative view entries from its base directory", async () => {

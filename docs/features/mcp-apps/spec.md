@@ -120,6 +120,8 @@ script hashes, and inserts only escaped configuration JSON. The view runs the
 strict Renderify security profile with empty module/network allowlists and
 auto-pin disabled. `es-module-lexer` is imported lazily so declarative startup
 does not initialize its WebAssembly parser under the strict CSP.
+Provided browser bundles normalize CRLF/CR before hashing and reject null
+characters because HTML parsing would replace them and invalidate the CSP hash.
 
 See [ADR-0001](../../adr/0001-offline-declarative-mcp-app-boundary.md) for the
 decision rationale and [runtime modules](../../architecture/mcp-app-runtime-modules.md)

@@ -163,6 +163,9 @@ function assertSafeInlineScript(value: string, label: string): void {
 
 function normalizeBrowserBundle(value: string): string {
   const normalized = value.replace(/\r\n?/g, "\n");
+  if (normalized.includes("\u0000")) {
+    throw new Error("browserBundle must not contain null characters");
+  }
   if (normalized.trim().length === 0) {
     throw new Error("browserBundle must not be empty");
   }

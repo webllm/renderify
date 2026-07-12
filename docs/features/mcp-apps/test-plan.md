@@ -20,7 +20,7 @@ required for safe declarative events under a strict browser CSP.
 | Detach plans before returning or rendering | Unit | mutation-after-parse assertion |
 | Emit valid official resource/tool metadata | Schema + SDK integration | official Zod schemas and in-memory `McpServer`/`Client` |
 | Hash every inline script and escape configuration | Unit | CSP hash reconstruction and script-breakout fixture |
-| Normalize provided browser bundle line endings and reject empty bundles | Unit | normalized CSP hash and byte-count assertions |
+| Normalize provided browser bundle line endings and reject empty or null-containing bundles | Unit | normalized CSP hash, byte-count, and rejection assertions |
 | Resolve relative browser view entries from the configured or current working directory | Unit | custom `viewEntry` bundle assertion |
 | Reject SVG animation and timed attribute mutation after URL validation | Unit + renderer regression | SMIL plan corpus and sanitized-tag assertions |
 | Allow declarative events but reject malformed inline handlers | Security regression | `tests/security.test.ts` |
@@ -39,7 +39,7 @@ required for safe declarative events under a strict browser CSP.
 
 - Malformed structured content.
 - Missing or unsupported spec version.
-- Script-closing configuration and browser bundles.
+- Script-closing, empty, and null-containing browser bundles.
 - Control-character-obfuscated `mailto:` and `tel:` navigation.
 - SVG animation or timed mutation of URL attributes.
 - Host without server-tools capability.
