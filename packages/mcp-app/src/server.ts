@@ -247,7 +247,7 @@ export async function registerRenderifyApp(
             : options.summary;
         return renderifyToolResult(payload, {
           maxBytes: options.maxPlanBytes,
-          ...(summary ? { summary } : {}),
+          ...(summary !== undefined ? { summary } : {}),
         });
       },
     );

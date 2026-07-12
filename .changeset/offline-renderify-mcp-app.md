@@ -21,6 +21,7 @@ reactivate a view.
 Reject case-variant inline event attributes before HTML serialization.
 Ignore inherited object properties when resolving declarative transitions.
 Roll back the paired resource when MCP tool registration fails.
+Preserve explicitly empty tool-result summaries through app registration.
 Join concurrent controller disposal and always close the bridge after cleanup.
 Disconnect adapter-owned automatic resize observation at terminal lifecycle events.
 Close an established bridge when post-connect startup initialization fails.

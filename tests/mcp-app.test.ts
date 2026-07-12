@@ -9,6 +9,7 @@ import {
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import type { RuntimePlan } from "../packages/ir/src/index";
 import {
@@ -528,6 +529,7 @@ test("mcp-app registers interoperable tools and resources with the official SDK"
     browserBundle:
       "globalThis.RenderifyMcpApp={startRenderifyMcpApp:async()=>{}};",
     toolName: "show_default_dashboard",
+    summary: "",
     handler: (args, extra) => {
       observedNoSchemaArgs = args;
       observedNoSchemaExtra = extra;
@@ -594,6 +596,14 @@ test("mcp-app registers interoperable tools and resources with the official SDK"
     assert.equal(
       extractRenderifyPlan(calledWithoutSchema)?.id,
       "mcp_unit_plan",
+    );
+    const noSchemaResult = calledWithoutSchema as CallToolResult;
+    assert.equal(noSchemaResult.content[0]?.type, "text");
+    assert.equal(
+      noSchemaResult.content[0]?.type === "text"
+        ? noSchemaResult.content[0].text
+        : undefined,
+      "",
     );
   } finally {
     await client.close();
