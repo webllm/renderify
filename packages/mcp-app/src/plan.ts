@@ -52,6 +52,7 @@ const MCP_SVG_ANIMATION_ELEMENT_NAMES = new Set([
   "discard",
   "set",
 ]);
+const RUNTIME_TEMPLATE_EXPRESSION_PATTERN = /{{\s*[^}]+\s*}}/;
 
 export type DeclarativeMcpPlanErrorCode =
   | "INVALID_LIMIT"
@@ -232,6 +233,10 @@ function assertOfflineDeclarativePlan(plan: RuntimePlan): void {
       if (!isRuntimeUrlAttribute(name) || typeof value !== "string") {
         continue;
       }
+      if (RUNTIME_TEMPLATE_EXPRESSION_PATTERN.test(value)) {
+        hasExternalOrUnsafeUrl = true;
+        continue;
+      }
       const inspection = inspectRuntimeUrlAttribute(name, value);
       if (
         !inspection.safe ||
@@ -251,7 +256,7 @@ function assertOfflineDeclarativePlan(plan: RuntimePlan): void {
   if (hasExternalOrUnsafeUrl) {
     throw new DeclarativeMcpPlanError(
       "NETWORK_DISABLED",
-      "External and unsafe URL attributes are disabled in MCP Apps",
+      "Dynamic, external, and unsafe URL attributes are disabled in MCP Apps",
     );
   }
 

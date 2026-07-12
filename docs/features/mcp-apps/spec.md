@@ -76,6 +76,9 @@ sequenceDiagram
   change sanitized URL attributes after validation.
 - Unsafe, remote, and external-navigation URL attributes MUST be rejected by
   the shared URL inspector before the tool result is returned.
+- URL-bearing string attributes MUST be static. Runtime template expressions
+  in those attributes MUST be rejected before execution so state, context, or
+  event interpolation cannot introduce a URL after validation.
 - CSS `image-set()` and `-webkit-image-set()` functions MUST be rejected in
   URL-bearing attributes and inline styles, including escaped or commented
   spellings, because quoted candidates can initiate requests without `url()`.

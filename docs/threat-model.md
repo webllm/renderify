@@ -104,6 +104,9 @@ and imports if the caller incorrectly treats model output as reviewed code.
 - CSS `image-set()` and `-webkit-image-set()` are rejected in URL-bearing
   attributes and inline styles because quoted candidates can load without a
   `url()` token; CSS escapes and comments are normalized before inspection.
+- URL-bearing MCP attributes cannot contain runtime templates. Rejecting them
+  before execution prevents state, context, or event interpolation from
+  introducing a relative or active URL after the boundary check.
 - Declarative `onClick` data becomes delegated runtime events. It never becomes
   an HTML `on*` attribute or evaluated JavaScript.
 - Model-context updates contain attacker-influenced state/event data. Hosts and

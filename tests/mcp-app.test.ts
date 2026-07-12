@@ -260,6 +260,54 @@ test("mcp-app permits only non-network local fragment references", () => {
   assert.doesNotThrow(() => parseDeclarativeMcpPlan(plan));
 });
 
+test("mcp-app rejects runtime templates in URL-bearing attributes", () => {
+  const cases = [
+    "{{state.cursor}}, auto",
+    "u{{state.functionMiddle}}l(/cursor), auto",
+    "url(#{{state.paintServer}})",
+  ];
+
+  for (const cursor of cases) {
+    const plan = createPlan();
+    plan.state = {
+      initial: {
+        cursor: "url(/cursor)",
+        functionMiddle: "r",
+        paintServer: "gradient",
+      },
+    };
+    plan.root = {
+      type: "element",
+      tag: "rect",
+      props: { cursor },
+    };
+
+    assert.throws(
+      () => parseDeclarativeMcpPlan(plan),
+      (error: unknown) =>
+        error instanceof DeclarativeMcpPlanError &&
+        error.code === "NETWORK_DISABLED",
+      cursor,
+    );
+  }
+});
+
+test("mcp-app permits runtime templates outside URL-bearing attributes", () => {
+  const plan = createPlan();
+  plan.state = { initial: { label: "Offline dashboard" } };
+  plan.root = {
+    type: "element",
+    tag: "section",
+    props: {
+      class: "dashboard-{{state.label}}",
+      title: "{{state.label}}",
+    },
+    children: [{ type: "text", value: "{{state.label}}" }],
+  };
+
+  assert.doesNotThrow(() => parseDeclarativeMcpPlan(plan));
+});
+
 test("mcp-app rejects fragment hrefs on navigation and resource elements", () => {
   const cases: Array<{ tag: string; attribute: string }> = [
     { tag: "a", attribute: "href" },

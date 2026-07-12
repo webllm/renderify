@@ -260,6 +260,32 @@ function createCssImageSetStylePlan(): RuntimePlan {
   };
 }
 
+function createTemplatedRelativeUrlPlan(): RuntimePlan {
+  return {
+    specVersion: "runtime-plan/v1",
+    id: "templated_relative_url_plan",
+    version: 1,
+    capabilities: { domWrite: true },
+    state: {
+      initial: { cursor: "url(/cursor)" },
+    },
+    root: {
+      type: "element",
+      tag: "svg",
+      children: [
+        {
+          type: "element",
+          tag: "rect",
+          props: {
+            id: "templated-relative-url",
+            cursor: "{{state.cursor}}, auto",
+          },
+        },
+      ],
+    },
+  };
+}
+
 test("e2e: official AppBridge drives the offline Renderify MCP App lifecycle", async () => {
   const hostBundle = await bundleOfficialHostBridge();
   const viewBundle = await bundleRenderifyMcpView();
@@ -676,6 +702,12 @@ test("e2e: HTTP srcdoc blocks browser-resolved URL escapes", async () => {
       status: "ready",
       selector: "#image-set-style",
       rendered: true,
+    },
+    {
+      plan: createTemplatedRelativeUrlPlan(),
+      status: "error",
+      selector: "#templated-relative-url",
+      rendered: false,
     },
   ] as const;
 
