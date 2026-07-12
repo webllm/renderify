@@ -1,5 +1,27 @@
 # @renderify/core
 
+## 0.8.0
+
+### Minor Changes
+
+- 996edaa, 2dce214, 8326303: Recognize `openai-codex` in core configuration with the Codex Responses base URL, `gpt-5.5` default model, and a 300-second request timeout.
+- 3539cca: Apply provider-specific default models and loopback base URLs when Ollama or LM Studio is selected without explicit overrides.
+
+### Patch Changes
+
+- 45757fe, 5e669a5, aef1d9c: Serialize concurrent application start/stop transitions, pass a normalized snapshot of application context into runtime execution and previews, and return/report the plan and security result actually used after `beforeRuntime` hooks.
+- 03ac0c5, f8d7bd2, 782810b: Detach configuration, context-state, subscriber, and registered-API snapshots so caller mutation cannot alter internal state.
+- 8e856ec: Bound and cancel API error-response body reads, including stalled bodies after request timeout.
+- 140e616, 0a0b4c7, 9f79d3c: Make code generation select the first JSON payload that is actually a RuntimePlan/node, avoid heuristic source rewrites when syntax is already valid, and generate collision-resistant fallback plan IDs.
+- 44d8c89, ac6e194: Emit one truthful full-text delta for non-streaming structured responses and close upstream LLM streams plus performance measurements when consumers stop early or abort.
+- 42cfc5f: Keep the active security policy authoritative over runtime source execution instead of allowing runtime option overrides to silently enable it.
+- 84bc3de: Restore the complete `@renderify/security` API re-export from the core entry point.
+- 7d9e4ae, c12f809: Publish unambiguous `.mjs` and `.cjs` entry points and make package cleanup work cross-platform.
+- Updated dependencies:
+  - @renderify/ir@0.8.0
+  - @renderify/runtime@0.8.0
+  - @renderify/security@0.8.0
+
 ## 0.7.0
 
 ### Minor Changes

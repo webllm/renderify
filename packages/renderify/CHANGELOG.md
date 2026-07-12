@@ -1,5 +1,21 @@
 # renderify
 
+## 0.8.0
+
+### Minor Changes
+
+- 996edaa, da3fc0a: Re-export `OpenAICodexLLMInterpreter`, `OpenAICodexLLMInterpreterOptions`, and `openaiCodexLLMProvider` so the top-level SDK can configure and create the new `openai-codex` provider directly, and document the CLI authentication flow used to select it.
+
+### Patch Changes
+
+- 7d9e4ae, c12f809: Publish unambiguous `.mjs` and `.cjs` entry points and make package cleanup work cross-platform.
+- Updated dependencies:
+  - @renderify/core@0.8.0
+  - @renderify/ir@0.8.0
+  - @renderify/llm@0.8.0
+  - @renderify/runtime@0.8.0
+  - @renderify/security@0.8.0
+
 ## 0.7.0
 
 ### Minor Changes

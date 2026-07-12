@@ -1,6 +1,6 @@
 {
   "name": "@renderify/cli",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "main": "dist/cli.cjs",
   "types": "dist/cli.d.ts",
   "module": "dist/cli.mjs",
