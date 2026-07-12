@@ -27,6 +27,9 @@
     },
     {
       "path": "packages/renderify"
+    },
+    {
+      "path": "packages/mcp-app"
     }
   ]
 }

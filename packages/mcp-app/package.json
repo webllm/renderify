@@ -1,0 +1,69 @@
+{
+  "name": "@renderify/mcp-app",
+  "version": "0.7.0",
+  "main": "dist/mcp-app.cjs.js",
+  "types": "dist/mcp-app.d.ts",
+  "module": "dist/mcp-app.esm.js",
+  "exports": {
+    ".": {
+      "types": "./dist/mcp-app.d.ts",
+      "import": "./dist/mcp-app.esm.js",
+      "require": "./dist/mcp-app.cjs.js",
+      "default": "./dist/mcp-app.esm.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "typecheck": "tsc -p tsconfig.json --pretty false --noEmit",
+    "lint": "biome lint src",
+    "clean": "rm -rf dist dist-types",
+    "build:repo": "tsup --config tsup.config.ts",
+    "watch:repo": "tsup --config tsup.config.ts --watch"
+  },
+  "author": "unadlib",
+  "license": "MIT",
+  "description": "MCP Apps (SEP-1865) adapter for Renderify: render LLM-generated UI inside the MCP Apps sandboxed iframe",
+  "keywords": [
+    "renderify",
+    "mcp",
+    "mcp-apps",
+    "model-context-protocol",
+    "generative-ui",
+    "llm",
+    "ui-runtime"
+  ],
+  "homepage": "https://github.com/webllm/renderify#readme",
+  "bugs": {
+    "url": "https://github.com/webllm/renderify/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/webllm/renderify.git",
+    "directory": "packages/mcp-app"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "sideEffects": false,
+  "dependencies": {
+    "@renderify/ir": "workspace:^",
+    "@renderify/runtime": "workspace:^",
+    "@renderify/security": "workspace:^"
+  },
+  "peerDependencies": {
+    "esbuild": "^0.28.0"
+  },
+  "peerDependenciesMeta": {
+    "esbuild": {
+      "optional": true
+    }
+  }
+}

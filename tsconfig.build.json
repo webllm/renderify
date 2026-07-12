@@ -8,6 +8,9 @@
       "path": "packages/cli"
     },
     {
+      "path": "packages/mcp-app"
+    },
+    {
       "path": "packages/core"
     },
     {

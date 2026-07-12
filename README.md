@@ -383,6 +383,7 @@ Use `manifest-only` in production (`autoPinLatestModuleManifest: false`) when yo
 | `@renderify/security` | Policy profiles + plan/module/source static checks               |
 | `@renderify/core`     | Legacy orchestration facade (optional compatibility layer)       |
 | `@renderify/llm`      | LLM provider package (OpenAI + Anthropic + Google)               |
+| `@renderify/mcp-app`  | MCP Apps (SEP-1865) adapter: render generative UI in the sandboxed iframe |
 | `@renderify/cli`      | CLI + browser playground                                         |
 
 ## Integration Docs
@@ -393,7 +394,9 @@ Use `manifest-only` in production (`autoPinLatestModuleManifest: false`) when yo
 - Runtime execution engine: [`docs/runtime-execution.md`](docs/runtime-execution.md)
 - Dependency verification model: [`docs/runtime-execution.md#verification-model`](docs/runtime-execution.md#verification-model)
 - Browser embedding: [`docs/browser-integration.md`](docs/browser-integration.md)
+- MCP Apps (SEP-1865) adapter + CSP feasibility: [`docs/mcp-apps.md`](docs/mcp-apps.md)
 - Security guide: [`docs/security.md`](docs/security.md)
+- Threat model (trust boundaries, guarantee levels): [`docs/threat-model.md`](docs/threat-model.md)
 - Plugin system: [`docs/plugin-system.md`](docs/plugin-system.md)
 - Troubleshooting & FAQ: [`docs/troubleshooting-faq.md`](docs/troubleshooting-faq.md)
 - Cookbook / common integration patterns: [`docs/cookbook.md`](docs/cookbook.md)
