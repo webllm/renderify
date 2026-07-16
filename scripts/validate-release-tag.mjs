@@ -4,6 +4,9 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const RELEASE_PACKAGE_PATH = path.join("packages", "renderify", "package.json");
+const CHANGESET_DIR = ".changeset";
+const CHANGESET_README = "README.md";
+const PACKAGE_DIR = "packages";
 const SEMVER_PATTERN =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
 
@@ -32,6 +35,26 @@ export function validateReleaseTag(tag, packageVersion) {
   return failures;
 }
 
+export function validateReleaseState(pendingChangesets, publishablePackages) {
+  const failures = [];
+
+  if (pendingChangesets.length > 0) {
+    failures.push(
+      `pending changesets must be versioned before release: ${pendingChangesets.join(", ")}`,
+    );
+  }
+
+  for (const pkg of publishablePackages) {
+    if (pkg.version === "0.0.0") {
+      failures.push(
+        `${pkg.name} is still at the unpublished placeholder version 0.0.0`,
+      );
+    }
+  }
+
+  return failures;
+}
+
 function readReleasePackageVersion() {
   const raw = fs.readFileSync(RELEASE_PACKAGE_PATH, "utf8");
   const pkg = JSON.parse(raw);
@@ -48,6 +71,37 @@ function readReleasePackageVersion() {
   return pkg.version;
 }
 
+function listPendingChangesets() {
+  return fs
+    .readdirSync(CHANGESET_DIR, { withFileTypes: true })
+    .filter(
+      (entry) =>
+        entry.isFile() &&
+        entry.name.endsWith(".md") &&
+        entry.name !== CHANGESET_README,
+    )
+    .map((entry) => path.join(CHANGESET_DIR, entry.name))
+    .sort();
+}
+
+function readPublishablePackages() {
+  return fs
+    .readdirSync(PACKAGE_DIR, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => {
+      const packagePath = path.join(PACKAGE_DIR, entry.name, "package.json");
+      if (!fs.existsSync(packagePath)) {
+        return undefined;
+      }
+      const pkg = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+      if (pkg.private === true) {
+        return undefined;
+      }
+      return { name: pkg.name, version: pkg.version };
+    })
+    .filter(Boolean);
+}
+
 function main() {
   const tag = process.argv[2] ?? process.env.RELEASE_TAG ?? "";
   let packageVersion;
@@ -59,7 +113,10 @@ function main() {
     return;
   }
 
-  const failures = validateReleaseTag(tag, packageVersion);
+  const failures = [
+    ...validateReleaseTag(tag, packageVersion),
+    ...validateReleaseState(listPendingChangesets(), readPublishablePackages()),
+  ];
   if (failures.length > 0) {
     console.error("Release tag validation failed:");
     for (const failure of failures) {
