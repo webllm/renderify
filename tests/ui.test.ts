@@ -377,6 +377,31 @@ test("ui renderer serializes safe object inline styles from RuntimePlan", () => 
   );
 });
 
+test("ui renderer adds px to dimensional numeric styles", () => {
+  const renderer = new DefaultUIRenderer();
+  const html = renderer.renderNode(
+    createElementNode("div", {
+      style: {
+        padding: 16,
+        fontSize: 14,
+        gap: 8,
+        marginTop: -4,
+        marginBottom: 0,
+        lineHeight: 1.4,
+        opacity: 0.5,
+        zIndex: 2,
+        WebkitLineClamp: 3,
+        "--renderify-scale": 1.25,
+      },
+    }),
+  );
+
+  assert.match(
+    html,
+    /style="padding:16px;font-size:14px;gap:8px;margin-top:-4px;margin-bottom:0;line-height:1.4;opacity:0.5;z-index:2;-webkit-line-clamp:3;--renderify-scale:1.25;"/,
+  );
+});
+
 test("ui renderer rejects unsafe values inside object inline styles", () => {
   const renderer = new DefaultUIRenderer();
   const html = renderer.renderNode(

@@ -757,6 +757,53 @@ const UNSAFE_STYLE_PATTERNS = [
   /-moz-binding/i,
 ] as const;
 
+const UNITLESS_CSS_NUMBER_PROPERTIES = new Set([
+  "animation-iteration-count",
+  "aspect-ratio",
+  "border-image-outset",
+  "border-image-slice",
+  "border-image-width",
+  "box-flex",
+  "box-flex-group",
+  "box-ordinal-group",
+  "column-count",
+  "columns",
+  "fill-opacity",
+  "flex",
+  "flex-grow",
+  "flex-negative",
+  "flex-order",
+  "flex-positive",
+  "flex-shrink",
+  "flood-opacity",
+  "font-weight",
+  "grid-area",
+  "grid-column",
+  "grid-column-end",
+  "grid-column-span",
+  "grid-column-start",
+  "grid-row",
+  "grid-row-end",
+  "grid-row-span",
+  "grid-row-start",
+  "line-clamp",
+  "line-height",
+  "opacity",
+  "order",
+  "orphans",
+  "scale",
+  "stop-opacity",
+  "stroke-dasharray",
+  "stroke-dashoffset",
+  "stroke-miterlimit",
+  "stroke-opacity",
+  "stroke-width",
+  "tab-size",
+  "widows",
+  "z-index",
+  "zoom",
+]);
+
 function sanitizeTagName(tag: string): string | undefined {
   const normalized = normalizeTagName(tag);
   if (!normalized) {
@@ -900,8 +947,8 @@ function normalizeInlineStyleValue(style: JsonValue): string | undefined {
       continue;
     }
 
-    const value = String(rawValue).trim();
-    if (value.length === 0) {
+    const value = normalizeCssPropertyValue(property, rawValue);
+    if (!value) {
       continue;
     }
     declarations.push(`${property}:${value};`);
@@ -910,6 +957,34 @@ function normalizeInlineStyleValue(style: JsonValue): string | undefined {
   return declarations.length > 0
     ? sanitizeInlineStyle(declarations.join(""))
     : undefined;
+}
+
+function normalizeCssPropertyValue(
+  property: string,
+  value: string | number,
+): string | undefined {
+  if (typeof value === "string") {
+    const normalized = value.trim();
+    return normalized.length > 0 ? normalized : undefined;
+  }
+  if (!Number.isFinite(value)) {
+    return undefined;
+  }
+
+  const normalized = String(value);
+  if (
+    value === 0 ||
+    property.startsWith("--") ||
+    isUnitlessCssNumberProperty(property)
+  ) {
+    return normalized;
+  }
+  return `${normalized}px`;
+}
+
+function isUnitlessCssNumberProperty(property: string): boolean {
+  const unprefixed = property.replace(/^-(?:webkit|moz|ms|o)-/, "");
+  return UNITLESS_CSS_NUMBER_PROPERTIES.has(unprefixed);
 }
 
 function normalizeCssPropertyName(property: string): string | undefined {
