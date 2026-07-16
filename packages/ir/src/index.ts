@@ -990,7 +990,8 @@ export function isRuntimePlan(value: unknown): value is RuntimePlan {
 /**
  * Normalizes a JSON RuntimePlan candidate without executing model-provided code.
  * Valid plans are returned unchanged; only well-known DOM-like node aliases are
- * converted and invalid optional fields are discarded.
+ * converted. Missing fields may receive compatibility defaults, while fields
+ * that are present but invalid reject the candidate so callers can repair it.
  */
 export function normalizeRuntimePlanCandidate(
   value: unknown,
@@ -1003,11 +1004,26 @@ export function normalizeRuntimePlanCandidate(
     return undefined;
   }
 
-  const rawId = readOwnDataProperty(value, "id")?.value;
-  const rawVersion = readOwnDataProperty(value, "version")?.value;
-  const rawSpecVersion = readOwnDataProperty(value, "specVersion")?.value;
-  const rawCapabilities = readOwnDataProperty(value, "capabilities")?.value;
-  const rawNodes = readOwnDataProperty(value, "nodes")?.value;
+  const rawIdProperty = readOwnDataProperty(value, "id");
+  const rawVersionProperty = readOwnDataProperty(value, "version");
+  const rawSpecVersionProperty = readOwnDataProperty(value, "specVersion");
+  const rawCapabilitiesProperty = readOwnDataProperty(value, "capabilities");
+  const rawNodesProperty = readOwnDataProperty(value, "nodes");
+  if (
+    !rawIdProperty ||
+    !rawVersionProperty ||
+    !rawSpecVersionProperty ||
+    !rawCapabilitiesProperty ||
+    !rawNodesProperty
+  ) {
+    return undefined;
+  }
+
+  const rawId = rawIdProperty.value;
+  const rawVersion = rawVersionProperty.value;
+  const rawSpecVersion = rawSpecVersionProperty.value;
+  const rawCapabilities = rawCapabilitiesProperty.value;
+  const rawNodes = rawNodesProperty.value;
   const hasPlanEnvelopeMarker =
     (typeof rawId === "string" && rawId.trim().length > 0) ||
     (typeof rawSpecVersion === "string" && rawSpecVersion.trim().length > 0) ||
@@ -1020,10 +1036,15 @@ export function normalizeRuntimePlanCandidate(
     return undefined;
   }
 
-  const id =
-    typeof rawId === "string" && rawId.trim().length > 0
-      ? rawId.trim()
-      : options.fallbackId?.trim();
+  if (
+    rawIdProperty.present &&
+    (typeof rawId !== "string" || rawId.trim().length === 0)
+  ) {
+    return undefined;
+  }
+  const id = rawIdProperty.present
+    ? (rawId as string).trim()
+    : options.fallbackId?.trim();
   if (!id) {
     return undefined;
   }
@@ -1052,21 +1073,42 @@ export function normalizeRuntimePlanCandidate(
     return undefined;
   }
 
+  const legacySpecVersion =
+    typeof rawVersion === "string" &&
+    rawVersion.trim().startsWith("runtime-plan/")
+      ? rawVersion.trim()
+      : undefined;
+  if (
+    rawVersionProperty.present &&
+    !legacySpecVersion &&
+    (typeof rawVersion !== "number" ||
+      !Number.isInteger(rawVersion) ||
+      rawVersion <= 0)
+  ) {
+    return undefined;
+  }
+  if (
+    rawSpecVersionProperty.present &&
+    (typeof rawSpecVersion !== "string" || rawSpecVersion.trim().length === 0)
+  ) {
+    return undefined;
+  }
+  if (
+    rawCapabilitiesProperty.present &&
+    !isRuntimeCapabilities(rawCapabilities)
+  ) {
+    return undefined;
+  }
+
   const version =
-    typeof rawVersion === "number" &&
-    Number.isInteger(rawVersion) &&
-    rawVersion > 0
+    typeof rawVersion === "number" && Number.isInteger(rawVersion)
       ? rawVersion
       : 1;
-  const specVersion =
-    typeof rawSpecVersion === "string" && rawSpecVersion.trim().length > 0
-      ? rawSpecVersion.trim()
-      : typeof rawVersion === "string" &&
-          rawVersion.trim().startsWith("runtime-plan/")
-        ? rawVersion.trim()
-        : DEFAULT_RUNTIME_PLAN_SPEC_VERSION;
-  const capabilities = isRuntimeCapabilities(rawCapabilities)
-    ? rawCapabilities
+  const specVersion = rawSpecVersionProperty.present
+    ? (rawSpecVersion as string).trim()
+    : (legacySpecVersion ?? DEFAULT_RUNTIME_PLAN_SPEC_VERSION);
+  const capabilities = rawCapabilitiesProperty.present
+    ? (rawCapabilities as RuntimeCapabilities)
     : { domWrite: true, allowedModules: [] };
 
   const candidate: RuntimePlan = {
@@ -1077,32 +1119,63 @@ export function normalizeRuntimePlanCandidate(
     capabilities,
   };
 
-  const rawImports = readOwnDataProperty(value, "imports")?.value;
-  if (
-    Array.isArray(rawImports) &&
-    rawImports.every((entry): entry is string => typeof entry === "string")
-  ) {
+  const rawImportsProperty = readOwnDataProperty(value, "imports");
+  if (!rawImportsProperty) {
+    return undefined;
+  }
+  if (rawImportsProperty.present) {
+    const rawImports = rawImportsProperty.value;
+    if (
+      !Array.isArray(rawImports) ||
+      !rawImports.every((entry): entry is string => typeof entry === "string")
+    ) {
+      return undefined;
+    }
     candidate.imports = rawImports;
   }
 
-  const rawManifest = readOwnDataProperty(value, "moduleManifest")?.value;
-  if (isRuntimeModuleManifest(rawManifest)) {
-    candidate.moduleManifest = rawManifest;
+  const rawManifestProperty = readOwnDataProperty(value, "moduleManifest");
+  if (!rawManifestProperty) {
+    return undefined;
+  }
+  if (rawManifestProperty.present) {
+    if (!isRuntimeModuleManifest(rawManifestProperty.value)) {
+      return undefined;
+    }
+    candidate.moduleManifest = rawManifestProperty.value;
   }
 
-  const rawState = readOwnDataProperty(value, "state")?.value;
-  if (isRuntimeStateModel(rawState)) {
-    candidate.state = rawState;
+  const rawStateProperty = readOwnDataProperty(value, "state");
+  if (!rawStateProperty) {
+    return undefined;
+  }
+  if (rawStateProperty.present) {
+    if (!isRuntimeStateModel(rawStateProperty.value)) {
+      return undefined;
+    }
+    candidate.state = rawStateProperty.value;
   }
 
-  const rawSource = readOwnDataProperty(value, "source")?.value;
-  if (isRuntimeSourceModule(rawSource)) {
-    candidate.source = rawSource;
+  const rawSourceProperty = readOwnDataProperty(value, "source");
+  if (!rawSourceProperty) {
+    return undefined;
+  }
+  if (rawSourceProperty.present) {
+    if (!isRuntimeSourceModule(rawSourceProperty.value)) {
+      return undefined;
+    }
+    candidate.source = rawSourceProperty.value;
   }
 
-  const rawMetadata = readOwnDataProperty(value, "metadata")?.value;
-  if (isRuntimePlanMetadata(rawMetadata)) {
-    candidate.metadata = rawMetadata;
+  const rawMetadataProperty = readOwnDataProperty(value, "metadata");
+  if (!rawMetadataProperty) {
+    return undefined;
+  }
+  if (rawMetadataProperty.present) {
+    if (!isRuntimePlanMetadata(rawMetadataProperty.value)) {
+      return undefined;
+    }
+    candidate.metadata = rawMetadataProperty.value;
   }
 
   return isRuntimePlan(candidate) ? candidate : undefined;

@@ -107,6 +107,61 @@ test("runtime candidate normalization rejects primitive roots and incomplete res
   );
 });
 
+test("runtime candidate normalization rejects present invalid semantic fields", () => {
+  const basePlan = {
+    specVersion: "runtime-plan/v1",
+    id: "semantic_validation_plan",
+    version: 1,
+    root: { type: "div", children: ["content"] },
+    capabilities: { domWrite: true },
+  };
+  const invalidCandidates = [
+    { ...basePlan, id: "" },
+    { ...basePlan, version: 0 },
+    { ...basePlan, specVersion: "" },
+    { ...basePlan, capabilities: { domWrite: "yes" } },
+    { ...basePlan, imports: ["preact", 42] },
+    {
+      ...basePlan,
+      moduleManifest: { preact: { resolvedUrl: "" } },
+    },
+    { ...basePlan, state: { initial: [] } },
+    {
+      ...basePlan,
+      source: {
+        language: "tsx",
+        code: "export default () => <div />",
+        runtime: "react",
+      },
+    },
+    { ...basePlan, metadata: { tags: [42] } },
+  ];
+
+  for (const candidate of invalidCandidates) {
+    assert.equal(
+      normalizeRuntimePlanCandidate(candidate, {
+        fallbackId: "must_not_replace_invalid_id",
+      }),
+      undefined,
+    );
+  }
+
+  const normalizedMissingFields = normalizeRuntimePlanCandidate(
+    {
+      specVersion: "runtime-plan/v1",
+      root: { type: "div", children: ["content"] },
+    },
+    { fallbackId: "missing_fields_plan" },
+  );
+  assert.ok(normalizedMissingFields);
+  assert.equal(normalizedMissingFields?.id, "missing_fields_plan");
+  assert.equal(normalizedMissingFields?.version, 1);
+  assert.deepEqual(normalizedMissingFields?.capabilities, {
+    domWrite: true,
+    allowedModules: [],
+  });
+});
+
 test("runtime node guards validate descendants, props, and component exports", () => {
   const malformedDescendant = {
     type: "element",

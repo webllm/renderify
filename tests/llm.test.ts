@@ -750,6 +750,55 @@ test("openai codex normalizes DOM-like plans and uses low reasoning for Spark", 
   );
 });
 
+test("openai codex rejects plans with present invalid semantic fields", async () => {
+  const invalidPlan = {
+    specVersion: "runtime-plan/v1",
+    id: "codex_invalid_source_plan",
+    version: 1,
+    root: {
+      type: "component",
+      module: "this-plan-source",
+    },
+    capabilities: { domWrite: true },
+    source: {
+      language: "tsx",
+      code: "export default () => <div />",
+      runtime: "react",
+    },
+  };
+  const llm = new OpenAICodexLLMInterpreter({
+    accessToken: "codex-test-token",
+    fetchImpl: async () =>
+      sseResponse([
+        "event: response.output_text.delta\ndata: " +
+          JSON.stringify({
+            type: "response.output_text.delta",
+            delta: JSON.stringify(invalidPlan),
+          }),
+        "event: response.completed\ndata: " +
+          JSON.stringify({
+            type: "response.completed",
+            response: {
+              id: "resp_codex_invalid_source",
+              model: "gpt-5.5",
+            },
+          }),
+      ]),
+  });
+
+  const response = await llm.generateStructuredResponse({
+    prompt: "build a source-backed plan",
+    format: "runtime-plan",
+    strict: true,
+  });
+
+  assert.equal(response.valid, false);
+  assert.deepEqual(response.value, invalidPlan);
+  assert.deepEqual(response.errors, [
+    "Structured payload is not a valid RuntimePlan",
+  ]);
+});
+
 test("openai codex assigns unique fallback plan ids for repeated prompts", async () => {
   let requestCount = 0;
   const llm = new OpenAICodexLLMInterpreter({
