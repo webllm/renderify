@@ -1,12 +1,3 @@
----
-type: module-readme
-title: Renderify MCP App
-description: Adapts offline declarative RuntimePlans to the official MCP Apps resource and postMessage lifecycle.
-owner: webllm
-status: proposed
-tags: [mcp, mcp-apps, runtime-plan, security]
----
-
 # @renderify/mcp-app
 
 `@renderify/mcp-app` registers a self-contained `ui://` resource and carries a
@@ -98,20 +89,14 @@ The package depends on `@renderify/ir`, `@renderify/security`,
 shell bundling. The browser view MUST NOT gain source execution or external
 module loading without a new security decision and threat-model update.
 
+The maintained security rationale is documented in
+[ADR-0001](https://github.com/webllm/renderify/blob/main/docs/adr/0001-offline-declarative-mcp-app-boundary.md)
+and the
+[Renderify threat model](https://github.com/webllm/renderify/blob/main/docs/threat-model.md).
+
 ## Common wrong implementations
 
 - Do not pass `plan.source`, component nodes, imports, or module manifests.
 - Do not add CSP domains to make a rejected plan work.
 - Do not expose an app-callable tool without server-side authorization.
 - Do not replace `PostMessageTransport` with an unvalidated `message` listener.
-
-## Verification
-
-- `pnpm exec tsx --test tests/mcp-app.test.ts`
-- `pnpm exec tsx --test tests/e2e/mcp-app.test.ts`
-- `pnpm artifacts:smoke`
-
-The full contract and threat model are documented in
-[MCP Apps](https://github.com/webllm/renderify/blob/main/docs/features/mcp-apps/spec.md)
-and the
-[MCP App threat model](https://github.com/webllm/renderify/blob/main/docs/threat-model.md).

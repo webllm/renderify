@@ -397,5 +397,6 @@ from `window.parent`; app-to-server tool calls additionally require an exact
 local allowlist and host capability.
 
 These controls do not authorize server tools and cannot force a host to create
-a strong outer iframe sandbox. See the [feature specification](features/mcp-apps/spec.md)
-and [threat model](threat-model.md) for the complete contract and residual risk.
+a strong outer iframe sandbox. See the
+[architecture decision](adr/0001-offline-declarative-mcp-app-boundary.md) and
+[threat model](threat-model.md) for the complete contract and residual risk.

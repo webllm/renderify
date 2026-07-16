@@ -1,12 +1,3 @@
----
-type: module-readme
-title: MCP App Example
-description: Runs an official MCP stdio server that serves an offline declarative Renderify app.
-owner: webllm
-status: proposed
-tags: [mcp, example, runtime-plan]
----
-
 # Renderify MCP App example
 
 This example registers one `show_dashboard` tool and one
@@ -30,8 +21,3 @@ text summary.
 The example accepts only `runtime-plan/v1` element/text trees. Runtime source,
 component modules, imports, network access, timers, and persistent browser
 storage are rejected before the result is sent and again inside the view.
-
-## Verification
-
-- `pnpm exec tsx --test tests/mcp-app.test.ts`
-- `pnpm exec tsx --test tests/e2e/mcp-app.test.ts`

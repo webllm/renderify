@@ -1,12 +1,3 @@
----
-type: architecture
-title: Renderify Threat Model
-description: Distinguishes structural checks, trusted source modes, and the offline MCP App browser boundary.
-owner: webllm
-status: proposed
-tags: [security, threat-model, runtime, mcp]
----
-
 # Renderify threat model
 
 ## Scope
@@ -146,10 +137,3 @@ and imports if the caller incorrectly treats model output as reviewed code.
 Use the private process in [`SECURITY.md`](/SECURITY.md). High-value reports
 include a minimal plan, selected profile, host sandbox/CSP, browser version, and
 demonstrated impact.
-
-## Verification
-
-- Structural/security regression: `tests/security.test.ts`
-- MCP attack and metadata corpus: `tests/mcp-app.test.ts`
-- Browser boundary: `tests/e2e/mcp-app.test.ts`
-- General runtime security guide: [`docs/security.md`](/docs/security.md)

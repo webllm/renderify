@@ -1,7 +1,7 @@
 # Renderify documentation
 
-This is a mixed legacy/OKF-compatible documentation root. New scoped documents
-use frontmatter and local indexes; existing guides retain their current format.
+The documentation uses standard Markdown, with local indexes for scoped
+architecture and decision-record collections.
 
 ## Start here
 
@@ -18,7 +18,7 @@ use frontmatter and local indexes; existing guides retain their current format.
 - [RuntimePlan IR](runtime-plan-ir.md) - Plan and node contracts.
 - [Runtime execution](runtime-execution.md) - Runtime engine behavior.
 - [Browser integration](browser-integration.md) - Direct browser embedding.
-- [MCP Apps feature](features/mcp-apps/index.md) - Offline official-protocol MCP embedding.
+- [MCP Apps architecture](architecture/mcp-app-runtime-modules.md) - Offline official-protocol MCP embedding.
 
 ## Security and operations
 

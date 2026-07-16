@@ -422,7 +422,7 @@ by the transport.
 
 Runtime source, imports, component modules, network access, timers, persistent
 storage, and undeclared UI-to-tool calls fail closed. See the
-[MCP Apps specification](docs/features/mcp-apps/spec.md) and
+[MCP Apps architecture](docs/architecture/mcp-app-runtime-modules.md) and
 [threat model](docs/threat-model.md).
 
 ## Package Topology
@@ -448,7 +448,7 @@ storage, and undeclared UI-to-tool calls fail closed. See the
 - Browser embedding: [`docs/browser-integration.md`](docs/browser-integration.md)
 - Security guide: [`docs/security.md`](docs/security.md)
 - Threat model: [`docs/threat-model.md`](docs/threat-model.md)
-- MCP Apps: [`docs/features/mcp-apps/spec.md`](docs/features/mcp-apps/spec.md)
+- MCP Apps: [`docs/architecture/mcp-app-runtime-modules.md`](docs/architecture/mcp-app-runtime-modules.md)
 - Plugin system: [`docs/plugin-system.md`](docs/plugin-system.md)
 - Troubleshooting & FAQ: [`docs/troubleshooting-faq.md`](docs/troubleshooting-faq.md)
 - Cookbook / common integration patterns: [`docs/cookbook.md`](docs/cookbook.md)

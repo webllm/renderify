@@ -1,12 +1,3 @@
----
-type: operations
-title: Security Policy
-description: Supported release policy and private vulnerability-reporting process for Renderify.
-owner: webllm
-status: proposed
-tags: [security, disclosure, operations]
----
-
 # Security policy
 
 Renderify renders dynamic UI and includes trusted-source runtime modes. Review
@@ -53,9 +44,3 @@ impact beyond a novel spelling that bypasses a regex.
 The project will coordinate scope, remediation, release, and credit through the
 private advisory. No response-time or fix-time guarantee is made by this
 repository; avoid public disclosure until coordination is complete.
-
-## Verification
-
-- `pnpm exec tsx --test tests/security.test.ts tests/mcp-app.test.ts`
-- `pnpm exec tsx --test tests/e2e/mcp-app.test.ts`
-- Security boundaries: [`docs/threat-model.md`](docs/threat-model.md)

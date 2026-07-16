@@ -1,13 +1,3 @@
----
-type: adr
-title: ADR-0001 — Offline declarative MCP App boundary
-description: Chooses the official MCP Apps SDK and a self-contained declarative-only trust boundary for the initial adapter.
-owner: webllm
-status: proposed
-risk_level: critical
-tags: [mcp, architecture, security, runtime-plan]
----
-
 ## Context
 
 An MCP App view receives data selected by a model and runs in a host-managed
@@ -83,9 +73,3 @@ code and network out of untrusted tool results.
 ## Supersedes / Superseded by
 
 None.
-
-## Verification
-
-- Decision boundary: `packages/mcp-app/src/plan.ts`
-- Official view lifecycle: `packages/mcp-app/src/view.ts`
-- Browser conformance: `tests/e2e/mcp-app.test.ts`

@@ -1,5 +1,29 @@
 # @renderify/mcp-app
 
+## 0.8.0
+
+### Minor Changes
+
+- Align the MCP Apps adapter with the Renderify 0.8 release line.
+
+### Patch Changes
+
+- Publish concrete semver ranges for the internal IR, runtime, and security
+  dependencies through pnpm's workspace-aware release path, and reject direct
+  npm publishing before it can leak workspace protocols to registry consumers.
+- Keep the npm-facing README focused on the public package contract and point
+  repository readers to the maintained architecture and threat-model documents.
+- Updated dependencies
+  - @renderify/ir@0.8.1
+  - @renderify/runtime@0.8.1
+  - @renderify/security@0.8.1
+
+## 0.1.1
+
+### Patch Changes
+
+- Republish the npm-facing README without repository-only document metadata.
+
 ## 0.1.0
 
 ### Minor Changes
@@ -41,6 +65,3 @@
   - @renderify/ir@0.8.1
   - @renderify/security@0.8.1
   - @renderify/runtime@0.8.1
-
-Release notes are generated from Changesets. The pending initial release is
-described by the repository changeset for this package.
