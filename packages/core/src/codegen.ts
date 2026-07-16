@@ -12,6 +12,8 @@ import {
   isRuntimePlanMetadata,
   isRuntimeSourceModule,
   isRuntimeStateModel,
+  normalizeRuntimeNodeCandidate,
+  normalizeRuntimePlanCandidate,
   type RuntimeCapabilities,
   type RuntimeModuleManifest,
   type RuntimeNode,
@@ -497,16 +499,19 @@ export class DefaultCodeGenerator implements CodeGenerator {
     text: string,
     prompt: string,
   ): Promise<RuntimePlan | undefined> {
-    const parsed = this.tryParseJsonPayload(text, (value) => {
+    const fallbackId = createGeneratedPlanId();
+    const rawParsed = this.tryParseJsonPayload(text, (value) => {
       if (!this.isRecord(value)) {
         return false;
       }
 
       return (
-        isRuntimeNode(value.root) ||
+        normalizeRuntimePlanCandidate(value, { fallbackId }) !== undefined ||
         (this.isRecord(value.source) && isRuntimeSourceModule(value.source))
       );
     });
+    const parsed =
+      normalizeRuntimePlanCandidate(rawParsed, { fallbackId }) ?? rawParsed;
     if (!this.isRecord(parsed)) {
       return undefined;
     }
@@ -613,12 +618,11 @@ export class DefaultCodeGenerator implements CodeGenerator {
   }
 
   private tryParseRuntimeNode(text: string): RuntimeNode | undefined {
-    const parsed = this.tryParseJsonPayload(text, isRuntimeNode);
-    if (isRuntimeNode(parsed)) {
-      return parsed;
-    }
-
-    return undefined;
+    const parsed = this.tryParseJsonPayload(
+      text,
+      (value) => normalizeRuntimeNodeCandidate(value) !== undefined,
+    );
+    return normalizeRuntimeNodeCandidate(parsed);
   }
 
   private tryParseJsonPayload(

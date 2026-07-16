@@ -176,6 +176,10 @@ export interface RuntimePlan {
   metadata?: RuntimePlanMetadata;
 }
 
+export interface RuntimePlanNormalizationOptions {
+  fallbackId?: string;
+}
+
 export interface RuntimeExecutionContext {
   userId?: string;
   variables?: Record<string, JsonValue>;
@@ -264,6 +268,212 @@ export function isRuntimeNode(value: unknown): value is RuntimeNode {
   }
 
   return true;
+}
+
+const RUNTIME_NODE_NORMALIZATION_MAX_DEPTH = 512;
+const RUNTIME_NODE_NORMALIZATION_MAX_NODES = 10_000;
+
+interface RuntimeNodeNormalizationState {
+  active: WeakSet<object>;
+  nodes: number;
+}
+
+/**
+ * Converts the common DOM-like JSON shape emitted by LLMs into RuntimeNode.
+ * The conversion is deliberately bounded and only accepts JSON values.
+ */
+export function normalizeRuntimeNodeCandidate(
+  value: unknown,
+): RuntimeNode | undefined {
+  if (isRuntimeNode(value)) {
+    return value;
+  }
+
+  return normalizeRuntimeNodeCandidateInternal(
+    value,
+    {
+      active: new WeakSet<object>(),
+      nodes: 0,
+    },
+    0,
+  );
+}
+
+function normalizeRuntimeNodeCandidateInternal(
+  value: unknown,
+  state: RuntimeNodeNormalizationState,
+  depth: number,
+): RuntimeNode | undefined {
+  if (depth > RUNTIME_NODE_NORMALIZATION_MAX_DEPTH) {
+    return undefined;
+  }
+
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  ) {
+    state.nodes += 1;
+    return state.nodes <= RUNTIME_NODE_NORMALIZATION_MAX_NODES
+      ? createTextNode(String(value))
+      : undefined;
+  }
+
+  if (!isPlainJsonObject(value) || state.active.has(value)) {
+    return undefined;
+  }
+
+  state.nodes += 1;
+  if (state.nodes > RUNTIME_NODE_NORMALIZATION_MAX_NODES) {
+    return undefined;
+  }
+
+  state.active.add(value);
+  try {
+    const typeValue = readOwnDataProperty(value, "type")?.value;
+    if (typeValue === "text") {
+      const runtimeValue = readOwnDataProperty(value, "value")?.value;
+      const legacyText = readOwnDataProperty(value, "text")?.value;
+      const text =
+        typeof runtimeValue === "string"
+          ? runtimeValue
+          : typeof legacyText === "string"
+            ? legacyText
+            : undefined;
+      return text === undefined ? undefined : createTextNode(text);
+    }
+
+    const children = normalizeRuntimeNodeCandidateChildren(value, state, depth);
+    if (!children) {
+      return undefined;
+    }
+
+    const props = normalizeRuntimeNodeCandidateProps(value);
+    if (typeValue === "component") {
+      const moduleValue = readOwnDataProperty(value, "module")?.value;
+      const exportValue = readOwnDataProperty(value, "exportName")?.value;
+      if (
+        typeof moduleValue !== "string" ||
+        moduleValue.trim().length === 0 ||
+        (exportValue !== undefined &&
+          (typeof exportValue !== "string" || exportValue.trim().length === 0))
+      ) {
+        return undefined;
+      }
+
+      const component: RuntimeComponentNode = {
+        type: "component",
+        module: moduleValue.trim(),
+        exportName:
+          typeof exportValue === "string" ? exportValue.trim() : "default",
+        children,
+      };
+      if (props) {
+        component.props = props;
+      }
+      return component;
+    }
+
+    const explicitTag = readOwnDataProperty(value, "tag")?.value;
+    let tag: string | undefined;
+    if (typeValue === "element") {
+      tag = typeof explicitTag === "string" ? explicitTag.trim() : undefined;
+    } else if (typeValue === "container") {
+      tag =
+        typeof explicitTag === "string" && explicitTag.trim().length > 0
+          ? explicitTag.trim()
+          : "div";
+    } else if (typeof explicitTag === "string") {
+      tag = explicitTag.trim();
+    } else if (
+      typeof typeValue === "string" &&
+      /^[a-z][a-z0-9-]*$/.test(typeValue)
+    ) {
+      tag = typeValue;
+    }
+
+    if (!tag) {
+      return undefined;
+    }
+
+    const element: RuntimeElementNode = {
+      type: "element",
+      tag,
+      children,
+    };
+    if (props) {
+      element.props = props;
+    }
+    return element;
+  } finally {
+    state.active.delete(value);
+  }
+}
+
+function normalizeRuntimeNodeCandidateChildren(
+  value: Record<string, unknown>,
+  state: RuntimeNodeNormalizationState,
+  depth: number,
+): RuntimeNode[] | undefined {
+  const runtimeChildren = readOwnDataProperty(value, "children");
+  const legacyNodes = readOwnDataProperty(value, "nodes");
+  const rawChildren = runtimeChildren?.present
+    ? runtimeChildren.value
+    : legacyNodes?.present
+      ? legacyNodes.value
+      : undefined;
+
+  if (rawChildren === undefined) {
+    return [];
+  }
+  if (!Array.isArray(rawChildren)) {
+    return undefined;
+  }
+
+  const children: RuntimeNode[] = [];
+  for (const child of rawChildren) {
+    const normalized = normalizeRuntimeNodeCandidateInternal(
+      child,
+      state,
+      depth + 1,
+    );
+    if (!normalized) {
+      return undefined;
+    }
+    children.push(normalized);
+  }
+  return children;
+}
+
+function normalizeRuntimeNodeCandidateProps(
+  value: Record<string, unknown>,
+): Record<string, JsonValue> | undefined {
+  const rawProps = readOwnDataProperty(value, "props")?.value;
+  const props: Record<string, JsonValue> =
+    isPlainJsonObject(rawProps) && isJsonValue(rawProps)
+      ? { ...(rawProps as Record<string, JsonValue>) }
+      : {};
+  const rawStyle = readOwnDataProperty(value, "style")?.value;
+  if (props.style === undefined && isPlainJsonObject(rawStyle)) {
+    if (!isJsonValue(rawStyle)) {
+      return undefined;
+    }
+    props.style = rawStyle;
+  }
+
+  for (const key of ["id", "title", "role", "class"] as const) {
+    const candidate = readOwnDataProperty(value, key)?.value;
+    if (props[key] === undefined && isJsonValue(candidate)) {
+      props[key] = candidate;
+    }
+  }
+
+  const className = readOwnDataProperty(value, "className")?.value;
+  if (props.class === undefined && typeof className === "string") {
+    props.class = className;
+  }
+
+  return Object.keys(props).length > 0 ? props : undefined;
 }
 
 export function isRuntimeNodeShallow(value: unknown): value is RuntimeNode {
@@ -775,6 +985,127 @@ export function isRuntimePlan(value: unknown): value is RuntimePlan {
   }
 
   return true;
+}
+
+/**
+ * Normalizes a JSON RuntimePlan candidate without executing model-provided code.
+ * Valid plans are returned unchanged; only well-known DOM-like node aliases are
+ * converted and invalid optional fields are discarded.
+ */
+export function normalizeRuntimePlanCandidate(
+  value: unknown,
+  options: RuntimePlanNormalizationOptions = {},
+): RuntimePlan | undefined {
+  if (isRuntimePlan(value)) {
+    return value;
+  }
+  if (!isPlainJsonObject(value)) {
+    return undefined;
+  }
+
+  const rawId = readOwnDataProperty(value, "id")?.value;
+  const rawVersion = readOwnDataProperty(value, "version")?.value;
+  const rawSpecVersion = readOwnDataProperty(value, "specVersion")?.value;
+  const rawCapabilities = readOwnDataProperty(value, "capabilities")?.value;
+  const rawNodes = readOwnDataProperty(value, "nodes")?.value;
+  const hasPlanEnvelopeMarker =
+    (typeof rawId === "string" && rawId.trim().length > 0) ||
+    (typeof rawSpecVersion === "string" && rawSpecVersion.trim().length > 0) ||
+    (typeof rawVersion === "number" && Number.isFinite(rawVersion)) ||
+    (typeof rawVersion === "string" &&
+      rawVersion.trim().startsWith("runtime-plan/")) ||
+    isPlainJsonObject(rawCapabilities) ||
+    Array.isArray(rawNodes);
+  if (!hasPlanEnvelopeMarker) {
+    return undefined;
+  }
+
+  const id =
+    typeof rawId === "string" && rawId.trim().length > 0
+      ? rawId.trim()
+      : options.fallbackId?.trim();
+  if (!id) {
+    return undefined;
+  }
+
+  const rawRootProperty = readOwnDataProperty(value, "root");
+  let rootCandidate: unknown;
+  if (
+    rawRootProperty?.present &&
+    rawRootProperty.value !== null &&
+    rawRootProperty.value !== undefined
+  ) {
+    if (!isPlainJsonObject(rawRootProperty.value)) {
+      return undefined;
+    }
+    rootCandidate = rawRootProperty.value;
+  } else if (Array.isArray(rawNodes)) {
+    rootCandidate = {
+      type: "container",
+      nodes: rawNodes,
+    };
+  } else {
+    return undefined;
+  }
+  const root = normalizeRuntimeNodeCandidate(rootCandidate);
+  if (!root) {
+    return undefined;
+  }
+
+  const version =
+    typeof rawVersion === "number" &&
+    Number.isInteger(rawVersion) &&
+    rawVersion > 0
+      ? rawVersion
+      : 1;
+  const specVersion =
+    typeof rawSpecVersion === "string" && rawSpecVersion.trim().length > 0
+      ? rawSpecVersion.trim()
+      : typeof rawVersion === "string" &&
+          rawVersion.trim().startsWith("runtime-plan/")
+        ? rawVersion.trim()
+        : DEFAULT_RUNTIME_PLAN_SPEC_VERSION;
+  const capabilities = isRuntimeCapabilities(rawCapabilities)
+    ? rawCapabilities
+    : { domWrite: true, allowedModules: [] };
+
+  const candidate: RuntimePlan = {
+    specVersion,
+    id,
+    version,
+    root,
+    capabilities,
+  };
+
+  const rawImports = readOwnDataProperty(value, "imports")?.value;
+  if (
+    Array.isArray(rawImports) &&
+    rawImports.every((entry): entry is string => typeof entry === "string")
+  ) {
+    candidate.imports = rawImports;
+  }
+
+  const rawManifest = readOwnDataProperty(value, "moduleManifest")?.value;
+  if (isRuntimeModuleManifest(rawManifest)) {
+    candidate.moduleManifest = rawManifest;
+  }
+
+  const rawState = readOwnDataProperty(value, "state")?.value;
+  if (isRuntimeStateModel(rawState)) {
+    candidate.state = rawState;
+  }
+
+  const rawSource = readOwnDataProperty(value, "source")?.value;
+  if (isRuntimeSourceModule(rawSource)) {
+    candidate.source = rawSource;
+  }
+
+  const rawMetadata = readOwnDataProperty(value, "metadata")?.value;
+  if (isRuntimePlanMetadata(rawMetadata)) {
+    candidate.metadata = rawMetadata;
+  }
+
+  return isRuntimePlan(candidate) ? candidate : undefined;
 }
 
 export function isRuntimeModuleDescriptor(

@@ -6,7 +6,10 @@ import type {
   LLMStructuredRequest,
   LLMStructuredResponse,
 } from "@renderify/core";
-import { isRuntimePlan } from "@renderify/ir";
+import {
+  hashStringFNV1a64Hex,
+  normalizeRuntimePlanCandidate,
+} from "@renderify/ir";
 import {
   consumeSseEvents,
   createLLMReliabilityState,
@@ -35,9 +38,19 @@ export interface OpenAICodexLLMInterpreterOptions {
   accountId?: string;
   userAgent?: string;
   systemPrompt?: string;
+  reasoningEffort?: OpenAICodexReasoningEffort;
   reliability?: LLMReliabilityOptions;
   fetchImpl?: typeof fetch;
 }
+
+export type OpenAICodexReasoningEffort =
+  | "none"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
 
 interface OpenAICodexUsagePayload {
   total_tokens?: number;
@@ -107,6 +120,9 @@ const DEFAULT_MODEL = "gpt-5.5";
 const DEFAULT_TIMEOUT_MS = 300000;
 const DEFAULT_USER_AGENT = "codex_cli_rs/0.0.0 (Renderify)";
 const DEFAULT_INSTRUCTIONS = "You are Renderify Codex runtime.";
+const SPARK_MODEL = "gpt-5.3-codex-spark";
+const SPARK_REASONING_EFFORTS: ReadonlySet<OpenAICodexReasoningEffort> =
+  new Set(["low", "medium", "high", "xhigh"]);
 
 const RUNTIME_PLAN_JSON_SCHEMA = {
   type: "object",
@@ -115,7 +131,7 @@ const RUNTIME_PLAN_JSON_SCHEMA = {
   properties: {
     specVersion: {
       type: "string",
-      minLength: 1,
+      enum: ["runtime-plan/v1"],
     },
     id: {
       type: "string",
@@ -127,11 +143,34 @@ const RUNTIME_PLAN_JSON_SCHEMA = {
     },
     root: {
       type: "object",
+      required: ["type"],
       additionalProperties: true,
+      properties: {
+        type: {
+          type: "string",
+          enum: ["text", "element", "component"],
+        },
+        value: { type: "string" },
+        tag: { type: "string", minLength: 1 },
+        module: { type: "string", minLength: 1 },
+        exportName: { type: "string", minLength: 1 },
+        props: { type: "object", additionalProperties: true },
+        children: {
+          type: "array",
+          items: { type: "object", additionalProperties: true },
+        },
+      },
     },
     capabilities: {
       type: "object",
       additionalProperties: true,
+      properties: {
+        domWrite: { type: "boolean" },
+        allowedModules: {
+          type: "array",
+          items: { type: "string" },
+        },
+      },
     },
     imports: {
       type: "array",
@@ -207,10 +246,12 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
     accessToken: undefined,
     accountId: undefined,
     systemPrompt: undefined,
+    reasoningEffort: undefined,
   };
   private fetchImpl: typeof fetch | undefined;
   private reliability = resolveLLMReliabilityOptions();
   private readonly reliabilityState = createLLMReliabilityState();
+  private fallbackPlanIdSequence = 0;
 
   constructor(options: OpenAICodexLLMInterpreterOptions = {}) {
     this.configure({ ...options });
@@ -226,6 +267,9 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
     const accountId = pickString(options, "accountId", "codexAccountId");
     const userAgent = pickString(options, "userAgent", "codexUserAgent");
     const systemPrompt = pickString(options, "systemPrompt");
+    const reasoningEffort = normalizeReasoningEffort(
+      pickString(options, "reasoningEffort", "llmReasoningEffort"),
+    );
     const timeoutMs = pickPositiveInt(
       options,
       "timeoutMs",
@@ -234,7 +278,7 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
     const fetchImpl = pickFetch(options, "fetchImpl");
     const reliability = pickLLMReliabilityOptions(options);
 
-    this.options = {
+    const nextOptions = {
       ...this.options,
       ...(apiKey !== undefined ? { apiKey, accessToken: apiKey } : {}),
       ...(model !== undefined ? { model } : {}),
@@ -242,8 +286,14 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
       ...(accountId !== undefined ? { accountId } : {}),
       ...(userAgent !== undefined ? { userAgent } : {}),
       ...(systemPrompt !== undefined ? { systemPrompt } : {}),
+      ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
       ...(timeoutMs !== undefined ? { timeoutMs } : {}),
     };
+    validateReasoningEffortForModel(
+      nextOptions.model,
+      nextOptions.reasoningEffort,
+    );
+    this.options = nextOptions;
 
     if (fetchImpl) {
       this.fetchImpl = fetchImpl;
@@ -466,6 +516,7 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
             instructions: this.buildInstructions(req),
             input: this.buildInputItems(req),
             store: false,
+            ...this.createReasoningPayload(),
             stream: true,
           }),
           signal: abortScope.signal,
@@ -631,7 +682,10 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
       };
     }
 
-    if (!isRuntimePlan(parsed.value)) {
+    const normalizedPlan = normalizeRuntimePlanCandidate(parsed.value, {
+      fallbackId: this.createFallbackPlanId(req.prompt, payload.id),
+    });
+    if (!normalizedPlan) {
       return {
         text: output.text,
         value: parsed.value as T,
@@ -646,15 +700,17 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
       };
     }
 
+    const normalized = normalizedPlan !== parsed.value;
     return {
-      text: output.text,
-      value: parsed.value as T,
+      text: normalized ? JSON.stringify(normalizedPlan) : output.text,
+      value: normalizedPlan as T,
       valid: true,
       tokensUsed: resolveTokensUsed(payload.usage),
       model: payload.model ?? this.options.model,
       raw: {
         mode: "structured",
         responseId: payload.id,
+        ...(normalized ? { normalized: true } : {}),
       },
     };
   }
@@ -690,6 +746,7 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
               headers: this.createHeaders(accessToken),
               body: JSON.stringify({
                 ...body,
+                ...this.createReasoningPayload(),
                 stream: true,
               }),
               signal: timeoutSignal,
@@ -840,6 +897,30 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
     return accessToken.trim();
   }
 
+  private createReasoningPayload(): {
+    reasoning?: { effort: OpenAICodexReasoningEffort };
+  } {
+    const effort =
+      this.options.reasoningEffort ??
+      (this.options.model === SPARK_MODEL ? "low" : undefined);
+    return effort ? { reasoning: { effort } } : {};
+  }
+
+  private createFallbackPlanId(prompt: string, responseId?: string): string {
+    this.fallbackPlanIdSequence += 1;
+    const responseKey =
+      typeof responseId === "string" && responseId.trim().length > 0
+        ? responseId.trim()
+        : "response-without-id";
+    const uniqueInput = [
+      responseKey,
+      prompt,
+      Date.now().toString(36),
+      this.fallbackPlanIdSequence.toString(36),
+    ].join("\0");
+    return `renderify_${hashStringFNV1a64Hex(uniqueInput)}`;
+  }
+
   private buildInstructions(req: LLMRequest): string {
     const instructions: string[] = [];
     const templateSystem = this.templates.get("default");
@@ -892,6 +973,8 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
       "Return only JSON with no markdown or explanations.",
       'Use specVersion exactly as "runtime-plan/v1".',
       "Schema priority: id/version/root/capabilities must be valid.",
+      'RuntimeNode shapes are exactly text={"type":"text","value":"..."}, element={"type":"element","tag":"div","props":{},"children":[]}, or component={"type":"component","module":"...","exportName":"default","props":{},"children":[]}.',
+      'Children must recursively use those shapes. Never put an HTML tag such as "div" in type; use type="element" and tag="div". Put inline styles under props.style, not directly on the node.',
       "Do not set root.type to component unless source.code is present with a matching export.",
       'Do not include synthetic source module aliases such as "this-plan-source" in imports, capabilities.allowedModules, or moduleManifest.',
       'Do not use local path aliases such as "@/..." in any import or module URL.',
@@ -1182,6 +1265,39 @@ function readCodexStreamChunk(
       },
     );
   });
+}
+
+function normalizeReasoningEffort(
+  value: string | undefined,
+): OpenAICodexReasoningEffort | undefined {
+  if (
+    value === "none" ||
+    value === "minimal" ||
+    value === "low" ||
+    value === "medium" ||
+    value === "high" ||
+    value === "xhigh" ||
+    value === "max"
+  ) {
+    return value;
+  }
+
+  return undefined;
+}
+
+function validateReasoningEffortForModel(
+  model: string,
+  effort: OpenAICodexReasoningEffort | undefined,
+): void {
+  if (
+    model === SPARK_MODEL &&
+    effort !== undefined &&
+    !SPARK_REASONING_EFFORTS.has(effort)
+  ) {
+    throw new Error(
+      `Reasoning effort "${effort}" is not supported by ${SPARK_MODEL}. Supported efforts: low, medium, high, xhigh.`,
+    );
+  }
 }
 
 function resolveChatGptAccountId(accessToken: string): string | undefined {

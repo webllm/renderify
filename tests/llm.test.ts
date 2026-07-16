@@ -679,6 +679,168 @@ test("openai codex interpreter validates structured runtime plan response", asyn
   );
 });
 
+test("openai codex normalizes DOM-like plans and uses low reasoning for Spark", async () => {
+  const requests: Array<Record<string, unknown>> = [];
+  const domLikePlan = {
+    specVersion: "runtime-plan/v1",
+    id: "codex_dom_like_plan",
+    version: 1,
+    root: {
+      type: "div",
+      props: { style: { color: "green" } },
+      children: [{ type: "span", children: ["Healthy"] }],
+    },
+    capabilities: { domWrite: true },
+  };
+  const llm = new OpenAICodexLLMInterpreter({
+    accessToken: "codex-test-token",
+    model: "gpt-5.3-codex-spark",
+    fetchImpl: async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push(parseBody(init?.body));
+      return sseResponse([
+        "event: response.output_text.delta\ndata: " +
+          JSON.stringify({
+            type: "response.output_text.delta",
+            delta: JSON.stringify(domLikePlan),
+          }),
+        "event: response.completed\ndata: " +
+          JSON.stringify({
+            type: "response.completed",
+            response: {
+              id: "resp_codex_dom_like",
+              model: "gpt-5.3-codex-spark",
+            },
+          }),
+      ]);
+    },
+  });
+
+  const response = await llm.generateStructuredResponse({
+    prompt: "build a status card",
+    format: "runtime-plan",
+    strict: true,
+  });
+
+  assert.equal(response.valid, true);
+  const normalized = response.value as {
+    root?: { type?: string; tag?: string; children?: unknown[] };
+  };
+  assert.equal(normalized.root?.type, "element");
+  assert.equal(normalized.root?.tag, "div");
+  assert.deepEqual(requests[0].reasoning, { effort: "low" });
+  const schema = (
+    requests[0].text as {
+      format?: {
+        schema?: {
+          properties?: {
+            root?: { properties?: { type?: { enum?: string[] } } };
+          };
+        };
+      };
+    }
+  ).format?.schema;
+  assert.deepEqual(schema?.properties?.root?.properties?.type?.enum, [
+    "text",
+    "element",
+    "component",
+  ]);
+  assert.equal(
+    (response.raw as { normalized?: boolean } | undefined)?.normalized,
+    true,
+  );
+});
+
+test("openai codex assigns unique fallback plan ids for repeated prompts", async () => {
+  let requestCount = 0;
+  const llm = new OpenAICodexLLMInterpreter({
+    accessToken: "codex-test-token",
+    model: "gpt-5.3-codex-spark",
+    fetchImpl: async () => {
+      requestCount += 1;
+      const planWithoutId = {
+        specVersion: "runtime-plan/v1",
+        version: 1,
+        root: {
+          type: "element",
+          tag: "div",
+          children: [{ type: "text", value: `render ${requestCount}` }],
+        },
+        capabilities: { domWrite: true },
+      };
+      return sseResponse([
+        "event: response.output_text.delta\ndata: " +
+          JSON.stringify({
+            type: "response.output_text.delta",
+            delta: JSON.stringify(planWithoutId),
+          }),
+        "event: response.completed\ndata: " +
+          JSON.stringify({
+            type: "response.completed",
+            response: {
+              id: "resp_reused_by_test",
+              model: "gpt-5.3-codex-spark",
+            },
+          }),
+      ]);
+    },
+  });
+
+  const first = await llm.generateStructuredResponse({
+    prompt: "same prompt",
+    format: "runtime-plan",
+    strict: true,
+  });
+  const second = await llm.generateStructuredResponse({
+    prompt: "same prompt",
+    format: "runtime-plan",
+    strict: true,
+  });
+  const firstId = (first.value as { id?: unknown } | undefined)?.id;
+  const secondId = (second.value as { id?: unknown } | undefined)?.id;
+
+  assert.equal(typeof firstId, "string");
+  assert.equal(typeof secondId, "string");
+  assert.notEqual(firstId, secondId);
+});
+
+test("openai codex reasoning effort override is forwarded", async () => {
+  let requestBody: Record<string, unknown> | undefined;
+  const llm = new OpenAICodexLLMInterpreter({
+    accessToken: "codex-test-token",
+    model: "gpt-5.3-codex-spark",
+    reasoningEffort: "medium",
+    fetchImpl: async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestBody = parseBody(init?.body);
+      return sseResponse([
+        "event: response.completed\ndata: " +
+          JSON.stringify({
+            type: "response.completed",
+            response: {
+              id: "resp_codex_reasoning_override",
+              model: "gpt-5.3-codex-spark",
+              output_text: "ok",
+            },
+          }),
+      ]);
+    },
+  });
+
+  await llm.generateResponse({ prompt: "reasoning override" });
+  assert.deepEqual(requestBody?.reasoning, { effort: "medium" });
+});
+
+test("openai codex rejects reasoning efforts unsupported by Spark", () => {
+  assert.throws(
+    () =>
+      new OpenAICodexLLMInterpreter({
+        accessToken: "codex-test-token",
+        model: "gpt-5.3-codex-spark",
+        reasoningEffort: "max",
+      }),
+    /Reasoning effort "max" is not supported by gpt-5\.3-codex-spark/,
+  );
+});
+
 test("openai codex structured response rejects incomplete terminal state", async () => {
   const llm = new OpenAICodexLLMInterpreter({
     accessToken: "codex-test-token",

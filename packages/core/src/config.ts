@@ -6,6 +6,14 @@ export type SecurityProfileConfig =
   | "trusted"
   | "relaxed";
 export type LLMProviderConfig = string;
+export type LLMReasoningEffort =
+  | "none"
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
 
 const DEFAULT_RUNTIME_SPEC_VERSIONS = ["runtime-plan/v1"];
 const DEFAULT_RUNTIME_REMOTE_FALLBACK_CDNS = ["https://esm.sh"];
@@ -33,6 +41,7 @@ export interface RenderifyConfigValues {
   llmBaseUrl: string;
   llmRequestTimeoutMs: number;
   llmMaxRetries: number;
+  llmReasoningEffort?: LLMReasoningEffort;
   llmUseStructuredOutput: boolean;
   llmStructuredRetryOnInvalid: boolean;
   llmStructuredFallbackToText: boolean;
@@ -418,6 +427,13 @@ function getEnvironmentValues(): Partial<RenderifyConfigValues> {
     values.llmMaxRetries = llmMaxRetries;
   }
 
+  const llmReasoningEffort = parseOptionalReasoningEffort(
+    process.env.RENDERIFY_LLM_REASONING_EFFORT,
+  );
+  if (llmReasoningEffort) {
+    values.llmReasoningEffort = llmReasoningEffort;
+  }
+
   if (process.env.RENDERIFY_JSPM_CDN_URL) {
     values.jspmCdnUrl = process.env.RENDERIFY_JSPM_CDN_URL;
   }
@@ -466,6 +482,24 @@ function parseOptionalSecurityProfile(
     value === "balanced" ||
     value === "trusted" ||
     value === "relaxed"
+  ) {
+    return value;
+  }
+
+  return undefined;
+}
+
+function parseOptionalReasoningEffort(
+  value: string | undefined,
+): LLMReasoningEffort | undefined {
+  if (
+    value === "none" ||
+    value === "minimal" ||
+    value === "low" ||
+    value === "medium" ||
+    value === "high" ||
+    value === "xhigh" ||
+    value === "max"
   ) {
     return value;
   }

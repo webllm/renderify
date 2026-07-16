@@ -352,6 +352,49 @@ test("ui renderer drops unsafe inline style values", () => {
   assert.doesNotMatch(html, /\sstyle=/);
 });
 
+test("ui renderer serializes safe object inline styles from RuntimePlan", () => {
+  const renderer = new DefaultUIRenderer();
+  const html = renderer.renderNode(
+    createElementNode(
+      "span",
+      {
+        style: {
+          backgroundColor: "#16a34a",
+          color: "#ffffff",
+          borderRadius: "999px",
+          padding: "4px 10px",
+          WebkitLineClamp: 2,
+          "--renderify-tone": "healthy",
+        },
+      },
+      [createTextNode("Healthy")],
+    ),
+  );
+
+  assert.match(
+    html,
+    /style="background-color:#16a34a;color:#ffffff;border-radius:999px;padding:4px 10px;-webkit-line-clamp:2;--renderify-tone:healthy;"/,
+  );
+});
+
+test("ui renderer rejects unsafe values inside object inline styles", () => {
+  const renderer = new DefaultUIRenderer();
+  const html = renderer.renderNode(
+    createElementNode(
+      "div",
+      {
+        style: {
+          color: "red",
+          backgroundImage: "url(javascript:alert(1))",
+        },
+      },
+      [createTextNode("unsafe object style")],
+    ),
+  );
+
+  assert.doesNotMatch(html, /\sstyle=/);
+});
+
 test("ui renderer drops escaped and commented unsafe inline style values", () => {
   const renderer = new DefaultUIRenderer();
   const escapedHtml = renderer.renderNode(

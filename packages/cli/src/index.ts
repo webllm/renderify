@@ -412,6 +412,7 @@ async function createLLM(
     apiKey: config.get<string>("llmApiKey"),
     timeoutMs: config.get<number>("llmRequestTimeoutMs"),
     maxRetries: config.get<number>("llmMaxRetries"),
+    reasoningEffort: config.get<string>("llmReasoningEffort"),
   };
 
   if (

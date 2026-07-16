@@ -839,11 +839,7 @@ function serializeProps(
     }
 
     if (normalizedKey === "style") {
-      if (typeof rawValue !== "string") {
-        continue;
-      }
-
-      const sanitizedStyle = sanitizeInlineStyle(rawValue);
+      const sanitizedStyle = normalizeInlineStyleValue(rawValue);
       if (!sanitizedStyle) {
         continue;
       }
@@ -884,6 +880,51 @@ function serializeProps(
   }
 
   return attributes.join("");
+}
+
+function normalizeInlineStyleValue(style: JsonValue): string | undefined {
+  if (typeof style === "string") {
+    return sanitizeInlineStyle(style);
+  }
+  if (style === null || Array.isArray(style) || typeof style !== "object") {
+    return undefined;
+  }
+
+  const declarations: string[] = [];
+  for (const [rawProperty, rawValue] of Object.entries(style)) {
+    const property = normalizeCssPropertyName(rawProperty);
+    if (
+      !property ||
+      (typeof rawValue !== "string" && typeof rawValue !== "number")
+    ) {
+      continue;
+    }
+
+    const value = String(rawValue).trim();
+    if (value.length === 0) {
+      continue;
+    }
+    declarations.push(`${property}:${value};`);
+  }
+
+  return declarations.length > 0
+    ? sanitizeInlineStyle(declarations.join(""))
+    : undefined;
+}
+
+function normalizeCssPropertyName(property: string): string | undefined {
+  const trimmed = property.trim();
+  if (/^--[A-Za-z0-9_-]+$/.test(trimmed)) {
+    return trimmed;
+  }
+  if (!/^[A-Za-z][A-Za-z0-9-]*$/.test(trimmed)) {
+    return undefined;
+  }
+
+  const normalized = trimmed
+    .replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)
+    .toLowerCase();
+  return normalized.startsWith("ms-") ? `-${normalized}` : normalized;
 }
 
 function sanitizeInlineStyle(style: string): string | undefined {

@@ -116,6 +116,55 @@ interface ExecutePlanFlowParams {
 
 type EventCallback = (...args: unknown[]) => void;
 
+const STRUCTURED_REPAIR_OUTPUT_LIMIT = 12_000;
+const STRUCTURED_FALLBACK_SYSTEM_PROMPT = [
+  "Generate a valid Renderify RuntimePlan JSON object only.",
+  'Use specVersion="runtime-plan/v1" with top-level id, numeric version, root, and capabilities.',
+  'RuntimeNode must be text={"type":"text","value":"..."}, element={"type":"element","tag":"div","props":{},"children":[]}, or component={"type":"component","module":"...","exportName":"default","props":{},"children":[]}.',
+  "Never use an HTML tag as type. Put inline styles under props.style.",
+].join(" ");
+
+function createStructuredRepairPrompt(
+  prompt: string,
+  response: LLMStructuredResponse<unknown>,
+  errors: string[],
+): string {
+  const errorText =
+    errors.length > 0
+      ? errors.join("; ").slice(0, 2_000)
+      : "response did not pass RuntimePlan validation";
+  const previousOutput = response.text
+    .slice(0, STRUCTURED_REPAIR_OUTPUT_LIMIT)
+    .trim();
+
+  return [
+    prompt,
+    `Previous structured response was invalid: ${errorText}`,
+    previousOutput
+      ? `Repair this previous output:\n${previousOutput}`
+      : "Generate the RuntimePlan again from the original request.",
+    "Return corrected RuntimePlan JSON only. No markdown.",
+  ].join("\n\n");
+}
+
+function createStructuredFallbackRequest(
+  request: LLMRequest,
+  response: LLMStructuredResponse<unknown>,
+  errors: string[],
+): LLMRequest {
+  const systemPrompt = [request.systemPrompt, STRUCTURED_FALLBACK_SYSTEM_PROMPT]
+    .filter((entry): entry is string =>
+      Boolean(typeof entry === "string" && entry.trim().length > 0),
+    )
+    .join("\n\n");
+
+  return {
+    ...request,
+    systemPrompt,
+    prompt: createStructuredRepairPrompt(request.prompt, response, errors),
+  };
+}
+
 export class PolicyRejectionError extends Error {
   readonly result: SecurityCheckResult;
 
@@ -235,13 +284,13 @@ export class RenderifyApp {
         const structuredErrors = [...(llmStructuredResponse.errors ?? [])];
 
         if (!llmStructuredResponse.valid && llmStructuredRetryOnInvalid) {
-          const retryHint =
-            structuredErrors.length > 0
-              ? structuredErrors.join("; ")
-              : "response did not pass RuntimePlan validation";
           const retryRequest: LLMStructuredRequest = {
             ...structuredRequest,
-            prompt: `${promptAfterHook}\n\nPrevious structured response was invalid: ${retryHint}\nReturn corrected RuntimePlan JSON only. No markdown.`,
+            prompt: createStructuredRepairPrompt(
+              promptAfterHook,
+              llmStructuredResponse,
+              structuredErrors,
+            ),
           };
           const retryStructuredResponse =
             await this.deps.llm.generateStructuredResponse(retryRequest);
@@ -268,8 +317,13 @@ export class RenderifyApp {
             },
           };
         } else if (llmStructuredFallbackToText) {
-          const fallbackResponse =
-            await this.deps.llm.generateResponse(llmRequestBase);
+          const fallbackResponse = await this.deps.llm.generateResponse(
+            createStructuredFallbackRequest(
+              llmRequestBase,
+              llmStructuredResponse,
+              structuredErrors,
+            ),
+          );
           llmResponseRaw = {
             ...fallbackResponse,
             raw: {
@@ -459,13 +513,13 @@ export class RenderifyApp {
         const structuredErrors = [...(structuredResponse.errors ?? [])];
 
         if (!structuredResponse.valid && llmStructuredRetryOnInvalid) {
-          const retryHint =
-            structuredErrors.length > 0
-              ? structuredErrors.join("; ")
-              : "response did not pass RuntimePlan validation";
           const retryRequest: LLMStructuredRequest = {
             ...structuredRequest,
-            prompt: `${promptAfterHook}\n\nPrevious structured response was invalid: ${retryHint}\nReturn corrected RuntimePlan JSON only. No markdown.`,
+            prompt: createStructuredRepairPrompt(
+              promptAfterHook,
+              structuredResponse,
+              structuredErrors,
+            ),
           };
           const retryStructuredResponse =
             await this.deps.llm.generateStructuredResponse(retryRequest);
@@ -507,6 +561,11 @@ export class RenderifyApp {
           };
         } else if (llmStructuredFallbackToText) {
           let fallbackRaw: LLMResponse;
+          const fallbackRequest = createStructuredFallbackRequest(
+            llmRequestBase,
+            structuredResponse,
+            structuredErrors,
+          );
 
           if (typeof this.deps.llm.generateResponseStream === "function") {
             let latestText = "";
@@ -514,7 +573,7 @@ export class RenderifyApp {
             let chunkCount = 0;
 
             for await (const chunk of this.iterateLLMResponseStream(
-              llmRequestBase,
+              fallbackRequest,
             )) {
               this.throwIfAborted(options.signal);
               chunkCount += 1;
@@ -550,7 +609,7 @@ export class RenderifyApp {
               },
             };
           } else {
-            fallbackRaw = await this.deps.llm.generateResponse(llmRequestBase);
+            fallbackRaw = await this.deps.llm.generateResponse(fallbackRequest);
             yield {
               type: "llm-delta",
               traceId,

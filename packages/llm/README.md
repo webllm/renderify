@@ -63,11 +63,19 @@ const codex = createLLMInterpreter({
   provider: "openai-codex",
   providerOptions: {
     accessToken: process.env.RENDERIFY_CODEX_ACCESS_TOKEN,
-    model: "gpt-5.5",
+    model: "gpt-5.3-codex-spark",
+    // Spark defaults to low reasoning for latency-sensitive rendering.
+    reasoningEffort: "low",
     baseUrl: "https://chatgpt.com/backend-api/codex",
   },
 });
 ```
+
+Set `reasoningEffort` to `none`, `minimal`, `low`, `medium`, `high`, `xhigh`,
+or `max` to override the provider default when the selected model supports that
+level. Renderify uses `low` automatically for `gpt-5.3-codex-spark`; other
+models keep the backend default when omitted. Spark rejects unsupported levels
+locally before a network request is sent.
 
 ## Local Models Example
 

@@ -57,6 +57,7 @@ RENDERIFY_LLM_PROVIDER=openai-codex renderify playground
 - `RENDERIFY_LLM_PROVIDER` (`openai`, `openai-codex`, `anthropic`, `google`, `ollama`, `lmstudio`)
 - `RENDERIFY_LLM_MODEL`
 - `RENDERIFY_LLM_BASE_URL`
+- `RENDERIFY_LLM_REASONING_EFFORT` (model-dependent; Spark supports `low`, `medium`, `high`, `xhigh`)
 - `RENDERIFY_CODEX_ACCESS_TOKEN` (optional direct token override)
 - `RENDERIFY_CODEX_AUTH_FILE` (defaults to `~/.renderify/auth.json`)
 - `RENDERIFY_CODEX_BASE_URL` (defaults to `https://chatgpt.com/backend-api/codex`)

@@ -42,6 +42,39 @@ test("codegen parses RuntimePlan JSON output directly", async () => {
   assert.equal(plan.metadata?.sourcePrompt, "Counter plan");
 });
 
+test("codegen normalizes DOM-like RuntimePlan JSON without text fallback", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const plan = await codegen.generatePlan({
+    prompt: "service status",
+    llmText: JSON.stringify({
+      specVersion: "runtime-plan/v1",
+      id: "dom_like_plan",
+      version: 1,
+      root: {
+        type: "div",
+        props: { style: { color: "#16a34a" } },
+        children: [
+          { type: "span", children: ["Healthy"] },
+          "RENDERIFY_SPARK_OK",
+        ],
+      },
+      capabilities: { domWrite: true },
+    }),
+  });
+
+  assert.equal(plan.id, "dom_like_plan");
+  assert.equal(plan.root.type, "element");
+  if (plan.root.type !== "element") {
+    throw new Error("expected normalized element root");
+  }
+  assert.equal(plan.root.tag, "div");
+  assert.deepEqual(plan.root.children?.[0], {
+    type: "element",
+    tag: "span",
+    children: [{ type: "text", value: "Healthy" }],
+  });
+});
+
 test("codegen normalizes unsupported specVersion to runtime-plan/v1", async () => {
   const codegen = new DefaultCodeGenerator();
   const planJson = JSON.stringify({
@@ -109,6 +142,27 @@ test("codegen skips unrelated JSON before the RuntimePlan payload", async () => 
   assert.deepEqual(plan.root, {
     type: "text",
     value: "selected later payload",
+  });
+});
+
+test("codegen does not treat root-only metadata as a RuntimePlan", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const llmText = [
+    'Primitive metadata: {"root":"not a plan"}',
+    'Object metadata: {"root":{"type":"div","children":["also not a plan"]}}',
+    "Final RuntimePlan:",
+    '{"id":"primitive_root_real_plan","version":1,"root":{"type":"text","value":"selected real plan"}}',
+  ].join("\n");
+
+  const plan = await codegen.generatePlan({
+    prompt: "ignore metadata roots",
+    llmText,
+  });
+
+  assert.equal(plan.id, "primitive_root_real_plan");
+  assert.deepEqual(plan.root, {
+    type: "text",
+    value: "selected real plan",
   });
 });
 

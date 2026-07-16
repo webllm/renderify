@@ -21,6 +21,8 @@ import {
   isRuntimeSourceRuntime,
   isRuntimeStateModel,
   isSafePath,
+  normalizeRuntimeNodeCandidate,
+  normalizeRuntimePlanCandidate,
   type RuntimeNode,
   type RuntimeStateSnapshot,
   resolveRuntimePlanSpecVersion,
@@ -41,6 +43,68 @@ test("isRuntimeNode validates supported node kinds", () => {
   assert.equal(isRuntimeNode({ type: "component", module: "" }), false);
   assert.equal(isRuntimeNode({ type: "unknown" }), false);
   assert.equal(isRuntimeNode("text"), false);
+});
+
+test("runtime candidate normalization converts common LLM DOM-like JSON", () => {
+  const normalizedNode = normalizeRuntimeNodeCandidate({
+    type: "div",
+    style: { color: "green" },
+    children: [
+      { type: "span", children: ["Healthy"] },
+      { type: "text", text: "ready" },
+    ],
+  });
+
+  assert.deepEqual(normalizedNode, {
+    type: "element",
+    tag: "div",
+    props: { style: { color: "green" } },
+    children: [
+      {
+        type: "element",
+        tag: "span",
+        children: [{ type: "text", value: "Healthy" }],
+      },
+      { type: "text", value: "ready" },
+    ],
+  });
+
+  const normalizedPlan = normalizeRuntimePlanCandidate(
+    {
+      version: "runtime-plan/v1",
+      nodes: [{ type: "container", nodes: ["legacy root"] }],
+    },
+    { fallbackId: "normalized_llm_plan" },
+  );
+  assert.ok(normalizedPlan);
+  assert.equal(normalizedPlan?.id, "normalized_llm_plan");
+  assert.equal(normalizedPlan?.version, 1);
+  assert.equal(normalizedPlan?.specVersion, "runtime-plan/v1");
+  assert.equal(isRuntimePlan(normalizedPlan), true);
+});
+
+test("runtime candidate normalization rejects primitive roots and incomplete reserved nodes", () => {
+  assert.equal(
+    normalizeRuntimePlanCandidate(
+      { root: "metadata, not a RuntimePlan" },
+      { fallbackId: "must_not_be_used" },
+    ),
+    undefined,
+  );
+  assert.equal(
+    normalizeRuntimePlanCandidate(
+      { root: { type: "div", children: ["metadata"] } },
+      { fallbackId: "must_not_be_used" },
+    ),
+    undefined,
+  );
+  assert.equal(
+    normalizeRuntimeNodeCandidate({
+      type: "element",
+      children: ["missing tag"],
+    }),
+    undefined,
+  );
 });
 
 test("runtime node guards validate descendants, props, and component exports", () => {

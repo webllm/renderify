@@ -144,13 +144,19 @@ class InvalidStructuredLLM implements LLMInterpreter {
 class StructuredInvalidCountingLLM implements LLMInterpreter {
   structuredCalls = 0;
   textCalls = 0;
+  readonly structuredPrompts: string[] = [];
+  readonly textPrompts: string[] = [];
+  readonly textSystemPrompts: Array<string | undefined> = [];
 
   configure(_options: Record<string, unknown>): void {}
 
   async generateResponse(req: LLMRequest): Promise<LLMResponse> {
     this.textCalls += 1;
+    this.textPrompts.push(req.prompt);
+    this.textSystemPrompts.push(req.systemPrompt);
+    const originalPrompt = req.prompt.split("\n\n", 1)[0] ?? req.prompt;
     return {
-      text: `text fallback: ${req.prompt}`,
+      text: `text fallback: ${originalPrompt}`,
       model: "structured-invalid-counting",
       raw: { mode: "text" },
     };
@@ -160,6 +166,7 @@ class StructuredInvalidCountingLLM implements LLMInterpreter {
     req: LLMStructuredRequest,
   ): Promise<LLMStructuredResponse<T>> {
     this.structuredCalls += 1;
+    this.structuredPrompts.push(req.prompt);
     const plan = {
       specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
       id: "structured_invalid_but_parseable_plan",
@@ -914,7 +921,33 @@ test("core can disable structured retry while keeping text fallback", async () =
   assert.equal(raw?.mode, "fallback-text");
   assert.equal(llm.structuredCalls, 1);
   assert.equal(llm.textCalls, 1);
+  assert.match(llm.textPrompts[0] ?? "", /Repair this previous output/);
+  assert.match(llm.textSystemPrompts[0] ?? "", /RuntimePlan JSON object/);
 
+  await app.stop();
+});
+
+test("core includes the rejected payload in structured repair requests", async () => {
+  const llm = new StructuredInvalidCountingLLM();
+  const app = createRenderifyApp(
+    createDependencies({
+      config: new LLMStructuredControlConfig({
+        retryOnInvalid: true,
+        fallbackToText: false,
+      }),
+      llm,
+    }),
+  );
+
+  await app.start();
+  await app.renderPrompt("repair-context");
+
+  assert.equal(llm.structuredCalls, 2);
+  assert.match(
+    llm.structuredPrompts[1] ?? "",
+    /structured_invalid_but_parseable_plan/,
+  );
+  assert.match(llm.structuredPrompts[1] ?? "", /Repair this previous output/);
   await app.stop();
 });
 
