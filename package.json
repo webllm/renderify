@@ -85,6 +85,13 @@
       "rollup": "4.60.3",
       "tmp": "0.2.5"
     },
+    "packageExtensions": {
+      "tsup@8.5.1": {
+        "optionalDependencies": {
+          "typescript": "6.0.3"
+        }
+      }
+    },
     "onlyBuiltDependencies": [
       "esbuild"
     ]

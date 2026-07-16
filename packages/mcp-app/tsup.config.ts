@@ -10,7 +10,7 @@ export default defineConfig({
   dts: {
     compilerOptions: {
       composite: false,
-      baseUrl: ".",
+      ignoreDeprecations: "6.0",
       paths: {},
     },
   },
