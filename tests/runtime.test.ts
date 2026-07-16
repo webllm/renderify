@@ -1360,7 +1360,7 @@ test("runtime applies declarative transitions and persists plan state", async ()
   }
   const textNode = result.root.children?.[0];
   assert.equal(textNode?.type, "text");
-  if (!textNode || textNode.type !== "text") {
+  if (textNode?.type !== "text") {
     throw new Error("expected text child");
   }
   assert.equal(textNode.value, "Count=1 Last=3 Actor=user_42");
@@ -1916,7 +1916,7 @@ test("runtime executes source module export using custom transpiler", async () =
   }
   assert.equal(result.root.tag, "p");
   assert.equal(result.root.children?.[0]?.type, "text");
-  if (!result.root.children?.[0] || result.root.children[0].type !== "text") {
+  if (result.root.children?.[0]?.type !== "text") {
     throw new Error("expected text child");
   }
   assert.equal(result.root.children[0].value, "Count=7");
@@ -1961,7 +1961,7 @@ test("runtime falls back to default source export when exportName is missing", a
   }
   assert.equal(result.root.tag, "section");
   assert.equal(result.root.children?.[0]?.type, "text");
-  if (!result.root.children?.[0] || result.root.children[0].type !== "text") {
+  if (result.root.children?.[0]?.type !== "text") {
     throw new Error("expected text child");
   }
   assert.equal(result.root.children[0].value, "default-export-rendered");
@@ -2016,7 +2016,7 @@ test("runtime executes source modules inside worker sandbox in browser mode", as
       throw new Error("expected element root");
     }
     assert.equal(result.root.children?.[0]?.type, "text");
-    if (!result.root.children?.[0] || result.root.children[0].type !== "text") {
+    if (result.root.children?.[0]?.type !== "text") {
       throw new Error("expected text child");
     }
     assert.equal(result.root.children[0].value, "sandbox-count:12");
@@ -2070,7 +2070,7 @@ test("runtime iframe mode fails closed without a terminable worker", async () =>
     }
     assert.equal(result.root.tag, "div");
     assert.equal(result.root.children?.[0]?.type, "text");
-    if (!result.root.children?.[0] || result.root.children[0].type !== "text") {
+    if (result.root.children?.[0]?.type !== "text") {
       throw new Error("expected text child");
     }
     assert.equal(result.root.children[0].value, "fallback");
@@ -2128,7 +2128,7 @@ test("runtime iframe mode routes source execution through a worker", async () =>
       throw new Error("expected element root");
     }
     assert.equal(result.root.children?.[0]?.type, "text");
-    if (!result.root.children?.[0] || result.root.children[0].type !== "text") {
+    if (result.root.children?.[0]?.type !== "text") {
       throw new Error("expected text child");
     }
     assert.equal(result.root.children[0].value, "sandbox-count:33");
@@ -2194,7 +2194,7 @@ test("runtime shadowrealm mode routes source execution through a worker", async 
     }
     assert.equal(result.root.tag, "section");
     assert.equal(result.root.children?.[0]?.type, "text");
-    if (!result.root.children?.[0] || result.root.children[0].type !== "text") {
+    if (result.root.children?.[0]?.type !== "text") {
       throw new Error("expected text child");
     }
     assert.equal(result.root.children[0].value, "sandbox-count:9");
@@ -2266,10 +2266,7 @@ test("runtime explicit iframe and shadowrealm profiles never use unsafe fallback
       }
       assert.equal(result.root.tag, "div");
       assert.equal(result.root.children?.[0]?.type, "text");
-      if (
-        !result.root.children?.[0] ||
-        result.root.children[0].type !== "text"
-      ) {
+      if (result.root.children?.[0]?.type !== "text") {
         throw new Error("expected text child");
       }
       assert.equal(result.root.children[0].value, "fallback");
@@ -2325,7 +2322,7 @@ test("runtime sandbox fail-closed keeps fallback root and reports diagnostics", 
       throw new Error("expected element root");
     }
     assert.equal(result.root.children?.[0]?.type, "text");
-    if (!result.root.children?.[0] || result.root.children[0].type !== "text") {
+    if (result.root.children?.[0]?.type !== "text") {
       throw new Error("expected text child");
     }
     assert.equal(result.root.children[0].value, "fallback");
@@ -4652,7 +4649,7 @@ test("runtime preflight rejects unresolved relative source imports", async () =>
     throw new Error("expected fallback element root");
   }
   assert.equal(result.root.children?.[0]?.type, "text");
-  if (!result.root.children?.[0] || result.root.children[0].type !== "text") {
+  if (result.root.children?.[0]?.type !== "text") {
     throw new Error("expected fallback text child");
   }
   assert.equal(result.root.children[0].value, "fallback");
