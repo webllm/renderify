@@ -17,7 +17,33 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "preset": "recommended"
+      "preset": "recommended",
+      "suspicious": {
+        "noUndeclaredEnvVars": {
+          "level": "on",
+          "options": {
+            "allowedEnvVars": [
+              // Runtime configuration remains dynamic in built packages and CLI commands.
+              "PORT",
+              "RENDERIFY_CODEX_.*",
+              "RENDERIFY_HOME",
+              "RENDERIFY_JSPM_CDN_URL",
+              "RENDERIFY_LLM_.*",
+              "RENDERIFY_PLAYGROUND_.*",
+              "RENDERIFY_RUNTIME_.*",
+              "RENDERIFY_SECURITY_PROFILE",
+              "RENDERIFY_STRICT_SECURITY",
+              // Direct scripts and uncached tasks do not contribute these values to Turbo outputs.
+              "GITHUB_BASE_REF",
+              "GITHUB_STEP_SUMMARY",
+              "RELEASE_TAG",
+              "RENDERIFY_BENCH_.*",
+              "RENDERIFY_CHANGESET_.*",
+              "npm_config_user_agent"
+            ]
+          }
+        }
+      }
     }
   },
   "formatter": {
