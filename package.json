@@ -44,24 +44,24 @@
   "author": "unadlib",
   "license": "MIT",
   "devDependencies": {
-    "@biomejs/biome": "^2.4.15",
+    "@biomejs/biome": "^2.5.3",
     "@changesets/changelog-github": "^0.7.0",
     "@changesets/cli": "^2.31.0",
     "@modelcontextprotocol/ext-apps": "^1.7.4",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@types/node": "^25.7.0",
-    "commitizen": "^4.3.1",
+    "@types/node": "^26.1.1",
+    "commitizen": "^4.3.2",
     "cz-conventional-changelog": "^3.3.0",
     "esbuild": "^0.28.1",
     "husky": "^9.1.7",
-    "lint-staged": "^17.0.4",
-    "playwright": "^1.60.0",
-    "preact": "^10.29.1",
+    "lint-staged": "^17.0.8",
+    "playwright": "^1.61.1",
+    "preact": "^10.29.7",
     "tinybench": "^6.0.2",
     "tsup": "^8.5.0",
-    "tsx": "^4.21.0",
-    "turbo": "^2.9.12",
-    "typescript": "^6.0.3",
+    "tsx": "^4.23.0",
+    "turbo": "^2.10.4",
+    "typescript": "^7.0.2",
     "zod": "^4.4.3"
   },
   "config": {
@@ -84,6 +84,13 @@
       "minimatch": "3.1.5",
       "rollup": "4.60.3",
       "tmp": "0.2.5"
+    },
+    "packageExtensions": {
+      "tsup@8.5.1": {
+        "optionalDependencies": {
+          "typescript": "6.0.3"
+        }
+      }
     },
     "onlyBuiltDependencies": [
       "esbuild"
