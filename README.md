@@ -230,7 +230,7 @@ RENDERIFY_LLM_PROVIDER=openai-codex RENDERIFY_LLM_MODEL=gpt-5.5 pnpm playground
 RENDERIFY_LLM_PROVIDER=openai-codex RENDERIFY_LLM_MODEL=gpt-5.3-codex-spark pnpm playground
 
 # Optional reasoning override (Spark defaults to low and supports low/medium/high/xhigh)
-RENDERIFY_LLM_REASONING_EFFORT=medium pnpm playground
+RENDERIFY_LLM_PROVIDER=openai-codex RENDERIFY_LLM_MODEL=gpt-5.3-codex-spark RENDERIFY_LLM_REASONING_EFFORT=medium pnpm playground
 
 # Single-shot LLM mode (avoid structured retry/text fallback + network retries)
 RENDERIFY_LLM_MAX_RETRIES=0 RENDERIFY_LLM_STRUCTURED_RETRY=false RENDERIFY_LLM_STRUCTURED_FALLBACK_TEXT=false pnpm playground
