@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
@@ -47,9 +54,66 @@ test("release tag validator rejects a version that does not match renderify", ()
   );
 });
 
-function runValidator(tag: string): ReturnType<typeof spawnSync> {
+test("release tag validator rejects pending changesets", (context) => {
+  const fixture = createReleaseFixture();
+  context.after(() => rmSync(fixture, { recursive: true, force: true }));
+  writeFileSync(
+    path.join(fixture, ".changeset", "pending-release.md"),
+    '---\n"renderify": patch\n---\n\nPending release.\n',
+  );
+
+  const result = runValidator("v1.2.3", fixture);
+  assert.equal(result.status, 1);
+  assert.match(String(result.stderr), /pending changesets must be versioned/);
+});
+
+test("release tag validator rejects publishable placeholder versions", (context) => {
+  const fixture = createReleaseFixture();
+  context.after(() => rmSync(fixture, { recursive: true, force: true }));
+  writePackage(fixture, "placeholder", {
+    name: "@renderify/placeholder",
+    version: "0.0.0",
+  });
+
+  const result = runValidator("v1.2.3", fixture);
+  assert.equal(result.status, 1);
+  assert.match(String(result.stderr), /placeholder version 0\.0\.0/);
+});
+
+function runValidator(
+  tag: string,
+  cwd = REPO_ROOT,
+): ReturnType<typeof spawnSync> {
   return spawnSync(process.execPath, [VALIDATOR_PATH, tag], {
-    cwd: REPO_ROOT,
+    cwd,
     encoding: "utf8",
   });
+}
+
+function createReleaseFixture(): string {
+  const fixture = mkdtempSync(path.join(tmpdir(), "renderify-release-"));
+  mkdirSync(path.join(fixture, ".changeset"));
+  mkdirSync(path.join(fixture, "packages"));
+  writeFileSync(
+    path.join(fixture, ".changeset", "README.md"),
+    "# Changesets\n",
+  );
+  writePackage(fixture, "renderify", {
+    name: "renderify",
+    version: "1.2.3",
+  });
+  return fixture;
+}
+
+function writePackage(
+  fixture: string,
+  directory: string,
+  pkg: { name: string; version: string; private?: boolean },
+): void {
+  const packageDirectory = path.join(fixture, "packages", directory);
+  mkdirSync(packageDirectory, { recursive: true });
+  writeFileSync(
+    path.join(packageDirectory, "package.json"),
+    `${JSON.stringify(pkg, null, 2)}\n`,
+  );
 }
