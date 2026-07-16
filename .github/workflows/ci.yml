@@ -45,7 +45,7 @@ jobs:
           cache: pnpm
 
       - name: Restore Turbo cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .turbo
           key: ${{ runner.os }}-node-22-turbo-${{ hashFiles('pnpm-lock.yaml', 'turbo.json') }}
@@ -85,7 +85,7 @@ jobs:
           cache: pnpm
 
       - name: Restore Turbo cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .turbo
           key: ${{ runner.os }}-node-${{ matrix.node-version }}-turbo-${{ hashFiles('pnpm-lock.yaml', 'turbo.json') }}
@@ -122,7 +122,7 @@ jobs:
           cache: pnpm
 
       - name: Restore Turbo cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .turbo
           key: ${{ runner.os }}-node-${{ matrix.node-version }}-turbo-${{ hashFiles('pnpm-lock.yaml', 'turbo.json') }}
@@ -159,7 +159,7 @@ jobs:
           cache: pnpm
 
       - name: Restore Turbo cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .turbo
           key: ${{ runner.os }}-node-${{ matrix.node-version }}-turbo-${{ hashFiles('pnpm-lock.yaml', 'turbo.json') }}
@@ -191,7 +191,7 @@ jobs:
           cache: pnpm
 
       - name: Restore Turbo cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .turbo
           key: ${{ runner.os }}-node-22-turbo-${{ hashFiles('pnpm-lock.yaml', 'turbo.json') }}
@@ -229,7 +229,7 @@ jobs:
           cache: pnpm
 
       - name: Restore Turbo cache
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .turbo
           key: ${{ runner.os }}-node-22-turbo-${{ hashFiles('pnpm-lock.yaml', 'turbo.json') }}
