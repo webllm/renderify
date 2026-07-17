@@ -83,6 +83,36 @@ test("runtime candidate normalization converts common LLM DOM-like JSON", () => 
   assert.equal(isRuntimePlan(normalizedPlan), true);
 });
 
+test("runtime candidate normalization rejects explicitly malformed props", () => {
+  for (const props of [[], "className", null, 42]) {
+    assert.equal(
+      normalizeRuntimeNodeCandidate({
+        type: "div",
+        props,
+        children: ["invalid props"],
+      }),
+      undefined,
+    );
+    assert.equal(
+      normalizeRuntimeNodeCandidate({
+        type: "component",
+        module: "npm:widget",
+        props,
+      }),
+      undefined,
+    );
+    assert.equal(
+      normalizeRuntimePlanCandidate({
+        specVersion: "runtime-plan/v1",
+        id: "invalid_props_plan",
+        version: 1,
+        root: { type: "div", props },
+      }),
+      undefined,
+    );
+  }
+});
+
 test("runtime candidate normalization rejects primitive roots and incomplete reserved nodes", () => {
   assert.equal(
     normalizeRuntimePlanCandidate(

@@ -169,6 +169,27 @@ test("codegen skips weakly marked metadata before a RuntimePlan", async () => {
   });
 });
 
+test("codegen skips a RuntimePlan candidate with malformed node props", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const llmText = [
+    "Invalid RuntimePlan:",
+    '{"id":"invalid_props_plan","version":1,"root":{"type":"div","props":["not","an","object"],"children":["wrong candidate"]}}',
+    "Corrected RuntimePlan:",
+    '{"id":"repaired_props_plan","version":1,"root":{"type":"text","value":"selected corrected plan"}}',
+  ].join("\n");
+
+  const plan = await codegen.generatePlan({
+    prompt: "select the valid plan",
+    llmText,
+  });
+
+  assert.equal(plan.id, "repaired_props_plan");
+  assert.deepEqual(plan.root, {
+    type: "text",
+    value: "selected corrected plan",
+  });
+});
+
 test("codegen falls back to section root when no JSON payload exists", async () => {
   const codegen = new DefaultCodeGenerator();
 

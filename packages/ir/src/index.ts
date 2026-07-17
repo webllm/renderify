@@ -348,7 +348,11 @@ function normalizeRuntimeNodeCandidateInternal(
       return undefined;
     }
 
-    const props = normalizeRuntimeNodeCandidateProps(value);
+    const normalizedProps = normalizeRuntimeNodeCandidateProps(value);
+    if (!normalizedProps.valid) {
+      return undefined;
+    }
+    const props = normalizedProps.value;
     if (typeValue === "component") {
       const moduleValue = readOwnDataProperty(value, "module")?.value;
       const exportValue = readOwnDataProperty(value, "exportName")?.value;
@@ -445,18 +449,34 @@ function normalizeRuntimeNodeCandidateChildren(
   return children;
 }
 
+type RuntimeNodeCandidatePropsResult =
+  | { valid: false }
+  | { valid: true; value: Record<string, JsonValue> | undefined };
+
 function normalizeRuntimeNodeCandidateProps(
   value: Record<string, unknown>,
-): Record<string, JsonValue> | undefined {
-  const rawProps = readOwnDataProperty(value, "props")?.value;
-  const props: Record<string, JsonValue> =
-    isPlainJsonObject(rawProps) && isJsonValue(rawProps)
-      ? { ...(rawProps as Record<string, JsonValue>) }
-      : {};
+): RuntimeNodeCandidatePropsResult {
+  const rawPropsProperty = readOwnDataProperty(value, "props");
+  if (!rawPropsProperty) {
+    return { valid: false };
+  }
+
+  const rawProps = rawPropsProperty.value;
+  if (
+    rawPropsProperty.present &&
+    rawProps !== undefined &&
+    (!isPlainJsonObject(rawProps) || !isJsonValue(rawProps))
+  ) {
+    return { valid: false };
+  }
+
+  const props: Record<string, JsonValue> = rawPropsProperty.present
+    ? { ...(rawProps as Record<string, JsonValue> | undefined) }
+    : {};
   const rawStyle = readOwnDataProperty(value, "style")?.value;
   if (props.style === undefined && isPlainJsonObject(rawStyle)) {
     if (!isJsonValue(rawStyle)) {
-      return undefined;
+      return { valid: false };
     }
     props.style = rawStyle;
   }
@@ -473,7 +493,10 @@ function normalizeRuntimeNodeCandidateProps(
     props.class = className;
   }
 
-  return Object.keys(props).length > 0 ? props : undefined;
+  return {
+    valid: true,
+    value: Object.keys(props).length > 0 ? props : undefined,
+  };
 }
 
 export function isRuntimeNodeShallow(value: unknown): value is RuntimeNode {
