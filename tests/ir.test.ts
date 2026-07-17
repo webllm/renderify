@@ -244,6 +244,10 @@ test("runtime candidate normalization requires coherent tag discriminators", () 
     normalizeRuntimeNodeCandidate({ type: "section", tag: "section" }),
     { type: "element", tag: "section", children: [] },
   );
+  assert.deepEqual(
+    normalizeRuntimeNodeCandidate({ type: "section", tag: "SECTION" }),
+    { type: "element", tag: "section", children: [] },
+  );
 });
 
 test("runtime candidate normalization validates aliases on text nodes", () => {

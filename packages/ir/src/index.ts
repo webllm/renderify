@@ -474,7 +474,7 @@ function normalizeRuntimeNodeCandidateInternal(
     } else if (!inferredTag) {
       return undefined;
     } else if (typeof explicitTag === "string") {
-      if (explicitTag.trim() !== inferredTag) {
+      if (explicitTag.trim().toLowerCase() !== inferredTag) {
         return undefined;
       }
       tag = inferredTag;
