@@ -267,9 +267,7 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
     const accountId = pickString(options, "accountId", "codexAccountId");
     const userAgent = pickString(options, "userAgent", "codexUserAgent");
     const systemPrompt = pickString(options, "systemPrompt");
-    const reasoningEffort = normalizeReasoningEffort(
-      pickString(options, "reasoningEffort", "llmReasoningEffort"),
-    );
+    const reasoningEffort = readReasoningEffort(options);
     const timeoutMs = pickPositiveInt(
       options,
       "timeoutMs",
@@ -1283,6 +1281,31 @@ function normalizeReasoningEffort(
   }
 
   return undefined;
+}
+
+function readReasoningEffort(
+  options: Record<string, unknown>,
+): OpenAICodexReasoningEffort | undefined {
+  const value =
+    options.reasoningEffort !== undefined
+      ? options.reasoningEffort
+      : options.llmReasoningEffort;
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "string") {
+    throw new TypeError(
+      "OpenAI Codex reasoning effort must be a string when provided.",
+    );
+  }
+
+  const normalized = normalizeReasoningEffort(value.trim());
+  if (!normalized) {
+    throw new Error(
+      `Invalid OpenAI Codex reasoning effort "${value}". Expected one of: none, minimal, low, medium, high, xhigh, max.`,
+    );
+  }
+  return normalized;
 }
 
 function validateReasoningEffortForModel(

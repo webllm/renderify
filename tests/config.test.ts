@@ -66,6 +66,21 @@ test("config reads optional llm reasoning effort from env", async () => {
   }
 });
 
+test("config rejects an invalid llm reasoning effort from env", async () => {
+  const previous = process.env.RENDERIFY_LLM_REASONING_EFFORT;
+  process.env.RENDERIFY_LLM_REASONING_EFFORT = "medum";
+
+  try {
+    const config = new DefaultRenderifyConfig();
+    await assert.rejects(
+      () => config.load(),
+      /Invalid RENDERIFY_LLM_REASONING_EFFORT "medum"/,
+    );
+  } finally {
+    restoreEnv("RENDERIFY_LLM_REASONING_EFFORT", previous);
+  }
+});
+
 test("config accepts trusted security profile from env", async () => {
   const previousProfile = process.env.RENDERIFY_SECURITY_PROFILE;
 

@@ -966,6 +966,25 @@ test("openai codex rejects reasoning efforts unsupported by Spark", () => {
   );
 });
 
+test("openai codex rejects unknown reasoning effort values", () => {
+  assert.throws(
+    () =>
+      new OpenAICodexLLMInterpreter({
+        accessToken: "codex-test-token",
+        reasoningEffort: "medum" as OpenAICodexReasoningEffort,
+      }),
+    /Invalid OpenAI Codex reasoning effort "medum"/,
+  );
+  assert.throws(
+    () =>
+      new OpenAICodexLLMInterpreter({
+        accessToken: "codex-test-token",
+        reasoningEffort: 42 as unknown as OpenAICodexReasoningEffort,
+      }),
+    /reasoning effort must be a string/,
+  );
+});
+
 test("openai codex structured response rejects incomplete terminal state", async () => {
   const llm = new OpenAICodexLLMInterpreter({
     accessToken: "codex-test-token",

@@ -427,9 +427,19 @@ function getEnvironmentValues(): Partial<RenderifyConfigValues> {
     values.llmMaxRetries = llmMaxRetries;
   }
 
+  const rawLlmReasoningEffort = process.env.RENDERIFY_LLM_REASONING_EFFORT;
   const llmReasoningEffort = parseOptionalReasoningEffort(
-    process.env.RENDERIFY_LLM_REASONING_EFFORT,
+    rawLlmReasoningEffort,
   );
+  if (
+    rawLlmReasoningEffort !== undefined &&
+    rawLlmReasoningEffort.trim().length > 0 &&
+    !llmReasoningEffort
+  ) {
+    throw new Error(
+      `Invalid RENDERIFY_LLM_REASONING_EFFORT "${rawLlmReasoningEffort}". Expected one of: none, minimal, low, medium, high, xhigh, max.`,
+    );
+  }
   if (llmReasoningEffort) {
     values.llmReasoningEffort = llmReasoningEffort;
   }
