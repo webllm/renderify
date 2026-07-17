@@ -434,26 +434,13 @@ export class OllamaLLMInterpreter implements LLMInterpreter {
   }
 
   private resolveSystemPrompt(req: LLMRequest): string | undefined {
-    if (
-      typeof req.systemPrompt === "string" &&
-      req.systemPrompt.trim().length > 0
-    ) {
-      return req.systemPrompt.trim();
-    }
-
-    if (
-      typeof this.options.systemPrompt === "string" &&
-      this.options.systemPrompt.trim().length > 0
-    ) {
-      return this.options.systemPrompt.trim();
-    }
-
     const template = this.templates.get("default");
-    if (typeof template === "string" && template.trim().length > 0) {
-      return template.trim();
-    }
+    const candidates = [this.options.systemPrompt, template, req.systemPrompt]
+      .filter((entry): entry is string => typeof entry === "string")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
 
-    return undefined;
+    return candidates.length > 0 ? candidates.join("\n\n") : undefined;
   }
 
   private async requestGenerate(

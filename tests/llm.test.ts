@@ -1548,6 +1548,34 @@ test("ollama interpreter generates text response", async () => {
   assert.equal(requests[0].body.stream, false);
 });
 
+test("ollama interpreter preserves configured system prompts during fallback", async () => {
+  let requestBody: Record<string, unknown> | undefined;
+  const llm = new OllamaLLMInterpreter({
+    systemPrompt: "Keep configured safety constraints.",
+    fetchImpl: async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestBody = parseBody(init?.body);
+      return jsonResponse({
+        model: "qwen2.5-coder:7b",
+        response: "repaired runtime plan",
+        done: true,
+      });
+    },
+  });
+  llm.setPromptTemplate("default", "Keep the default application context.");
+
+  await llm.generateResponse({
+    prompt: "repair the rejected response",
+    systemPrompt: "Generate valid RuntimePlan JSON only.",
+  });
+
+  const prompt = requestBody?.prompt;
+  assert.equal(typeof prompt, "string");
+  assert.match(String(prompt), /Keep configured safety constraints\./);
+  assert.match(String(prompt), /Keep the default application context\./);
+  assert.match(String(prompt), /Generate valid RuntimePlan JSON only\./);
+  assert.match(String(prompt), /repair the rejected response/);
+});
+
 test("ollama interpreter requests and validates native structured JSON", async () => {
   const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
   const plan = {
