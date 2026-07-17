@@ -107,6 +107,50 @@ test("runtime candidate normalization rejects primitive roots and incomplete res
   );
 });
 
+test("runtime candidate normalization requires a coherent plan envelope", () => {
+  const weakCandidates = [
+    {
+      id: "metadata_record",
+      root: { type: "div", children: ["not a plan"] },
+    },
+    {
+      version: 1,
+      root: { type: "div", children: ["not a plan"] },
+    },
+    {
+      capabilities: { domWrite: true },
+      root: { type: "div", children: ["not a plan"] },
+    },
+  ];
+
+  for (const candidate of weakCandidates) {
+    assert.equal(
+      normalizeRuntimePlanCandidate(candidate, {
+        fallbackId: "must_not_promote_metadata",
+      }),
+      undefined,
+    );
+  }
+
+  const coherentCandidate = normalizeRuntimePlanCandidate({
+    id: "coherent_plan",
+    version: 1,
+    root: { type: "div", children: ["plan content"] },
+  });
+  assert.ok(coherentCandidate);
+  assert.equal(coherentCandidate?.id, "coherent_plan");
+
+  const strictRootCandidate = normalizeRuntimePlanCandidate(
+    {
+      version: 1,
+      root: { type: "text", value: "strict runtime node" },
+    },
+    { fallbackId: "strict_root_plan" },
+  );
+  assert.ok(strictRootCandidate);
+  assert.equal(strictRootCandidate?.id, "strict_root_plan");
+});
+
 test("runtime candidate normalization rejects present invalid semantic fields", () => {
   const basePlan = {
     specVersion: "runtime-plan/v1",

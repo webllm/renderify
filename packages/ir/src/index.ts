@@ -1009,6 +1009,7 @@ export function normalizeRuntimePlanCandidate(
   const rawSpecVersionProperty = readOwnDataProperty(value, "specVersion");
   const rawCapabilitiesProperty = readOwnDataProperty(value, "capabilities");
   const rawNodesProperty = readOwnDataProperty(value, "nodes");
+  const rawRootProperty = readOwnDataProperty(value, "root");
   if (
     !rawIdProperty ||
     !rawVersionProperty ||
@@ -1024,14 +1025,29 @@ export function normalizeRuntimePlanCandidate(
   const rawSpecVersion = rawSpecVersionProperty.value;
   const rawCapabilities = rawCapabilitiesProperty.value;
   const rawNodes = rawNodesProperty.value;
-  const hasPlanEnvelopeMarker =
-    (typeof rawId === "string" && rawId.trim().length > 0) ||
-    (typeof rawSpecVersion === "string" && rawSpecVersion.trim().length > 0) ||
-    (typeof rawVersion === "number" && Number.isFinite(rawVersion)) ||
+  const hasValidId = typeof rawId === "string" && rawId.trim().length > 0;
+  const hasValidVersion =
+    typeof rawVersion === "number" &&
+    Number.isInteger(rawVersion) &&
+    rawVersion > 0;
+  const hasValidCapabilities = isRuntimeCapabilities(rawCapabilities);
+  const hasRuntimeSpecMarker =
+    (typeof rawSpecVersion === "string" &&
+      rawSpecVersion.trim().startsWith("runtime-plan/")) ||
     (typeof rawVersion === "string" &&
-      rawVersion.trim().startsWith("runtime-plan/")) ||
-    isPlainJsonObject(rawCapabilities) ||
-    Array.isArray(rawNodes);
+      rawVersion.trim().startsWith("runtime-plan/"));
+  const envelopeFieldCount =
+    Number(hasValidId) + Number(hasValidVersion) + Number(hasValidCapabilities);
+  const hasLegacyNodesEnvelope =
+    Array.isArray(rawNodes) &&
+    (hasRuntimeSpecMarker || envelopeFieldCount >= 1);
+  const hasStrictRuntimeRoot =
+    rawRootProperty?.present === true && isRuntimeNode(rawRootProperty.value);
+  const hasPlanEnvelopeMarker =
+    hasRuntimeSpecMarker ||
+    envelopeFieldCount >= 2 ||
+    hasLegacyNodesEnvelope ||
+    (envelopeFieldCount >= 1 && hasStrictRuntimeRoot);
   if (!hasPlanEnvelopeMarker) {
     return undefined;
   }
@@ -1049,7 +1065,6 @@ export function normalizeRuntimePlanCandidate(
     return undefined;
   }
 
-  const rawRootProperty = readOwnDataProperty(value, "root");
   let rootCandidate: unknown;
   if (
     rawRootProperty?.present &&

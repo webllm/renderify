@@ -145,11 +145,14 @@ test("codegen skips unrelated JSON before the RuntimePlan payload", async () => 
   });
 });
 
-test("codegen does not treat root-only metadata as a RuntimePlan", async () => {
+test("codegen skips weakly marked metadata before a RuntimePlan", async () => {
   const codegen = new DefaultCodeGenerator();
   const llmText = [
     'Primitive metadata: {"root":"not a plan"}',
     'Object metadata: {"root":{"type":"div","children":["also not a plan"]}}',
+    'ID metadata: {"id":"metadata_record","root":{"type":"div","children":["wrong id candidate"]}}',
+    'Version metadata: {"version":1,"root":{"type":"div","children":["wrong version candidate"]}}',
+    'Capabilities metadata: {"capabilities":{"domWrite":true},"root":{"type":"div","children":["wrong capabilities candidate"]}}',
     "Final RuntimePlan:",
     '{"id":"primitive_root_real_plan","version":1,"root":{"type":"text","value":"selected real plan"}}',
   ].join("\n");
