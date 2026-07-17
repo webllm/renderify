@@ -339,10 +339,31 @@ function normalizeRuntimeNodeCandidateInternal(
 
   state.active.add(value);
   try {
-    const typeValue = readOwnDataProperty(value, "type")?.value;
+    const typeProperty = readOwnDataProperty(value, "type");
+    if (
+      !typeProperty ||
+      (typeProperty.present &&
+        (typeof typeProperty.value !== "string" ||
+          typeProperty.value.trim().length === 0))
+    ) {
+      return undefined;
+    }
+    const typeValue = typeProperty.value;
     if (typeValue === "text") {
-      const runtimeValue = readOwnDataProperty(value, "value")?.value;
-      const legacyText = readOwnDataProperty(value, "text")?.value;
+      const runtimeValueProperty = readOwnDataProperty(value, "value");
+      const legacyTextProperty = readOwnDataProperty(value, "text");
+      if (
+        !runtimeValueProperty ||
+        !legacyTextProperty ||
+        (runtimeValueProperty.present &&
+          typeof runtimeValueProperty.value !== "string") ||
+        (legacyTextProperty.present &&
+          typeof legacyTextProperty.value !== "string")
+      ) {
+        return undefined;
+      }
+      const runtimeValue = runtimeValueProperty.value;
+      const legacyText = legacyTextProperty.value;
       const text =
         typeof runtimeValue === "string"
           ? runtimeValue

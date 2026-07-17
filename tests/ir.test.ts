@@ -211,6 +211,23 @@ test("runtime candidate normalization rejects primitive roots and incomplete res
     }),
     undefined,
   );
+  for (const root of [
+    { type: 42, tag: "div", children: ["invalid type"] },
+    { type: null, tag: "div", children: ["invalid type"] },
+    { type: "", tag: "div", children: ["invalid type"] },
+    { type: "text", value: 42, text: "must not replace invalid value" },
+    { type: "text", value: null, text: "must not replace invalid value" },
+  ]) {
+    assert.equal(normalizeRuntimeNodeCandidate(root), undefined);
+    assert.equal(
+      normalizeRuntimePlanCandidate({
+        id: "invalid_node_discriminator_plan",
+        version: 1,
+        root,
+      }),
+      undefined,
+    );
+  }
 });
 
 test("runtime candidate normalization requires a coherent plan envelope", () => {

@@ -256,6 +256,40 @@ test("codegen skips a RuntimePlan candidate with malformed node props", async ()
   });
 });
 
+test("codegen skips candidates with explicit invalid node discriminators", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const plan = await codegen.generatePlan({
+    prompt: "reject invalid node discriminators",
+    llmText: [
+      JSON.stringify({
+        id: "invalid_numeric_type_plan",
+        version: 1,
+        root: { type: 42, tag: "div", children: ["must not render"] },
+      }),
+      JSON.stringify({
+        id: "invalid_text_value_plan",
+        version: 1,
+        root: {
+          type: "text",
+          value: 42,
+          text: "must not replace invalid value",
+        },
+      }),
+      JSON.stringify({
+        id: "valid_after_invalid_discriminators",
+        version: 1,
+        root: { type: "text", value: "selected valid plan" },
+      }),
+    ].join("\n"),
+  });
+
+  assert.equal(plan.id, "valid_after_invalid_discriminators");
+  assert.deepEqual(plan.root, {
+    type: "text",
+    value: "selected valid plan",
+  });
+});
+
 test("codegen skips a legacy candidate with an explicit null root", async () => {
   const codegen = new DefaultCodeGenerator();
   const plan = await codegen.generatePlan({
