@@ -388,7 +388,9 @@ test("ui renderer adds px to dimensional numeric styles", () => {
         marginTop: -4,
         marginBottom: 0,
         lineHeight: 1.4,
+        fontSizeAdjust: 0.5,
         opacity: 0.5,
+        shapeImageThreshold: 0.75,
         zIndex: 2,
         WebkitLineClamp: 3,
         "--renderify-scale": 1.25,
@@ -398,7 +400,7 @@ test("ui renderer adds px to dimensional numeric styles", () => {
 
   assert.match(
     html,
-    /style="padding:16px;font-size:14px;gap:8px;margin-top:-4px;margin-bottom:0;line-height:1.4;opacity:0.5;z-index:2;-webkit-line-clamp:3;--renderify-scale:1.25;"/,
+    /style="padding:16px;font-size:14px;gap:8px;margin-top:-4px;margin-bottom:0;line-height:1.4;font-size-adjust:0.5;opacity:0.5;shape-image-threshold:0.75;z-index:2;-webkit-line-clamp:3;--renderify-scale:1.25;"/,
   );
 });
 
