@@ -451,6 +451,13 @@ function normalizeRuntimeNodeCandidateChildren(
 ): RuntimeNode[] | undefined {
   const runtimeChildren = readOwnDataProperty(value, "children");
   const legacyNodes = readOwnDataProperty(value, "nodes");
+  if (
+    !runtimeChildren ||
+    !legacyNodes ||
+    (runtimeChildren.present && legacyNodes.present)
+  ) {
+    return undefined;
+  }
   const rawChildren = runtimeChildren?.present
     ? runtimeChildren.value
     : legacyNodes?.present

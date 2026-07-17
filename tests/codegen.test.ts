@@ -99,6 +99,36 @@ test("codegen normalizes aliases on a structurally valid RuntimePlan root", asyn
   });
 });
 
+test("codegen skips candidates with both children and nodes", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const plan = await codegen.generatePlan({
+    prompt: "reject ambiguous child aliases",
+    llmText: [
+      JSON.stringify({
+        id: "ambiguous_children_plan",
+        version: 1,
+        root: {
+          type: "element",
+          tag: "main",
+          children: [],
+          nodes: [{ type: "text", value: "must not be discarded" }],
+        },
+      }),
+      JSON.stringify({
+        id: "valid_after_ambiguous_children",
+        version: 1,
+        root: { type: "text", value: "selected valid plan" },
+      }),
+    ].join("\n"),
+  });
+
+  assert.equal(plan.id, "valid_after_ambiguous_children");
+  assert.deepEqual(plan.root, {
+    type: "text",
+    value: "selected valid plan",
+  });
+});
+
 test("codegen preserves string style aliases and skips invalid ones", async () => {
   const codegen = new DefaultCodeGenerator();
   const styledPlan = await codegen.generatePlan({

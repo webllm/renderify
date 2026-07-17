@@ -123,6 +123,30 @@ test("runtime candidate normalization applies aliases to valid node shells", () 
   );
 });
 
+test("runtime candidate normalization rejects ambiguous child aliases", () => {
+  for (const nodes of [
+    [{ type: "text", value: "legacy content" }],
+    "invalid legacy children",
+  ]) {
+    const root = {
+      type: "element",
+      tag: "div",
+      children: [{ type: "text", value: "runtime content" }],
+      nodes,
+    };
+
+    assert.equal(normalizeRuntimeNodeCandidate(root), undefined);
+    assert.equal(
+      normalizeRuntimePlanCandidate({
+        id: "ambiguous_children_plan",
+        version: 1,
+        root,
+      }),
+      undefined,
+    );
+  }
+});
+
 test("runtime candidate normalization preserves string style aliases", () => {
   const normalizedNode = normalizeRuntimeNodeCandidate({
     type: "div",
