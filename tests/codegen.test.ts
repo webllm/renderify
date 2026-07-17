@@ -305,6 +305,11 @@ test("codegen skips candidates with malformed DOM attribute aliases", async () =
         root: { type: "div", id: null },
       }),
       JSON.stringify({
+        id: "invalid_html_for_alias_plan",
+        version: 1,
+        root: { type: "label", htmlFor: ["email"] },
+      }),
+      JSON.stringify({
         id: "valid_after_invalid_dom_aliases",
         version: 1,
         root: { type: "text", value: "selected valid plan" },

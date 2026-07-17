@@ -108,6 +108,22 @@ test("ui renderer maps React className props to HTML class attributes", () => {
   assert.equal(canonicalHtml, '<div class="canonical"></div>');
 });
 
+test("ui renderer maps React htmlFor props to HTML for attributes", () => {
+  const renderer = new DefaultUIRenderer();
+  const aliasedHtml = renderer.renderNode(
+    createElementNode("label", { htmlFor: "email" }),
+  );
+  const canonicalHtml = renderer.renderNode(
+    createElementNode("label", {
+      htmlFor: "must-not-win",
+      for: "canonical",
+    }),
+  );
+
+  assert.equal(aliasedHtml, '<label for="email"></label>');
+  assert.equal(canonicalHtml, '<label for="canonical"></label>');
+});
+
 test("ui renderer sanitizes blocked tag names at render time", () => {
   const renderer = new DefaultUIRenderer();
   const html = renderer.renderNode(

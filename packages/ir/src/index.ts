@@ -280,6 +280,8 @@ const RUNTIME_NODE_NORMALIZATION_ALIAS_KEYS = [
   "id",
   "title",
   "role",
+  "for",
+  "htmlFor",
   "class",
   "className",
 ] as const;
@@ -585,7 +587,7 @@ function normalizeRuntimeNodeCandidateProps(
     }
   }
 
-  for (const key of ["id", "title", "role", "class"] as const) {
+  for (const key of ["id", "title", "role", "for", "class"] as const) {
     const property = readOwnDataProperty(value, key);
     if (
       !property ||
@@ -613,6 +615,20 @@ function normalizeRuntimeNodeCandidateProps(
   const className = classNameProperty.value;
   if (props.class === undefined && typeof className === "string") {
     props.class = className;
+  }
+
+  const htmlForProperty = readOwnDataProperty(value, "htmlFor");
+  if (
+    !htmlForProperty ||
+    (htmlForProperty.present &&
+      htmlForProperty.value !== undefined &&
+      typeof htmlForProperty.value !== "string")
+  ) {
+    return { valid: false };
+  }
+  const htmlFor = htmlForProperty.value;
+  if (props.for === undefined && typeof htmlFor === "string") {
+    props.for = htmlFor;
   }
 
   return {

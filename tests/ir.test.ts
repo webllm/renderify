@@ -123,6 +123,35 @@ test("runtime candidate normalization applies aliases to valid node shells", () 
   );
 });
 
+test("runtime candidate normalization maps label attribute aliases", () => {
+  assert.deepEqual(
+    normalizeRuntimeNodeCandidate({
+      type: "label",
+      htmlFor: "email",
+      children: ["Email"],
+    }),
+    {
+      type: "element",
+      tag: "label",
+      props: { for: "email" },
+      children: [{ type: "text", value: "Email" }],
+    },
+  );
+  assert.deepEqual(
+    normalizeRuntimeNodeCandidate({
+      type: "label",
+      for: "canonical",
+      htmlFor: "must-not-win",
+    }),
+    {
+      type: "element",
+      tag: "label",
+      props: { for: "canonical" },
+      children: [],
+    },
+  );
+});
+
 test("runtime candidate normalization rejects ambiguous child aliases", () => {
   for (const nodes of [
     [{ type: "text", value: "legacy content" }],
@@ -289,7 +318,15 @@ test("runtime candidate normalization preserves string style aliases", () => {
 
 test("runtime candidate normalization rejects malformed DOM attribute aliases", () => {
   const invalidValues = [null, [], {}, 42, true];
-  for (const alias of ["id", "title", "role", "class", "className"] as const) {
+  for (const alias of [
+    "id",
+    "title",
+    "role",
+    "for",
+    "htmlFor",
+    "class",
+    "className",
+  ] as const) {
     for (const invalidValue of invalidValues) {
       const root = {
         type: "div",

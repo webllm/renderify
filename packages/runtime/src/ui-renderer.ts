@@ -844,12 +844,17 @@ function serializeProps(
   let targetIsBlank = false;
   let relProvided = false;
   const hasCanonicalClass = Object.hasOwn(props, "class");
+  const hasCanonicalFor = Object.hasOwn(props, "for");
 
   for (const [key, rawValue] of Object.entries(props)) {
-    if (key === "className" && hasCanonicalClass) {
+    if (
+      (key === "className" && hasCanonicalClass) ||
+      (key === "htmlFor" && hasCanonicalFor)
+    ) {
       continue;
     }
-    const attributeName = key === "className" ? "class" : key;
+    const attributeName =
+      key === "className" ? "class" : key === "htmlFor" ? "for" : key;
     if (!isSafeAttributeName(attributeName)) {
       continue;
     }
