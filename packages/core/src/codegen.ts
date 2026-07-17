@@ -625,6 +625,13 @@ export class DefaultCodeGenerator implements CodeGenerator {
       return false;
     }
 
+    if (
+      Object.hasOwn(value, "root") &&
+      !this.isValidSourceBackedRootCandidate(value.root)
+    ) {
+      return false;
+    }
+
     const validationCandidate: Record<string, unknown> = {
       ...value,
       root: createTextNode("source-backed plan"),
@@ -636,6 +643,27 @@ export class DefaultCodeGenerator implements CodeGenerator {
     return (
       normalizeRuntimePlanCandidate(validationCandidate, { fallbackId }) !==
       undefined
+    );
+  }
+
+  private isValidSourceBackedRootCandidate(value: unknown): boolean {
+    if (!this.isRecord(value)) {
+      return false;
+    }
+
+    if (normalizeRuntimeNodeCandidate(value) !== undefined) {
+      return true;
+    }
+
+    if (value.type !== "component" || Object.hasOwn(value, "module")) {
+      return false;
+    }
+
+    return (
+      normalizeRuntimeNodeCandidate({
+        ...value,
+        module: "this-plan-source",
+      }) !== undefined
     );
   }
 

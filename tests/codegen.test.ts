@@ -729,6 +729,47 @@ test("codegen keeps source plan when RuntimePlan root is invalid but source exis
   assert.ok((plan.imports ?? []).includes("preact/hooks"));
 });
 
+test("codegen skips source-backed candidates with malformed explicit roots", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const source = {
+    language: "tsx",
+    runtime: "preact",
+    code: "export default () => <main>invalid root</main>",
+  };
+  const invalidCandidates = [
+    { id: "numeric_root", version: 1, root: 42, source },
+    { id: "array_root", version: 1, root: [], source },
+    {
+      id: "invalid_element_root",
+      version: 1,
+      root: { type: "element" },
+      source,
+    },
+    {
+      id: "invalid_component_module",
+      version: 1,
+      root: { type: "component", module: 42 },
+      source,
+    },
+  ];
+  const validPlan = {
+    id: "valid_after_invalid_roots",
+    version: 1,
+    root: { type: "text", value: "selected valid plan" },
+  };
+
+  const plan = await codegen.generatePlan({
+    prompt: "skip malformed explicit roots",
+    llmText: [...invalidCandidates, validPlan]
+      .map((candidate) => JSON.stringify(candidate))
+      .join("\n"),
+  });
+
+  assert.equal(plan.id, validPlan.id);
+  assert.deepEqual(plan.root, validPlan.root);
+  assert.equal(plan.source, undefined);
+});
+
 test("codegen skips source-backed candidates with invalid semantic fields", async () => {
   const codegen = new DefaultCodeGenerator();
   const source = {
