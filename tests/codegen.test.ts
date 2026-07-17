@@ -185,6 +185,36 @@ test("codegen skips candidates with explicitly invalid tags", async () => {
   });
 });
 
+test("codegen skips candidates with incoherent tag discriminators", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const plan = await codegen.generatePlan({
+    prompt: "reject incoherent tag discriminators",
+    llmText: [
+      JSON.stringify({
+        id: "invalid_string_discriminator_plan",
+        version: 1,
+        root: { type: "NOT A TAG", tag: "div" },
+      }),
+      JSON.stringify({
+        id: "conflicting_tag_discriminator_plan",
+        version: 1,
+        root: { type: "section", tag: "div" },
+      }),
+      JSON.stringify({
+        id: "valid_after_incoherent_discriminators",
+        version: 1,
+        root: { type: "text", value: "selected valid plan" },
+      }),
+    ].join("\n"),
+  });
+
+  assert.equal(plan.id, "valid_after_incoherent_discriminators");
+  assert.deepEqual(plan.root, {
+    type: "text",
+    value: "selected valid plan",
+  });
+});
+
 test("codegen skips candidates with invalid text node aliases", async () => {
   const codegen = new DefaultCodeGenerator();
   const plan = await codegen.generatePlan({

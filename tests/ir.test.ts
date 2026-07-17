@@ -193,6 +193,30 @@ test("runtime candidate normalization rejects explicitly invalid tags", () => {
   });
 });
 
+test("runtime candidate normalization requires coherent tag discriminators", () => {
+  for (const root of [
+    { type: "NOT A TAG", tag: "div" },
+    { type: " element ", tag: "div" },
+    { type: "unknown/type", tag: "div" },
+    { type: "section", tag: "div" },
+  ]) {
+    assert.equal(normalizeRuntimeNodeCandidate(root), undefined);
+    assert.equal(
+      normalizeRuntimePlanCandidate({
+        id: "incoherent_tag_discriminator_plan",
+        version: 1,
+        root,
+      }),
+      undefined,
+    );
+  }
+
+  assert.deepEqual(
+    normalizeRuntimeNodeCandidate({ type: "section", tag: "section" }),
+    { type: "element", tag: "section", children: [] },
+  );
+});
+
 test("runtime candidate normalization validates aliases on text nodes", () => {
   assert.deepEqual(
     normalizeRuntimeNodeCandidate({

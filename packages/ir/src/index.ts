@@ -272,6 +272,7 @@ export function isRuntimeNode(value: unknown): value is RuntimeNode {
 
 const RUNTIME_NODE_NORMALIZATION_MAX_DEPTH = 512;
 const RUNTIME_NODE_NORMALIZATION_MAX_NODES = 10_000;
+const RUNTIME_NODE_TAG_NAME_PATTERN = /^[a-z][a-z0-9-]*$/;
 const RUNTIME_NODE_NORMALIZATION_ALIAS_KEYS = [
   "nodes",
   "text",
@@ -447,6 +448,11 @@ function normalizeRuntimeNodeCandidateInternal(
       return undefined;
     }
     const explicitTag = explicitTagProperty.value;
+    const inferredTag =
+      typeof typeValue === "string" &&
+      RUNTIME_NODE_TAG_NAME_PATTERN.test(typeValue)
+        ? typeValue
+        : undefined;
     let tag: string | undefined;
     if (typeValue === "element") {
       tag = typeof explicitTag === "string" ? explicitTag.trim() : undefined;
@@ -455,13 +461,15 @@ function normalizeRuntimeNodeCandidateInternal(
         typeof explicitTag === "string" && explicitTag.trim().length > 0
           ? explicitTag.trim()
           : "div";
+    } else if (!inferredTag) {
+      return undefined;
     } else if (typeof explicitTag === "string") {
-      tag = explicitTag.trim();
-    } else if (
-      typeof typeValue === "string" &&
-      /^[a-z][a-z0-9-]*$/.test(typeValue)
-    ) {
-      tag = typeValue;
+      if (explicitTag.trim() !== inferredTag) {
+        return undefined;
+      }
+      tag = inferredTag;
+    } else {
+      tag = inferredTag;
     }
 
     if (!tag) {
