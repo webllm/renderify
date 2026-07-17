@@ -123,6 +123,42 @@ test("runtime candidate normalization applies aliases to valid node shells", () 
   );
 });
 
+test("runtime candidate normalization preserves string style aliases", () => {
+  const normalizedNode = normalizeRuntimeNodeCandidate({
+    type: "div",
+    style: "color:red",
+    children: ["styled content"],
+  });
+
+  assert.deepEqual(normalizedNode, {
+    type: "element",
+    tag: "div",
+    props: { style: "color:red" },
+    children: [{ type: "text", value: "styled content" }],
+  });
+  assert.equal(
+    (
+      normalizeRuntimePlanCandidate({
+        id: "string_style_plan",
+        version: 1,
+        root: {
+          type: "element",
+          tag: "div",
+          style: "color:red",
+        },
+      })?.root as { props?: { style?: unknown } } | undefined
+    )?.props?.style,
+    "color:red",
+  );
+
+  for (const style of [null, [], 42, true]) {
+    assert.equal(
+      normalizeRuntimeNodeCandidate({ type: "div", style }),
+      undefined,
+    );
+  }
+});
+
 test("runtime candidate normalization rejects explicitly malformed props", () => {
   for (const props of [[], "className", null, 42]) {
     assert.equal(

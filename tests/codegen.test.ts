@@ -99,6 +99,45 @@ test("codegen normalizes aliases on a structurally valid RuntimePlan root", asyn
   });
 });
 
+test("codegen preserves string style aliases and skips invalid ones", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const styledPlan = await codegen.generatePlan({
+    prompt: "string style alias",
+    llmText: JSON.stringify({
+      id: "string_style_alias_plan",
+      version: 1,
+      root: {
+        type: "element",
+        tag: "div",
+        style: "color:red",
+      },
+    }),
+  });
+  assert.deepEqual(styledPlan.root, {
+    type: "element",
+    tag: "div",
+    props: { style: "color:red" },
+    children: [],
+  });
+
+  const repairedPlan = await codegen.generatePlan({
+    prompt: "skip invalid style alias",
+    llmText: [
+      JSON.stringify({
+        id: "invalid_style_alias_plan",
+        version: 1,
+        root: { type: "div", style: ["color:red"] },
+      }),
+      JSON.stringify({
+        id: "valid_after_style_alias",
+        version: 1,
+        root: { type: "text", value: "valid plan" },
+      }),
+    ].join("\n"),
+  });
+  assert.equal(repairedPlan.id, "valid_after_style_alias");
+});
+
 test("codegen normalizes unsupported specVersion to runtime-plan/v1", async () => {
   const codegen = new DefaultCodeGenerator();
   const planJson = JSON.stringify({

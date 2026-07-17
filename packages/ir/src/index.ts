@@ -482,12 +482,21 @@ function normalizeRuntimeNodeCandidateProps(
   const props: Record<string, JsonValue> = rawPropsProperty.present
     ? { ...(rawProps as Record<string, JsonValue> | undefined) }
     : {};
-  const rawStyle = readOwnDataProperty(value, "style")?.value;
-  if (props.style === undefined && isPlainJsonObject(rawStyle)) {
-    if (!isJsonValue(rawStyle)) {
+  const rawStyleProperty = readOwnDataProperty(value, "style");
+  if (!rawStyleProperty) {
+    return { valid: false };
+  }
+  if (rawStyleProperty.present && rawStyleProperty.value !== undefined) {
+    const rawStyle = rawStyleProperty.value;
+    if (
+      typeof rawStyle !== "string" &&
+      (!isPlainJsonObject(rawStyle) || !isJsonValue(rawStyle))
+    ) {
       return { valid: false };
     }
-    props.style = rawStyle;
+    if (props.style === undefined) {
+      props.style = rawStyle;
+    }
   }
 
   for (const key of ["id", "title", "role", "class"] as const) {
