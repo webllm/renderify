@@ -875,6 +875,59 @@ test("openai codex assigns unique fallback plan ids for repeated prompts", async
   assert.notEqual(firstId, secondId);
 });
 
+test("openai codex assigns unique fallback plan ids across interpreters", async () => {
+  const originalNow = Date.now;
+  Date.now = () => 1_700_000_000_000;
+  const createInterpreter = () =>
+    new OpenAICodexLLMInterpreter({
+      accessToken: "codex-test-token",
+      model: "gpt-5.3-codex-spark",
+      fetchImpl: async () => {
+        const planWithoutId = {
+          specVersion: "runtime-plan/v1",
+          version: 1,
+          root: { type: "text", value: "render" },
+          capabilities: { domWrite: true },
+        };
+        return sseResponse([
+          "event: response.output_text.delta\ndata: " +
+            JSON.stringify({
+              type: "response.output_text.delta",
+              delta: JSON.stringify(planWithoutId),
+            }),
+          "event: response.completed\ndata: " +
+            JSON.stringify({
+              type: "response.completed",
+              response: {
+                id: "resp_shared_across_interpreters",
+                model: "gpt-5.3-codex-spark",
+              },
+            }),
+        ]);
+      },
+    });
+
+  try {
+    const [first, second] = await Promise.all(
+      [createInterpreter(), createInterpreter()].map((llm) =>
+        llm.generateStructuredResponse({
+          prompt: "same prompt",
+          format: "runtime-plan",
+          strict: true,
+        }),
+      ),
+    );
+    const firstId = (first.value as { id?: unknown } | undefined)?.id;
+    const secondId = (second.value as { id?: unknown } | undefined)?.id;
+
+    assert.equal(typeof firstId, "string");
+    assert.equal(typeof secondId, "string");
+    assert.notEqual(firstId, secondId);
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
 test("openai codex reasoning effort override is forwarded", async () => {
   let requestBody: Record<string, unknown> | undefined;
   const llm = new OpenAICodexLLMInterpreter({

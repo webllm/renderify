@@ -123,6 +123,7 @@ const DEFAULT_INSTRUCTIONS = "You are Renderify Codex runtime.";
 const SPARK_MODEL = "gpt-5.3-codex-spark";
 const SPARK_REASONING_EFFORTS: ReadonlySet<OpenAICodexReasoningEffort> =
   new Set(["low", "medium", "high", "xhigh"]);
+let codexFallbackPlanIdSequence = 0;
 
 const RUNTIME_PLAN_JSON_SCHEMA = {
   type: "object",
@@ -251,7 +252,6 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
   private fetchImpl: typeof fetch | undefined;
   private reliability = resolveLLMReliabilityOptions();
   private readonly reliabilityState = createLLMReliabilityState();
-  private fallbackPlanIdSequence = 0;
 
   constructor(options: OpenAICodexLLMInterpreterOptions = {}) {
     this.configure({ ...options });
@@ -907,7 +907,7 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
   }
 
   private createFallbackPlanId(prompt: string, responseId?: string): string {
-    this.fallbackPlanIdSequence += 1;
+    codexFallbackPlanIdSequence += 1;
     const responseKey =
       typeof responseId === "string" && responseId.trim().length > 0
         ? responseId.trim()
@@ -916,7 +916,7 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
       responseKey,
       prompt,
       Date.now().toString(36),
-      this.fallbackPlanIdSequence.toString(36),
+      codexFallbackPlanIdSequence.toString(36),
     ].join("\0");
     return `renderify_${hashStringFNV1a64Hex(uniqueInput)}`;
   }
