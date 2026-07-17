@@ -92,6 +92,22 @@ test("ui renderer serializes key prop into internal data key", () => {
   assert.doesNotMatch(html, /\skey=/);
 });
 
+test("ui renderer maps React className props to HTML class attributes", () => {
+  const renderer = new DefaultUIRenderer();
+  const aliasedHtml = renderer.renderNode(
+    createElementNode("div", { className: "hero" }),
+  );
+  const canonicalHtml = renderer.renderNode(
+    createElementNode("div", {
+      className: "must-not-win",
+      class: "canonical",
+    }),
+  );
+
+  assert.equal(aliasedHtml, '<div class="hero"></div>');
+  assert.equal(canonicalHtml, '<div class="canonical"></div>');
+});
+
 test("ui renderer sanitizes blocked tag names at render time", () => {
   const renderer = new DefaultUIRenderer();
   const html = renderer.renderNode(

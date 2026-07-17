@@ -843,13 +843,18 @@ function serializeProps(
   const attributes: string[] = [];
   let targetIsBlank = false;
   let relProvided = false;
+  const hasCanonicalClass = Object.hasOwn(props, "class");
 
   for (const [key, rawValue] of Object.entries(props)) {
-    if (!isSafeAttributeName(key)) {
+    if (key === "className" && hasCanonicalClass) {
+      continue;
+    }
+    const attributeName = key === "className" ? "class" : key;
+    if (!isSafeAttributeName(attributeName)) {
       continue;
     }
 
-    const normalizedKey = key.toLowerCase();
+    const normalizedKey = attributeName.toLowerCase();
     if (BLOCKED_ATTRIBUTE_NAMES.has(normalizedKey)) {
       continue;
     }
@@ -911,17 +916,19 @@ function serializeProps(
 
     if (typeof rawValue === "boolean") {
       if (rawValue) {
-        attributes.push(` ${key}`);
+        attributes.push(` ${attributeName}`);
       }
       continue;
     }
 
     if (rawValue === null || typeof rawValue === "object") {
-      attributes.push(` ${key}='${escapeHtml(JSON.stringify(rawValue))}'`);
+      attributes.push(
+        ` ${attributeName}='${escapeHtml(JSON.stringify(rawValue))}'`,
+      );
       continue;
     }
 
-    attributes.push(` ${key}="${escapeHtml(String(rawValue))}"`);
+    attributes.push(` ${attributeName}="${escapeHtml(String(rawValue))}"`);
   }
 
   if (targetIsBlank && !relProvided) {
