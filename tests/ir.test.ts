@@ -496,6 +496,27 @@ test("runtime candidate normalization only uses legacy nodes when root is absent
   });
 });
 
+test("runtime plan normalization rejects conflicting spec version aliases", () => {
+  assert.equal(
+    normalizeRuntimePlanCandidate({
+      id: "conflicting_spec_alias_plan",
+      version: "runtime-plan/v1",
+      specVersion: "runtime-plan/v2",
+      root: { type: "text", value: "content" },
+    }),
+    undefined,
+  );
+
+  const matchingAliases = normalizeRuntimePlanCandidate({
+    id: "matching_spec_alias_plan",
+    version: "runtime-plan/v1",
+    specVersion: "runtime-plan/v1",
+    root: { type: "text", value: "content" },
+  });
+  assert.equal(matchingAliases?.version, 1);
+  assert.equal(matchingAliases?.specVersion, "runtime-plan/v1");
+});
+
 test("runtime candidate normalization rejects present invalid semantic fields", () => {
   const basePlan = {
     specVersion: "runtime-plan/v1",

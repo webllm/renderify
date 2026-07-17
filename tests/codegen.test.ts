@@ -502,6 +502,32 @@ test("codegen skips a legacy candidate with an explicit null root", async () => 
   });
 });
 
+test("codegen skips candidates with conflicting spec version aliases", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const plan = await codegen.generatePlan({
+    prompt: "reject conflicting spec aliases",
+    llmText: [
+      JSON.stringify({
+        id: "conflicting_spec_alias_plan",
+        version: "runtime-plan/v1",
+        specVersion: "runtime-plan/v2",
+        root: { type: "text", value: "must not render" },
+      }),
+      JSON.stringify({
+        id: "valid_after_conflicting_spec_alias",
+        version: 1,
+        root: { type: "text", value: "selected valid plan" },
+      }),
+    ].join("\n"),
+  });
+
+  assert.equal(plan.id, "valid_after_conflicting_spec_alias");
+  assert.deepEqual(plan.root, {
+    type: "text",
+    value: "selected valid plan",
+  });
+});
+
 test("codegen falls back to section root when no JSON payload exists", async () => {
   const codegen = new DefaultCodeGenerator();
 

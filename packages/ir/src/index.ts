@@ -1378,6 +1378,14 @@ export function normalizeRuntimePlanCandidate(
       ? rawVersion.trim()
       : undefined;
   if (
+    legacySpecVersion &&
+    rawSpecVersionProperty.present &&
+    typeof rawSpecVersion === "string" &&
+    rawSpecVersion.trim() !== legacySpecVersion
+  ) {
+    return undefined;
+  }
+  if (
     rawVersionProperty.present &&
     !legacySpecVersion &&
     (typeof rawVersion !== "number" ||
