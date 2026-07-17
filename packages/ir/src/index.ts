@@ -274,6 +274,7 @@ const RUNTIME_NODE_NORMALIZATION_MAX_DEPTH = 512;
 const RUNTIME_NODE_NORMALIZATION_MAX_NODES = 10_000;
 const RUNTIME_NODE_NORMALIZATION_ALIAS_KEYS = [
   "nodes",
+  "text",
   "style",
   "id",
   "title",
@@ -349,12 +350,14 @@ function normalizeRuntimeNodeCandidateInternal(
       return undefined;
     }
     const typeValue = typeProperty.value;
+    const legacyTextProperty = readOwnDataProperty(value, "text");
+    if (!legacyTextProperty) {
+      return undefined;
+    }
     if (typeValue === "text") {
       const runtimeValueProperty = readOwnDataProperty(value, "value");
-      const legacyTextProperty = readOwnDataProperty(value, "text");
       if (
         !runtimeValueProperty ||
-        !legacyTextProperty ||
         (runtimeValueProperty.present &&
           typeof runtimeValueProperty.value !== "string") ||
         (legacyTextProperty.present &&
@@ -362,8 +365,30 @@ function normalizeRuntimeNodeCandidateInternal(
       ) {
         return undefined;
       }
+
+      const normalizedProps = normalizeRuntimeNodeCandidateProps(value);
+      const runtimeChildrenProperty = readOwnDataProperty(value, "children");
+      const legacyNodesProperty = readOwnDataProperty(value, "nodes");
+      if (
+        !normalizedProps.valid ||
+        normalizedProps.value !== undefined ||
+        !runtimeChildrenProperty ||
+        !legacyNodesProperty ||
+        runtimeChildrenProperty.present ||
+        legacyNodesProperty.present
+      ) {
+        return undefined;
+      }
+
       const runtimeValue = runtimeValueProperty.value;
       const legacyText = legacyTextProperty.value;
+      if (
+        typeof runtimeValue === "string" &&
+        typeof legacyText === "string" &&
+        runtimeValue !== legacyText
+      ) {
+        return undefined;
+      }
       const text =
         typeof runtimeValue === "string"
           ? runtimeValue
@@ -371,6 +396,10 @@ function normalizeRuntimeNodeCandidateInternal(
             ? legacyText
             : undefined;
       return text === undefined ? undefined : createTextNode(text);
+    }
+
+    if (legacyTextProperty.present) {
+      return undefined;
     }
 
     const children = normalizeRuntimeNodeCandidateChildren(value, state, depth);
@@ -596,7 +625,14 @@ function inspectRuntimeNodeShape(value: unknown): RuntimeNodeShape | undefined {
 
   if (type.value === "text") {
     const text = readOwnDataProperty(value, "value");
-    return text?.present && typeof text.value === "string"
+    const props = readOwnDataProperty(value, "props");
+    const children = readOwnDataProperty(value, "children");
+    return text?.present &&
+      typeof text.value === "string" &&
+      props &&
+      !props.present &&
+      children &&
+      !children.present
       ? { node: value as unknown as RuntimeTextNode, children: [] }
       : undefined;
   }

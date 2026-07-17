@@ -176,6 +176,40 @@ test("runtime candidate normalization rejects explicitly invalid tags", () => {
   });
 });
 
+test("runtime candidate normalization validates aliases on text nodes", () => {
+  assert.deepEqual(
+    normalizeRuntimeNodeCandidate({
+      type: "text",
+      value: "same content",
+      text: "same content",
+    }),
+    { type: "text", value: "same content" },
+  );
+
+  for (const root of [
+    { type: "text", value: "content", style: { color: "red" } },
+    { type: "text", value: "content", style: [] },
+    { type: "text", value: "content", id: "copy" },
+    { type: "text", value: "content", id: null },
+    { type: "text", value: "content", className: "copy" },
+    { type: "text", value: "content", props: { class: "copy" } },
+    { type: "text", value: "content", nodes: [] },
+    { type: "text", value: "content", children: [] },
+    { type: "text", value: "canonical", text: "conflicting legacy" },
+    { type: "element", tag: "div", text: "must not be discarded" },
+  ]) {
+    assert.equal(normalizeRuntimeNodeCandidate(root), undefined);
+    assert.equal(
+      normalizeRuntimePlanCandidate({
+        id: "invalid_text_alias_plan",
+        version: 1,
+        root,
+      }),
+      undefined,
+    );
+  }
+});
+
 test("runtime candidate normalization preserves string style aliases", () => {
   const normalizedNode = normalizeRuntimeNodeCandidate({
     type: "div",

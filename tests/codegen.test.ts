@@ -159,6 +159,41 @@ test("codegen skips candidates with explicitly invalid tags", async () => {
   });
 });
 
+test("codegen skips candidates with invalid text node aliases", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const plan = await codegen.generatePlan({
+    prompt: "reject invalid text node aliases",
+    llmText: [
+      JSON.stringify({
+        id: "styled_text_plan",
+        version: 1,
+        root: { type: "text", value: "content", style: { color: "red" } },
+      }),
+      JSON.stringify({
+        id: "conflicting_text_alias_plan",
+        version: 1,
+        root: { type: "text", value: "canonical", text: "legacy" },
+      }),
+      JSON.stringify({
+        id: "text_alias_on_element_plan",
+        version: 1,
+        root: { type: "element", tag: "div", text: "discarded" },
+      }),
+      JSON.stringify({
+        id: "valid_after_invalid_text_aliases",
+        version: 1,
+        root: { type: "text", value: "selected valid plan" },
+      }),
+    ].join("\n"),
+  });
+
+  assert.equal(plan.id, "valid_after_invalid_text_aliases");
+  assert.deepEqual(plan.root, {
+    type: "text",
+    value: "selected valid plan",
+  });
+});
+
 test("codegen preserves string style aliases and skips invalid ones", async () => {
   const codegen = new DefaultCodeGenerator();
   const styledPlan = await codegen.generatePlan({
