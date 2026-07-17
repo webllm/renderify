@@ -83,6 +83,46 @@ test("runtime candidate normalization converts common LLM DOM-like JSON", () => 
   assert.equal(isRuntimePlan(normalizedPlan), true);
 });
 
+test("runtime candidate normalization applies aliases to valid node shells", () => {
+  const aliasedRoot = {
+    type: "element" as const,
+    tag: "div",
+    style: { color: "red" },
+    nodes: [
+      {
+        type: "element" as const,
+        tag: "span",
+        className: "status",
+        nodes: [{ type: "text" as const, value: "ready" }],
+      },
+    ],
+  };
+  const expectedRoot = {
+    type: "element",
+    tag: "div",
+    props: { style: { color: "red" } },
+    children: [
+      {
+        type: "element",
+        tag: "span",
+        props: { class: "status" },
+        children: [{ type: "text", value: "ready" }],
+      },
+    ],
+  };
+
+  assert.equal(isRuntimeNode(aliasedRoot), false);
+  assert.deepEqual(normalizeRuntimeNodeCandidate(aliasedRoot), expectedRoot);
+  assert.deepEqual(
+    normalizeRuntimePlanCandidate({
+      id: "aliased_valid_shell_plan",
+      version: 1,
+      root: aliasedRoot,
+    })?.root,
+    expectedRoot,
+  );
+});
+
 test("runtime candidate normalization rejects explicitly malformed props", () => {
   for (const props of [[], "className", null, 42]) {
     assert.equal(

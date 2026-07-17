@@ -272,6 +272,15 @@ export function isRuntimeNode(value: unknown): value is RuntimeNode {
 
 const RUNTIME_NODE_NORMALIZATION_MAX_DEPTH = 512;
 const RUNTIME_NODE_NORMALIZATION_MAX_NODES = 10_000;
+const RUNTIME_NODE_NORMALIZATION_ALIAS_KEYS = [
+  "nodes",
+  "style",
+  "id",
+  "title",
+  "role",
+  "class",
+  "className",
+] as const;
 
 interface RuntimeNodeNormalizationState {
   active: WeakSet<object>;
@@ -512,6 +521,9 @@ function inspectRuntimeNodeShape(value: unknown): RuntimeNodeShape | undefined {
   if (!isPlainJsonObject(value)) {
     return undefined;
   }
+  if (hasRuntimeNodeNormalizationAlias(value)) {
+    return undefined;
+  }
 
   const type = readOwnDataProperty(value, "type");
   if (!type?.present || typeof type.value !== "string") {
@@ -574,6 +586,18 @@ function inspectRuntimeNodeShape(value: unknown): RuntimeNodeShape | undefined {
   }
 
   return undefined;
+}
+
+function hasRuntimeNodeNormalizationAlias(
+  value: Record<string, unknown>,
+): boolean {
+  try {
+    return RUNTIME_NODE_NORMALIZATION_ALIAS_KEYS.some((key) =>
+      Object.hasOwn(value, key),
+    );
+  } catch {
+    return true;
+  }
 }
 
 function readRuntimeNodeChildren(

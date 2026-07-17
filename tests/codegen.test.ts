@@ -75,6 +75,30 @@ test("codegen normalizes DOM-like RuntimePlan JSON without text fallback", async
   });
 });
 
+test("codegen normalizes aliases on a structurally valid RuntimePlan root", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const plan = await codegen.generatePlan({
+    prompt: "hybrid runtime node",
+    llmText: JSON.stringify({
+      id: "hybrid_alias_plan",
+      version: 1,
+      root: {
+        type: "element",
+        tag: "div",
+        style: { color: "red" },
+        nodes: [{ type: "text", value: "preserved child" }],
+      },
+    }),
+  });
+
+  assert.deepEqual(plan.root, {
+    type: "element",
+    tag: "div",
+    props: { style: { color: "red" } },
+    children: [{ type: "text", value: "preserved child" }],
+  });
+});
+
 test("codegen normalizes unsupported specVersion to runtime-plan/v1", async () => {
   const codegen = new DefaultCodeGenerator();
   const planJson = JSON.stringify({
