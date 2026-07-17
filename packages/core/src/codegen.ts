@@ -507,7 +507,7 @@ export class DefaultCodeGenerator implements CodeGenerator {
 
       return (
         normalizeRuntimePlanCandidate(value, { fallbackId }) !== undefined ||
-        (this.isRecord(value.source) && isRuntimeSourceModule(value.source))
+        this.isValidSourceBackedRuntimePlanCandidate(value, fallbackId)
       );
     });
     const parsed =
@@ -615,6 +615,28 @@ export class DefaultCodeGenerator implements CodeGenerator {
       state,
       source,
     });
+  }
+
+  private isValidSourceBackedRuntimePlanCandidate(
+    value: Record<string, unknown>,
+    fallbackId: string,
+  ): boolean {
+    if (!this.isRecord(value.source) || !isRuntimeSourceModule(value.source)) {
+      return false;
+    }
+
+    const validationCandidate: Record<string, unknown> = {
+      ...value,
+      root: createTextNode("source-backed plan"),
+    };
+    if (!Object.hasOwn(value, "version")) {
+      validationCandidate.version = 1;
+    }
+
+    return (
+      normalizeRuntimePlanCandidate(validationCandidate, { fallbackId }) !==
+      undefined
+    );
   }
 
   private tryParseRuntimeNode(text: string): RuntimeNode | undefined {

@@ -391,6 +391,51 @@ test("codegen keeps source plan when RuntimePlan root is invalid but source exis
   assert.ok((plan.imports ?? []).includes("preact/hooks"));
 });
 
+test("codegen skips source-backed candidates with invalid semantic fields", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const source = {
+    language: "tsx",
+    runtime: "preact",
+    code: "export default () => <main>invalid candidate</main>",
+  };
+  const baseCandidate = {
+    id: "invalid_source_candidate",
+    version: 1,
+    capabilities: { domWrite: true },
+    root: { type: "component", exportName: "default" },
+    source,
+  };
+  const invalidCandidates = [
+    { ...baseCandidate, id: "" },
+    { ...baseCandidate, version: 0 },
+    { ...baseCandidate, specVersion: "" },
+    { ...baseCandidate, capabilities: { domWrite: "yes" } },
+    { ...baseCandidate, imports: ["preact", 42] },
+    {
+      ...baseCandidate,
+      moduleManifest: { preact: { resolvedUrl: "" } },
+    },
+    { ...baseCandidate, state: { initial: [] } },
+    { ...baseCandidate, metadata: { tags: [42] } },
+  ];
+  const validPlan = {
+    id: "later_valid_plan",
+    version: 1,
+    root: { type: "text", value: "selected valid plan" },
+  };
+
+  const plan = await codegen.generatePlan({
+    prompt: "skip invalid source-backed candidates",
+    llmText: [...invalidCandidates, validPlan]
+      .map((candidate) => JSON.stringify(candidate))
+      .join("\n"),
+  });
+
+  assert.equal(plan.id, "later_valid_plan");
+  assert.deepEqual(plan.root, validPlan.root);
+  assert.equal(plan.source, undefined);
+});
+
 test("codegen repairs compact JSX attribute spacing in source code", async () => {
   const codegen = new DefaultCodeGenerator();
   const planJson = JSON.stringify({
