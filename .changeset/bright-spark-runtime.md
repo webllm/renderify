@@ -12,4 +12,6 @@ structured repair prompts, bounded RuntimePlan candidate normalization, and
 public reasoning types. Preserve configured Ollama fallback instructions and
 reject malformed plan envelopes, node fields, and DOM aliases instead of
 silently discarding them. Serialize React-style object inline styles with
-correct units for dimensional and unitless numeric CSS properties.
+correct units for dimensional and unitless numeric CSS properties, including
+vendor-prefixed keys. Reject invalid reasoning effort configuration instead of
+silently falling back to a different effort.
