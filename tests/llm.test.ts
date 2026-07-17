@@ -9,8 +9,31 @@ import {
   LMStudioLLMInterpreter,
   OllamaLLMInterpreter,
   OpenAICodexLLMInterpreter,
+  type OpenAICodexReasoningEffort,
   OpenAILLMInterpreter,
 } from "../packages/llm/src/index";
+
+test("llm package exports Codex reasoning effort values", () => {
+  const reasoningEfforts: OpenAICodexReasoningEffort[] = [
+    "none",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+  ];
+
+  assert.deepEqual(reasoningEfforts, [
+    "none",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+  ]);
+});
 
 test("openai interpreter generates text response", async () => {
   const requests: Array<{ url: string; body: Record<string, unknown> }> = [];

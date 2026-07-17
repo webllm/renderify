@@ -44,6 +44,7 @@ import {
   type OllamaLLMInterpreterOptions,
   OpenAICodexLLMInterpreter,
   type OpenAICodexLLMInterpreterOptions,
+  type OpenAICodexReasoningEffort,
   OpenAILLMInterpreter,
   type OpenAILLMInterpreterOptions,
   ollamaLLMProvider,
@@ -74,6 +75,7 @@ export type {
   LMStudioLLMInterpreterOptions,
   OllamaLLMInterpreterOptions,
   OpenAICodexLLMInterpreterOptions,
+  OpenAICodexReasoningEffort,
   OpenAILLMInterpreterOptions,
 };
 export {

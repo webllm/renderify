@@ -16,11 +16,18 @@ import {
   LMStudioLLMInterpreter,
   lmstudioLLMProvider,
   OllamaLLMInterpreter,
+  type OpenAICodexReasoningEffort,
   ollamaLLMProvider,
   renderPlanOnce,
   renderPromptOnce,
   renderTrustedPlanInBrowser,
 } from "../packages/renderify/src/index";
+
+test("renderify facade exports the Codex reasoning effort type", () => {
+  const reasoningEffort: OpenAICodexReasoningEffort = "xhigh";
+
+  assert.equal(reasoningEffort, "xhigh");
+});
 
 class StaticPlanLLM implements LLMInterpreter {
   private readonly templates = new Map<string, string>();
