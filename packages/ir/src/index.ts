@@ -1121,12 +1121,11 @@ export function normalizeRuntimePlanCandidate(
     return undefined;
   }
 
+  if (!rawRootProperty) {
+    return undefined;
+  }
   let rootCandidate: unknown;
-  if (
-    rawRootProperty?.present &&
-    rawRootProperty.value !== null &&
-    rawRootProperty.value !== undefined
-  ) {
+  if (rawRootProperty.present) {
     if (!isPlainJsonObject(rawRootProperty.value)) {
       return undefined;
     }

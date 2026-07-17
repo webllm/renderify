@@ -257,6 +257,29 @@ test("runtime candidate normalization requires a coherent plan envelope", () => 
   assert.equal(strictRootCandidate?.id, "strict_root_plan");
 });
 
+test("runtime candidate normalization only uses legacy nodes when root is absent", () => {
+  assert.equal(
+    normalizeRuntimePlanCandidate({
+      id: "invalid_null_root_plan",
+      version: 1,
+      root: null,
+      nodes: ["must not replace an invalid root"],
+    }),
+    undefined,
+  );
+
+  const legacyPlan = normalizeRuntimePlanCandidate({
+    id: "missing_root_legacy_plan",
+    version: 1,
+    nodes: ["legacy content"],
+  });
+  assert.deepEqual(legacyPlan?.root, {
+    type: "element",
+    tag: "div",
+    children: [{ type: "text", value: "legacy content" }],
+  });
+});
+
 test("runtime candidate normalization rejects present invalid semantic fields", () => {
   const basePlan = {
     specVersion: "runtime-plan/v1",

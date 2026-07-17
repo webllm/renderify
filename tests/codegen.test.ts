@@ -253,6 +253,32 @@ test("codegen skips a RuntimePlan candidate with malformed node props", async ()
   });
 });
 
+test("codegen skips a legacy candidate with an explicit null root", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const plan = await codegen.generatePlan({
+    prompt: "reject null root",
+    llmText: [
+      JSON.stringify({
+        id: "null_root_candidate",
+        version: 1,
+        root: null,
+        nodes: ["must not be selected"],
+      }),
+      JSON.stringify({
+        id: "valid_after_null_root",
+        version: 1,
+        root: { type: "text", value: "selected valid plan" },
+      }),
+    ].join("\n"),
+  });
+
+  assert.equal(plan.id, "valid_after_null_root");
+  assert.deepEqual(plan.root, {
+    type: "text",
+    value: "selected valid plan",
+  });
+});
+
 test("codegen falls back to section root when no JSON payload exists", async () => {
   const codegen = new DefaultCodeGenerator();
 
