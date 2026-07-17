@@ -216,6 +216,9 @@ test("codegen skips weakly marked metadata before a RuntimePlan", async () => {
     'ID metadata: {"id":"metadata_record","root":{"type":"div","children":["wrong id candidate"]}}',
     'Version metadata: {"version":1,"root":{"type":"div","children":["wrong version candidate"]}}',
     'Capabilities metadata: {"capabilities":{"domWrite":true},"root":{"type":"div","children":["wrong capabilities candidate"]}}',
+    'Legacy ID metadata: {"id":"legacy_metadata_record","nodes":["wrong legacy id candidate"]}',
+    'Legacy version metadata: {"version":1,"nodes":["wrong legacy version candidate"]}',
+    'Legacy capabilities metadata: {"capabilities":{"domWrite":true},"nodes":["wrong legacy capabilities candidate"]}',
     "Final RuntimePlan:",
     '{"id":"primitive_root_real_plan","version":1,"root":{"type":"text","value":"selected real plan"}}',
   ].join("\n");

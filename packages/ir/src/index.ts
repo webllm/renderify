@@ -1096,7 +1096,7 @@ export function normalizeRuntimePlanCandidate(
     Number(hasValidId) + Number(hasValidVersion) + Number(hasValidCapabilities);
   const hasLegacyNodesEnvelope =
     Array.isArray(rawNodes) &&
-    (hasRuntimeSpecMarker || envelopeFieldCount >= 1);
+    (hasRuntimeSpecMarker || envelopeFieldCount >= 2);
   const hasStrictRuntimeRoot =
     rawRootProperty?.present === true && isRuntimeNode(rawRootProperty.value);
   const hasPlanEnvelopeMarker =

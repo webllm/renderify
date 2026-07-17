@@ -227,6 +227,18 @@ test("runtime candidate normalization requires a coherent plan envelope", () => 
       capabilities: { domWrite: true },
       root: { type: "div", children: ["not a plan"] },
     },
+    {
+      id: "legacy_metadata_record",
+      nodes: ["not a plan"],
+    },
+    {
+      version: 1,
+      nodes: ["not a plan"],
+    },
+    {
+      capabilities: { domWrite: true },
+      nodes: ["not a plan"],
+    },
   ];
 
   for (const candidate of weakCandidates) {
