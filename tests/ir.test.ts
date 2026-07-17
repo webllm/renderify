@@ -159,6 +159,28 @@ test("runtime candidate normalization preserves string style aliases", () => {
   }
 });
 
+test("runtime candidate normalization rejects malformed DOM attribute aliases", () => {
+  const invalidValues = [null, [], {}, 42, true];
+  for (const alias of ["id", "title", "role", "class", "className"] as const) {
+    for (const invalidValue of invalidValues) {
+      const root = {
+        type: "div",
+        [alias]: invalidValue,
+        children: ["must not silently drop aliases"],
+      };
+      assert.equal(normalizeRuntimeNodeCandidate(root), undefined);
+      assert.equal(
+        normalizeRuntimePlanCandidate({
+          id: "invalid_dom_alias_plan",
+          version: 1,
+          root,
+        }),
+        undefined,
+      );
+    }
+  }
+});
+
 test("runtime candidate normalization rejects explicitly malformed props", () => {
   for (const props of [[], "className", null, 42]) {
     assert.equal(

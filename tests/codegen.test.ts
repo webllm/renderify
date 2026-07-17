@@ -138,6 +138,36 @@ test("codegen preserves string style aliases and skips invalid ones", async () =
   assert.equal(repairedPlan.id, "valid_after_style_alias");
 });
 
+test("codegen skips candidates with malformed DOM attribute aliases", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const plan = await codegen.generatePlan({
+    prompt: "skip invalid DOM aliases",
+    llmText: [
+      JSON.stringify({
+        id: "invalid_class_name_alias_plan",
+        version: 1,
+        root: { type: "div", className: ["hero"] },
+      }),
+      JSON.stringify({
+        id: "invalid_id_alias_plan",
+        version: 1,
+        root: { type: "div", id: null },
+      }),
+      JSON.stringify({
+        id: "valid_after_invalid_dom_aliases",
+        version: 1,
+        root: { type: "text", value: "selected valid plan" },
+      }),
+    ].join("\n"),
+  });
+
+  assert.equal(plan.id, "valid_after_invalid_dom_aliases");
+  assert.deepEqual(plan.root, {
+    type: "text",
+    value: "selected valid plan",
+  });
+});
+
 test("codegen normalizes unsupported specVersion to runtime-plan/v1", async () => {
   const codegen = new DefaultCodeGenerator();
   const planJson = JSON.stringify({

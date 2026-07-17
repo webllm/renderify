@@ -521,13 +521,31 @@ function normalizeRuntimeNodeCandidateProps(
   }
 
   for (const key of ["id", "title", "role", "class"] as const) {
-    const candidate = readOwnDataProperty(value, key)?.value;
-    if (props[key] === undefined && isJsonValue(candidate)) {
+    const property = readOwnDataProperty(value, key);
+    if (
+      !property ||
+      (property.present &&
+        property.value !== undefined &&
+        typeof property.value !== "string")
+    ) {
+      return { valid: false };
+    }
+    const candidate = property.value;
+    if (props[key] === undefined && typeof candidate === "string") {
       props[key] = candidate;
     }
   }
 
-  const className = readOwnDataProperty(value, "className")?.value;
+  const classNameProperty = readOwnDataProperty(value, "className");
+  if (
+    !classNameProperty ||
+    (classNameProperty.present &&
+      classNameProperty.value !== undefined &&
+      typeof classNameProperty.value !== "string")
+  ) {
+    return { valid: false };
+  }
+  const className = classNameProperty.value;
   if (props.class === undefined && typeof className === "string") {
     props.class = className;
   }
