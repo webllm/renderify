@@ -301,7 +301,7 @@ export function normalizeRuntimeNodeCandidate(
   if (!isRuntimeNormalizationDataTree(value)) {
     return undefined;
   }
-  if (isRuntimeNode(value)) {
+  if (isRuntimeNodeWithinNormalizationBounds(value)) {
     return value;
   }
 
@@ -313,6 +313,58 @@ export function normalizeRuntimeNodeCandidate(
     },
     0,
   );
+}
+
+function isRuntimeNodeWithinNormalizationBounds(
+  value: unknown,
+): value is RuntimeNode {
+  const pending: Array<{
+    value: unknown;
+    depth: number;
+    exiting: boolean;
+  }> = [{ value, depth: 0, exiting: false }];
+  const active = new WeakSet<object>();
+  let nodes = 0;
+
+  while (pending.length > 0) {
+    const entry = pending.pop();
+    if (!entry || typeof entry.value !== "object" || entry.value === null) {
+      return false;
+    }
+
+    if (entry.exiting) {
+      active.delete(entry.value);
+      continue;
+    }
+    if (
+      active.has(entry.value) ||
+      entry.depth > RUNTIME_NODE_NORMALIZATION_MAX_DEPTH
+    ) {
+      return false;
+    }
+
+    nodes += 1;
+    if (nodes > RUNTIME_NODE_NORMALIZATION_MAX_NODES) {
+      return false;
+    }
+
+    const shape = inspectRuntimeNodeShape(entry.value);
+    if (!shape) {
+      return false;
+    }
+
+    active.add(entry.value);
+    pending.push({ ...entry, exiting: true });
+    for (let index = shape.children.length - 1; index >= 0; index -= 1) {
+      pending.push({
+        value: shape.children[index],
+        depth: entry.depth + 1,
+        exiting: false,
+      });
+    }
+  }
+
+  return true;
 }
 
 function normalizeRuntimeNodeCandidateInternal(
@@ -1279,7 +1331,12 @@ export function normalizeRuntimePlanCandidate(
   if (!isRuntimeNormalizationDataTree(value)) {
     return undefined;
   }
+  const canonicalRoot = isPlainJsonObject(value)
+    ? readOwnDataProperty(value, "root")
+    : undefined;
   if (
+    canonicalRoot?.present === true &&
+    isRuntimeNodeWithinNormalizationBounds(canonicalRoot.value) &&
     isRuntimePlan(value) &&
     isPlainJsonObject(value) &&
     !Object.hasOwn(value, "nodes")

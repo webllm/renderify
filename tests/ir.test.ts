@@ -695,6 +695,34 @@ test("runtime candidate normalization rejects accessors without invoking them", 
   assert.equal(normalizeRuntimePlanCandidate(canonicalPlan), canonicalPlan);
 });
 
+test("runtime candidate normalization bounds canonical node trees", () => {
+  const oversizedRoot = {
+    type: "element" as const,
+    tag: "div",
+    children: Array.from({ length: 10_000 }, (_, index) => ({
+      type: "text" as const,
+      value: String(index),
+    })),
+  };
+  assert.equal(isRuntimeNode(oversizedRoot), true);
+  assert.equal(normalizeRuntimeNodeCandidate(oversizedRoot), undefined);
+  assert.equal(
+    normalizeRuntimePlanCandidate({
+      id: "oversized_canonical_plan",
+      version: 1,
+      root: oversizedRoot,
+    }),
+    undefined,
+  );
+
+  let tooDeepRoot: RuntimeNode = createTextNode("leaf");
+  for (let depth = 0; depth <= 512; depth += 1) {
+    tooDeepRoot = createElementNode("div", undefined, [tooDeepRoot]);
+  }
+  assert.equal(isRuntimeNode(tooDeepRoot), true);
+  assert.equal(normalizeRuntimeNodeCandidate(tooDeepRoot), undefined);
+});
+
 test("runtime node guards and walkers handle very deep trees iteratively", () => {
   const depth = 12_000;
   let root: RuntimeNode = createTextNode("leaf");
