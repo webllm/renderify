@@ -296,6 +296,9 @@ interface RuntimeNodeNormalizationState {
 export function normalizeRuntimeNodeCandidate(
   value: unknown,
 ): RuntimeNode | undefined {
+  if (!isRuntimeNormalizationDataTree(value)) {
+    return undefined;
+  }
   if (isRuntimeNode(value)) {
     return value;
   }
@@ -414,8 +417,13 @@ function normalizeRuntimeNodeCandidateInternal(
     }
     const props = normalizedProps.value;
     if (typeValue === "component") {
-      const moduleValue = readOwnDataProperty(value, "module")?.value;
-      const exportValue = readOwnDataProperty(value, "exportName")?.value;
+      const moduleProperty = readOwnDataProperty(value, "module");
+      const exportProperty = readOwnDataProperty(value, "exportName");
+      if (!moduleProperty || !exportProperty) {
+        return undefined;
+      }
+      const moduleValue = moduleProperty.value;
+      const exportValue = exportProperty.value;
       if (
         typeof moduleValue !== "string" ||
         moduleValue.trim().length === 0 ||
@@ -516,9 +524,13 @@ function normalizeRuntimeNodeCandidateChildren(
   if (!Array.isArray(rawChildren)) {
     return undefined;
   }
+  const childCandidates = readOwnDataArrayValues(rawChildren);
+  if (!childCandidates) {
+    return undefined;
+  }
 
   const children: RuntimeNode[] = [];
-  for (const child of rawChildren) {
+  for (const child of childCandidates) {
     const normalized = normalizeRuntimeNodeCandidateInternal(
       child,
       state,
@@ -722,13 +734,14 @@ function readRuntimeNodeChildren(
     return undefined;
   }
 
+  return readOwnDataArrayValues(property.value);
+}
+
+function readOwnDataArrayValues(value: unknown[]): unknown[] | undefined {
   const children: unknown[] = [];
   try {
-    for (let index = 0; index < property.value.length; index += 1) {
-      const descriptor = Object.getOwnPropertyDescriptor(
-        property.value,
-        String(index),
-      );
+    for (let index = 0; index < value.length; index += 1) {
+      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
       if (!descriptor || !("value" in descriptor)) {
         return undefined;
       }
@@ -738,6 +751,101 @@ function readRuntimeNodeChildren(
     return undefined;
   }
   return children;
+}
+
+function isRuntimeNormalizationDataTree(value: unknown): boolean {
+  const pending: Array<{ value: unknown; exiting: boolean }> = [
+    { value, exiting: false },
+  ];
+  const active = new WeakSet<object>();
+  const completed = new WeakSet<object>();
+
+  while (pending.length > 0) {
+    const entry = pending.pop();
+    if (!entry) {
+      return false;
+    }
+
+    if (entry.exiting) {
+      if (typeof entry.value === "object" && entry.value !== null) {
+        active.delete(entry.value);
+        completed.add(entry.value);
+      }
+      continue;
+    }
+
+    if (
+      entry.value === null ||
+      entry.value === undefined ||
+      typeof entry.value === "string" ||
+      typeof entry.value === "boolean"
+    ) {
+      continue;
+    }
+    if (typeof entry.value === "number") {
+      if (!Number.isFinite(entry.value)) {
+        return false;
+      }
+      continue;
+    }
+    if (typeof entry.value !== "object") {
+      return false;
+    }
+
+    if (completed.has(entry.value)) {
+      continue;
+    }
+    if (active.has(entry.value)) {
+      return false;
+    }
+
+    const arrayValue = Array.isArray(entry.value) ? entry.value : undefined;
+    const isArray = arrayValue !== undefined;
+    if (!isArray && !isPlainJsonObject(entry.value)) {
+      return false;
+    }
+
+    const childValues: unknown[] = [];
+    try {
+      const keys = Reflect.ownKeys(entry.value);
+      if (keys.some((key) => typeof key === "symbol")) {
+        return false;
+      }
+
+      if (arrayValue) {
+        for (let index = 0; index < arrayValue.length; index += 1) {
+          const descriptor = Object.getOwnPropertyDescriptor(
+            arrayValue,
+            String(index),
+          );
+          if (!descriptor || !("value" in descriptor)) {
+            return false;
+          }
+        }
+      }
+
+      for (const key of keys) {
+        if (isArray && key === "length") {
+          continue;
+        }
+        const descriptor = Object.getOwnPropertyDescriptor(entry.value, key);
+        if (!descriptor || !("value" in descriptor)) {
+          return false;
+        }
+        childValues.push(descriptor.value);
+      }
+    } catch {
+      return false;
+    }
+
+    active.add(entry.value);
+    pending.push({ value: entry.value, exiting: true });
+    for (let index = childValues.length - 1; index >= 0; index -= 1) {
+      pending.push({ value: childValues[index], exiting: false });
+    }
+  }
+
+  return true;
 }
 
 function readOwnDataProperty(
@@ -1152,6 +1260,9 @@ export function normalizeRuntimePlanCandidate(
   value: unknown,
   options: RuntimePlanNormalizationOptions = {},
 ): RuntimePlan | undefined {
+  if (!isRuntimeNormalizationDataTree(value)) {
+    return undefined;
+  }
   if (
     isRuntimePlan(value) &&
     isPlainJsonObject(value) &&

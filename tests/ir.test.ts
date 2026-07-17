@@ -580,6 +580,59 @@ test("runtime node guards reject cycles without invoking accessors", () => {
   assert.equal(visited, 1);
 });
 
+test("runtime candidate normalization rejects accessors without invoking them", () => {
+  let getterCalls = 0;
+  const component: Record<string, unknown> = {
+    type: "component",
+    module: "npm:widget",
+  };
+  Object.defineProperty(component, "exportName", {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      return "Named";
+    },
+  });
+
+  const children: unknown[] = [];
+  Object.defineProperty(children, "0", {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      return "child";
+    },
+  });
+  children.length = 1;
+
+  const plan: Record<string, unknown> = {
+    version: 1,
+    root: { type: "text", value: "content" },
+  };
+  Object.defineProperty(plan, "id", {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      return "accessor_plan";
+    },
+  });
+
+  assert.equal(normalizeRuntimeNodeCandidate(component), undefined);
+  assert.equal(
+    normalizeRuntimeNodeCandidate({ type: "div", children }),
+    undefined,
+  );
+  assert.equal(normalizeRuntimePlanCandidate(plan), undefined);
+  assert.equal(getterCalls, 0);
+
+  const canonicalPlan = {
+    id: "canonical_data_plan",
+    version: 1,
+    root: createElementNode("div"),
+    capabilities: undefined,
+  };
+  assert.equal(normalizeRuntimePlanCandidate(canonicalPlan), canonicalPlan);
+});
+
 test("runtime node guards and walkers handle very deep trees iteratively", () => {
   const depth = 12_000;
   let root: RuntimeNode = createTextNode("leaf");
