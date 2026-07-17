@@ -1144,7 +1144,11 @@ export function normalizeRuntimePlanCandidate(
   value: unknown,
   options: RuntimePlanNormalizationOptions = {},
 ): RuntimePlan | undefined {
-  if (isRuntimePlan(value)) {
+  if (
+    isRuntimePlan(value) &&
+    isPlainJsonObject(value) &&
+    !Object.hasOwn(value, "nodes")
+  ) {
     return value;
   }
   if (!isPlainJsonObject(value)) {
@@ -1162,7 +1166,9 @@ export function normalizeRuntimePlanCandidate(
     !rawVersionProperty ||
     !rawSpecVersionProperty ||
     !rawCapabilitiesProperty ||
-    !rawNodesProperty
+    !rawNodesProperty ||
+    !rawRootProperty ||
+    (rawNodesProperty.present && rawRootProperty.present)
   ) {
     return undefined;
   }
@@ -1212,9 +1218,6 @@ export function normalizeRuntimePlanCandidate(
     return undefined;
   }
 
-  if (!rawRootProperty) {
-    return undefined;
-  }
   let rootCandidate: unknown;
   if (rawRootProperty.present) {
     if (!isPlainJsonObject(rawRootProperty.value)) {

@@ -129,6 +129,32 @@ test("codegen skips candidates with both children and nodes", async () => {
   });
 });
 
+test("codegen skips candidates with both root and legacy nodes", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const plan = await codegen.generatePlan({
+    prompt: "reject ambiguous root aliases",
+    llmText: [
+      JSON.stringify({
+        id: "ambiguous_root_plan",
+        version: 1,
+        root: { type: "text", value: "runtime content" },
+        nodes: [{ type: "text", value: "legacy content" }],
+      }),
+      JSON.stringify({
+        id: "valid_after_ambiguous_root",
+        version: 1,
+        root: { type: "text", value: "selected valid plan" },
+      }),
+    ].join("\n"),
+  });
+
+  assert.equal(plan.id, "valid_after_ambiguous_root");
+  assert.deepEqual(plan.root, {
+    type: "text",
+    value: "selected valid plan",
+  });
+});
+
 test("codegen skips candidates with explicitly invalid tags", async () => {
   const codegen = new DefaultCodeGenerator();
   const plan = await codegen.generatePlan({

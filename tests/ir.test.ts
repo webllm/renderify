@@ -147,6 +147,23 @@ test("runtime candidate normalization rejects ambiguous child aliases", () => {
   }
 });
 
+test("runtime plan normalization rejects ambiguous root aliases", () => {
+  for (const nodes of [
+    [{ type: "text", value: "legacy content" }],
+    [],
+    undefined,
+  ]) {
+    const candidate = {
+      id: "ambiguous_root_plan",
+      version: 1,
+      root: { type: "text", value: "runtime content" },
+      nodes,
+    };
+
+    assert.equal(normalizeRuntimePlanCandidate(candidate), undefined);
+  }
+});
+
 test("runtime candidate normalization rejects explicitly invalid tags", () => {
   for (const tag of [undefined, null, "", "   ", 42, true, [], {}]) {
     for (const type of ["div", "container"] as const) {
