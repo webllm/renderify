@@ -1002,9 +1002,12 @@ function isUnitlessCssNumberProperty(property: string): boolean {
 }
 
 function normalizeCssPropertyName(property: string): string | undefined {
-  const trimmed = property.trim();
+  const trimmed = property.trim().replace(/^WebKit/, "Webkit");
   if (/^--[A-Za-z0-9_-]+$/.test(trimmed)) {
     return trimmed;
+  }
+  if (/^-(?:webkit|moz|ms|o)-[A-Za-z][A-Za-z0-9-]*$/i.test(trimmed)) {
+    return trimmed.toLowerCase();
   }
   if (!/^[A-Za-z][A-Za-z0-9-]*$/.test(trimmed)) {
     return undefined;
@@ -1013,7 +1016,9 @@ function normalizeCssPropertyName(property: string): string | undefined {
   const normalized = trimmed
     .replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)
     .toLowerCase();
-  return normalized.startsWith("ms-") ? `-${normalized}` : normalized;
+  return /^(?:webkit|moz|ms|o)-/.test(normalized)
+    ? `-${normalized}`
+    : normalized;
 }
 
 function sanitizeInlineStyle(style: string): string | undefined {

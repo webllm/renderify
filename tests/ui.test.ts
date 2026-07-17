@@ -436,6 +436,26 @@ test("ui renderer adds px to dimensional numeric styles", () => {
   );
 });
 
+test("ui renderer preserves vendor-prefixed object styles", () => {
+  const renderer = new DefaultUIRenderer();
+  const html = renderer.renderNode(
+    createElementNode("div", {
+      style: {
+        "-webkit-line-clamp": 2,
+        webkitBoxFlex: 1,
+        WebKitBoxOrdinalGroup: 3,
+        "-moz-box-flex": 1,
+        msFlexGrow: 2,
+      },
+    }),
+  );
+
+  assert.match(
+    html,
+    /style="-webkit-line-clamp:2;-webkit-box-flex:1;-webkit-box-ordinal-group:3;-moz-box-flex:1;-ms-flex-grow:2;"/,
+  );
+});
+
 test("ui renderer rejects unsafe values inside object inline styles", () => {
   const renderer = new DefaultUIRenderer();
   const html = renderer.renderNode(
