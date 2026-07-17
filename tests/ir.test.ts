@@ -147,6 +147,35 @@ test("runtime candidate normalization rejects ambiguous child aliases", () => {
   }
 });
 
+test("runtime candidate normalization rejects explicitly invalid tags", () => {
+  for (const tag of [undefined, null, "", "   ", 42, true, [], {}]) {
+    for (const type of ["div", "container"] as const) {
+      const root = { type, tag, children: ["content"] };
+
+      assert.equal(normalizeRuntimeNodeCandidate(root), undefined);
+      assert.equal(
+        normalizeRuntimePlanCandidate({
+          id: "invalid_explicit_tag_plan",
+          version: 1,
+          root,
+        }),
+        undefined,
+      );
+    }
+  }
+
+  assert.deepEqual(normalizeRuntimeNodeCandidate({ type: "div" }), {
+    type: "element",
+    tag: "div",
+    children: [],
+  });
+  assert.deepEqual(normalizeRuntimeNodeCandidate({ type: "container" }), {
+    type: "element",
+    tag: "div",
+    children: [],
+  });
+});
+
 test("runtime candidate normalization preserves string style aliases", () => {
   const normalizedNode = normalizeRuntimeNodeCandidate({
     type: "div",

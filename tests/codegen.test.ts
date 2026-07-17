@@ -129,6 +129,36 @@ test("codegen skips candidates with both children and nodes", async () => {
   });
 });
 
+test("codegen skips candidates with explicitly invalid tags", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const plan = await codegen.generatePlan({
+    prompt: "reject invalid explicit tags",
+    llmText: [
+      JSON.stringify({
+        id: "invalid_inferred_tag_plan",
+        version: 1,
+        root: { type: "div", tag: 42 },
+      }),
+      JSON.stringify({
+        id: "invalid_container_tag_plan",
+        version: 1,
+        root: { type: "container", tag: null },
+      }),
+      JSON.stringify({
+        id: "valid_after_invalid_tags",
+        version: 1,
+        root: { type: "text", value: "selected valid plan" },
+      }),
+    ].join("\n"),
+  });
+
+  assert.equal(plan.id, "valid_after_invalid_tags");
+  assert.deepEqual(plan.root, {
+    type: "text",
+    value: "selected valid plan",
+  });
+});
+
 test("codegen preserves string style aliases and skips invalid ones", async () => {
   const codegen = new DefaultCodeGenerator();
   const styledPlan = await codegen.generatePlan({

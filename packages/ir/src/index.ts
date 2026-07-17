@@ -408,7 +408,16 @@ function normalizeRuntimeNodeCandidateInternal(
       return component;
     }
 
-    const explicitTag = readOwnDataProperty(value, "tag")?.value;
+    const explicitTagProperty = readOwnDataProperty(value, "tag");
+    if (
+      !explicitTagProperty ||
+      (explicitTagProperty.present &&
+        (typeof explicitTagProperty.value !== "string" ||
+          explicitTagProperty.value.trim().length === 0))
+    ) {
+      return undefined;
+    }
+    const explicitTag = explicitTagProperty.value;
     let tag: string | undefined;
     if (typeValue === "element") {
       tag = typeof explicitTag === "string" ? explicitTag.trim() : undefined;
