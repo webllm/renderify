@@ -95,6 +95,9 @@ importers:
       '@renderify/security':
         specifier: workspace:^
         version: link:../security
+      undici:
+        specifier: ^8.7.0
+        version: 8.7.0
 
   packages/core:
     dependencies:
@@ -2167,6 +2170,10 @@ packages:
   undici-types@8.3.0:
     resolution: {integrity: sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ==}
 
+  undici@8.7.0:
+    resolution: {integrity: sha512-N7iQtfyLhIMOFgQubvmLV26svHpO0bqKnAiWotTQCVKCmWrcGbBotPuW1x+xwYZ2VHdSTVUfPQQnlEt1/LouTQ==}
+    engines: {node: '>=22.19.0'}
+
   universalify@0.1.2:
     resolution: {integrity: sha512-rBJeI5CXAlmy1pV+617WB9J63U6XcazHHF2f2dbJix4XzpUF0RS3Zbj0FGIOCAva5P/d/GBOYaACQ1w+0azUkg==}
     engines: {node: '>= 4.0.0'}
@@ -4150,6 +4157,8 @@ snapshots:
   ufo@1.6.3: {}
 
   undici-types@8.3.0: {}
+
+  undici@8.7.0: {}
 
   universalify@0.1.2: {}
 

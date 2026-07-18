@@ -57,8 +57,9 @@
     "@renderify/core": "workspace:^",
     "@renderify/ir": "workspace:^",
     "@renderify/llm": "workspace:^",
+    "@renderify/runtime": "workspace:^",
     "@renderify/security": "workspace:^",
-    "@renderify/runtime": "workspace:^"
+    "undici": "^8.7.0"
   },
   "bin": {
     "renderify": "bin/renderify.js"

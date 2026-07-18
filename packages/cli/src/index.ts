@@ -452,7 +452,40 @@ async function createLLM(
   });
 }
 
+/**
+ * Node's built-in fetch (undici) ignores the HTTP(S)_PROXY / NO_PROXY
+ * environment variables, so in a proxied network every outbound request
+ * (LLM providers, Codex auth refresh, module fetches) fails with a connect
+ * timeout even though tools like curl and the Codex CLI work. Install undici's
+ * env-driven proxy dispatcher when a proxy is configured so those requests are
+ * routed through it. Best effort: never block the CLI if undici is unavailable.
+ */
+async function installOutboundProxyDispatcher(): Promise<void> {
+  const proxyUrl =
+    process.env.HTTPS_PROXY ??
+    process.env.https_proxy ??
+    process.env.HTTP_PROXY ??
+    process.env.http_proxy ??
+    process.env.ALL_PROXY ??
+    process.env.all_proxy;
+  if (!proxyUrl || proxyUrl.trim().length === 0) {
+    return;
+  }
+
+  try {
+    const { EnvHttpProxyAgent, setGlobalDispatcher } = await import("undici");
+    setGlobalDispatcher(new EnvHttpProxyAgent());
+  } catch (error) {
+    console.warn(
+      `Renderify could not enable proxy support for outbound requests: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+}
+
 async function main() {
+  await installOutboundProxyDispatcher();
   const args = parseArgs(process.argv.slice(2));
 
   if (args.command === "help") {

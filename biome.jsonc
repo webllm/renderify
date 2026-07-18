@@ -27,6 +27,13 @@
               "PORT",
               // Official Codex CLI home directory, reused for local `code cli` auth.
               "CODEX_HOME",
+              // Standard proxy variables honored for outbound CLI requests.
+              "HTTPS_PROXY",
+              "https_proxy",
+              "HTTP_PROXY",
+              "http_proxy",
+              "ALL_PROXY",
+              "all_proxy",
               "RENDERIFY_CODEX_.*",
               "RENDERIFY_HOME",
               "RENDERIFY_JSPM_CDN_URL",
