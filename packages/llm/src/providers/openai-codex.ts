@@ -976,58 +976,69 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
       "Global fetch is unavailable. Provide fetchImpl in OpenAICodexLLMInterpreter options.",
     );
     const accessToken = this.resolveAccessToken();
+    const maxTimeoutAttempts =
+      this.reliability.retryOnNetworkError && this.reliability.maxRetries > 0
+        ? 2
+        : 1;
 
-    try {
-      return await withTimeoutAbortScope(
-        this.options.timeoutMs,
-        signal,
-        async (timeoutSignal) => {
-          const response = await fetchWithReliability({
-            fetchImpl,
-            input: `${this.options.baseUrl.replace(/\/$/, "")}/responses`,
-            init: {
-              method: "POST",
-              headers: this.createHeaders(accessToken),
-              body: JSON.stringify({
-                ...body,
-                ...this.createReasoningPayload(),
-                stream: true,
-              }),
-              signal: timeoutSignal,
-            },
-            reliability: this.reliability,
-            state: this.reliabilityState,
-            operationName: "OpenAI Codex request",
-          });
+    for (let attempt = 1; attempt <= maxTimeoutAttempts; attempt += 1) {
+      try {
+        return await withTimeoutAbortScope(
+          this.options.timeoutMs,
+          signal,
+          async (timeoutSignal) => {
+            const response = await fetchWithReliability({
+              fetchImpl,
+              input: `${this.options.baseUrl.replace(/\/$/, "")}/responses`,
+              init: {
+                method: "POST",
+                headers: this.createHeaders(accessToken),
+                body: JSON.stringify({
+                  ...body,
+                  ...this.createReasoningPayload(),
+                  stream: true,
+                }),
+                signal: timeoutSignal,
+              },
+              reliability: this.reliability,
+              state: this.reliabilityState,
+              operationName: "OpenAI Codex request",
+            });
 
-          if (!response.ok) {
-            const details = await readErrorResponse(response);
-            throw new Error(
-              `OpenAI Codex request failed (${response.status}): ${details}`,
+            if (!response.ok) {
+              const details = await readErrorResponse(response);
+              throw new Error(
+                `OpenAI Codex request failed (${response.status}): ${details}`,
+              );
+            }
+
+            if (!response.body) {
+              throw new Error("OpenAI Codex streaming response body is empty");
+            }
+
+            return await this.readCompletedStreamResponse(
+              response.body,
+              timeoutSignal,
             );
-          }
-
-          if (!response.body) {
-            throw new Error("OpenAI Codex streaming response body is empty");
-          }
-
-          return await this.readCompletedStreamResponse(
-            response.body,
-            timeoutSignal,
-          );
-        },
-      );
-    } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") {
+          },
+        );
+      } catch (error) {
+        if (!(error instanceof Error) || error.name !== "AbortError") {
+          throw error;
+        }
         if (signal?.aborted) {
           throw new Error("OpenAI Codex request aborted by caller");
+        }
+        if (attempt < maxTimeoutAttempts) {
+          continue;
         }
         throw new Error(
           `OpenAI Codex request timed out after ${this.options.timeoutMs}ms`,
         );
       }
-      throw error;
     }
+
+    throw new Error("OpenAI Codex request failed: retries exhausted");
   }
 
   private async readCompletedStreamResponse(

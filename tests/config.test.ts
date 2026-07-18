@@ -240,6 +240,31 @@ test("config derives openai codex defaults when only provider is configured", as
   }
 });
 
+test("config bounds Spark latency unless timeout is explicit", async () => {
+  const previousProvider = process.env.RENDERIFY_LLM_PROVIDER;
+  const previousModel = process.env.RENDERIFY_LLM_MODEL;
+  const previousTimeout = process.env.RENDERIFY_LLM_TIMEOUT_MS;
+
+  process.env.RENDERIFY_LLM_PROVIDER = "openai-codex";
+  process.env.RENDERIFY_LLM_MODEL = "gpt-5.3-codex-spark";
+  delete process.env.RENDERIFY_LLM_TIMEOUT_MS;
+
+  try {
+    const defaultConfig = new DefaultRenderifyConfig();
+    await defaultConfig.load();
+    assert.equal(defaultConfig.get("llmRequestTimeoutMs"), 30000);
+
+    process.env.RENDERIFY_LLM_TIMEOUT_MS = "45000";
+    const explicitConfig = new DefaultRenderifyConfig();
+    await explicitConfig.load();
+    assert.equal(explicitConfig.get("llmRequestTimeoutMs"), 45000);
+  } finally {
+    restoreEnv("RENDERIFY_LLM_PROVIDER", previousProvider);
+    restoreEnv("RENDERIFY_LLM_MODEL", previousModel);
+    restoreEnv("RENDERIFY_LLM_TIMEOUT_MS", previousTimeout);
+  }
+});
+
 test("config derives local-provider defaults when only provider is configured", async (t) => {
   const previousProvider = process.env.RENDERIFY_LLM_PROVIDER;
   const previousModel = process.env.RENDERIFY_LLM_MODEL;

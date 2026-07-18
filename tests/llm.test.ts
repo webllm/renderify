@@ -1161,6 +1161,54 @@ test("openai codex interpreter times out stalled streaming responses", async () 
   assert.equal(streamCanceled, true);
 });
 
+test("openai codex retries one timed-out streaming response", async () => {
+  let attempts = 0;
+  let stalledStreamCanceled = false;
+  const llm = new OpenAICodexLLMInterpreter({
+    accessToken: "codex-test-token",
+    timeoutMs: 20,
+    reliability: { maxRetries: 1 },
+    fetchImpl: async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            cancel() {
+              stalledStreamCanceled = true;
+            },
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          },
+        );
+      }
+
+      return sseResponse([
+        "event: response.output_text.delta\ndata: " +
+          JSON.stringify({
+            type: "response.output_text.delta",
+            delta: "recovered",
+          }),
+        "event: response.completed\ndata: " +
+          JSON.stringify({
+            type: "response.completed",
+            response: {
+              id: "resp_codex_timeout_recovered",
+              model: "gpt-5.3-codex-spark",
+            },
+          }),
+      ]);
+    },
+  });
+
+  const response = await llm.generateResponse({ prompt: "recover a stall" });
+
+  assert.equal(response.text, "recovered");
+  assert.equal(attempts, 2);
+  assert.equal(stalledStreamCanceled, true);
+});
+
 test("anthropic interpreter generates text response", async () => {
   const requests: Array<{
     url: string;
