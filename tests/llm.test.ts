@@ -755,18 +755,42 @@ test("openai codex normalizes DOM-like plans and uses low reasoning for Spark", 
     requests[0].text as {
       format?: {
         schema?: {
+          additionalProperties?: boolean;
           properties?: {
-            root?: { properties?: { type?: { enum?: string[] } } };
+            root?: {
+              additionalProperties?: boolean;
+              properties?: {
+                type?: { enum?: string[] };
+                children?: {
+                  items?: {
+                    additionalProperties?: boolean;
+                    properties?: { type?: { enum?: string[] } };
+                  };
+                };
+              };
+            };
+            state?: { required?: string[] };
           };
         };
       };
     }
   ).format?.schema;
+  assert.equal(schema?.additionalProperties, false);
   assert.deepEqual(schema?.properties?.root?.properties?.type?.enum, [
     "text",
     "element",
     "component",
   ]);
+  assert.equal(
+    schema?.properties?.root?.properties?.children?.items?.additionalProperties,
+    false,
+  );
+  assert.deepEqual(
+    schema?.properties?.root?.properties?.children?.items?.properties?.type
+      ?.enum,
+    ["text", "element", "component"],
+  );
+  assert.deepEqual(schema?.properties?.state?.required, ["initial"]);
   assert.equal(
     (response.raw as { normalized?: boolean } | undefined)?.normalized,
     true,

@@ -125,10 +125,36 @@ const SPARK_REASONING_EFFORTS: ReadonlySet<OpenAICodexReasoningEffort> =
   new Set(["low", "medium", "high", "xhigh"]);
 let codexFallbackPlanIdSequence = 0;
 
+const createRuntimeNodeJsonSchema = (
+  remainingDepth: number,
+): Record<string, unknown> => ({
+  type: "object",
+  additionalProperties: false,
+  required: ["type"],
+  properties: {
+    type: {
+      type: "string",
+      enum: ["text", "element", "component"],
+    },
+    value: { type: "string" },
+    tag: { type: "string", minLength: 1 },
+    module: { type: "string", minLength: 1 },
+    exportName: { type: "string", minLength: 1 },
+    props: { type: "object", additionalProperties: true },
+    children: {
+      type: "array",
+      items:
+        remainingDepth > 0
+          ? createRuntimeNodeJsonSchema(remainingDepth - 1)
+          : { type: "object", additionalProperties: true },
+    },
+  },
+});
+
 const RUNTIME_PLAN_JSON_SCHEMA = {
   type: "object",
-  additionalProperties: true,
-  required: ["id", "version", "root", "capabilities"],
+  additionalProperties: false,
+  required: ["specVersion", "id", "version", "root", "capabilities"],
   properties: {
     specVersion: {
       type: "string",
@@ -142,35 +168,41 @@ const RUNTIME_PLAN_JSON_SCHEMA = {
       type: "integer",
       minimum: 1,
     },
-    root: {
-      type: "object",
-      required: ["type"],
-      additionalProperties: true,
-      properties: {
-        type: {
-          type: "string",
-          enum: ["text", "element", "component"],
-        },
-        value: { type: "string" },
-        tag: { type: "string", minLength: 1 },
-        module: { type: "string", minLength: 1 },
-        exportName: { type: "string", minLength: 1 },
-        props: { type: "object", additionalProperties: true },
-        children: {
-          type: "array",
-          items: { type: "object", additionalProperties: true },
-        },
-      },
-    },
+    root: createRuntimeNodeJsonSchema(6),
     capabilities: {
       type: "object",
-      additionalProperties: true,
+      additionalProperties: false,
       properties: {
         domWrite: { type: "boolean" },
+        networkHosts: {
+          type: "array",
+          items: { type: "string" },
+        },
         allowedModules: {
           type: "array",
           items: { type: "string" },
         },
+        timers: { type: "boolean" },
+        storage: {
+          type: "array",
+          items: {
+            type: "string",
+            enum: ["localStorage", "sessionStorage"],
+          },
+        },
+        executionProfile: {
+          type: "string",
+          enum: [
+            "standard",
+            "isolated-vm",
+            "sandbox-worker",
+            "sandbox-iframe",
+            "sandbox-shadowrealm",
+          ],
+        },
+        maxImports: { type: "integer", minimum: 0 },
+        maxComponentInvocations: { type: "integer", minimum: 0 },
+        maxExecutionMs: { type: "integer", minimum: 0 },
       },
     },
     imports: {
@@ -199,7 +231,21 @@ const RUNTIME_PLAN_JSON_SCHEMA = {
     },
     state: {
       type: "object",
-      additionalProperties: true,
+      additionalProperties: false,
+      required: ["initial"],
+      properties: {
+        initial: {
+          type: "object",
+          additionalProperties: true,
+        },
+        transitions: {
+          type: "object",
+          additionalProperties: {
+            type: "array",
+            items: { type: "object", additionalProperties: true },
+          },
+        },
+      },
     },
     source: {
       type: "object",
@@ -973,6 +1019,8 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
       "Schema priority: id/version/root/capabilities must be valid.",
       'RuntimeNode shapes are exactly text={"type":"text","value":"..."}, element={"type":"element","tag":"div","props":{},"children":[]}, or component={"type":"component","module":"...","exportName":"default","props":{},"children":[]}.',
       'Children must recursively use those shapes. Never put an HTML tag such as "div" in type; use type="element" and tag="div". Put inline styles under props.style, not directly on the node.',
+      "Text nodes only accept type and value; wrap styled text in an element node.",
+      "Omit imports, moduleManifest, metadata, state, and source unless they are actually needed. If state is present it must contain an initial object. For declarative element/text roots, omit source.",
       "Do not set root.type to component unless source.code is present with a matching export.",
       'Do not include synthetic source module aliases such as "this-plan-source" in imports, capabilities.allowedModules, or moduleManifest.',
       'Do not use local path aliases such as "@/..." in any import or module URL.',
