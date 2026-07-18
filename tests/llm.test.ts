@@ -794,6 +794,10 @@ test("openai codex normalizes DOM-like plans and uses low reasoning for Spark", 
     ["text", "element", "component"],
   );
   assert.deepEqual(schema?.properties?.state?.required, ["initial"]);
+  assert.deepEqual(
+    Object.keys(schema?.properties?.capabilities?.properties ?? {}),
+    ["domWrite"],
+  );
   assert.equal(
     Object.hasOwn(
       schema?.properties?.capabilities?.properties ?? {},

@@ -182,32 +182,6 @@ const RUNTIME_PLAN_JSON_SCHEMA = {
       additionalProperties: false,
       properties: {
         domWrite: { type: "boolean" },
-        networkHosts: {
-          type: "array",
-          items: { type: "string" },
-        },
-        allowedModules: {
-          type: "array",
-          items: { type: "string" },
-        },
-        timers: { type: "boolean" },
-        storage: {
-          type: "array",
-          items: {
-            type: "string",
-            enum: ["localStorage", "sessionStorage"],
-          },
-        },
-        executionProfile: {
-          type: "string",
-          enum: [
-            "standard",
-            "isolated-vm",
-            "sandbox-worker",
-            "sandbox-iframe",
-            "sandbox-shadowrealm",
-          ],
-        },
       },
     },
     imports: {
@@ -1233,6 +1207,7 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
       "Text nodes only accept type and value; wrap styled text in an element node.",
       "Omit imports, moduleManifest, metadata, state, and source unless they are actually needed. If state is present it must contain an initial object. For declarative element/text roots, omit source.",
       "Do not emit maxImports, maxComponentInvocations, or maxExecutionMs; those resource budgets are controlled by the host security policy.",
+      "Within capabilities, emit only domWrite. Do not request networkHosts, allowedModules, timers, storage, or executionProfile; host policy and code generation derive permissions.",
       "Do not set root.type to component unless source.code is present with a matching export.",
       'Do not include synthetic source module aliases such as "this-plan-source" in imports, capabilities.allowedModules, or moduleManifest.',
       'Do not use local path aliases such as "@/..." in any import or module URL.',
