@@ -1,6 +1,6 @@
 {
   "name": "@renderify/core",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "main": "dist/core.cjs",
   "types": "dist/core.d.ts",
   "module": "dist/core.mjs",

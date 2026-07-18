@@ -1,5 +1,23 @@
 # @renderify/runtime
 
+## 0.9.0
+
+### Minor Changes
+
+- af75248, 4e63504, a79aa09, 2be9f5e: Serialize React-style object CSS with
+  `px` units for dimensional numbers, preserve zero and unitless properties, and
+  normalize standard and vendor-prefixed camelCase property names.
+- 7ec7af1, d17a362: Map `className` and `htmlFor` to their HTML attribute names
+  while preserving explicitly supplied canonical `class` and `for` values.
+
+### Patch Changes
+
+- 6773bdd, aa89259: Refresh the Preact development dependencies used to validate
+  the runtime package.
+- Updated dependencies:
+  - @renderify/ir@0.9.0
+  - @renderify/security@0.9.0
+
 ## 0.8.1
 
 ### Patch Changes

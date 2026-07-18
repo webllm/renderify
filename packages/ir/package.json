@@ -1,6 +1,6 @@
 {
   "name": "@renderify/ir",
-  "version": "0.8.1",
+  "version": "0.9.0",
   "main": "dist/ir.cjs",
   "types": "dist/ir.d.ts",
   "module": "dist/ir.mjs",

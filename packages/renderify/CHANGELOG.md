@@ -1,5 +1,25 @@
 # renderify
 
+## 0.9.0
+
+### Minor Changes
+
+- af75248, 46c479f, 86c22fd: Expose Codex Spark reasoning controls through the
+  SDK facade, including the public `OpenAICodexReasoningEffort` type and
+  fail-fast validation for invalid effort configuration.
+- af75248, 924f4fa, 2be9f5e: Ship the hardened RuntimePlan normalization,
+  structured repair, and React-style object rendering pipeline through the main
+  `renderify` package.
+
+### Patch Changes
+
+- Updated dependencies:
+  - @renderify/core@0.9.0
+  - @renderify/ir@0.9.0
+  - @renderify/llm@0.9.0
+  - @renderify/runtime@0.9.0
+  - @renderify/security@0.9.0
+
 ## 0.8.0
 
 ### Minor Changes

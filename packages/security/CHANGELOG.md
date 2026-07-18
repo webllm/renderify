@@ -1,5 +1,18 @@
 # @renderify/security
 
+## 0.9.0
+
+### Minor Changes
+
+- e773efa, 924f4fa: Align security consumers with the hardened 0.9 RuntimePlan
+  contract so malformed, cyclic, over-deep, and oversized candidates are rejected
+  by the shared IR boundary before policy evaluation.
+
+### Patch Changes
+
+- Updated dependencies:
+  - @renderify/ir@0.9.0
+
 ## 0.8.1
 
 ### Patch Changes

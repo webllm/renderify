@@ -1,5 +1,20 @@
 # @renderify/mcp-app
 
+## 0.9.0
+
+### Minor Changes
+
+- af75248, 924f4fa, 2be9f5e: Align MCP Apps with the hardened 0.9 declarative
+  RuntimePlan pipeline, including bounded candidate normalization and correct
+  React-style object attribute and CSS serialization.
+
+### Patch Changes
+
+- Updated dependencies:
+  - @renderify/ir@0.9.0
+  - @renderify/runtime@0.9.0
+  - @renderify/security@0.9.0
+
 ## 0.8.0
 
 ### Minor Changes

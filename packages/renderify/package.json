@@ -1,6 +1,6 @@
 {
   "name": "renderify",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Official Renderify SDK facade",
   "main": "dist/renderify.cjs",
   "types": "dist/renderify.d.ts",

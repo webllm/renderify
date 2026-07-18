@@ -1,5 +1,26 @@
 # @renderify/core
 
+## 0.9.0
+
+### Minor Changes
+
+- af75248, 86c22fd: Add typed LLM reasoning-effort configuration, including
+  `RENDERIFY_LLM_REASONING_EFFORT`, and fail fast when an unsupported value is
+  supplied.
+- af75248: Strengthen structured retries and text fallback with bounded previous
+  output, validation errors, and explicit RuntimePlan repair instructions.
+- 1b3595c, 55ceba9: Normalize compatible DOM-like model output while rejecting
+  malformed source-backed plans before code generation treats them as valid.
+
+### Patch Changes
+
+- 6773bdd, aa89259: Refresh the Preact development dependencies used to validate
+  the core package.
+- Updated dependencies:
+  - @renderify/ir@0.9.0
+  - @renderify/runtime@0.9.0
+  - @renderify/security@0.9.0
+
 ## 0.8.0
 
 ### Minor Changes

@@ -1,5 +1,21 @@
 # @renderify/ir
 
+## 0.9.0
+
+### Minor Changes
+
+- af75248, 3c6bda5, 430615e: Add public RuntimePlan and RuntimeNode candidate
+  normalizers for common LLM-produced DOM aliases while preserving already-valid
+  canonical plans.
+- e773efa, 55a5a1e, a8416f1, 5ec6210, 2e44850, c06c690: Reject malformed or
+  ambiguous plan envelopes, semantic fields, node discriminators, roots, and
+  conflicting aliases instead of silently dropping invalid input.
+- 5c7d5c1, 783f6c0, f8286df, 1f5f7a5, d17a362: Validate and normalize style,
+  DOM attribute, child, text, and label aliases used by model-generated nodes.
+- 6cc0b95, 924f4fa: Reject accessor-backed, cyclic, over-deep, and oversized
+  candidates, including canonical RuntimeNode trees that would otherwise bypass
+  normalization limits.
+
 ## 0.8.1
 
 ### Patch Changes

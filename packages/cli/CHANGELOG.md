@@ -1,5 +1,22 @@
 # @renderify/cli
 
+## 0.9.0
+
+### Minor Changes
+
+- af75248, 86c22fd: Forward `RENDERIFY_LLM_REASONING_EFFORT` into CLI-created
+  LLM clients, document the levels supported by Codex Spark, and reject invalid
+  values during configuration instead of silently changing the requested effort.
+
+### Patch Changes
+
+- Updated dependencies:
+  - @renderify/core@0.9.0
+  - @renderify/ir@0.9.0
+  - @renderify/llm@0.9.0
+  - @renderify/runtime@0.9.0
+  - @renderify/security@0.9.0
+
 ## 0.8.0
 
 ### Minor Changes

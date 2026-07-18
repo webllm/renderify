@@ -1,5 +1,25 @@
 # @renderify/llm
 
+## 0.9.0
+
+### Minor Changes
+
+- af75248, 46c479f, 86c22fd: Add the public
+  `OpenAICodexReasoningEffort` type and Codex reasoning payloads. Spark defaults
+  to `low`, accepts `low`, `medium`, `high`, or `xhigh`, and rejects invalid or
+  unsupported values before making a request.
+- af75248, 533cda9: Strengthen the Codex RuntimePlan schema and instructions,
+  normalize compatible structured responses, and generate collision-resistant
+  fallback plan IDs.
+- bb1a051: Preserve configured Ollama system and fallback instructions when a
+  request supplies additional repair guidance.
+
+### Patch Changes
+
+- Updated dependencies:
+  - @renderify/core@0.9.0
+  - @renderify/ir@0.9.0
+
 ## 0.8.0
 
 ### Minor Changes
