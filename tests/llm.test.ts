@@ -769,6 +769,9 @@ test("openai codex normalizes DOM-like plans and uses low reasoning for Spark", 
                 };
               };
             };
+            capabilities?: {
+              properties?: Record<string, unknown>;
+            };
             state?: { required?: string[] };
           };
         };
@@ -791,6 +794,27 @@ test("openai codex normalizes DOM-like plans and uses low reasoning for Spark", 
     ["text", "element", "component"],
   );
   assert.deepEqual(schema?.properties?.state?.required, ["initial"]);
+  assert.equal(
+    Object.hasOwn(
+      schema?.properties?.capabilities?.properties ?? {},
+      "maxExecutionMs",
+    ),
+    false,
+  );
+  assert.equal(
+    Object.hasOwn(
+      schema?.properties?.capabilities?.properties ?? {},
+      "maxComponentInvocations",
+    ),
+    false,
+  );
+  assert.equal(
+    Object.hasOwn(
+      schema?.properties?.capabilities?.properties ?? {},
+      "maxImports",
+    ),
+    false,
+  );
   assert.equal(
     (response.raw as { normalized?: boolean } | undefined)?.normalized,
     true,

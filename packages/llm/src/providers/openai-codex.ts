@@ -208,9 +208,6 @@ const RUNTIME_PLAN_JSON_SCHEMA = {
             "sandbox-shadowrealm",
           ],
         },
-        maxImports: { type: "integer", minimum: 0 },
-        maxComponentInvocations: { type: "integer", minimum: 0 },
-        maxExecutionMs: { type: "integer", minimum: 0 },
       },
     },
     imports: {
@@ -1224,6 +1221,7 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
       'Children must recursively use those shapes. Never put an HTML tag such as "div" in type; use type="element" and tag="div". Put inline styles under props.style, not directly on the node.',
       "Text nodes only accept type and value; wrap styled text in an element node.",
       "Omit imports, moduleManifest, metadata, state, and source unless they are actually needed. If state is present it must contain an initial object. For declarative element/text roots, omit source.",
+      "Do not emit maxImports, maxComponentInvocations, or maxExecutionMs; those resource budgets are controlled by the host security policy.",
       "Do not set root.type to component unless source.code is present with a matching export.",
       'Do not include synthetic source module aliases such as "this-plan-source" in imports, capabilities.allowedModules, or moduleManifest.',
       'Do not use local path aliases such as "@/..." in any import or module URL.',
