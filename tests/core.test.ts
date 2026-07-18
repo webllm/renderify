@@ -14,6 +14,7 @@ import {
   listSecurityProfiles as listCoreSecurityProfiles,
   PolicyRejectionError,
   type RenderifyCoreDependencies,
+  StructuredPlanGenerationError,
 } from "../packages/core/src/index";
 import type {
   LLMInterpreter,
@@ -138,6 +139,26 @@ class InvalidStructuredLLM implements LLMInterpreter {
 
   getPromptTemplate(_templateName: string): string | undefined {
     return undefined;
+  }
+}
+
+class RecoveringTextFallbackLLM extends InvalidStructuredLLM {
+  override async generateResponse(req: LLMRequest): Promise<LLMResponse> {
+    const plan = {
+      specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+      id: "recovered_text_fallback_plan",
+      version: 1,
+      capabilities: { domWrite: true },
+      root: {
+        type: "element",
+        tag: "section",
+        children: [{ type: "text", value: `Recovered: ${req.prompt}` }],
+      },
+    };
+    return {
+      text: JSON.stringify(plan),
+      model: "recovering-text-fallback",
+    };
   }
 }
 
@@ -884,7 +905,7 @@ test("core prefers structured llm output when available", async () => {
   await app.stop();
 });
 
-test("core falls back to text generation when structured output is invalid", async () => {
+test("core rejects text fallback that still is not a RuntimePlan", async () => {
   const app = createRenderifyApp(
     createDependencies({
       llm: new InvalidStructuredLLM(),
@@ -893,15 +914,34 @@ test("core falls back to text generation when structured output is invalid", asy
 
   await app.start();
 
-  const result = await app.renderPrompt("fallback");
-  assert.match(result.html, /text fallback: fallback/);
+  await assert.rejects(
+    app.renderPrompt("fallback"),
+    (error: unknown) =>
+      error instanceof StructuredPlanGenerationError &&
+      error.errors.includes("invalid schema"),
+  );
+
+  await app.stop();
+});
+
+test("core accepts text fallback when it contains a RuntimePlan", async () => {
+  const app = createRenderifyApp(
+    createDependencies({
+      llm: new RecoveringTextFallbackLLM(),
+    }),
+  );
+
+  await app.start();
+
+  const result = await app.renderPrompt("fallback recovery");
+  assert.match(result.html, /Recovered: fallback recovery/);
   const raw = result.llm.raw as { mode?: string } | undefined;
   assert.equal(raw?.mode, "fallback-text");
 
   await app.stop();
 });
 
-test("core can disable structured retry while keeping text fallback", async () => {
+test("core can attempt text fallback without accepting an invalid plan", async () => {
   const llm = new StructuredInvalidCountingLLM();
   const app = createRenderifyApp(
     createDependencies({
@@ -915,10 +955,10 @@ test("core can disable structured retry while keeping text fallback", async () =
 
   await app.start();
 
-  const result = await app.renderPrompt("retry-off");
-  assert.match(result.html, /text fallback: retry-off/);
-  const raw = result.llm.raw as { mode?: string } | undefined;
-  assert.equal(raw?.mode, "fallback-text");
+  await assert.rejects(
+    app.renderPrompt("retry-off"),
+    StructuredPlanGenerationError,
+  );
   assert.equal(llm.structuredCalls, 1);
   assert.equal(llm.textCalls, 1);
   assert.match(llm.textPrompts[0] ?? "", /Repair this previous output/);
@@ -1035,6 +1075,36 @@ test("core renderPromptStream prefers structured output when available", async (
   assert.deepEqual(deltas, [finalLlmText]);
   assert.match(finalHtml, /Structured: structured stream/);
   assert.equal(llmMode, "structured");
+
+  await app.stop();
+});
+
+test("core renderPromptStream reports invalid structured text fallback", async () => {
+  const app = createRenderifyApp(
+    createDependencies({
+      llm: new InvalidStructuredLLM(),
+    }),
+  );
+
+  await app.start();
+
+  const seenChunkTypes: string[] = [];
+  let errorName = "";
+  await assert.rejects(async () => {
+    for await (const chunk of app.renderPromptStream(
+      "invalid structured stream",
+    )) {
+      seenChunkTypes.push(chunk.type);
+      if (chunk.type === "error") {
+        errorName = chunk.error?.name ?? "";
+      }
+    }
+  }, StructuredPlanGenerationError);
+
+  assert.ok(seenChunkTypes.includes("llm-delta"));
+  assert.ok(seenChunkTypes.includes("error"));
+  assert.ok(!seenChunkTypes.includes("final"));
+  assert.equal(errorName, "StructuredPlanGenerationError");
 
   await app.stop();
 });

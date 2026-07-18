@@ -41,6 +41,11 @@ const SHADCN_ALIAS_IMPORT_PREFIX = "https://esm.sh/@/components/ui/";
 const MUI_MATERIAL_BARE_SPECIFIER = "@mui/material";
 const MUI_ICONS_BARE_PREFIX = "@mui/icons-material";
 let generatedPlanIdSequence = 0;
+const codegenTextFallbackPlans = new WeakSet<RuntimePlan>();
+
+export function isCodegenTextFallbackPlan(plan: RuntimePlan): boolean {
+  return codegenTextFallbackPlans.has(plan);
+}
 
 function createPlanIdEntropy(): string {
   const cryptoApi = globalThis.crypto;
@@ -223,8 +228,10 @@ export class DefaultCodeGenerator implements CodeGenerator {
     }
 
     const parsedRoot = this.tryParseRuntimeNode(input.llmText);
-    const root =
-      parsedRoot ?? this.createFallbackRoot(input.prompt, input.llmText);
+    if (!parsedRoot) {
+      return this.createTextFallbackPlan(input.prompt, input.llmText);
+    }
+    const root = parsedRoot;
     const imports = collectComponentModules(root);
 
     return this.createPlanFromRoot(root, {
@@ -270,6 +277,21 @@ export class DefaultCodeGenerator implements CodeGenerator {
     ]);
   }
 
+  private createTextFallbackPlan(prompt: string, llmText: string): RuntimePlan {
+    const root = this.createFallbackRoot(prompt, llmText);
+    const imports = collectComponentModules(root);
+    const plan = this.createPlanFromRoot(root, {
+      prompt,
+      imports,
+      capabilities: {
+        domWrite: true,
+        allowedModules: imports,
+      },
+    });
+    codegenTextFallbackPlans.add(plan);
+    return plan;
+  }
+
   private async tryBuildIncrementalCandidate(
     prompt: string,
     llmText: string,
@@ -308,17 +330,8 @@ export class DefaultCodeGenerator implements CodeGenerator {
       };
     }
 
-    const fallbackRoot = this.createFallbackRoot(prompt, llmText);
-    const fallbackImports = collectComponentModules(fallbackRoot);
     return {
-      plan: this.createPlanFromRoot(fallbackRoot, {
-        prompt,
-        imports: fallbackImports,
-        capabilities: {
-          domWrite: true,
-          allowedModules: fallbackImports,
-        },
-      }),
+      plan: this.createTextFallbackPlan(prompt, llmText),
       complete: false,
       mode: "runtime-text-fallback",
     };

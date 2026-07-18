@@ -13,10 +13,11 @@ import {
   type RuntimeModuleLoader,
 } from "@renderify/runtime";
 import type { ApiIntegration } from "./api-integration";
-import type {
-  CodeGenerationInput,
-  CodeGenerator,
-  IncrementalCodeGenerationSession,
+import {
+  type CodeGenerationInput,
+  type CodeGenerator,
+  type IncrementalCodeGenerationSession,
+  isCodegenTextFallbackPlan,
 } from "./codegen";
 import type { RenderifyConfig, RenderifyConfigValues } from "./config";
 import type { ContextManager } from "./context";
@@ -175,6 +176,24 @@ export class PolicyRejectionError extends Error {
   }
 }
 
+export class StructuredPlanGenerationError extends Error {
+  readonly errors: string[];
+
+  constructor(errors: string[] = []) {
+    const uniqueErrors = [...new Set(errors)].filter(
+      (entry) => entry.trim().length > 0,
+    );
+    const details = uniqueErrors.join("; ").slice(0, 2_000);
+    super(
+      details.length > 0
+        ? `LLM did not produce a renderable RuntimePlan: ${details}`
+        : "LLM did not produce a renderable RuntimePlan after structured repair attempts",
+    );
+    this.name = "StructuredPlanGenerationError";
+    this.errors = uniqueErrors;
+  }
+}
+
 export class RenderifyApp {
   private readonly deps: RenderifyCoreDependencies;
   private readonly listeners = new Map<string, Set<EventCallback>>();
@@ -240,6 +259,8 @@ export class RenderifyApp {
     let llmResponse: LLMResponse | undefined;
     let promptAfterHook = prompt;
     let handoffToPlanFlow = false;
+    let structuredGenerationFailed = false;
+    let structuredFailureErrors: string[] = [];
 
     try {
       const pluginContextFactory = (hookName: PluginHook): PluginContext => ({
@@ -317,6 +338,8 @@ export class RenderifyApp {
             },
           };
         } else if (llmStructuredFallbackToText) {
+          structuredGenerationFailed = true;
+          structuredFailureErrors = llmStructuredResponse.errors ?? [];
           const fallbackResponse = await this.deps.llm.generateResponse(
             createStructuredFallbackRequest(
               llmRequestBase,
@@ -333,6 +356,8 @@ export class RenderifyApp {
             },
           };
         } else {
+          structuredGenerationFailed = true;
+          structuredFailureErrors = llmStructuredResponse.errors ?? [];
           llmResponseRaw = {
             text: llmStructuredResponse.text,
             tokensUsed: llmStructuredResponse.tokensUsed,
@@ -367,6 +392,9 @@ export class RenderifyApp {
       );
 
       const planned = await this.deps.codegen.generatePlan(codegenInput);
+      if (structuredGenerationFailed && isCodegenTextFallbackPlan(planned)) {
+        throw new StructuredPlanGenerationError(structuredFailureErrors);
+      }
 
       const planAfterCodegen = await this.runHook(
         "afterCodeGen",
@@ -414,6 +442,8 @@ export class RenderifyApp {
     let promptAfterHook = prompt;
     let handoffToPlanFlow = false;
     let llmResponse: LLMResponse | undefined;
+    let structuredGenerationFailed = false;
+    let structuredFailureErrors: string[] = [];
     let prePlanMetricEnded = false;
     let prePlanMetric: ReturnType<PerformanceOptimizer["endMeasurement"]>;
     const endPrePlanMetric = () => {
@@ -560,6 +590,8 @@ export class RenderifyApp {
             },
           };
         } else if (llmStructuredFallbackToText) {
+          structuredGenerationFailed = true;
+          structuredFailureErrors = structuredResponse.errors ?? [];
           let fallbackRaw: LLMResponse;
           const fallbackRequest = createStructuredFallbackRequest(
             llmRequestBase,
@@ -628,6 +660,8 @@ export class RenderifyApp {
             },
           };
         } else {
+          structuredGenerationFailed = true;
+          structuredFailureErrors = structuredResponse.errors ?? [];
           if (structuredResponse.text.trim().length > 0) {
             yield {
               type: "llm-delta",
@@ -722,6 +756,9 @@ export class RenderifyApp {
       const planned =
         (await incrementalCodegenSession?.finalize(llmResponse.text)) ??
         (await this.deps.codegen.generatePlan(codegenInput));
+      if (structuredGenerationFailed && isCodegenTextFallbackPlan(planned)) {
+        throw new StructuredPlanGenerationError(structuredFailureErrors);
+      }
       const planAfterCodegen = await this.runHook(
         "afterCodeGen",
         planned,

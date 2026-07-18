@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DefaultCodeGenerator } from "../packages/core/src/codegen";
+import {
+  DefaultCodeGenerator,
+  isCodegenTextFallbackPlan,
+} from "../packages/core/src/codegen";
 import { DefaultRuntimeManager } from "../packages/runtime/src";
 import { DefaultSecurityChecker } from "../packages/security/src";
 
@@ -543,6 +546,7 @@ test("codegen falls back to section root when no JSON payload exists", async () 
   assert.equal(plan.root.tag, "section");
   assert.equal(plan.capabilities?.domWrite, true);
   assert.equal(plan.specVersion, "runtime-plan/v1");
+  assert.equal(isCodegenTextFallbackPlan(plan), true);
 });
 
 test("codegen assigns unique fallback plan ids and isolates runtime state when the clock does not advance", async () => {
@@ -1632,9 +1636,10 @@ test("codegen incremental session emits fallback plans for plain text", async ()
 
   const update = await session.pushDelta("hello incremental runtime");
   assert.ok(update);
-  assert.equal(update?.mode, "runtime-text-fallback");
-  assert.equal(update?.plan.root.type, "element");
-  assert.equal(update?.complete, false);
+  assert.equal(update.mode, "runtime-text-fallback");
+  assert.equal(update.plan.root.type, "element");
+  assert.equal(update.complete, false);
+  assert.equal(isCodegenTextFallbackPlan(update.plan), true);
 });
 
 test("codegen incremental session suppresses duplicate plan updates", async () => {
