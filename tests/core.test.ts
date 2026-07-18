@@ -113,6 +113,17 @@ class StructuredOnlyLLM implements LLMInterpreter {
   }
 }
 
+class PolicyPromptCapturingLLM extends StructuredOnlyLLM {
+  readonly systemPrompts: Array<string | undefined> = [];
+
+  override async generateStructuredResponse<T = unknown>(
+    req: LLMStructuredRequest,
+  ): Promise<LLMStructuredResponse<T>> {
+    this.systemPrompts.push(req.systemPrompt);
+    return super.generateStructuredResponse(req);
+  }
+}
+
 class InvalidStructuredLLM implements LLMInterpreter {
   configure(_options: Record<string, unknown>): void {}
 
@@ -903,6 +914,34 @@ test("core prefers structured llm output when available", async () => {
   assert.equal(raw?.mode, "structured");
 
   await app.stop();
+});
+
+test("core tells the LLM when active policy forbids source plans", async () => {
+  const balancedLlm = new PolicyPromptCapturingLLM();
+  const balancedApp = createRenderifyApp(
+    createDependencies({
+      llm: balancedLlm,
+    }),
+  );
+  await balancedApp.start();
+  await balancedApp.renderPrompt("balanced policy plan");
+  assert.match(
+    balancedLlm.systemPrompts[0] ?? "",
+    /rejects every RuntimePlan containing a top-level source module/,
+  );
+  await balancedApp.stop();
+
+  const trustedLlm = new PolicyPromptCapturingLLM();
+  const trustedApp = createRenderifyApp(
+    createDependencies({
+      configLoadOverrides: { securityProfile: "trusted" },
+      llm: trustedLlm,
+    }),
+  );
+  await trustedApp.start();
+  await trustedApp.renderPrompt("trusted policy plan");
+  assert.equal(trustedLlm.systemPrompts[0], undefined);
+  await trustedApp.stop();
 });
 
 test("core rejects text fallback that still is not a RuntimePlan", async () => {

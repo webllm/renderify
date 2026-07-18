@@ -125,6 +125,22 @@ const STRUCTURED_FALLBACK_SYSTEM_PROMPT = [
   "Never use an HTML tag as type. Put inline styles under props.style.",
 ].join(" ");
 
+function createSecurityPolicySystemPrompt(
+  policy: RuntimeSecurityPolicy,
+): string | undefined {
+  if (policy.allowRuntimeSourceModules) {
+    return undefined;
+  }
+
+  return [
+    "The active Renderify security policy rejects every RuntimePlan containing a top-level source module.",
+    "Do not include source and do not use a component root that depends on inline source.",
+    "Use declarative element/text RuntimeNodes only.",
+    "For supported interactions, use state.initial, state.transitions, template interpolation, and static onClick/onInput runtime event bindings.",
+    "If a requested interaction requires live form values, render a safe declarative visual UI instead of emitting source code.",
+  ].join(" ");
+}
+
 function createStructuredRepairPrompt(
   prompt: string,
   response: LLMStructuredResponse<unknown>,
@@ -275,10 +291,16 @@ export class RenderifyApp {
       );
 
       const llmContext = this.toRecord(this.deps.context.getContext());
+      const securityPolicySystemPrompt = createSecurityPolicySystemPrompt(
+        this.deps.security.getPolicy(),
+      );
       const llmRequestBase = {
         prompt: promptAfterHook,
         context: llmContext,
         signal: options.signal,
+        ...(securityPolicySystemPrompt
+          ? { systemPrompt: securityPolicySystemPrompt }
+          : {}),
       };
       const llmUseStructuredOutput =
         this.deps.config.get<boolean>("llmUseStructuredOutput") !== false;
@@ -475,10 +497,16 @@ export class RenderifyApp {
       );
 
       const llmContext = this.toRecord(this.deps.context.getContext());
+      const securityPolicySystemPrompt = createSecurityPolicySystemPrompt(
+        this.deps.security.getPolicy(),
+      );
       const llmRequestBase = {
         prompt: promptAfterHook,
         context: llmContext,
         signal: options.signal,
+        ...(securityPolicySystemPrompt
+          ? { systemPrompt: securityPolicySystemPrompt }
+          : {}),
       };
       const incrementalCodegenSession:
         | IncrementalCodeGenerationSession
