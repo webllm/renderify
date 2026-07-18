@@ -841,7 +841,7 @@ test("e2e: playground debug mode exposes inbound/outbound request distribution",
   }
 });
 
-test("e2e: playground prompt supports single-shot llm mode", async () => {
+test("e2e: single-shot llm mode fails closed without extra requests", async () => {
   const tempDir = await mkdtemp(
     path.join(os.tmpdir(), "renderify-e2e-playground-single-shot-"),
   );
@@ -873,7 +873,11 @@ test("e2e: playground prompt supports single-shot llm mode", async () => {
         prompt: "single-shot mode prompt",
       },
     });
-    assert.equal(promptResponse.status, 200);
+    assert.equal(promptResponse.status, 500);
+    assert.match(
+      String((promptResponse.body as { error?: unknown }).error ?? ""),
+      /LLM did not produce a renderable RuntimePlan/,
+    );
     assert.equal(requests.length, 1);
 
     const statsResponse = await fetchJson(`${baseUrl}/api/debug/stats`, {
