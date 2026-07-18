@@ -173,6 +173,62 @@ class RecoveringTextFallbackLLM extends InvalidStructuredLLM {
   }
 }
 
+class TerminalStructuredRecoveryLLM extends InvalidStructuredLLM {
+  structuredCalls = 0;
+  readonly structuredPrompts: string[] = [];
+
+  override async generateStructuredResponse<T = unknown>(
+    req: LLMStructuredRequest,
+  ): Promise<LLMStructuredResponse<T>> {
+    this.structuredCalls += 1;
+    this.structuredPrompts.push(req.prompt);
+    if (this.structuredCalls < 3) {
+      return {
+        text: '{"state":{}}',
+        value: { state: {} } as T,
+        valid: false,
+        errors: [
+          "Structured payload is not a valid RuntimePlan",
+          "state must contain an initial object and optional valid transitions; omit state when unused",
+        ],
+        model: "terminal-structured-recovery",
+      };
+    }
+
+    const plan = {
+      specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+      id: "terminal_structured_recovery_plan",
+      version: 1,
+      capabilities: { domWrite: true },
+      root: {
+        type: "element",
+        tag: "section",
+        children: [{ type: "text", value: "Recovered terminal plan" }],
+      },
+    };
+    return {
+      text: JSON.stringify(plan),
+      value: plan as T,
+      valid: true,
+      model: "terminal-structured-recovery",
+    };
+  }
+}
+
+class FailedTerminalRecoveryWithValidTextLLM extends RecoveringTextFallbackLLM {
+  structuredCalls = 0;
+
+  override async generateStructuredResponse<T = unknown>(
+    req: LLMStructuredRequest,
+  ): Promise<LLMStructuredResponse<T>> {
+    this.structuredCalls += 1;
+    if (this.structuredCalls === 3) {
+      throw new Error("terminal recovery unavailable");
+    }
+    return super.generateStructuredResponse(req);
+  }
+}
+
 class StructuredInvalidCountingLLM implements LLMInterpreter {
   structuredCalls = 0;
   textCalls = 0;
@@ -980,6 +1036,48 @@ test("core accepts text fallback when it contains a RuntimePlan", async () => {
   await app.stop();
 });
 
+test("core performs a final structured recovery after text fallback", async () => {
+  const llm = new TerminalStructuredRecoveryLLM();
+  const app = createRenderifyApp(createDependencies({ llm }));
+
+  await app.start();
+
+  const result = await app.renderPrompt("terminal recovery");
+  assert.match(result.html, /Recovered terminal plan/);
+  assert.equal(llm.structuredCalls, 3);
+  assert.match(
+    llm.structuredPrompts[2] ?? "",
+    /Omit these invalid optional top-level fields completely: state/,
+  );
+  const raw = result.llm.raw as { mode?: string } | undefined;
+  assert.equal(raw?.mode, "structured-recovery");
+
+  await app.stop();
+});
+
+test("core preserves a valid text fallback when terminal recovery errors", async () => {
+  const llm = new FailedTerminalRecoveryWithValidTextLLM();
+  const app = createRenderifyApp(createDependencies({ llm }));
+
+  await app.start();
+
+  const result = await app.renderPrompt("fallback survives recovery error");
+  assert.match(result.html, /Recovered: fallback survives recovery error/);
+  assert.equal(llm.structuredCalls, 3);
+  const raw = result.llm.raw as {
+    mode?: string;
+    structuredErrors?: string[];
+  };
+  assert.equal(raw.mode, "fallback-text");
+  assert.ok(
+    raw.structuredErrors?.some((error) =>
+      error.includes("terminal recovery unavailable"),
+    ),
+  );
+
+  await app.stop();
+});
+
 test("core can attempt text fallback without accepting an invalid plan", async () => {
   const llm = new StructuredInvalidCountingLLM();
   const app = createRenderifyApp(
@@ -1144,6 +1242,31 @@ test("core renderPromptStream reports invalid structured text fallback", async (
   assert.ok(seenChunkTypes.includes("error"));
   assert.ok(!seenChunkTypes.includes("final"));
   assert.equal(errorName, "StructuredPlanGenerationError");
+
+  await app.stop();
+});
+
+test("core renderPromptStream completes after terminal structured recovery", async () => {
+  const llm = new TerminalStructuredRecoveryLLM();
+  const app = createRenderifyApp(createDependencies({ llm }));
+
+  await app.start();
+
+  let finalHtml = "";
+  let finalMode = "";
+  for await (const chunk of app.renderPromptStream(
+    "terminal stream recovery",
+  )) {
+    if (chunk.type === "final" && chunk.final) {
+      finalHtml = chunk.final.html;
+      finalMode =
+        (chunk.final.llm.raw as { mode?: string } | undefined)?.mode ?? "";
+    }
+  }
+
+  assert.match(finalHtml, /Recovered terminal plan/);
+  assert.equal(finalMode, "structured-recovery");
+  assert.equal(llm.structuredCalls, 3);
 
   await app.stop();
 });

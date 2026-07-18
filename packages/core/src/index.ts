@@ -182,6 +182,48 @@ function createStructuredFallbackRequest(
   };
 }
 
+function createTerminalStructuredRecoveryRequest(
+  request: LLMStructuredRequest,
+  prompt: string,
+  fallbackResponse: LLMResponse,
+  errors: string[],
+): LLMStructuredRequest {
+  const invalidOptionalFields = [
+    "imports",
+    "moduleManifest",
+    "metadata",
+    "state",
+    "source",
+  ].filter((field) =>
+    errors.some(
+      (error) =>
+        error.startsWith(`${field}.`) ||
+        error.startsWith(`${field} `) ||
+        error.includes(` ${field}.`) ||
+        error.includes(` ${field} `),
+    ),
+  );
+  const finalDirective = [
+    "This is the final structured recovery attempt. Rebuild one clean RuntimePlan instead of copying malformed or truncated fragments.",
+    invalidOptionalFields.length > 0
+      ? `Omit these invalid optional top-level fields completely: ${invalidOptionalFields.join(", ")}. Do not emit empty placeholder objects for them.`
+      : "Omit any optional field that cannot be made valid.",
+  ].join(" ");
+  const rejectedFallback: LLMStructuredResponse<unknown> = {
+    text: fallbackResponse.text,
+    valid: false,
+    errors,
+    tokensUsed: fallbackResponse.tokensUsed,
+    model: fallbackResponse.model,
+    raw: fallbackResponse.raw,
+  };
+
+  return {
+    ...request,
+    prompt: `${createStructuredRepairPrompt(prompt, rejectedFallback, errors)}\n\n${finalDirective}`,
+  };
+}
+
 export class PolicyRejectionError extends Error {
   readonly result: SecurityCheckResult;
 
@@ -360,8 +402,6 @@ export class RenderifyApp {
             },
           };
         } else if (llmStructuredFallbackToText) {
-          structuredGenerationFailed = true;
-          structuredFailureErrors = llmStructuredResponse.errors ?? [];
           const fallbackResponse = await this.deps.llm.generateResponse(
             createStructuredFallbackRequest(
               llmRequestBase,
@@ -369,14 +409,63 @@ export class RenderifyApp {
               structuredErrors,
             ),
           );
-          llmResponseRaw = {
-            ...fallbackResponse,
-            raw: {
-              mode: "fallback-text",
-              structuredErrors: llmStructuredResponse.errors ?? [],
-              fallbackPayload: fallbackResponse.raw,
-            },
-          };
+          let terminalRecovery: LLMStructuredResponse<unknown> | undefined;
+          if (llmStructuredRetryOnInvalid) {
+            try {
+              terminalRecovery = await this.deps.llm.generateStructuredResponse(
+                createTerminalStructuredRecoveryRequest(
+                  structuredRequest,
+                  promptAfterHook,
+                  fallbackResponse,
+                  structuredErrors,
+                ),
+              );
+            } catch (error) {
+              if (options.signal?.aborted) {
+                throw error;
+              }
+              structuredErrors.push(
+                `Terminal structured recovery failed: ${
+                  error instanceof Error ? error.message : String(error)
+                }`,
+              );
+            }
+          }
+          if (terminalRecovery) {
+            structuredErrors.push(...(terminalRecovery.errors ?? []));
+          }
+
+          if (
+            terminalRecovery?.valid &&
+            terminalRecovery.text.trim().length > 0
+          ) {
+            llmResponseRaw = {
+              text: terminalRecovery.text,
+              tokensUsed: terminalRecovery.tokensUsed,
+              model: terminalRecovery.model,
+              raw: {
+                mode: "structured-recovery",
+                value: terminalRecovery.value,
+                errors: structuredErrors,
+                payload: terminalRecovery.raw,
+                fallbackPayload: fallbackResponse.raw,
+              },
+            };
+          } else {
+            structuredGenerationFailed = true;
+            structuredFailureErrors = structuredErrors;
+            llmResponseRaw = {
+              ...fallbackResponse,
+              raw: {
+                mode: "fallback-text",
+                structuredErrors,
+                fallbackPayload: fallbackResponse.raw,
+                ...(terminalRecovery
+                  ? { recoveryPayload: terminalRecovery.raw }
+                  : {}),
+              },
+            };
+          }
         } else {
           structuredGenerationFailed = true;
           structuredFailureErrors = llmStructuredResponse.errors ?? [];
@@ -618,8 +707,6 @@ export class RenderifyApp {
             },
           };
         } else if (llmStructuredFallbackToText) {
-          structuredGenerationFailed = true;
-          structuredFailureErrors = structuredResponse.errors ?? [];
           let fallbackRaw: LLMResponse;
           const fallbackRequest = createStructuredFallbackRequest(
             llmRequestBase,
@@ -679,14 +766,71 @@ export class RenderifyApp {
             };
           }
 
-          llmResponse = {
-            ...fallbackRaw,
-            raw: {
-              mode: "fallback-text",
-              structuredErrors: structuredResponse.errors ?? [],
-              fallbackPayload: fallbackRaw.raw,
-            },
-          };
+          let terminalRecovery: LLMStructuredResponse<unknown> | undefined;
+          if (llmStructuredRetryOnInvalid) {
+            try {
+              terminalRecovery = await this.deps.llm.generateStructuredResponse(
+                createTerminalStructuredRecoveryRequest(
+                  structuredRequest,
+                  promptAfterHook,
+                  fallbackRaw,
+                  structuredErrors,
+                ),
+              );
+            } catch (error) {
+              if (options.signal?.aborted) {
+                throw error;
+              }
+              structuredErrors.push(
+                `Terminal structured recovery failed: ${
+                  error instanceof Error ? error.message : String(error)
+                }`,
+              );
+            }
+          }
+          if (terminalRecovery) {
+            structuredErrors.push(...(terminalRecovery.errors ?? []));
+          }
+
+          if (
+            terminalRecovery?.valid &&
+            terminalRecovery.text.trim().length > 0
+          ) {
+            yield {
+              type: "llm-delta",
+              traceId,
+              prompt: promptAfterHook,
+              llmText: terminalRecovery.text,
+              delta: terminalRecovery.text,
+            };
+            llmResponse = {
+              text: terminalRecovery.text,
+              tokensUsed:
+                terminalRecovery.tokensUsed ?? terminalRecovery.text.length,
+              model: terminalRecovery.model,
+              raw: {
+                mode: "structured-recovery",
+                value: terminalRecovery.value,
+                errors: structuredErrors,
+                payload: terminalRecovery.raw,
+                fallbackPayload: fallbackRaw.raw,
+              },
+            };
+          } else {
+            structuredGenerationFailed = true;
+            structuredFailureErrors = structuredErrors;
+            llmResponse = {
+              ...fallbackRaw,
+              raw: {
+                mode: "fallback-text",
+                structuredErrors,
+                fallbackPayload: fallbackRaw.raw,
+                ...(terminalRecovery
+                  ? { recoveryPayload: terminalRecovery.raw }
+                  : {}),
+              },
+            };
+          }
         } else {
           structuredGenerationFailed = true;
           structuredFailureErrors = structuredResponse.errors ?? [];
