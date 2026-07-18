@@ -19,3 +19,9 @@ test("playground iframe output explicitly blocks scripts", () => {
     /setAttribute\(\s*"sandbox"\s*,\s*"[^"]*allow-scripts/,
   );
 });
+
+test("playground does not replace server output with prompt-specific UI", () => {
+  assert.doesNotMatch(PLAYGROUND_HTML, /PLAYGROUND_TODO_FALLBACK/);
+  assert.doesNotMatch(PLAYGROUND_HTML, /mountBuiltinTodoFallback/);
+  assert.doesNotMatch(PLAYGROUND_HTML, /interactive todo fallback/i);
+});

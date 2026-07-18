@@ -921,10 +921,6 @@ export const PLAYGROUND_HTML = `<!doctype html>
         syncRenderOutputEmptyState();
       };
 
-      const queryRenderOutput = (selector) => {
-        const renderRootEl = resolveRenderRoot();
-        return renderRootEl ? renderRootEl.querySelector(selector) : null;
-      };
       syncRenderOutputEmptyState();
 
       const escHtml = (s) =>
@@ -1161,135 +1157,11 @@ export const PLAYGROUND_HTML = `<!doctype html>
       const isRecord = (value) =>
         typeof value === "object" && value !== null && !Array.isArray(value);
 
-      let diagnosticsSnapshot = {};
       let debugRefreshTimer = null;
       let debugRefreshInFlight = false;
 
       const writeDiagnostics = (payload) => {
-        diagnosticsSnapshot = isRecord(payload) ? payload : {};
-        diagnosticsEl.textContent = safeJson(diagnosticsSnapshot);
-      };
-
-      const appendPlaygroundWarning = (code, message) => {
-        const diagnostics = Array.isArray(diagnosticsSnapshot.diagnostics)
-          ? diagnosticsSnapshot.diagnostics.slice()
-          : [];
-        diagnostics.push({
-          level: "warning",
-          code,
-          message,
-        });
-        writeDiagnostics({
-          traceId: diagnosticsSnapshot.traceId,
-          state: diagnosticsSnapshot.state ?? {},
-          diagnostics,
-        });
-      };
-
-      const isTodoPromptText = (promptText) => /\btodo\b/i.test(String(promptText ?? ""));
-
-      const hasRenderedTodoControls = () =>
-        Boolean(
-          queryRenderOutput("input[type='text']") &&
-            queryRenderOutput("button"),
-        );
-
-      const mountBuiltinTodoFallback = () => {
-        setRenderOutputHtml([
-          '<div class="playground-todo-fallback">',
-          "  <h1>Todo App</h1>",
-          "  <p data-todo-summary>0 item(s) remaining</p>",
-          '  <input type="text" data-todo-input placeholder="Add a todo" />',
-          '  <button type="button" data-todo-add>Add Todo</button>',
-          "  <ul data-todo-list></ul>",
-          "</div>",
-        ].join("\\n"));
-
-        const inputEl = queryRenderOutput("[data-todo-input]");
-        const addButtonEl = queryRenderOutput("[data-todo-add]");
-        const listEl = queryRenderOutput("[data-todo-list]");
-        const summaryEl = queryRenderOutput("[data-todo-summary]");
-        if (!inputEl || !addButtonEl || !listEl || !summaryEl) {
-          return false;
-        }
-
-        let nextId = 1;
-        let todos = [];
-
-        const renderList = () => {
-          listEl.innerHTML = "";
-          for (const todo of todos) {
-            const itemEl = document.createElement("li");
-            const toggleEl = document.createElement("input");
-            toggleEl.type = "checkbox";
-            toggleEl.checked = Boolean(todo.done);
-            toggleEl.addEventListener("input", () => {
-              todos = todos.map((entry) =>
-                entry.id === todo.id ? { ...entry, done: !entry.done } : entry,
-              );
-              renderList();
-            });
-
-            const textEl = document.createElement("span");
-            textEl.textContent = String(todo.text);
-            textEl.style.textDecoration = todo.done ? "line-through" : "none";
-
-            const deleteEl = document.createElement("button");
-            deleteEl.type = "button";
-            deleteEl.textContent = "Delete";
-            deleteEl.addEventListener("click", () => {
-              todos = todos.filter((entry) => entry.id !== todo.id);
-              renderList();
-            });
-
-            itemEl.appendChild(toggleEl);
-            itemEl.appendChild(textEl);
-            itemEl.appendChild(deleteEl);
-            listEl.appendChild(itemEl);
-          }
-
-          const remaining = todos.filter((todo) => !todo.done).length;
-          summaryEl.textContent = remaining + " item(s) remaining";
-        };
-
-        const addTodo = () => {
-          const text = String(inputEl.value ?? "").trim();
-          if (!text) {
-            return;
-          }
-          todos = [...todos, { id: nextId++, text, done: false }];
-          inputEl.value = "";
-          renderList();
-        };
-
-        addButtonEl.addEventListener("click", addTodo);
-        inputEl.addEventListener("keydown", (event) => {
-          if (event.key === "Enter") {
-            addTodo();
-          }
-        });
-
-        renderList();
-        return true;
-      };
-
-      const applyTodoInteractiveFallbackIfNeeded = (promptText) => {
-        if (!isTodoPromptText(promptText)) {
-          return false;
-        }
-
-        if (hasRenderedTodoControls()) {
-          return false;
-        }
-
-        const mounted = mountBuiltinTodoFallback();
-        if (mounted) {
-          appendPlaygroundWarning(
-            "PLAYGROUND_TODO_FALLBACK",
-            "Using the built-in Todo fallback because the server-rendered output did not contain usable Todo controls.",
-          );
-        }
-        return mounted;
+        diagnosticsEl.textContent = safeJson(isRecord(payload) ? payload : {});
       };
 
       const toDebugCount = (value) =>
@@ -1594,14 +1466,7 @@ export const PLAYGROUND_HTML = `<!doctype html>
         try {
           const payload = await request("/api/plan", "POST", { plan });
           applyRenderPayload(payload);
-          const todoFallbackApplied = applyTodoInteractiveFallbackIfNeeded(
-            promptEl.value,
-          );
-          if (todoFallbackApplied) {
-            setStatus("Plan rendered (interactive todo fallback).");
-          } else {
-            setStatus("Plan rendered.");
-          }
+          setStatus("Plan rendered.");
           return payload;
         } catch (error) {
           setStatus("Plan render failed.");
@@ -1627,12 +1492,7 @@ export const PLAYGROUND_HTML = `<!doctype html>
         try {
           const payload = await request("/api/prompt", "POST", { prompt });
           applyRenderPayload(payload);
-          const todoFallbackApplied = applyTodoInteractiveFallbackIfNeeded(prompt);
-          if (todoFallbackApplied) {
-            setStatus("Prompt rendered (interactive todo fallback).");
-          } else {
-            setStatus("Prompt rendered.");
-          }
+          setStatus("Prompt rendered.");
         } catch (error) {
           setStatus("Prompt render failed.");
           diagnosticsEl.textContent = String(error);
@@ -1655,7 +1515,6 @@ export const PLAYGROUND_HTML = `<!doctype html>
         const streamEvents = [];
         let streamErrorMessage;
         let streamCompleted = false;
-        let streamTodoFallback = false;
 
         try {
           const response = await fetch("/api/prompt-stream", {
@@ -1709,9 +1568,6 @@ export const PLAYGROUND_HTML = `<!doctype html>
               }
               if (event.type === "final" && event.final) {
                 applyRenderPayload(event.final);
-                if (applyTodoInteractiveFallbackIfNeeded(prompt)) {
-                  streamTodoFallback = true;
-                }
                 streamCompleted = true;
               }
             }
@@ -1722,15 +1578,11 @@ export const PLAYGROUND_HTML = `<!doctype html>
             throw new Error(streamErrorMessage);
           }
 
-          if (streamCompleted && streamTodoFallback) {
-            setStatus("Stream completed (interactive todo fallback).");
-          } else {
-            setStatus(
-              streamCompleted
-                ? "Stream completed."
-                : "Stream finished without final result.",
-            );
-          }
+          setStatus(
+            streamCompleted
+              ? "Stream completed."
+              : "Stream finished without final result.",
+          );
         } catch (error) {
           setStatus("Stream failed.");
           diagnosticsEl.textContent = String(error);
