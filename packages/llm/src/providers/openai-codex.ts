@@ -8,6 +8,14 @@ import type {
 } from "@renderify/core";
 import {
   hashStringFNV1a64Hex,
+  isJsonValue,
+  isRuntimeCapabilities,
+  isRuntimeModuleManifest,
+  isRuntimePlanMetadata,
+  isRuntimeSourceLanguage,
+  isRuntimeSourceRuntime,
+  isRuntimeStateModel,
+  normalizeRuntimeNodeCandidate,
   normalizeRuntimePlanCandidate,
 } from "@renderify/ir";
 import {
@@ -272,6 +280,201 @@ const RUNTIME_PLAN_JSON_SCHEMA = {
     },
   },
 } as const;
+
+const INVALID_RUNTIME_PLAN_ERROR =
+  "Structured payload is not a valid RuntimePlan";
+const MAX_RUNTIME_PLAN_DIAGNOSTICS = 8;
+
+function collectRuntimeNodeDiagnostics(
+  value: unknown,
+  path: string,
+  errors: string[],
+): void {
+  if (errors.length >= MAX_RUNTIME_PLAN_DIAGNOSTICS) {
+    return;
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    errors.push(`${path} must be a RuntimeNode object`);
+    return;
+  }
+
+  const node = value as Record<string, unknown>;
+  if (typeof node.type !== "string") {
+    errors.push(`${path}.type must be "text", "element", or "component"`);
+    return;
+  }
+
+  if (node.type === "text") {
+    if (typeof node.value !== "string") {
+      errors.push(`${path}.value must be a string for a text node`);
+    }
+    if (Object.hasOwn(node, "style")) {
+      errors.push(
+        `${path}.style is invalid on a text node; wrap it in an element and use props.style`,
+      );
+    }
+    if (Object.hasOwn(node, "props") || Object.hasOwn(node, "children")) {
+      errors.push(`${path} text nodes only accept type and value`);
+    }
+    return;
+  }
+
+  if (node.type === "element") {
+    if (typeof node.tag !== "string" || node.tag.trim().length === 0) {
+      errors.push(`${path}.tag must be a non-empty string for an element node`);
+    }
+  } else if (node.type === "component") {
+    if (typeof node.module !== "string" || node.module.trim().length === 0) {
+      errors.push(
+        `${path}.module must be a non-empty string for a component node`,
+      );
+    }
+    if (
+      node.exportName !== undefined &&
+      (typeof node.exportName !== "string" ||
+        node.exportName.trim().length === 0)
+    ) {
+      errors.push(`${path}.exportName must be a non-empty string when present`);
+    }
+  } else {
+    errors.push(`${path}.type must be "text", "element", or "component"`);
+    return;
+  }
+
+  if (
+    node.props !== undefined &&
+    (typeof node.props !== "object" ||
+      node.props === null ||
+      Array.isArray(node.props) ||
+      !isJsonValue(node.props))
+  ) {
+    errors.push(`${path}.props must be an object containing JSON values`);
+  }
+  if (Object.hasOwn(node, "style")) {
+    errors.push(`${path}.style must be nested under ${path}.props.style`);
+  }
+  if (node.children === undefined) {
+    return;
+  }
+  if (!Array.isArray(node.children)) {
+    errors.push(`${path}.children must be an array of RuntimeNode objects`);
+    return;
+  }
+  for (let index = 0; index < node.children.length; index += 1) {
+    if (errors.length >= MAX_RUNTIME_PLAN_DIAGNOSTICS) {
+      return;
+    }
+    if (!normalizeRuntimeNodeCandidate(node.children[index])) {
+      collectRuntimeNodeDiagnostics(
+        node.children[index],
+        `${path}.children[${index}]`,
+        errors,
+      );
+    }
+  }
+}
+
+function collectRuntimePlanDiagnostics(value: unknown): string[] {
+  const errors = [INVALID_RUNTIME_PLAN_ERROR];
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    errors.push("The top-level structured payload must be an object");
+    return errors;
+  }
+
+  const plan = value as Record<string, unknown>;
+  if (
+    plan.id !== undefined &&
+    (typeof plan.id !== "string" || plan.id.trim().length === 0)
+  ) {
+    errors.push("id must be a non-empty string when present");
+  }
+  if (
+    plan.version !== undefined &&
+    (typeof plan.version !== "number" ||
+      !Number.isInteger(plan.version) ||
+      plan.version <= 0)
+  ) {
+    errors.push("version must be a positive integer when present");
+  }
+  if (
+    plan.specVersion !== undefined &&
+    (typeof plan.specVersion !== "string" ||
+      plan.specVersion.trim().length === 0)
+  ) {
+    errors.push("specVersion must be a non-empty string when present");
+  }
+
+  if (!Object.hasOwn(plan, "root")) {
+    errors.push("root is required");
+  } else if (!normalizeRuntimeNodeCandidate(plan.root)) {
+    collectRuntimeNodeDiagnostics(plan.root, "root", errors);
+  }
+  if (
+    Object.hasOwn(plan, "capabilities") &&
+    !isRuntimeCapabilities(plan.capabilities)
+  ) {
+    errors.push(
+      "capabilities contains invalid values; omit unused entries or use the RuntimeCapabilities types",
+    );
+  }
+  if (
+    Object.hasOwn(plan, "imports") &&
+    (!Array.isArray(plan.imports) ||
+      plan.imports.some((entry) => typeof entry !== "string"))
+  ) {
+    errors.push("imports must be an array of strings");
+  }
+  if (
+    Object.hasOwn(plan, "moduleManifest") &&
+    !isRuntimeModuleManifest(plan.moduleManifest)
+  ) {
+    errors.push(
+      "moduleManifest must map module specifiers to descriptors with a non-empty resolvedUrl",
+    );
+  }
+  if (Object.hasOwn(plan, "state") && !isRuntimeStateModel(plan.state)) {
+    errors.push(
+      "state must contain an initial object and optional valid transitions; omit state when unused",
+    );
+  }
+  if (Object.hasOwn(plan, "source")) {
+    const source = plan.source;
+    if (
+      typeof source !== "object" ||
+      source === null ||
+      Array.isArray(source)
+    ) {
+      errors.push("source must be an object; omit source when unused");
+    } else {
+      const sourceRecord = source as Record<string, unknown>;
+      if (
+        typeof sourceRecord.code !== "string" ||
+        sourceRecord.code.trim().length === 0
+      ) {
+        errors.push("source.code must be a non-empty string");
+      }
+      if (!isRuntimeSourceLanguage(sourceRecord.language)) {
+        errors.push('source.language must be "js", "jsx", "ts", or "tsx"');
+      }
+      if (
+        sourceRecord.runtime !== undefined &&
+        !isRuntimeSourceRuntime(sourceRecord.runtime)
+      ) {
+        errors.push(
+          'source.runtime must be "renderify" or "preact"; omit source for declarative plans',
+        );
+      }
+    }
+  }
+  if (
+    Object.hasOwn(plan, "metadata") &&
+    !isRuntimePlanMetadata(plan.metadata)
+  ) {
+    errors.push("metadata must contain only JSON values and string tags");
+  }
+
+  return errors.slice(0, MAX_RUNTIME_PLAN_DIAGNOSTICS + 1);
+}
 
 export class OpenAICodexLLMInterpreter implements LLMInterpreter {
   private readonly templates = new Map<string, string>();
@@ -734,7 +937,7 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
         text: output.text,
         value: parsed.value as T,
         valid: false,
-        errors: ["Structured payload is not a valid RuntimePlan"],
+        errors: collectRuntimePlanDiagnostics(parsed.value),
         tokensUsed: resolveTokensUsed(payload.usage),
         model: payload.model ?? this.options.model,
         raw: {

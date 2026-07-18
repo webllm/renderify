@@ -843,6 +843,60 @@ test("openai codex rejects plans with present invalid semantic fields", async ()
   assert.deepEqual(response.value, invalidPlan);
   assert.deepEqual(response.errors, [
     "Structured payload is not a valid RuntimePlan",
+    'source.runtime must be "renderify" or "preact"; omit source for declarative plans',
+  ]);
+});
+
+test("openai codex reports actionable nested RuntimePlan errors", async () => {
+  const invalidPlan = {
+    specVersion: "runtime-plan/v1",
+    id: "codex_invalid_nested_plan",
+    version: 1,
+    root: {
+      type: "element",
+      tag: "div",
+      children: [
+        {
+          type: "text",
+          value: "Todo List",
+          style: { fontSize: "22px" },
+        },
+      ],
+    },
+    capabilities: { domWrite: true },
+    state: {},
+  };
+  const llm = new OpenAICodexLLMInterpreter({
+    accessToken: "codex-test-token",
+    fetchImpl: async () =>
+      sseResponse([
+        "event: response.output_text.delta\ndata: " +
+          JSON.stringify({
+            type: "response.output_text.delta",
+            delta: JSON.stringify(invalidPlan),
+          }),
+        "event: response.completed\ndata: " +
+          JSON.stringify({
+            type: "response.completed",
+            response: {
+              id: "resp_codex_invalid_nested",
+              model: "gpt-5.5",
+            },
+          }),
+      ]),
+  });
+
+  const response = await llm.generateStructuredResponse({
+    prompt: "build a todo list",
+    format: "runtime-plan",
+    strict: true,
+  });
+
+  assert.equal(response.valid, false);
+  assert.deepEqual(response.errors, [
+    "Structured payload is not a valid RuntimePlan",
+    "root.children[0].style is invalid on a text node; wrap it in an element and use props.style",
+    "state must contain an initial object and optional valid transitions; omit state when unused",
   ]);
 });
 
