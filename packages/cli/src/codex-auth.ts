@@ -6,6 +6,10 @@ import { setTimeout as delay } from "node:timers/promises";
 export const OPENAI_CODEX_PROVIDER = "openai-codex";
 export const DEFAULT_CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex";
 
+/** Credential source label for tokens imported from the official Codex CLI. */
+export const CODEX_CLI_AUTH_SOURCE = "codex-cli";
+const DEFAULT_CODEX_CLI_DIRNAME = ".codex";
+
 const AUTH_STORE_VERSION = 1;
 const CODEX_OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const CODEX_OAUTH_TOKEN_URL = "https://auth.openai.com/oauth/token";
@@ -72,6 +76,46 @@ interface CodexAuthStore {
   providers: Record<string, CodexAuthState | undefined>;
 }
 
+/**
+ * Shape of the official OpenAI Codex CLI `auth.json` file. Only the ChatGPT
+ * OAuth token sub-object is consumed; unknown keys are preserved on write-back.
+ */
+interface CodexCliAuthTokens {
+  id_token?: string;
+  access_token?: string;
+  refresh_token?: string;
+  account_id?: string;
+  [key: string]: unknown;
+}
+
+interface CodexCliAuthFile {
+  OPENAI_API_KEY?: string | null;
+  tokens?: CodexCliAuthTokens;
+  last_refresh?: string;
+  [key: string]: unknown;
+}
+
+/** Whether and how to consult the local Codex CLI credentials. */
+export type CodexCliAuthUsage = boolean | "only";
+
+export interface CodexCliAuthOptions {
+  /**
+   * Enable importing credentials from the official Codex CLI `auth.json`.
+   * `true` prefers the Codex CLI file and falls back to Renderify's own store;
+   * `"only"` uses the Codex CLI file exclusively; `false` disables it. When
+   * omitted, the `RENDERIFY_CODEX_USE_CLI_AUTH` environment variable is used.
+   */
+  useCliAuth?: CodexCliAuthUsage;
+  /** Override the Codex CLI auth file path (primarily for tests). */
+  cliAuthFile?: string;
+}
+
+interface EffectiveCodexAuthState {
+  state: CodexAuthState;
+  authFile: string;
+  origin: "renderify" | "codex-cli";
+}
+
 interface DeviceAuthUserCodePayload {
   user_code?: string;
   device_auth_id?: string;
@@ -106,6 +150,26 @@ export function resolveCodexAuthFile(): string {
   }
 
   return path.join(resolveRenderifyHome(), "auth.json");
+}
+
+/** Home directory the official Codex CLI stores credentials in (`$CODEX_HOME`). */
+export function resolveCodexCliHome(): string {
+  const configured = process.env.CODEX_HOME?.trim();
+  if (configured) {
+    return path.resolve(expandHome(configured));
+  }
+
+  return path.join(os.homedir(), DEFAULT_CODEX_CLI_DIRNAME);
+}
+
+/** Path to the official Codex CLI `auth.json` (honours `$CODEX_HOME`). */
+export function resolveCodexCliAuthFile(): string {
+  const configured = process.env.RENDERIFY_CODEX_CLI_AUTH_FILE?.trim();
+  if (configured) {
+    return path.resolve(expandHome(configured));
+  }
+
+  return path.join(resolveCodexCliHome(), "auth.json");
 }
 
 export async function loginCodex(
@@ -357,18 +421,18 @@ function formatDuration(durationMs: number): string {
 }
 
 export async function getCodexAuthStatus(
-  options: CodexAuthStoreOptions = {},
+  options: CodexAuthStoreOptions & CodexCliAuthOptions = {},
 ): Promise<CodexAuthStatus> {
-  const authFile = options.authFile ?? resolveCodexAuthFile();
-  const state = await readCodexAuthState(options);
-  if (!state) {
+  const effective = await loadEffectiveCodexAuthState(options);
+  if (!effective) {
     return {
       loggedIn: false,
-      authFile,
+      authFile: options.authFile ?? resolveCodexAuthFile(),
       error: "No OpenAI Codex credentials stored.",
     };
   }
 
+  const { state, authFile } = effective;
   const accessToken = state.tokens.access_token;
   const expiresAt = resolveTokenExpiresAt(accessToken, state.tokens);
   const expired = isAccessTokenExpiring(
@@ -408,10 +472,11 @@ export async function logoutCodex(
 }
 
 export async function resolveCodexRuntimeCredentials(
-  options: CodexAuthStoreOptions & {
-    explicitAccessToken?: string;
-    explicitBaseUrl?: string;
-  } = {},
+  options: CodexAuthStoreOptions &
+    CodexCliAuthOptions & {
+      explicitAccessToken?: string;
+      explicitBaseUrl?: string;
+    } = {},
 ): Promise<CodexRuntimeCredentials> {
   const explicitAccessToken =
     process.env.RENDERIFY_CODEX_ACCESS_TOKEN?.trim() ||
@@ -430,17 +495,16 @@ export async function resolveCodexRuntimeCredentials(
     };
   }
 
-  const authFile = options.authFile ?? resolveCodexAuthFile();
-  const state = await readCodexAuthState({
-    ...options,
-    authFile,
-  });
-  if (!state) {
+  const effective = await loadEffectiveCodexAuthState(options);
+  if (!effective) {
     throw new Error(
-      "OpenAI Codex credentials are missing. Run `renderify auth codex login` or set RENDERIFY_CODEX_ACCESS_TOKEN.",
+      "OpenAI Codex credentials are missing. Run `renderify auth codex login`, " +
+        "log in with the Codex CLI and set RENDERIFY_CODEX_USE_CLI_AUTH=1, or " +
+        "set RENDERIFY_CODEX_ACCESS_TOKEN.",
     );
   }
 
+  const { state, authFile, origin } = effective;
   let tokens = state.tokens;
   if (
     isAccessTokenExpiring(
@@ -452,17 +516,28 @@ export async function resolveCodexRuntimeCredentials(
   ) {
     tokens = await refreshCodexTokens(tokens, options);
     const lastRefresh = new Date(options.now?.() ?? Date.now()).toISOString();
-    await saveCodexAuthState(
-      {
-        ...state,
-        tokens,
-        last_refresh: lastRefresh,
-      },
-      {
-        ...options,
-        authFile,
-      },
-    );
+    if (origin === "codex-cli") {
+      // Persist the rotated tokens back to the Codex CLI file in its native
+      // format so the user's Codex CLI keeps working. Best effort: a failed
+      // write must not block runtime usage of the freshly refreshed token.
+      try {
+        await writeCodexCliAuthState(authFile, tokens, { now: options.now });
+      } catch {
+        // Ignore write-back failures and continue with the in-memory token.
+      }
+    } else {
+      await saveCodexAuthState(
+        {
+          ...state,
+          tokens,
+          last_refresh: lastRefresh,
+        },
+        {
+          ...options,
+          authFile,
+        },
+      );
+    }
     state.last_refresh = lastRefresh;
   }
 
@@ -475,6 +550,185 @@ export async function resolveCodexRuntimeCredentials(
     source: state.source,
     lastRefresh: state.last_refresh,
   };
+}
+
+/**
+ * Resolves the active Codex credential state, preferring the local Codex CLI
+ * file when CLI auth is enabled and otherwise using Renderify's own store.
+ */
+async function loadEffectiveCodexAuthState(
+  options: CodexAuthStoreOptions & CodexCliAuthOptions,
+): Promise<EffectiveCodexAuthState | undefined> {
+  const renderifyAuthFile = options.authFile ?? resolveCodexAuthFile();
+  const cli = resolveCodexCliAuthPreference(options);
+
+  if (cli.enabled) {
+    const cliState = await readCodexCliAuthState({ authFile: cli.authFile });
+    if (cliState) {
+      return {
+        state: cliState,
+        authFile: cli.authFile,
+        origin: "codex-cli",
+      };
+    }
+    if (cli.only) {
+      return undefined;
+    }
+  }
+
+  const state = await readCodexAuthState({
+    ...options,
+    authFile: renderifyAuthFile,
+  });
+  if (state) {
+    return {
+      state,
+      authFile: renderifyAuthFile,
+      origin: "renderify",
+    };
+  }
+
+  return undefined;
+}
+
+function resolveCodexCliAuthPreference(options: CodexCliAuthOptions): {
+  enabled: boolean;
+  only: boolean;
+  authFile: string;
+} {
+  const authFile = options.cliAuthFile ?? resolveCodexCliAuthFile();
+
+  if (options.useCliAuth === false) {
+    return { enabled: false, only: false, authFile };
+  }
+  if (options.useCliAuth === "only") {
+    return { enabled: true, only: true, authFile };
+  }
+  if (options.useCliAuth === true) {
+    return { enabled: true, only: false, authFile };
+  }
+
+  const env = process.env.RENDERIFY_CODEX_USE_CLI_AUTH?.trim().toLowerCase();
+  const only = env === "only";
+  const enabled =
+    only ||
+    env === "1" ||
+    env === "true" ||
+    env === "yes" ||
+    env === "on" ||
+    env === "prefer";
+  return { enabled, only, authFile };
+}
+
+/**
+ * Reads and adapts the official Codex CLI `auth.json` to a `CodexAuthState`.
+ * Returns undefined when the file is absent, unreadable, or lacks a usable
+ * ChatGPT OAuth token pair.
+ */
+export async function readCodexCliAuthState(
+  options: { authFile?: string } = {},
+): Promise<CodexAuthState | undefined> {
+  const authFile = options.authFile ?? resolveCodexCliAuthFile();
+
+  let raw: string;
+  try {
+    raw = await fs.promises.readFile(authFile, "utf8");
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return undefined;
+    }
+    throw error;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch {
+    return undefined;
+  }
+  if (!isRecord(parsed)) {
+    return undefined;
+  }
+
+  const cliTokens = isRecord(parsed.tokens) ? parsed.tokens : undefined;
+  const accessToken = stringOrUndefined(cliTokens?.access_token);
+  const refreshToken = stringOrUndefined(cliTokens?.refresh_token);
+  if (!accessToken || !refreshToken) {
+    return undefined;
+  }
+
+  const tokens: CodexAuthTokens = {
+    access_token: accessToken,
+    refresh_token: refreshToken,
+  };
+  const idToken = stringOrUndefined(cliTokens?.id_token);
+  if (idToken) {
+    tokens.id_token = idToken;
+  }
+  const accountId = stringOrUndefined(cliTokens?.account_id);
+  if (accountId) {
+    tokens.account_id = accountId;
+  }
+
+  return {
+    auth_mode: "chatgpt",
+    source: CODEX_CLI_AUTH_SOURCE,
+    base_url: DEFAULT_CODEX_BASE_URL,
+    last_refresh:
+      stringOrUndefined(parsed.last_refresh) ?? new Date(0).toISOString(),
+    tokens,
+  };
+}
+
+/**
+ * Writes refreshed tokens back to the Codex CLI `auth.json`, preserving unknown
+ * top-level keys and the token sub-object's other fields. Atomic (temp+rename).
+ */
+async function writeCodexCliAuthState(
+  authFile: string,
+  tokens: CodexAuthTokens,
+  options: { now?: () => number } = {},
+): Promise<void> {
+  let existing: CodexCliAuthFile = {};
+  try {
+    const raw = await fs.promises.readFile(authFile, "utf8");
+    const parsed = JSON.parse(raw) as unknown;
+    if (isRecord(parsed)) {
+      existing = parsed as CodexCliAuthFile;
+    }
+  } catch (error) {
+    if (!(isNodeError(error) && error.code === "ENOENT")) {
+      throw error;
+    }
+  }
+
+  const existingTokens = isRecord(existing.tokens) ? existing.tokens : {};
+  const nextTokens: CodexCliAuthTokens = {
+    ...existingTokens,
+    access_token: tokens.access_token,
+    refresh_token: tokens.refresh_token,
+  };
+  const idToken = stringOrUndefined(tokens.id_token);
+  if (idToken) {
+    nextTokens.id_token = idToken;
+  }
+
+  const next: CodexCliAuthFile = {
+    ...existing,
+    tokens: nextTokens,
+    last_refresh: new Date(options.now?.() ?? Date.now()).toISOString(),
+  };
+
+  await fs.promises.mkdir(path.dirname(authFile), {
+    recursive: true,
+    mode: 0o700,
+  });
+  const tempFile = `${authFile}.${process.pid}.${Date.now()}.tmp`;
+  await fs.promises.writeFile(tempFile, `${JSON.stringify(next, null, 2)}\n`, {
+    mode: 0o600,
+  });
+  await fs.promises.rename(tempFile, authFile);
+  await fs.promises.chmod(authFile, 0o600);
 }
 
 export async function readCodexAuthState(

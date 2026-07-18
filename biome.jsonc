@@ -25,6 +25,8 @@
             "allowedEnvVars": [
               // Runtime configuration remains dynamic in built packages and CLI commands.
               "PORT",
+              // Official Codex CLI home directory, reused for local `code cli` auth.
+              "CODEX_HOME",
               "RENDERIFY_CODEX_.*",
               "RENDERIFY_HOME",
               "RENDERIFY_JSPM_CDN_URL",

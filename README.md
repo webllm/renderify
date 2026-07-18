@@ -232,6 +232,13 @@ RENDERIFY_LLM_PROVIDER=openai-codex RENDERIFY_LLM_MODEL=gpt-5.3-codex-spark pnpm
 # Optional reasoning override (Spark defaults to low and supports low/medium/high/xhigh)
 RENDERIFY_LLM_PROVIDER=openai-codex RENDERIFY_LLM_MODEL=gpt-5.3-codex-spark RENDERIFY_LLM_REASONING_EFFORT=medium pnpm playground
 
+# Reuse the local Codex CLI login (~/.codex/auth.json) instead of `auth codex login`
+RENDERIFY_LLM_PROVIDER=openai-codex RENDERIFY_CODEX_USE_CLI_AUTH=1 \
+  RENDERIFY_LLM_MODEL=gpt-5.3-codex-spark pnpm playground
+# `only` uses the Codex CLI file exclusively; RENDERIFY_CODEX_CLI_AUTH_FILE / $CODEX_HOME
+# override the path. Tokens are refreshed and written back in the Codex CLI's native format.
+RENDERIFY_LLM_PROVIDER=openai-codex RENDERIFY_CODEX_USE_CLI_AUTH=only pnpm playground
+
 # Single-shot LLM mode (avoid structured retry/text fallback + network retries)
 RENDERIFY_LLM_MAX_RETRIES=0 RENDERIFY_LLM_STRUCTURED_RETRY=false RENDERIFY_LLM_STRUCTURED_FALLBACK_TEXT=false pnpm playground
 

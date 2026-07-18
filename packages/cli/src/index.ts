@@ -856,6 +856,9 @@ async function handleAuthCommand(args: CliArgs): Promise<void> {
         `OpenAI Codex: ${status.loggedIn ? "logged in" : "not logged in"}`,
       );
       console.log(`Auth file: ${status.authFile}`);
+      if (status.source) {
+        console.log(`Source: ${status.source}`);
+      }
       if (status.baseUrl) {
         console.log(`Base URL: ${status.baseUrl}`);
       }

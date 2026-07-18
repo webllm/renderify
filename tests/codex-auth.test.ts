@@ -265,6 +265,187 @@ test("codex runtime credentials refresh expiring access token", async (t) => {
   assert.equal(status.lastRefresh, new Date(nowMs).toISOString());
 });
 
+test("codex runtime credentials import the Codex CLI auth when enabled", async (t) => {
+  const renderifyAuthFile = await tempAuthFile(t);
+  const cliAuthFile = await tempAuthFile(t);
+  const nowMs = Date.parse("2026-06-08T10:00:00.000Z");
+  const accessToken = codexAccessToken({
+    accountId: "acct_codex_cli",
+    exp: Math.floor(nowMs / 1000) + 3600,
+  });
+
+  await writeCodexCliAuthFile(cliAuthFile, {
+    OPENAI_API_KEY: null,
+    tokens: {
+      id_token: "id-token",
+      access_token: accessToken,
+      refresh_token: "cli-refresh-token",
+      account_id: "acct_codex_cli",
+    },
+    last_refresh: "2026-06-08T09:00:00.000Z",
+  });
+
+  const credentials = await resolveCodexRuntimeCredentials({
+    authFile: renderifyAuthFile,
+    cliAuthFile,
+    useCliAuth: true,
+    now: () => nowMs,
+  });
+
+  assert.equal(credentials.provider, "openai-codex");
+  assert.equal(credentials.apiKey, accessToken);
+  assert.equal(credentials.accountId, "acct_codex_cli");
+  assert.equal(credentials.source, "codex-cli");
+  assert.equal(credentials.authFile, cliAuthFile);
+  assert.equal(credentials.baseUrl, "https://chatgpt.com/backend-api/codex");
+  // Renderify's own store is never created when importing Codex CLI auth.
+  assert.equal(fs.existsSync(renderifyAuthFile), false);
+});
+
+test("codex runtime credentials ignore the Codex CLI auth by default", async (t) => {
+  const renderifyAuthFile = await tempAuthFile(t);
+  const cliAuthFile = await tempAuthFile(t);
+  const nowMs = Date.parse("2026-06-08T10:00:00.000Z");
+
+  await writeCodexCliAuthFile(cliAuthFile, {
+    tokens: {
+      access_token: codexAccessToken({
+        accountId: "acct_codex_cli",
+        exp: Math.floor(nowMs / 1000) + 3600,
+      }),
+      refresh_token: "cli-refresh-token",
+    },
+  });
+
+  await assert.rejects(
+    resolveCodexRuntimeCredentials({
+      authFile: renderifyAuthFile,
+      cliAuthFile,
+      now: () => nowMs,
+    }),
+    /credentials are missing/i,
+  );
+});
+
+test("codex CLI auth refresh writes rotated tokens back to the Codex CLI file", async (t) => {
+  const cliAuthFile = await tempAuthFile(t);
+  const nowMs = Date.parse("2026-06-08T10:00:00.000Z");
+  const staleToken = codexAccessToken({
+    accountId: "acct_old",
+    exp: Math.floor(nowMs / 1000) - 30,
+  });
+  const freshToken = codexAccessToken({
+    accountId: "acct_new",
+    exp: Math.floor(nowMs / 1000) + 3600,
+  });
+  const requests: Array<{ url: string; body: string }> = [];
+
+  await writeCodexCliAuthFile(cliAuthFile, {
+    OPENAI_API_KEY: null,
+    tokens: {
+      id_token: "id-token",
+      access_token: staleToken,
+      refresh_token: "cli-refresh-token",
+      account_id: "acct_old",
+    },
+    last_refresh: "2026-06-08T09:00:00.000Z",
+  });
+
+  const credentials = await resolveCodexRuntimeCredentials({
+    cliAuthFile,
+    useCliAuth: "only",
+    now: () => nowMs,
+    fetchImpl: async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        url: String(input),
+        body: String(init?.body),
+      });
+
+      return new Response(
+        JSON.stringify({
+          access_token: freshToken,
+          refresh_token: "rotated-refresh-token",
+          expires_in: 3600,
+        }),
+        {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+          },
+        },
+      );
+    },
+  });
+
+  assert.equal(credentials.apiKey, freshToken);
+  assert.equal(credentials.source, "codex-cli");
+  assert.equal(credentials.authFile, cliAuthFile);
+  assert.equal(requests.length, 1);
+  assert.match(requests[0].body, /grant_type=refresh_token/);
+  assert.match(requests[0].body, /refresh_token=cli-refresh-token/);
+
+  const written = JSON.parse(fs.readFileSync(cliAuthFile, "utf8")) as {
+    OPENAI_API_KEY: unknown;
+    tokens: {
+      access_token: string;
+      refresh_token: string;
+      id_token: string;
+    };
+  };
+  assert.equal(written.tokens.access_token, freshToken);
+  assert.equal(written.tokens.refresh_token, "rotated-refresh-token");
+  // Native/unknown keys are preserved on write-back.
+  assert.equal(written.OPENAI_API_KEY, null);
+  assert.equal(written.tokens.id_token, "id-token");
+
+  if (process.platform !== "win32") {
+    const mode = fs.statSync(cliAuthFile).mode & 0o777;
+    assert.equal(mode, 0o600);
+  }
+});
+
+test("codex auth status reports Codex CLI credentials when enabled", async (t) => {
+  const renderifyAuthFile = await tempAuthFile(t);
+  const cliAuthFile = await tempAuthFile(t);
+  const nowMs = Date.parse("2026-06-08T10:00:00.000Z");
+
+  await writeCodexCliAuthFile(cliAuthFile, {
+    tokens: {
+      access_token: codexAccessToken({
+        accountId: "acct_status",
+        exp: Math.floor(nowMs / 1000) + 3600,
+      }),
+      refresh_token: "cli-refresh-token",
+    },
+  });
+
+  const status = await getCodexAuthStatus({
+    authFile: renderifyAuthFile,
+    cliAuthFile,
+    useCliAuth: true,
+    now: () => nowMs,
+  });
+
+  assert.equal(status.loggedIn, true);
+  assert.equal(status.source, "codex-cli");
+  assert.equal(status.authFile, cliAuthFile);
+  assert.equal(status.accountId, "acct_status");
+});
+
+async function writeCodexCliAuthFile(
+  authFile: string,
+  contents: Record<string, unknown>,
+): Promise<void> {
+  await fs.promises.mkdir(path.dirname(authFile), { recursive: true });
+  await fs.promises.writeFile(
+    authFile,
+    `${JSON.stringify(contents, null, 2)}\n`,
+    {
+      mode: 0o600,
+    },
+  );
+}
+
 function createSilentWritable(): NodeJS.WritableStream {
   return {
     write: () => true,
