@@ -1260,8 +1260,8 @@ test("codegen canonicalizes material ui imports to bare npm specifiers", async (
     plan.moduleManifest?.["https://esm.sh/@mui/material@5.15.0"],
     undefined,
   );
-  assert.equal(plan.capabilities.maxImports, 400);
-  assert.equal(plan.capabilities.maxExecutionMs, 30_000);
+  assert.equal(plan.capabilities?.maxImports, 400);
+  assert.equal(plan.capabilities?.maxExecutionMs, 30_000);
   assert.equal(
     plan.moduleManifest?.["@mui/material"]?.resolvedUrl,
     "@mui/material@5.15.0",
@@ -1269,6 +1269,45 @@ test("codegen canonicalizes material ui imports to bare npm specifiers", async (
   assert.equal(
     plan.moduleManifest?.["@mui/icons-material/Delete"]?.resolvedUrl,
     "@mui/icons-material@5.15.0/Delete",
+  );
+});
+
+test("codegen coalesces material ui component subpaths onto one shared package graph", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const plan = await codegen.generatePlan({
+    prompt: "create tabs with material ui",
+    llmText: [
+      "```jsx",
+      'import MuiTabs from "@mui/material/Tabs";',
+      'import Tab from "https://esm.sh/@mui/material/Tab";',
+      'import Button, { buttonClasses } from "@mui/material/Button";',
+      "export default function App() {",
+      '  return <><MuiTabs value={0}><Tab label="Todos" /></MuiTabs><Button className={buttonClasses.root}>Add</Button></>;',
+      "}",
+      "```",
+    ].join("\n"),
+  });
+
+  assert.match(
+    plan.source?.code ?? "",
+    /import \{ Tabs as MuiTabs \} from "@mui\/material";/,
+  );
+  assert.match(
+    plan.source?.code ?? "",
+    /import \{ Tab \} from "@mui\/material";/,
+  );
+  assert.match(
+    plan.source?.code ?? "",
+    /import \{ Button, buttonClasses \} from "@mui\/material";/,
+  );
+  assert.deepEqual(
+    (plan.imports ?? []).filter((specifier) =>
+      specifier.startsWith("@mui/material"),
+    ),
+    ["@mui/material"],
+  );
+  assert.ok(
+    !(plan.capabilities?.allowedModules ?? []).includes("@mui/material/Tabs"),
   );
 });
 

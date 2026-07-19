@@ -1899,7 +1899,10 @@ export class DefaultCodeGenerator implements CodeGenerator {
 
     const canonicalMuiSpecifier =
       this.canonicalizeMaterialUiSpecifier(normalized);
-    const candidateSpecifier = canonicalMuiSpecifier ?? normalized;
+    const canonicalSpecifier = canonicalMuiSpecifier ?? normalized;
+    const candidateSpecifier =
+      this.collapseMaterialUiComponentSpecifier(canonicalSpecifier) ??
+      canonicalSpecifier;
 
     if (this.isUnsupportedImportSpecifier(candidateSpecifier)) {
       return undefined;
@@ -2001,6 +2004,16 @@ export class DefaultCodeGenerator implements CodeGenerator {
     }
 
     return undefined;
+  }
+
+  private collapseMaterialUiComponentSpecifier(
+    specifier: string,
+  ): string | undefined {
+    const match =
+      /^(@mui\/material(?:@[^/]+)?)\/([A-Z][A-Za-z0-9_$]*)(?:\/index)?$/.exec(
+        specifier,
+      );
+    return match?.[1];
   }
 
   private async collectUnsupportedSourceImports(
@@ -2199,7 +2212,70 @@ export class DefaultCodeGenerator implements CodeGenerator {
       replaceEsmShMaterialSpecifier,
     );
 
+    rewritten = rewritten.replace(
+      /^(\s*)import\s+(type\s+)?([^;\n]+?)\s+from\s+(["'])(@mui\/material(?:@[^/"']+)?\/([A-Z][A-Za-z0-9_$]*))(?:\/index)?\4\s*;?\s*$/gm,
+      (
+        original: string,
+        indentation: string,
+        typeKeyword: string | undefined,
+        clause: string,
+        quote: string,
+        specifier: string,
+        componentName: string,
+      ) => {
+        const rootSpecifier =
+          this.collapseMaterialUiComponentSpecifier(specifier);
+        const rootClause = this.rewriteMaterialUiRootImportClause(
+          clause,
+          componentName,
+        );
+        if (!rootSpecifier || !rootClause) {
+          return original;
+        }
+
+        return `${indentation}import ${typeKeyword ?? ""}${rootClause} from ${quote}${rootSpecifier}${quote};`;
+      },
+    );
+
     return rewritten;
+  }
+
+  private rewriteMaterialUiRootImportClause(
+    clause: string,
+    componentName: string,
+  ): string | undefined {
+    const normalizedClause = clause.trim();
+    if (normalizedClause.startsWith("{")) {
+      return normalizedClause;
+    }
+    if (normalizedClause.startsWith("*")) {
+      return undefined;
+    }
+
+    const commaIndex = normalizedClause.indexOf(",");
+    const defaultBinding = (
+      commaIndex >= 0 ? normalizedClause.slice(0, commaIndex) : normalizedClause
+    ).trim();
+    if (!/^[A-Za-z_$][\w$]*$/.test(defaultBinding)) {
+      return undefined;
+    }
+
+    const componentBinding =
+      defaultBinding === componentName
+        ? componentName
+        : `${componentName} as ${defaultBinding}`;
+    if (commaIndex < 0) {
+      return `{ ${componentBinding} }`;
+    }
+
+    const namedClause = normalizedClause.slice(commaIndex + 1).trim();
+    if (!namedClause.startsWith("{") || !namedClause.endsWith("}")) {
+      return undefined;
+    }
+    const namedBindings = namedClause.slice(1, -1).trim();
+    return namedBindings.length > 0
+      ? `{ ${componentBinding}, ${namedBindings} }`
+      : `{ ${componentBinding} }`;
   }
 
   private isSyntheticSourceModuleSpecifier(
