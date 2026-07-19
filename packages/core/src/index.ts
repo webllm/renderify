@@ -136,6 +136,7 @@ function createSecurityPolicySystemPrompt(
       "When the user explicitly requests JSX, TSX, React, Preact, or a third-party UI library, provide the implementation as RuntimePlan source.code in structured mode or as one fenced jsx/tsx code block in text mode; do not downgrade it to a declarative look-alike.",
       'Use source.runtime="preact" for React-compatible JSX/TSX and use bare npm package specifiers such as "@mui/material" instead of CDN URLs.',
       'For Material UI, use one named import from the `@mui/material` package root, for example `import { Button, TextField } from "@mui/material"`; do not import Material UI components from separate direct subpaths because they must share one runtime module graph. Do not add `@mui/icons-material` unless the user explicitly requests icons, and import requested icons from direct subpaths.',
+      "For Material UI TextField controls, initialize controlled text state with an empty string and use onChange={(event) => setValue(event.target.value)}. Do not use TextField onInput with event.currentTarget.value because currentTarget can be the outer FormControl instead of the input.",
       "Keep application state in component hooks. Do not use localStorage, sessionStorage, indexedDB, document.cookie, fetch, XMLHttpRequest, WebSocket, dynamic import, eval, Function, process, or child_process.",
       "Do not emit inline scripts or access host credentials. Keep all requested interaction self-contained in the component source.",
     ].join(" ");

@@ -1015,6 +1015,10 @@ test("core tells the LLM when active policy forbids source plans", async () => {
   );
   assert.match(
     trustedLlm.systemPrompts[0] ?? "",
+    /Material UI TextField.*initialize controlled text state.*empty string.*onChange.*event\.target\.value.*Do not use TextField onInput.*event\.currentTarget\.value/i,
+  );
+  assert.match(
+    trustedLlm.systemPrompts[0] ?? "",
     /Do not use localStorage.*fetch.*dynamic import/i,
   );
   await trustedApp.stop();
