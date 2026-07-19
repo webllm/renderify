@@ -1,6 +1,15 @@
+---
+title: CLI and development Playground
+description: Run Renderify CLI commands and the local LLM-enabled development Playground.
+---
+
 # CLI & Playground
 
 Renderify provides a CLI tool and a browser-based playground for development, testing, and interactive exploration.
+
+This guide covers the local Node.js Playground, including prompt and provider
+features. For the static editor that accepts only JSX/TSX or RuntimePlan JSON
+and never calls an LLM, see the [renderer-only website Playground](./website-playground.md).
 
 ## CLI Commands
 

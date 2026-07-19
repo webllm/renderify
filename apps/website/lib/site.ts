@@ -2,7 +2,7 @@ export const siteConfig = {
   name: "Renderify",
   description:
     "A runtime-first renderer for validated RuntimePlans and reviewed JSX/TSX source.",
-  docsRepositoryPath: "apps/website/content/docs",
+  docsRepositoryPath: "docs",
   githubUrl: "https://github.com/webllm/renderify",
   productionUrl: "https://webllm.github.io/renderify",
 } as const;

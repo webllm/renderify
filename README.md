@@ -4,6 +4,8 @@
 ![npm](https://img.shields.io/npm/v/renderify.svg)
 ![license](https://img.shields.io/npm/l/renderify)
 
+[Documentation](https://webllm.github.io/renderify/docs/) · [Renderer-only Playground](https://webllm.github.io/renderify/playground/)
+
 > LLM generates JSX/TSX → browser renders it directly at runtime — no backend build server, no deploy step, JSPM package support with an explicit compatibility contract.
 
 > Renderify is a runtime-first, bundleless dynamic renderer that lets LLMs produce real, interactive UI on the fly. It bridges the gap between "LLM can generate code" and "users can see and interact with that UI instantly" — with inline transpilation via `@babel/standalone`, and no backend compiler/deploy pipeline in the loop.
@@ -17,6 +19,10 @@ In other words, bundleless runtime execution does **not** mean full npm bundler 
 ![Renderify demo](docs/assets/renderify-demo.gif)
 
 ## 30-Second JSX Example
+
+Want to edit and render this kind of source without installing the repo? Use the
+[static Playground](https://webllm.github.io/renderify/playground/). It runs the
+renderer in the browser and never makes an LLM request.
 
 ```tsx
 import { renderTrustedPlanInBrowser } from "renderify";
@@ -207,7 +213,7 @@ pnpm cli -- probe-plan examples/runtime/recharts-dashboard-plan.json
 # Execute RuntimePlan file
 pnpm cli -- render-plan examples/runtime/counter-plan.json
 
-# Browser playground
+# Local development Playground (includes optional LLM actions)
 pnpm playground
 pnpm cli -- playground --host 0.0.0.0 # trusted networks only
 pnpm cli -- playground --debug
@@ -457,7 +463,12 @@ storage, and undeclared UI-to-tool calls fail closed. See the
 
 ## Integration Docs
 
-- Architecture overview: [`docs/architecture.md`](docs/architecture.md)
+The same documents are published as a searchable
+[Fumadocs website](https://webllm.github.io/renderify/docs/).
+
+- Renderer-only website Playground: [`docs/website-playground.md`](docs/website-playground.md)
+- Website deployment: [`docs/website-deployment.md`](docs/website-deployment.md)
+- Architecture overview: [`docs/architecture/index.md`](docs/architecture/index.md)
 - Visual architecture diagrams (Mermaid): [`docs/architecture-visual.md`](docs/architecture-visual.md)
 - RuntimePlan IR reference: [`docs/runtime-plan-ir.md`](docs/runtime-plan-ir.md)
 - Runtime execution engine: [`docs/runtime-execution.md`](docs/runtime-execution.md)

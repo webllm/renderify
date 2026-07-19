@@ -1,3 +1,8 @@
+---
+title: Performance tuning
+description: Measure and tune runtime latency, dependency loading, transpilation, and CI performance budgets.
+---
+
 # Performance Tuning Guide
 
 This guide focuses on concrete runtime knobs and operational practices to reduce latency and prevent regressions.

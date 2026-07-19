@@ -1,0 +1,29 @@
+{
+  "title": "Documentation",
+  "pages": [
+    "index",
+    "---Start here---",
+    "getting-started",
+    "website-playground",
+    "browser-integration",
+    "cookbook",
+    "cli-playground",
+    "---Runtime---",
+    "runtime-plan-ir",
+    "runtime-execution",
+    "security",
+    "threat-model",
+    "performance-tuning",
+    "---Reference---",
+    "api-reference",
+    "plugin-system",
+    "llm-integration",
+    "troubleshooting-faq",
+    "---Project---",
+    "architecture",
+    "adr",
+    "articles",
+    "website-deployment",
+    "contributing"
+  ]
+}

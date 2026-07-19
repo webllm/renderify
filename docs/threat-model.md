@@ -1,3 +1,8 @@
+---
+title: Threat model
+description: Trust boundaries, protected assets, attacker capabilities, mitigations, and residual risks.
+---
+
 # Renderify threat model
 
 ## Scope
@@ -134,6 +139,6 @@ and imports if the caller incorrectly treats model output as reviewed code.
 
 ## Reporting
 
-Use the private process in [`SECURITY.md`](/SECURITY.md). High-value reports
+Use the private process in [`SECURITY.md`](https://github.com/webllm/renderify/blob/main/SECURITY.md). High-value reports
 include a minimal plan, selected profile, host sandbox/CSP, browser version, and
 demonstrated impact.

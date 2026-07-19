@@ -1,3 +1,8 @@
+---
+title: Contributing
+description: Set up the monorepo, run quality gates, and follow Renderify development conventions.
+---
+
 # Contributing Guide
 
 This guide covers the development workflow, conventions, and tooling for contributing to Renderify.
@@ -219,6 +224,23 @@ E2E tests cover:
 - Playground API endpoints
 - LLM provider integration (with fake servers)
 - Hash deep-link loading in the browser
+
+### Website
+
+The Fumadocs site reads its content directly from `docs/`; do not maintain a
+second documentation copy under the website app. The static Playground bundles
+only the IR, security, runtime, and browser compiler path—never the LLM package.
+
+```bash
+pnpm website:typecheck
+pnpm website:build
+pnpm website:preview
+```
+
+Use `RENDERIFY_SITE_BASE_PATH=renderify pnpm website:build` to reproduce the
+GitHub Pages project-path build. Browser changes should verify both the React +
+Material UI sample and the declarative RuntimePlan counter, including actual
+interaction rather than only static HTML.
 
 ### Benchmarks
 

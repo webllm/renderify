@@ -1,3 +1,8 @@
+---
+title: API reference
+description: Public types, functions, and configuration across the Renderify packages.
+---
+
 # API Reference
 
 Complete type and function reference for all Renderify packages.

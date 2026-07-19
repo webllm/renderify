@@ -1,3 +1,8 @@
+---
+title: Renderify technical overview
+description: Long-form explanation of Renderify's runtime-first approach to dynamic browser UI.
+---
+
 # Renderify: A Runtime Engine for Rendering LLM-Generated UI Instantly in the Browser
 
 Repo: [github.com/webllm/renderify](https://github.com/webllm/renderify)

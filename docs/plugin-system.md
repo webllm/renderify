@@ -1,3 +1,8 @@
+---
+title: Plugin system
+description: Extend the Renderify pipeline with typed hooks around generation, policy, runtime, and rendering.
+---
+
 # Plugin System
 
 Renderify provides a hook-based plugin architecture that lets you intercept and transform data at every stage of the rendering pipeline. Plugins run without forking the core — they compose naturally with the built-in processing.

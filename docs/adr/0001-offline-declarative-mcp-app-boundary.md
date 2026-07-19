@@ -1,3 +1,10 @@
+---
+title: ADR-0001 Offline declarative MCP App boundary
+description: Keep the first MCP App adapter offline and declarative while using the official protocol SDK.
+---
+
+# ADR-0001: Offline declarative MCP App boundary
+
 ## Context
 
 An MCP App view receives data selected by a model and runs in a host-managed

@@ -1,3 +1,8 @@
+---
+title: Troubleshooting and FAQ
+description: Diagnose validation, security, module loading, source execution, and browser rendering failures.
+---
+
 # Troubleshooting & FAQ
 
 This guide is a practical runbook for diagnosing Renderify failures in production and local development.

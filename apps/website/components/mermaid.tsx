@@ -1,7 +1,7 @@
 "use client";
 
 import { useTheme } from "next-themes";
-import { use, useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 const renderCache = new Map<string, Promise<MermaidRenderResult>>();
 
@@ -29,8 +29,14 @@ function MermaidContent({ chart }: { chart: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const { resolvedTheme } = useTheme();
   const cacheKey = `${resolvedTheme ?? "light"}:${chart}`;
-  const result = use(
-    getCachedRender(cacheKey, async () => {
+  const [result, setResult] = useState<MermaidRenderResult | undefined>(
+    undefined,
+  );
+  const [error, setError] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    let active = true;
+    const pending = getCachedRender(cacheKey, async () => {
       const { default: mermaid } = await import("mermaid");
       mermaid.initialize({
         fontFamily: "inherit",
@@ -39,12 +45,29 @@ function MermaidContent({ chart }: { chart: string }) {
         theme: resolvedTheme === "dark" ? "dark" : "default",
       });
       return mermaid.render(`renderify-${id}`, chart.replaceAll("\\n", "\n"));
-    }),
-  );
+    });
+    void pending.then(
+      (rendered) => {
+        if (active) {
+          setResult(rendered);
+          setError(undefined);
+        }
+      },
+      (reason: unknown) => {
+        if (active) {
+          setResult(undefined);
+          setError(reason instanceof Error ? reason.message : String(reason));
+        }
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [cacheKey, chart, id, resolvedTheme]);
 
   useEffect(() => {
     const container = containerRef.current;
-    if (!container) {
+    if (!container || !result) {
       return;
     }
 
@@ -76,6 +99,18 @@ function MermaidContent({ chart }: { chart: string }) {
     return () => container.replaceChildren();
   }, [result]);
 
+  if (error) {
+    return (
+      <div className="mermaid-error" role="alert">
+        Unable to render this diagram: {error}
+      </div>
+    );
+  }
+
+  if (!result) {
+    return <div className="mermaid-placeholder">Rendering diagram…</div>;
+  }
+
   return <div className="mermaid-diagram" ref={containerRef} />;
 }
 
@@ -89,5 +124,10 @@ function getCachedRender(
   }
   const pending = render();
   renderCache.set(key, pending);
+  void pending.catch(() => {
+    if (renderCache.get(key) === pending) {
+      renderCache.delete(key);
+    }
+  });
   return pending;
 }

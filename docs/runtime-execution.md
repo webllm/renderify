@@ -1,3 +1,8 @@
+---
+title: Runtime execution
+description: How Renderify validates, resolves, executes, renders, and terminates RuntimePlans and source modules.
+---
+
 # Runtime Execution
 
 The runtime execution engine is the core of Renderify. It takes a validated RuntimePlan, resolves modules, transpiles source code, executes the plan, and produces a rendered result.

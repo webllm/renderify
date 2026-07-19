@@ -1,3 +1,8 @@
+---
+title: Getting started
+description: Install Renderify, start the development Playground, and render your first RuntimePlan.
+---
+
 # Getting Started
 
 Renderify is a runtime-first dynamic renderer that lets LLMs produce real, interactive UI on the fly. It bridges the gap between "LLM can generate code" and "users can see and interact with that UI instantly" — with inline transpilation, JSPM package support, and security-governed execution.
@@ -20,7 +25,14 @@ pnpm install
 
 ## Quick Start
 
-### 1. Run the Playground
+### 1. Choose a Playground
+
+To paste JSX/TSX or RuntimePlan JSON without configuring a model, open the
+[renderer-only website Playground](https://webllm.github.io/renderify/playground/).
+It is a static browser renderer and never makes an LLM request.
+
+To generate plans from prompts or exercise the CLI APIs, start the local
+development Playground:
 
 The fastest way to explore Renderify is through the browser playground:
 
@@ -214,7 +226,7 @@ pnpm format           # Auto-format code
 
 ## Next Steps
 
-- [Architecture Overview](./architecture.md) — understand the full pipeline
+- [Architecture Overview](./architecture/index.md) — understand the full pipeline
 - [Visual Architecture (Mermaid)](./architecture-visual.md) — system diagrams for data flow and package boundaries
 - [RuntimePlan IR Reference](./runtime-plan-ir.md) — learn the intermediate representation
 - [Security Guide](./security.md) — security policies and profiles
@@ -222,6 +234,8 @@ pnpm format           # Auto-format code
 - [Runtime Execution](./runtime-execution.md) — execution engine, module loading, sandboxing
 - [Plugin System](./plugin-system.md) — extensibility hooks
 - [CLI & Playground](./cli-playground.md) — CLI commands and playground features
+- [Renderer-only website Playground](./website-playground.md) — static code editor with no LLM request
+- [Website deployment](./website-deployment.md) — Fumadocs and GitHub Pages workflow
 - [Browser Integration](./browser-integration.md) — embedding in web applications
 - [API Reference](./api-reference.md) — complete type and function reference
 - [Troubleshooting & FAQ](./troubleshooting-faq.md) — failure diagnostics and recovery checklist

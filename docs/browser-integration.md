@@ -1,3 +1,8 @@
+---
+title: Browser integration
+description: Embed declarative RuntimePlans or reviewed JSX source modules in a browser application.
+---
+
 # Browser Integration
 
 Renderify is designed for browser-first execution. This guide covers how to embed Renderify in web applications, from simple one-line embeds to full streaming chat interfaces.

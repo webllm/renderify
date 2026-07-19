@@ -1,3 +1,8 @@
+---
+title: Integration cookbook
+description: Production-oriented recipes for renderer-only embeds, trusted source, state, and failure handling.
+---
+
 # Cookbook: Common Integration Patterns
 
 This cookbook focuses on production-friendly patterns that appear repeatedly in Renderify integrations.

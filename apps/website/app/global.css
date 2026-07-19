@@ -42,7 +42,8 @@ body {
 }
 
 .mermaid-placeholder,
-.mermaid-diagram {
+.mermaid-diagram,
+.mermaid-error {
   align-items: center;
   background: color-mix(in srgb, var(--color-fd-muted) 45%, transparent);
   border: 1px solid var(--color-fd-border);
@@ -53,6 +54,13 @@ body {
   min-height: 10rem;
   overflow-x: auto;
   padding: 1.25rem;
+}
+
+.mermaid-error {
+  color: #d92d20;
+  font-size: 0.85rem;
+  justify-content: flex-start;
+  white-space: pre-wrap;
 }
 
 .mermaid-diagram svg {

@@ -1,3 +1,10 @@
+---
+title: MCP App runtime modules
+description: Responsibilities, dependency direction, and trust boundaries for the MCP App package.
+---
+
+# MCP App runtime modules
+
 ## Scope
 
 This inventory covers `packages/mcp-app/src` and the shared declarative-event

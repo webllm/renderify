@@ -1,3 +1,8 @@
+---
+title: LLM integration
+description: Configure the optional provider layer for prompt-to-RuntimePlan generation and streaming.
+---
+
 # LLM Integration
 
 Renderify supports multiple LLM providers for generating UI from natural language prompts. The LLM layer handles text generation, streaming, and structured (JSON schema) output.

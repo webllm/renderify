@@ -1,3 +1,8 @@
+---
+title: Security guide
+description: Choose a Renderify security profile and enforce trust, module, network, and execution boundaries.
+---
+
 # Security Guide
 
 Renderify enforces a security-first execution model. Every RuntimePlan passes through policy validation before runtime execution proceeds. When browser auto-pin is enabled, Renderify performs a lightweight precheck first, hydrates missing manifest entries, and then reruns the full plan check before execution. This is critical because LLM output is fundamentally untrusted: the model could generate script tags, eval calls, or unsafe network requests.
@@ -398,5 +403,5 @@ local allowlist and host capability.
 
 These controls do not authorize server tools and cannot force a host to create
 a strong outer iframe sandbox. See the
-[architecture decision](adr/0001-offline-declarative-mcp-app-boundary.md) and
-[threat model](threat-model.md) for the complete contract and residual risk.
+[architecture decision](./adr/0001-offline-declarative-mcp-app-boundary.md) and
+[threat model](./threat-model.md) for the complete contract and residual risk.

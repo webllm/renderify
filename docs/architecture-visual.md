@@ -1,3 +1,8 @@
+---
+title: Visual architecture
+description: Mermaid diagrams for Renderify data flow, package boundaries, security, and browser execution.
+---
+
 # Visual Architecture (Mermaid)
 
 This document provides visual diagrams for the main Renderify architecture paths.
@@ -22,11 +27,11 @@ flowchart LR
 
 ```mermaid
 graph TD
-  R[renderify] --> C[@renderify/core]
-  R --> IR[@renderify/ir]
-  R --> RT[@renderify/runtime]
-  R --> S[@renderify/security]
-  R --> L[@renderify/llm]
+  R["renderify"] --> C["@renderify/core"]
+  R --> IR["@renderify/ir"]
+  R --> RT["@renderify/runtime"]
+  R --> S["@renderify/security"]
+  R --> L["@renderify/llm"]
 
   C --> IR
   C --> RT
@@ -37,7 +42,7 @@ graph TD
 
   S --> IR
 
-  CLI[@renderify/cli] --> R
+  CLI["@renderify/cli"] --> R
   CLI --> C
   CLI --> L
   CLI --> RT
