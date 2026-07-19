@@ -28,19 +28,19 @@ import {
   Typography,
 } from "@mui/material";
 
-const FILTERS = ["全部", "未完成", "已完成"];
+const FILTERS = ["All", "Active", "Completed"];
 
 export default function App() {
   const [todos, setTodos] = useState([
-    { id: 1, text: "验证 Material UI 样式", done: true },
-    { id: 2, text: "测试 Todo 交互", done: false },
+    { id: 1, text: "Verify Material UI styling", done: true },
+    { id: 2, text: "Test Todo interactions", done: false },
   ]);
   const [input, setInput] = useState("");
-  const [filter, setFilter] = useState("全部");
+  const [filter, setFilter] = useState("All");
 
   const visibleTodos = useMemo(() => {
-    if (filter === "未完成") return todos.filter((todo) => !todo.done);
-    if (filter === "已完成") return todos.filter((todo) => todo.done);
+    if (filter === "Active") return todos.filter((todo) => !todo.done);
+    if (filter === "Completed") return todos.filter((todo) => todo.done);
     return todos;
   }, [filter, todos]);
 
@@ -97,7 +97,7 @@ export default function App() {
               <Stack direction={{ xs: "column", sm: "row" }} spacing={1.25}>
                 <TextField
                   fullWidth
-                  label="添加任务"
+                  label="Add a task"
                   value={input}
                   onChange={(event) => setInput(event.currentTarget.value)}
                   onKeyDown={(event) => {
@@ -105,14 +105,14 @@ export default function App() {
                   }}
                 />
                 <Button variant="contained" onClick={addTodo}>
-                  添加
+                  Add
                 </Button>
               </Stack>
 
               <Divider sx={{ my: 2.5 }} />
 
               {visibleTodos.length === 0 ? (
-                <Alert severity="info">当前筛选下暂无任务</Alert>
+                <Alert severity="info">No tasks match this filter.</Alert>
               ) : (
                 <List disablePadding>
                   {visibleTodos.map((todo) => (
@@ -125,7 +125,7 @@ export default function App() {
                           size="small"
                           onClick={() => removeTodo(todo.id)}
                         >
-                          删除
+                          Delete
                         </Button>
                       }
                     >
@@ -149,7 +149,7 @@ export default function App() {
               )}
 
               <Typography color="text.secondary" variant="body2" sx={{ mt: 2 }}>
-                总计 {todos.length} · 未完成 {todos.length - completed} · 已完成 {completed}
+                Total {todos.length} · Active {todos.length - completed} · Completed {completed}
               </Typography>
             </CardContent>
           </Card>
