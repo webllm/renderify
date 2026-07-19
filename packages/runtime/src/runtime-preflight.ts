@@ -231,10 +231,15 @@ export async function executeDependencyProbe(
       probe.specifier,
       moduleManifest,
     );
+    const hasLoadableNonHttpCandidate = Boolean(
+      executor.moduleLoader &&
+        loaderCandidate &&
+        !executor.isHttpUrl(loaderCandidate),
+    );
     const remoteCandidate =
       loaderCandidate && executor.isHttpUrl(loaderCandidate)
         ? loaderCandidate
-        : executor.isHttpUrl(resolved)
+        : !hasLoadableNonHttpCandidate && executor.isHttpUrl(resolved)
           ? resolved
           : undefined;
 

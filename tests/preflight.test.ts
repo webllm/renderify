@@ -245,6 +245,9 @@ test("preflight executeDependencyProbe loads non-http source import via module l
     undefined,
     diagnostics,
     createExecutor({
+      resolveRuntimeSourceSpecifier() {
+        return "https://ga.jspm.io/npm:chart@1";
+      },
       resolveSourceImportLoaderCandidate() {
         return "virtual:chart";
       },
