@@ -18,6 +18,7 @@ import {
   RuntimeModuleIntegrityError,
   verifyModuleIntegrity,
 } from "./module-integrity";
+import { createNodeModuleFileUrl } from "./node-module-file-store";
 import { isBrowserRuntime, isNodeRuntime } from "./runtime-environment";
 import {
   assertRuntimeModuleMaterializationBudgetActive,
@@ -43,7 +44,7 @@ export interface RuntimeSourceModuleLoaderOptions {
     code: string,
     resolver: (specifier: string) => Promise<string>,
   ) => Promise<string>;
-  createInlineModuleUrl: (code: string) => string;
+  createInlineModuleUrl: (code: string) => string | Promise<string>;
   resolveRuntimeSourceSpecifier: (
     specifier: string,
     moduleManifest: RuntimeModuleManifest | undefined,
@@ -132,7 +133,9 @@ export class RuntimeSourceModuleLoader {
     code: string,
     resolver: (specifier: string) => Promise<string>,
   ) => Promise<string>;
-  private readonly createInlineModuleUrlFn: (code: string) => string;
+  private readonly createInlineModuleUrlFn: (
+    code: string,
+  ) => string | Promise<string>;
   private readonly resolveRuntimeSourceSpecifierFn: (
     specifier: string,
     moduleManifest: RuntimeModuleManifest | undefined,
@@ -205,7 +208,7 @@ export class RuntimeSourceModuleLoader {
           this.resolveRuntimeImportSpecifier(specifier, undefined),
       );
       this.throwIfAborted();
-      const entryUrl = this.createInlineModuleUrlFn(rewrittenEntry);
+      const entryUrl = await this.createMaterializedModuleUrl(rewrittenEntry);
       return import(/* webpackIgnore: true */ entryUrl);
     }
 
@@ -399,7 +402,7 @@ export class RuntimeSourceModuleLoader {
           this.materializationBudget,
         );
 
-        const inlineUrl = this.createInlineModuleUrlFn(rewritten);
+        const inlineUrl = await this.createMaterializedModuleUrl(rewritten);
         setBudgetedMapEntryWithLimit(
           this.materializedModuleUrlCache,
           cacheKey,
@@ -476,6 +479,17 @@ export class RuntimeSourceModuleLoader {
     );
   }
 
+  private async createMaterializedModuleUrl(code: string): Promise<string> {
+    if (!isBrowserRuntime()) {
+      const nodeFileUrl = await createNodeModuleFileUrl(code);
+      if (nodeFileUrl) {
+        return nodeFileUrl;
+      }
+    }
+
+    return await this.createInlineModuleUrlFn(code);
+  }
+
   async fetchRemoteModuleCodeWithFallback(
     url: string,
     signal: AbortSignal | undefined = this.signal,
@@ -500,11 +514,38 @@ export class RuntimeSourceModuleLoader {
       );
     }
 
+    const preferredBundleIndex = this.resolvePreferredMaterialUiBundleIndex(
+      url,
+      filteredAttempts,
+    );
+    let orderedAttempts = filteredAttempts;
+    if (preferredBundleIndex >= 0) {
+      const preferredBundle = filteredAttempts[preferredBundleIndex];
+      try {
+        return await this.fetchRemoteModuleAttemptWithRetries(
+          preferredBundle,
+          url,
+          0,
+          signal,
+        );
+      } catch (error) {
+        if (this.isAbortError(error, signal)) {
+          throw error;
+        }
+        orderedAttempts = filteredAttempts.filter(
+          (_attempt, index) => index !== preferredBundleIndex,
+        );
+        if (orderedAttempts.length === 0) {
+          throw error;
+        }
+      }
+    }
+
     const hedgeDelayMs = Math.max(
       50,
       Math.min(300, this.remoteFetchBackoffMs || 100),
     );
-    const attemptControllers = filteredAttempts.map(() =>
+    const attemptControllers = orderedAttempts.map(() =>
       this.createAbortController(),
     );
     const abortAttempts = () => {
@@ -516,7 +557,7 @@ export class RuntimeSourceModuleLoader {
     if (signal?.aborted) {
       abortAttempts();
     }
-    const fetchTasks = filteredAttempts.map((attempt, index) =>
+    const fetchTasks = orderedAttempts.map((attempt, index) =>
       this.fetchRemoteModuleAttemptWithRetries(
         attempt,
         url,
@@ -537,6 +578,32 @@ export class RuntimeSourceModuleLoader {
       signal?.removeEventListener("abort", abortAttempts);
       abortAttempts();
     }
+  }
+
+  private resolvePreferredMaterialUiBundleIndex(
+    originalUrl: string,
+    attempts: string[],
+  ): number {
+    if (this.resolveExpectedIntegrity(originalUrl)) {
+      return -1;
+    }
+
+    return attempts.findIndex((attempt) => {
+      let parsed: URL;
+      try {
+        parsed = new URL(attempt);
+      } catch {
+        return false;
+      }
+
+      return (
+        parsed.hostname.toLowerCase() === "esm.sh" &&
+        /^\/@mui\/(?:material|icons-material)(?:@[^/]+)?(?:\/|$)/.test(
+          parsed.pathname,
+        ) &&
+        parsed.searchParams.has("bundle")
+      );
+    });
   }
 
   private async fetchRemoteModuleAttemptWithRetries(
@@ -1089,6 +1156,11 @@ export class RuntimeSourceModuleLoader {
       return undefined;
     }
 
+    const aliasedReact = this.resolveAliasedReactRemoteSpecifier(trimmed);
+    if (aliasedReact) {
+      return aliasedReact;
+    }
+
     const lower = trimmed.toLowerCase();
     if (!lower.includes("preact@")) {
       return undefined;
@@ -1122,6 +1194,44 @@ export class RuntimeSourceModuleLoader {
     ) {
       return "preact";
     }
+    return undefined;
+  }
+
+  private resolveAliasedReactRemoteSpecifier(
+    specifier: string,
+  ): string | undefined {
+    let parsed: URL;
+    try {
+      parsed = new URL(specifier);
+    } catch {
+      return undefined;
+    }
+
+    if (parsed.hostname.toLowerCase() !== "esm.sh") {
+      return undefined;
+    }
+
+    const aliases = (parsed.searchParams.get("alias") ?? "")
+      .split(",")
+      .map((entry) => entry.trim().toLowerCase());
+    const pathname = decodeURIComponent(parsed.pathname).replace(
+      /^\/(?:v\d+|stable)\//,
+      "/",
+    );
+    const reactMatch = /^\/react@[^/]+(?:\/(jsx-(?:dev-)?runtime))?\/?$/.exec(
+      pathname,
+    );
+    if (reactMatch && aliases.includes("react:preact/compat")) {
+      return reactMatch[1] ? "preact/jsx-runtime" : "preact/compat";
+    }
+
+    if (
+      /^\/react-dom@[^/]+(?:\/client)?\/?$/.test(pathname) &&
+      aliases.includes("react-dom:preact/compat")
+    ) {
+      return "preact/compat";
+    }
+
     return undefined;
   }
 

@@ -97,6 +97,7 @@ test("module-fetch generates esm.sh/jsdelivr/unpkg/jspm fallback urls", () => {
     String(esm),
     /^https:\/\/esm\.sh\/@mui\/material@7\.3\.5\/index\.js\?/,
   );
+  assert.match(String(esm), /[?&]bundle(?:&|$)/);
   assert.match(String(esm), /alias=react:preact\/compat/);
 
   const jsdelivr = toConfiguredFallbackUrl(source, "https://cdn.jsdelivr.net");

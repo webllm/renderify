@@ -75,12 +75,18 @@ export function toEsmFallbackUrl(
   }
 
   const aliasQuery = [
+    ...(shouldBundleEsmFallbackSpecifier(specifier) ? ["bundle"] : []),
     "alias=react:preact/compat,react-dom:preact/compat,react-dom/client:preact/compat,react/jsx-runtime:preact/jsx-runtime,react/jsx-dev-runtime:preact/jsx-runtime",
     "target=es2022",
   ].join("&");
 
   const separator = specifier.includes("?") ? "&" : "?";
   return `${normalizedBase}/${specifier}${separator}${aliasQuery}`;
+}
+
+function shouldBundleEsmFallbackSpecifier(specifier: string): boolean {
+  const pathname = specifier.split("?", 1)[0] ?? specifier;
+  return /^@mui\/(?:material|icons-material)(?:@[^/]+)?(?:\/|$)/.test(pathname);
 }
 
 export function extractJspmNpmSpecifier(url: string): string | undefined {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   createComponentNode,
@@ -2550,6 +2551,7 @@ test("runtime computes esm fallback url for jspm modules", () => {
     String(fallback),
     /^https:\/\/esm\.sh\/@mui\/material@7\.3\.5\/index\.js\?/,
   );
+  assert.match(String(fallback), /[?&]bundle(?:&|$)/);
   assert.match(String(fallback), /alias=react:preact\/compat/);
 });
 
@@ -2633,6 +2635,89 @@ test("runtime source loader hedges fallback CDN requests", async () => {
         (item) => item.code === "RUNTIME_SOURCE_IMPORT_FALLBACK_USED",
       ),
     );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("runtime source loader uses bundled esm.sh modules for Material UI", async () => {
+  const runtime = new DefaultRuntimeManager({
+    remoteFallbackCdnBases: ["https://esm.sh"],
+    remoteFetchRetries: 0,
+  });
+  const loader = (
+    runtime as unknown as {
+      createSourceModuleLoader: (
+        moduleManifest: RuntimeModuleManifest | undefined,
+        diagnostics: Array<{ code?: string }>,
+      ) => {
+        fetchRemoteModuleCodeWithFallback(
+          url: string,
+        ): Promise<{ requestUrl: string }>;
+      };
+    }
+  ).createSourceModuleLoader(undefined, []);
+  const requestedUrls: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const requestUrl = String(input);
+    requestedUrls.push(requestUrl);
+    return new Response("export default 1;", {
+      status: 200,
+      headers: { "content-type": "text/javascript; charset=utf-8" },
+    });
+  }) as typeof fetch;
+
+  try {
+    const fetched = await loader.fetchRemoteModuleCodeWithFallback(
+      "https://ga.jspm.io/npm:@mui/material@9.2.0/Button/index.mjs",
+    );
+
+    assert.match(fetched.requestUrl, /^https:\/\/esm\.sh\/@mui\/material/);
+    assert.match(fetched.requestUrl, /[?&]bundle(?:&|$)/);
+    assert.deepEqual(requestedUrls, [fetched.requestUrl]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("runtime source loader falls back when the preferred Material UI bundle fails", async () => {
+  const runtime = new DefaultRuntimeManager({
+    remoteFallbackCdnBases: ["https://esm.sh"],
+    remoteFetchRetries: 0,
+  });
+  const loader = (
+    runtime as unknown as {
+      createSourceModuleLoader: (
+        moduleManifest: RuntimeModuleManifest | undefined,
+        diagnostics: Array<{ code?: string }>,
+      ) => {
+        fetchRemoteModuleCodeWithFallback(
+          url: string,
+        ): Promise<{ requestUrl: string }>;
+      };
+    }
+  ).createSourceModuleLoader(undefined, []);
+  const requestedUrls: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const requestUrl = String(input);
+    requestedUrls.push(requestUrl);
+    return new Response("export default 1;", {
+      status: requestUrl.startsWith("https://esm.sh/") ? 503 : 200,
+      headers: { "content-type": "text/javascript; charset=utf-8" },
+    });
+  }) as typeof fetch;
+
+  const sourceUrl =
+    "https://ga.jspm.io/npm:@mui/material@9.2.0/Button/index.mjs";
+  try {
+    const fetched = await loader.fetchRemoteModuleCodeWithFallback(sourceUrl);
+
+    assert.equal(fetched.requestUrl, sourceUrl);
+    assert.equal(requestedUrls.length, 2);
+    assert.match(requestedUrls[0], /^https:\/\/esm\.sh\/@mui\/material/);
+    assert.equal(requestedUrls[1], sourceUrl);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -2858,11 +2943,8 @@ test("runtime source loader accepts an exact-boundary integrity-pinned JSON modu
 
   try {
     const moduleUrl = await loader.materializeRemoteModule(url);
-    assert.match(moduleUrl, /^data:text\/javascript;base64,/);
-    const source = Buffer.from(
-      moduleUrl.replace(/^data:text\/javascript;base64,/, ""),
-      "base64",
-    ).toString("utf8");
+    assert.match(moduleUrl, /^file:\/\//);
+    const source = await readFile(new URL(moduleUrl), "utf8");
     assert.match(source, /const __json = \{"ok":true\}/);
     assert.equal(bodyCancellations, 0);
   } finally {
@@ -3605,7 +3687,7 @@ test("runtime source loader materializes preact remote imports outside browser r
   try {
     const resolved = await loader.materializeRemoteModule(preactUrl);
     assert.notEqual(resolved, preactUrl);
-    assert.match(resolved, /^data:text\/javascript;base64,/);
+    assert.match(resolved, /^file:\/\//);
     assert.ok(fetchCount >= 1);
   } finally {
     globalThis.fetch = originalFetch;
@@ -3652,9 +3734,8 @@ test("runtime source loader strips sourcemap directives from materialized module
 
   try {
     const resolved = await loader.materializeRemoteModule(preactUrl);
-    assert.match(resolved, /^data:text\/javascript;base64,/);
-    const encoded = resolved.replace(/^data:text\/javascript;base64,/, "");
-    const decoded = Buffer.from(encoded, "base64").toString("utf8");
+    assert.match(resolved, /^file:\/\//);
+    const decoded = await readFile(new URL(resolved), "utf8");
     assert.doesNotMatch(decoded, /sourceMappingURL/);
   } finally {
     globalThis.fetch = originalFetch;
@@ -3917,6 +3998,45 @@ test("runtime source loader maps esm.sh preact imports to local node file URLs",
   }
 });
 
+test("runtime source loader maps esm.sh React alias URLs to local Preact", async () => {
+  const runtime = new DefaultRuntimeManager({
+    remoteFallbackCdnBases: [],
+  });
+
+  const internals = runtime as unknown as {
+    createSourceModuleLoader: (
+      moduleManifest: RuntimeModuleManifest | undefined,
+      diagnostics: Array<{ code?: string; message?: string }>,
+    ) => {
+      resolveRuntimeImportSpecifier(
+        specifier: string,
+        parentUrl: string | undefined,
+      ): Promise<string>;
+    };
+  };
+
+  const loader = internals.createSourceModuleLoader(undefined, []);
+  const compat = await loader.resolveRuntimeImportSpecifier(
+    "https://esm.sh/react@19.2.0?alias=react:preact/compat",
+    undefined,
+  );
+  const jsxRuntime = await loader.resolveRuntimeImportSpecifier(
+    "https://esm.sh/react@19.2.0/jsx-runtime?alias=react:preact/compat",
+    undefined,
+  );
+  const reactDom = await loader.resolveRuntimeImportSpecifier(
+    "https://esm.sh/react-dom@19.2.0/client?alias=react-dom:preact/compat,react:preact/compat",
+    undefined,
+  );
+
+  assert.match(compat, /^file:\/\//);
+  assert.match(jsxRuntime, /^file:\/\//);
+  assert.match(reactDom, /^file:\/\//);
+  assert.match(compat, /preact/i);
+  assert.match(jsxRuntime, /preact/i);
+  assert.match(reactDom, /preact/i);
+});
+
 test("runtime source loader falls back when preferred local preact entry is missing", async () => {
   const runtime = new DefaultRuntimeManager({
     remoteFallbackCdnBases: [],
@@ -4001,14 +4121,13 @@ test("runtime source loader honors explicit manifest mappings before local preac
       "react",
       undefined,
     );
-    assert.match(resolved, /^data:text\/javascript;base64,/);
+    assert.match(resolved, /^file:\/\//);
     assert.equal(
       requestedUrls.some((url) =>
         url.includes("/npm:preact@10.28.3/compat/dist/compat.module.js"),
       ),
       true,
     );
-    assert.doesNotMatch(resolved, /^file:\/\//);
   } finally {
     globalThis.fetch = originalFetch;
   }
