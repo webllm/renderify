@@ -1011,7 +1011,7 @@ test("core tells the LLM when active policy forbids source plans", async () => {
   assert.match(trustedLlm.systemPrompts[0] ?? "", /source\.runtime="preact"/i);
   assert.match(
     trustedLlm.systemPrompts[0] ?? "",
-    /import each component from its direct subpath.*never use a named import.*package root/i,
+    /use one named import.*@mui\/material.*do not import.*separate direct subpaths/i,
   );
   assert.match(
     trustedLlm.systemPrompts[0] ?? "",
