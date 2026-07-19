@@ -1,5 +1,17 @@
 # @renderify/mcp-app
 
+## 0.10.0
+
+### Patch Changes
+
+- 9d8a287, 1be185b, d0c851a: Adopt the 0.10 declarative plan boundary for MCP
+  Apps, rejecting misplaced node fields and JavaScript-style template
+  expressions while preserving native JSON types for exact path templates.
+- Updated dependencies:
+  - @renderify/ir@0.10.0
+  - @renderify/runtime@0.10.0
+  - @renderify/security@0.10.0
+
 ## 0.9.0
 
 ### Minor Changes

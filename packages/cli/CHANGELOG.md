@@ -1,5 +1,43 @@
 # @renderify/cli
 
+## 0.10.0
+
+### Minor Changes
+
+- 170ab81: Reuse the local OpenAI Codex CLI login for the `openai-codex` provider. Set
+  `RENDERIFY_CODEX_USE_CLI_AUTH=1` to import credentials from the official Codex
+  CLI `auth.json` (`$CODEX_HOME`/`~/.codex`, overridable via
+  `RENDERIFY_CODEX_CLI_AUTH_FILE`) so a locally hosted playground can run
+  `gpt-5.3-codex-spark` without a separate `renderify auth codex login`. Use
+  `only` to consult the Codex CLI file exclusively. Expiring access tokens are
+  refreshed and written back to the Codex CLI file in its native format,
+  preserving unknown keys, and `renderify auth codex status` now reports the
+  active credential source. Disabled by default, so existing behavior is
+  unchanged.
+- c9d35da: Mount eligible JSX and TSX source plans as live browser applications
+  in the playground. The server now prepares one matching React or Preact module
+  graph, transpiles with the corresponding automatic JSX runtime, and mounts
+  React and Material UI output with working styles, hooks, and event handlers.
+
+### Patch Changes
+
+- ec94d0c: Keep playground output faithful to the server result by removing the
+  prompt-specific built-in Todo fallback that could replace a rejected or
+  incomplete plan with unrelated client-side UI.
+- 65cdd4d: Honor standard proxy environment variables for the CLI's outbound requests.
+  Node's built-in `fetch` (undici) ignores `HTTP(S)_PROXY` / `ALL_PROXY` /
+  `NO_PROXY`, so in a proxied network every request — LLM providers, Codex auth
+  refresh, and remote module fetches — failed with a connect timeout even though
+  `curl` and the official Codex CLI worked. When a proxy is configured, the CLI
+  now installs undici's `EnvHttpProxyAgent` as the global dispatcher so those
+  requests are routed through it. No effect when no proxy is set.
+- Updated dependencies:
+  - @renderify/core@0.10.0
+  - @renderify/ir@0.10.0
+  - @renderify/llm@0.10.0
+  - @renderify/runtime@0.10.0
+  - @renderify/security@0.10.0
+
 ## 0.9.0
 
 ### Minor Changes

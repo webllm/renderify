@@ -1,5 +1,30 @@
 # @renderify/core
 
+## 0.10.0
+
+### Minor Changes
+
+- 00c24d3, fa0ae3a, 3e7b64e, 6a29dd1, edefc60: Generate explicit trusted
+  JSX, React, and Material UI requests as constrained source plans. Material UI
+  imports are normalized onto one portable package graph, bounded source-plan
+  budgets are applied, and controlled `TextField` prompts use React-compatible
+  `onChange` handlers.
+- ea8da82, bd9315e, 40e23c7, 1be185b: Harden structured plan generation and
+  repair. Invalid text fallbacks now fail closed, a final structured recovery is
+  attempted with actionable validation feedback, and prompts reflect the active
+  source policy and declarative template grammar.
+
+### Patch Changes
+
+- 5c1490d: Bound the default `gpt-5.3-codex-spark` request timeout to 30 seconds
+  unless the host explicitly configures another value.
+- c9d35da: Re-export `DefaultUIRendererOptions` so hosts can inject the browser
+  renderer used for interactive source plans through the core UI surface.
+- Updated dependencies:
+  - @renderify/ir@0.10.0
+  - @renderify/runtime@0.10.0
+  - @renderify/security@0.10.0
+
 ## 0.9.0
 
 ### Minor Changes

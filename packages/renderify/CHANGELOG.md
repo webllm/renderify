@@ -1,5 +1,26 @@
 # renderify
 
+## 0.10.0
+
+### Minor Changes
+
+- c9d35da, e3d1e99, 81a7a64, 4d452ba: Ship the interactive React and Material
+  UI source runtime through the main SDK facade, including host-selectable
+  renderers, coherent browser module graphs, and server-rendered Emotion styles.
+- ea8da82, 40e23c7, 99d8109, a78fd4b, 9d8a287, 1be185b: Ship the fail-closed
+  0.10 generation and validation pipeline through the main package, with
+  structured terminal recovery, actionable Codex diagnostics, strict node
+  shapes, and path-only declarative templates.
+
+### Patch Changes
+
+- Updated dependencies:
+  - @renderify/core@0.10.0
+  - @renderify/ir@0.10.0
+  - @renderify/llm@0.10.0
+  - @renderify/runtime@0.10.0
+  - @renderify/security@0.10.0
+
 ## 0.9.0
 
 ### Minor Changes

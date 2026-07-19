@@ -1,5 +1,30 @@
 # @renderify/runtime
 
+## 0.10.0
+
+### Minor Changes
+
+- c9d35da: Add host-selectable Preact factories and DOM renderers, React element
+  support, and configurable automatic JSX import sources so browser hosts can
+  mount interactive React-compatible source plans with a coherent module graph.
+- e3d1e99, 81a7a64, d4800a6, 4d452ba: Materialize bundled Material UI graphs
+  safely in Node, provide the Emotion cache boundary required for SSR, and pin
+  the compatible Preact graph so generated Material UI styles are emitted.
+- d0c851a: Preserve booleans, numbers, arrays, and objects when a runtime value
+  is an exact template lookup instead of coercing every resolved value to text.
+
+### Patch Changes
+
+- 6baa105, 8833012, f85b5e5: Resolve independent dependency graphs
+  concurrently, probe remote source entries without materializing whole graphs,
+  and skip plan imports already owned by source code.
+- 783fbcd, 1daeb70, 0792daa, d72ef0b: Keep Node-only module storage safe for
+  browser bundles, deduplicate fallback diagnostics, preserve malformed imports
+  for validation, and retain non-HTTP loader candidates during preflight.
+- Updated dependencies:
+  - @renderify/ir@0.10.0
+  - @renderify/security@0.10.0
+
 ## 0.9.0
 
 ### Minor Changes

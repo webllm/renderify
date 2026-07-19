@@ -1,5 +1,14 @@
 # @renderify/security
 
+## 0.10.0
+
+### Patch Changes
+
+- 7b55b86: Allow the trusted source profile to use `esm.sh` as a constrained
+  package fallback without enabling arbitrary network access.
+- Updated dependencies:
+  - @renderify/ir@0.10.0
+
 ## 0.9.0
 
 ### Minor Changes

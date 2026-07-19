@@ -1,6 +1,6 @@
 {
   "name": "@renderify/runtime",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "main": "dist/runtime.cjs",
   "types": "dist/runtime.d.ts",
   "module": "dist/runtime.mjs",

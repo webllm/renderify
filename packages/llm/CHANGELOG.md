@@ -1,5 +1,23 @@
 # @renderify/llm
 
+## 0.10.0
+
+### Minor Changes
+
+- 99d8109, a78fd4b, 9d8a287, fdfcbe1, 2e33cfc, 1be185b: Align Codex
+  structured output with the complete RuntimePlan contract. The provider now
+  validates recursive node shapes, reports field-level repair diagnostics,
+  enforces declarative templates and action arrays, and keeps host-owned
+  permissions and resource budgets out of model-generated plans.
+- 5c1490d: Retry one timed-out Codex streaming response when network retries are
+  enabled, while preserving caller aborts and the configured request deadline.
+
+### Patch Changes
+
+- Updated dependencies:
+  - @renderify/core@0.10.0
+  - @renderify/ir@0.10.0
+
 ## 0.9.0
 
 ### Minor Changes

@@ -1,6 +1,6 @@
 {
   "name": "@renderify/mcp-app",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Offline declarative RuntimePlan adapter for MCP Apps",
   "main": "dist/mcp-app.cjs",
   "types": "dist/mcp-app.d.ts",

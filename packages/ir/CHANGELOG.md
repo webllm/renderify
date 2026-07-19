@@ -1,5 +1,17 @@
 # @renderify/ir
 
+## 0.10.0
+
+### Minor Changes
+
+- 9d8a287: Reject RuntimeNodes containing fields that belong at the plan level
+  or to a different node discriminator instead of silently accepting or
+  normalizing the misplaced data.
+- 1be185b: Add declarative template diagnostics and enforce path-only
+  `{{state.path}}`-style lookups. JavaScript expressions, `${...}` syntax,
+  templates in initial state or literal action values, and unsafe `$from` paths
+  are now rejected before execution.
+
 ## 0.9.0
 
 ### Minor Changes
