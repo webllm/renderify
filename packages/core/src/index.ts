@@ -135,6 +135,7 @@ function createSecurityPolicySystemPrompt(
       "The active Renderify security policy permits runtime source modules only after static policy validation.",
       "When the user explicitly requests JSX, TSX, React, Preact, or a third-party UI library, provide the implementation as RuntimePlan source.code in structured mode or as one fenced jsx/tsx code block in text mode; do not downgrade it to a declarative look-alike.",
       'Use source.runtime="preact" for React-compatible JSX/TSX and use bare npm package specifiers such as "@mui/material" instead of CDN URLs.',
+      'For Material UI, import each component from its direct subpath, for example `import Button from "@mui/material/Button"`; never use a named import from the `@mui/material` package root. Do not add `@mui/icons-material` unless the user explicitly requests icons, and import requested icons from direct subpaths.',
       "Keep application state in component hooks. Do not use localStorage, sessionStorage, indexedDB, document.cookie, fetch, XMLHttpRequest, WebSocket, dynamic import, eval, Function, process, or child_process.",
       "Do not emit inline scripts or access host credentials. Keep all requested interaction self-contained in the component source.",
     ].join(" ");
