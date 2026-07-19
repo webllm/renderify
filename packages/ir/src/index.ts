@@ -285,6 +285,34 @@ const RUNTIME_NODE_NORMALIZATION_ALIAS_KEYS = [
   "class",
   "className",
 ] as const;
+const RUNTIME_TEXT_NODE_KEYS = new Set(["type", "value"]);
+const RUNTIME_ELEMENT_NODE_KEYS = new Set(["type", "tag", "props", "children"]);
+const RUNTIME_COMPONENT_NODE_KEYS = new Set([
+  "type",
+  "module",
+  "exportName",
+  "props",
+  "children",
+]);
+const RUNTIME_TEXT_NODE_CANDIDATE_KEYS = new Set([
+  "type",
+  "value",
+  "text",
+  "props",
+  "children",
+  "nodes",
+  ...RUNTIME_NODE_NORMALIZATION_ALIAS_KEYS,
+]);
+const RUNTIME_ELEMENT_NODE_CANDIDATE_KEYS = new Set([
+  ...RUNTIME_ELEMENT_NODE_KEYS,
+  "nodes",
+  ...RUNTIME_NODE_NORMALIZATION_ALIAS_KEYS,
+]);
+const RUNTIME_COMPONENT_NODE_CANDIDATE_KEYS = new Set([
+  ...RUNTIME_COMPONENT_NODE_KEYS,
+  "nodes",
+  ...RUNTIME_NODE_NORMALIZATION_ALIAS_KEYS,
+]);
 
 interface RuntimeNodeNormalizationState {
   active: WeakSet<object>;
@@ -408,6 +436,20 @@ function normalizeRuntimeNodeCandidateInternal(
       return undefined;
     }
     const typeValue = typeProperty.value;
+    const candidateKeys =
+      typeValue === "text"
+        ? RUNTIME_TEXT_NODE_CANDIDATE_KEYS
+        : typeValue === "component"
+          ? RUNTIME_COMPONENT_NODE_CANDIDATE_KEYS
+          : typeof typeValue === "string" &&
+              (typeValue === "element" ||
+                typeValue === "container" ||
+                RUNTIME_NODE_TAG_NAME_PATTERN.test(typeValue))
+            ? RUNTIME_ELEMENT_NODE_CANDIDATE_KEYS
+            : undefined;
+    if (!candidateKeys || !hasOnlyRuntimeNodeKeys(value, candidateKeys)) {
+      return undefined;
+    }
     const legacyTextProperty = readOwnDataProperty(value, "text");
     if (!legacyTextProperty) {
       return undefined;
@@ -712,6 +754,9 @@ function inspectRuntimeNodeShape(value: unknown): RuntimeNodeShape | undefined {
   }
 
   if (type.value === "text") {
+    if (!hasOnlyRuntimeNodeKeys(value, RUNTIME_TEXT_NODE_KEYS)) {
+      return undefined;
+    }
     const text = readOwnDataProperty(value, "value");
     const props = readOwnDataProperty(value, "props");
     const children = readOwnDataProperty(value, "children");
@@ -741,6 +786,9 @@ function inspectRuntimeNodeShape(value: unknown): RuntimeNodeShape | undefined {
   }
 
   if (type.value === "element") {
+    if (!hasOnlyRuntimeNodeKeys(value, RUNTIME_ELEMENT_NODE_KEYS)) {
+      return undefined;
+    }
     const tag = readOwnDataProperty(value, "tag");
     return tag?.present &&
       typeof tag.value === "string" &&
@@ -750,6 +798,9 @@ function inspectRuntimeNodeShape(value: unknown): RuntimeNodeShape | undefined {
   }
 
   if (type.value === "component") {
+    if (!hasOnlyRuntimeNodeKeys(value, RUNTIME_COMPONENT_NODE_KEYS)) {
+      return undefined;
+    }
     const module = readOwnDataProperty(value, "module");
     if (
       !module?.present ||
@@ -774,6 +825,19 @@ function inspectRuntimeNodeShape(value: unknown): RuntimeNodeShape | undefined {
   }
 
   return undefined;
+}
+
+function hasOnlyRuntimeNodeKeys(
+  value: Record<string, unknown>,
+  allowedKeys: ReadonlySet<string>,
+): boolean {
+  try {
+    return Reflect.ownKeys(value).every(
+      (key) => typeof key === "string" && allowedKeys.has(key),
+    );
+  } catch {
+    return false;
+  }
 }
 
 function hasRuntimeNodeNormalizationAlias(

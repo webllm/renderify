@@ -45,6 +45,40 @@ test("isRuntimeNode validates supported node kinds", () => {
   assert.equal(isRuntimeNode("text"), false);
 });
 
+test("runtime node guards reject misplaced plan fields", () => {
+  const rootWithPlanFields = {
+    type: "element",
+    tag: "main",
+    children: [{ type: "text", value: "Todo" }],
+    state: { initial: { count: 0 } },
+    capabilities: { domWrite: true },
+  };
+
+  assert.equal(isRuntimeNode(rootWithPlanFields), false);
+  assert.equal(normalizeRuntimeNodeCandidate(rootWithPlanFields), undefined);
+  assert.equal(
+    normalizeRuntimePlanCandidate({
+      id: "misplaced_plan_fields",
+      version: 1,
+      root: rootWithPlanFields,
+      capabilities: { domWrite: true },
+    }),
+    undefined,
+  );
+  assert.equal(
+    isRuntimeNode({ type: "text", value: "Todo", metadata: {} }),
+    false,
+  );
+  assert.equal(
+    isRuntimeNode({
+      type: "component",
+      module: "widget",
+      imports: [],
+    }),
+    false,
+  );
+});
+
 test("runtime candidate normalization converts common LLM DOM-like JSON", () => {
   const normalizedNode = normalizeRuntimeNodeCandidate({
     type: "div",

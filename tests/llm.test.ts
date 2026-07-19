@@ -928,6 +928,54 @@ test("openai codex reports actionable nested RuntimePlan errors", async () => {
   ]);
 });
 
+test("openai codex rejects plan fields misplaced inside root", async () => {
+  const invalidPlan = {
+    specVersion: "runtime-plan/v1",
+    id: "codex_misplaced_state_plan",
+    version: 1,
+    root: {
+      type: "element",
+      tag: "main",
+      children: [{ type: "text", value: "Count" }],
+      state: { initial: { count: 0 } },
+      capabilities: { domWrite: true },
+    },
+    capabilities: { domWrite: true },
+  };
+  const llm = new OpenAICodexLLMInterpreter({
+    accessToken: "codex-test-token",
+    fetchImpl: async () =>
+      sseResponse([
+        "event: response.output_text.delta\ndata: " +
+          JSON.stringify({
+            type: "response.output_text.delta",
+            delta: JSON.stringify(invalidPlan),
+          }),
+        "event: response.completed\ndata: " +
+          JSON.stringify({
+            type: "response.completed",
+            response: {
+              id: "resp_codex_misplaced_state",
+              model: "gpt-5.5",
+            },
+          }),
+      ]),
+  });
+
+  const response = await llm.generateStructuredResponse({
+    prompt: "build a stateful todo list",
+    format: "runtime-plan",
+    strict: true,
+  });
+
+  assert.equal(response.valid, false);
+  assert.deepEqual(response.errors, [
+    "Structured payload is not a valid RuntimePlan",
+    "root.state is not valid on a RuntimeNode; move state to the RuntimePlan top level",
+    "root.capabilities is not valid on a RuntimeNode; move capabilities to the RuntimePlan top level",
+  ]);
+});
+
 test("openai codex assigns unique fallback plan ids for repeated prompts", async () => {
   let requestCount = 0;
   const llm = new OpenAICodexLLMInterpreter({

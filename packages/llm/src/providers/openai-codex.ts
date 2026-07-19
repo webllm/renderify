@@ -275,6 +275,37 @@ function collectRuntimeNodeDiagnostics(
     return;
   }
 
+  const allowedKeys =
+    node.type === "text"
+      ? new Set(["type", "value"])
+      : node.type === "element"
+        ? new Set(["type", "tag", "props", "children"])
+        : node.type === "component"
+          ? new Set(["type", "module", "exportName", "props", "children"])
+          : undefined;
+  if (allowedKeys) {
+    const unknownKeys = Object.keys(node).filter(
+      (key) => !allowedKeys.has(key),
+    );
+    for (const key of unknownKeys) {
+      if (errors.length >= MAX_RUNTIME_PLAN_DIAGNOSTICS) {
+        return;
+      }
+      const placementHint =
+        key === "state" ||
+        key === "capabilities" ||
+        key === "imports" ||
+        key === "moduleManifest" ||
+        key === "source" ||
+        key === "metadata"
+          ? `; move ${key} to the RuntimePlan top level`
+          : "";
+      errors.push(
+        `${path}.${key} is not valid on a RuntimeNode${placementHint}`,
+      );
+    }
+  }
+
   if (node.type === "text") {
     if (typeof node.value !== "string") {
       errors.push(`${path}.value must be a string for a text node`);
