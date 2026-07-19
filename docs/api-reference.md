@@ -297,8 +297,25 @@ function renderPlanInBrowser(
   options?: RuntimeEmbedRenderOptions,
 ): Promise<RuntimeEmbedRenderResult>;
 
+// Applies the trusted source profile by default. Use only for reviewed source.
+function renderTrustedPlanInBrowser(
+  plan: RuntimePlan,
+  options?: RuntimeEmbedRenderOptions,
+): Promise<RuntimeEmbedRenderResult>;
+
+function createInteractiveSession(
+  plan: RuntimePlan,
+  options?: RuntimeEmbedRenderOptions,
+): Promise<RuntimeInteractiveSession>;
+
+// Trusted-source equivalent of createInteractiveSession().
+function createTrustedInteractiveSession(
+  plan: RuntimePlan,
+  options?: RuntimeEmbedRenderOptions,
+): Promise<RuntimeInteractiveSession>;
+
 interface RuntimeEmbedRenderOptions {
-  target?: string | HTMLElement | InteractiveRenderTarget;
+  target?: RenderTarget;
   context?: RuntimeExecutionContext;
   signal?: AbortSignal;
   runtime?: RuntimeManager;
@@ -309,6 +326,9 @@ interface RuntimeEmbedRenderOptions {
   autoInitializeRuntime?: boolean;
   autoTerminateRuntime?: boolean;
   serializeTargetRenders?: boolean;
+  autoPinLatestModuleManifest?: boolean;
+  autoPinModuleLoader?: RuntimeModuleLoader;
+  autoPinFetchTimeoutMs?: number;
 }
 
 interface RuntimeEmbedRenderResult {
@@ -316,6 +336,32 @@ interface RuntimeEmbedRenderResult {
   execution: RuntimeExecutionResult;
   security: SecurityCheckResult;
   runtime: RuntimeManager;
+}
+
+interface RuntimeInteractiveSession {
+  readonly plan: RuntimePlan;
+  readonly runtime: RuntimeManager;
+  readonly security: SecurityCheckResult;
+  render(event?: RuntimeEvent): Promise<RuntimeEmbedRenderResult>;
+  dispatch(event: RuntimeEvent): Promise<RuntimeEmbedRenderResult>;
+  getState(): RuntimeStateSnapshot | undefined;
+  setState(snapshot: RuntimeStateSnapshot): Promise<RuntimeEmbedRenderResult>;
+  clearState(): Promise<RuntimeEmbedRenderResult>;
+  getLastResult(): RuntimeEmbedRenderResult;
+  terminate(): Promise<void>;
+}
+
+interface InteractiveRenderTarget {
+  element: HTMLElement;
+  onRuntimeEvent?: (
+    request: RuntimeEventDispatchRequest,
+  ) => void | Promise<void>;
+}
+
+type RenderTarget = string | HTMLElement | InteractiveRenderTarget;
+
+interface DefaultUIRendererOptions {
+  loadPreactRenderer?: () => unknown | Promise<unknown>;
 }
 ```
 
@@ -344,6 +390,7 @@ class DefaultRuntimeManager implements RuntimeManager {
 interface RuntimeManagerOptions {
   moduleLoader?: RuntimeModuleLoader;
   sourceTranspiler?: RuntimeSourceTranspiler;
+  loadPreactModule?: () => unknown | Promise<unknown>;
   defaultMaxImports?: number;
   defaultMaxComponentInvocations?: number;
   defaultMaxExecutionMs?: number;
@@ -357,6 +404,7 @@ interface RuntimeManagerOptions {
   // Defaults to false.
   allowIsolationFallback?: boolean;
   browserSourceSandboxMode?: "none" | "worker" | "iframe" | "shadowrealm";
+  runtimeSourceJsxHelperMode?: "auto" | "always" | "never";
   browserSourceSandboxTimeoutMs?: number;
   browserSourceSandboxFailClosed?: boolean;
   enableDependencyPreflight?: boolean;
@@ -366,6 +414,18 @@ interface RuntimeManagerOptions {
   remoteFetchBackoffMs?: number;
   remoteModuleMaxBytes?: number; // default: 8 MiB per response
   remoteFallbackCdnBases?: string[];
+  browserModuleUrlCacheMaxEntries?: number;
+  runtimeSourceLocalSpecifierCacheMaxEntries?: number;
+  allowArbitraryNetwork?: boolean;
+  allowedNetworkHosts?: string[];
+}
+
+interface RuntimeSourceTranspileInput {
+  code: string;
+  language: RuntimeSourceLanguage;
+  filename?: string;
+  runtime?: RuntimeSourceModule["runtime"];
+  jsxImportSource?: "preact" | "react";
 }
 
 interface RuntimeModuleLoader {

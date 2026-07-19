@@ -11,7 +11,7 @@ Renderify is a runtime-first dynamic renderer that lets LLMs produce real, inter
 
 ```bash
 # Clone the repository
-git clone https://github.com/unadlib/renderify.git
+git clone https://github.com/webllm/renderify.git
 cd renderify
 
 # Install dependencies
@@ -165,7 +165,7 @@ pnpm playground
 
 ## Security Profiles
 
-Renderify enforces security policies before any code executes. Three built-in profiles:
+Renderify enforces security policies before any code executes. Four built-in profiles:
 
 ```bash
 # Strict: tight limits, requires module integrity hashes
@@ -173,6 +173,9 @@ RENDERIFY_SECURITY_PROFILE=strict pnpm playground
 
 # Balanced (default): moderate limits, practical for most use cases
 RENDERIFY_SECURITY_PROFILE=balanced pnpm playground
+
+# Trusted: reviewed JSX/source with hooks and package imports
+RENDERIFY_SECURITY_PROFILE=trusted pnpm playground
 
 # Relaxed: permissive limits for trusted environments
 RENDERIFY_SECURITY_PROFILE=relaxed pnpm playground

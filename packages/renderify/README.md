@@ -75,10 +75,11 @@ console.log(result.html);
 
 ### Renderer-only TSX + Dependency Package (JSPM)
 
-`renderPlanInBrowser` defaults to `auto-pin-latest`, so bare imports work out of the box:
+`renderTrustedPlanInBrowser` defaults to the trusted source profile and
+`auto-pin-latest`, so reviewed source with bare imports works out of the box:
 
 ```ts
-import { renderPlanInBrowser } from "renderify";
+import { renderTrustedPlanInBrowser } from "renderify";
 
 const tsxPlan = {
   specVersion: "runtime-plan/v1",
@@ -92,7 +93,7 @@ const tsxPlan = {
   },
   source: {
     language: "tsx",
-    runtime: "renderify",
+    runtime: "preact",
     code: `
       import { format } from "date-fns/format";
 
@@ -103,7 +104,7 @@ const tsxPlan = {
   },
 };
 
-await renderPlanInBrowser(tsxPlan, { target: "#app" });
+await renderTrustedPlanInBrowser(tsxPlan, { target: "#app" });
 ```
 
 For production determinism, prefer `manifest-only` (explicit pinned versions) and disable auto-pin:
@@ -119,7 +120,7 @@ const pinnedPlan = {
   },
 };
 
-await renderPlanInBrowser(pinnedPlan, {
+await renderTrustedPlanInBrowser(pinnedPlan, {
   target: "#app",
   autoPinLatestModuleManifest: false,
 });

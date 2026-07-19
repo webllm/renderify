@@ -79,11 +79,12 @@ header values, and oversized bodies are not printed.
 
 When debug mode is enabled, playground also prints key inbound/outbound request summaries, exposes `/api/debug/stats`, and renders an in-page **Debug Stats** panel with manual/auto refresh.
 
-The playground browser never transpiles or imports `plan.source.code`. It
-displays the HTML returned by the server-side security/runtime pipeline and
-keeps source available only for inspection. Source hash links use that same
-server path and cannot enable browser-side source execution. Iframe display
-mode is sandboxed without script permission.
+The playground server validates every plan first. Accepted
+`source.runtime: "preact"` plans are additionally prepared and mounted in the
+browser with the matching React or Preact renderer so hooks, CSS-in-JS, and
+events remain interactive. Other source modes display the HTML returned by the
+server-side runtime. Source hash links use the same policy checks and cannot
+bypass the configured security profile.
 
 See `../../docs/getting-started.md` and `../../docs/security.md` for runtime and policy options.
 

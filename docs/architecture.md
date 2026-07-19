@@ -96,7 +96,8 @@ The `DefaultSecurityChecker` validates every RuntimePlan before execution. Check
 - **Module manifest coverage** (bare specifiers must have manifest entries in strict mode)
 - **Spec version compatibility**
 
-Three built-in profiles (`strict`, `balanced`, `relaxed`) provide sensible defaults. Custom policy overrides are supported.
+Four built-in profiles (`strict`, `balanced`, `trusted`, `relaxed`) provide
+sensible defaults. Custom policy overrides are supported.
 
 ### Stage 4: Runtime Execution
 
@@ -109,7 +110,7 @@ The `DefaultRuntimeManager` is the core execution engine. It handles:
 - **Execution budget tracking** — import counts, component invocations, and wall-clock time are tracked and enforced
 - **State management** — per-plan state snapshots with action-based transitions
 - **Dependency preflight** — probes all required modules before execution, with retry/timeout/CDN fallback
-- **Sandbox execution** — optional Web Worker or iframe isolation for untrusted source code
+- **Sandbox execution** — optional Web Worker or iframe containment for reviewed source; these adapters are not a trust boundary for arbitrary hostile code
 
 ### Stage 5: UI Rendering
 

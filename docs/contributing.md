@@ -12,7 +12,7 @@ The `preinstall` script enforces pnpm usage. Running `npm install` or `yarn inst
 ## Setup
 
 ```bash
-git clone https://github.com/unadlib/renderify.git
+git clone https://github.com/webllm/renderify.git
 cd renderify
 pnpm install
 ```

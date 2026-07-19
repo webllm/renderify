@@ -19,15 +19,17 @@ In other words, bundleless runtime execution does **not** mean full npm bundler 
 ## 30-Second JSX Example
 
 ```tsx
-import { renderPlanInBrowser } from "renderify";
+import { renderTrustedPlanInBrowser } from "renderify";
 
-renderPlanInBrowser(
+await renderTrustedPlanInBrowser(
   {
+    specVersion: "runtime-plan/v1",
     id: "hello_jsx_runtime",
     version: 1,
     root: { type: "text", value: "Loading..." },
     source: {
       language: "tsx",
+      runtime: "preact",
       code: `
         import { format } from "date-fns/format";
 
@@ -43,7 +45,7 @@ renderPlanInBrowser(
 
 Defaults (no extra config):
 
-1. Execute JSX/TSX directly at browser runtime.
+1. Execute reviewed JSX/TSX through the trusted browser source lane.
 2. Resolve bare imports through JSPM (`auto-pin-latest`).
 3. Pin resolved URLs into `moduleManifest` before execution.
 
@@ -88,7 +90,7 @@ LLM output (JSX/TSX or structured plan)
 - **Low-code / No-code AI backends** — users describe intent in natural language, the LLM generates a runnable UI component on the fly
 - **Dynamic forms & approval flows** — generate context-aware forms at runtime, more flexible than JSON Schema renderers
 - **Rapid prototyping** workflows where you want to go from prompt → rendered UI in seconds, not minutes
-- **Any application** that needs to safely render untrusted, dynamically-generated UI in the browser
+- **Any application** that needs to render validated declarative UI or reviewed dynamic source in the browser
 
 ## Runtime Pipeline
 
@@ -169,15 +171,17 @@ pnpm add renderify
 ```
 
 ```ts
-import { renderPlanInBrowser } from "renderify";
+import { renderTrustedPlanInBrowser } from "renderify";
 
-await renderPlanInBrowser(
+await renderTrustedPlanInBrowser(
   {
+    specVersion: "runtime-plan/v1",
     id: "quickstart_non_cli",
     version: 1,
     root: { type: "text", value: "Loading..." },
     source: {
       language: "tsx",
+      runtime: "preact",
       code: `export default () => <section>Hello from Renderify SDK</section>;`,
     },
   },
@@ -264,11 +268,13 @@ By default, playground prints outbound LLM request/response payload logs in term
 
 When debug mode is enabled, playground logs key inbound/outbound request summaries, exposes `GET /api/debug/stats`, and shows an in-page **Debug Stats** panel with auto-refresh.
 
-The playground page does not execute `plan.source.code`. Source plans are
-processed behind the playground server's configured security/runtime boundary,
-and the browser displays the returned HTML while keeping source available for
-inspection. Hash payloads cannot enable browser-side source execution. The
-optional iframe display mode is sandboxed without script permission.
+The playground always processes plans through the server's configured
+security/runtime boundary first. Eligible reviewed `source.runtime: "preact"`
+plans are then transpiled and mounted in the browser so hooks, React-compatible
+packages, CSS-in-JS, and event handlers remain interactive. Other source modes
+display the server-rendered result only. Hash payloads cannot bypass the active
+security profile. The optional display iframe is a presentation boundary, not
+a security boundary for arbitrary hostile source.
 
 ### Playground Hash Deep-Link
 
@@ -480,7 +486,7 @@ storage, and undeclared UI-to-tool calls fail closed. See the
 Beyond the end-to-end pipeline, several components have standalone value:
 
 - **RuntimePlan IR** — a standardized intermediate representation for "LLM-generated interactive UI." Even outside Renderify, the IR design provides a reusable schema for any system that needs to describe dynamic, composable UI from model output.
-- **Security policy framework** — a systematic approach to executing untrusted dynamic code: blocked tags, module allowlists, execution budgets, and source pattern analysis. The policy model is reusable for any browser-side dynamic code execution scenario.
+- **Security policy framework** — a systematic approach to validating untrusted declarative plans and governing reviewed dynamic source: blocked tags, module allowlists, execution budgets, and source pattern analysis. Source scanning and browser sandbox adapters are defense-in-depth controls, not a guarantee that arbitrary hostile JavaScript is safe.
 - **Browser ESM module graph materialization** — the `fetch → rewrite imports → blob URL` pipeline solves a problem browser standards have not natively addressed (bare specifiers are not usable in browsers). This module loading strategy can be extracted as an independent utility.
 
 ## License

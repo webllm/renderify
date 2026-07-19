@@ -49,14 +49,16 @@ Checklist:
 - In strict mode, include `integrity` for remote modules.
 - Run `probe-plan` in CI before release.
 
-## Pattern 3: Untrusted Source in Browser Sandbox
+## Pattern 3: Reviewed Source with Browser Containment
 
-Use when `plan.source` originates from untrusted prompts.
+Use only after `plan.source` has crossed an application-defined review or trust
+boundary. Browser sandbox modes add termination and containment, but they do
+not make arbitrary hostile JavaScript safe.
 
 ```ts
-import { renderPlanInBrowser } from "renderify";
+import { renderTrustedPlanInBrowser } from "renderify";
 
-await renderPlanInBrowser(untrustedPlan, {
+await renderTrustedPlanInBrowser(reviewedPlan, {
   target: "#mount",
   runtimeOptions: {
     browserSourceSandboxMode: "worker",
@@ -68,9 +70,10 @@ await renderPlanInBrowser(untrustedPlan, {
 
 Recommended policy posture:
 
-- `RENDERIFY_SECURITY_PROFILE=strict`
+- `RENDERIFY_SECURITY_PROFILE=trusted`
 - `RENDERIFY_RUNTIME_BROWSER_SANDBOX_FAIL_CLOSED=true`
-- `RENDERIFY_RUNTIME_JSPM_ONLY_STRICT_MODE=true` (when you want no fallback CDN path)
+- Prefer an application-owned module allowlist and pinned `moduleManifest`.
+- Keep unreviewed input on the declarative RuntimePlan path.
 
 ## Pattern 4: Streaming Prompt to Progressive UI
 

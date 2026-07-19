@@ -394,7 +394,7 @@ The runtime manager tracks all created blob URLs and revokes them in bulk during
 | `enableDependencyPreflight`   | `true`                                       | Better safety and earlier failure signals |
 | `remoteFetchTimeoutMs`        | `12000`                                      | Prevents long hangs                       |
 | `remoteFetchRetries`          | `2`                                          | Better resilience                         |
-| `browserSourceSandboxMode`    | `worker` in browser (`none` outside browser) | Isolation for untrusted source code       |
+| `browserSourceSandboxMode`    | `worker` in browser (`none` outside browser) | Containment for reviewed source           |
 | `autoPinLatestModuleManifest` | `true`                                       | Developer experience for bare imports     |
 
 ## Use Cases
@@ -488,7 +488,10 @@ The RuntimePlan intermediate representation fully decouples LLM output format fr
 
 ### 2. Reusable Security Policy Framework
 
-A systematic approach to executing untrusted dynamic code — tag blocklists, module allowlists, execution budgets, source pattern analysis — this policy model can be extracted and applied to any browser-side dynamic code execution scenario.
+A systematic approach to validating untrusted declarative plans and governing
+reviewed dynamic source — tag blocklists, module allowlists, execution budgets,
+and source pattern analysis. Source scanning and browser containment remain
+defense-in-depth controls rather than a guarantee for arbitrary hostile code.
 
 ### 3. Browser ESM Module Graph Materialization
 

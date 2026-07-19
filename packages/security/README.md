@@ -27,6 +27,7 @@ npm i @renderify/security @renderify/ir
 
 - `strict`
 - `balanced` (default)
+- `trusted` (reviewed browser source)
 - `relaxed`
 
 ## Quick Start
