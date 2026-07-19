@@ -26,12 +26,26 @@ export async function rewriteImportsAsync(
     return code;
   }
 
+  const resolutions = await Promise.allSettled(
+    imports.map((item) => resolver(item.specifier)),
+  );
+  const failedResolution = resolutions.find(
+    (resolution): resolution is PromiseRejectedResult =>
+      resolution.status === "rejected",
+  );
+  if (failedResolution) {
+    throw failedResolution.reason;
+  }
+  const resolvedSpecifiers = resolutions.map(
+    (resolution) => (resolution as PromiseFulfilledResult<string>).value,
+  );
+
   let rewritten = "";
   let cursor = 0;
 
-  for (const item of imports) {
+  for (const [index, item] of imports.entries()) {
     rewritten += code.slice(cursor, item.start);
-    rewritten += await resolver(item.specifier);
+    rewritten += resolvedSpecifiers[index];
     cursor = item.end;
   }
 

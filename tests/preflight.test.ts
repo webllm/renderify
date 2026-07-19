@@ -14,6 +14,7 @@ import {
   type DependencyProbe,
   executeDependencyProbe,
   type RuntimeDependencyProbeExecutor,
+  type RuntimeDependencyProbeStatus,
   runDependencyPreflight,
 } from "../packages/runtime/src/runtime-preflight";
 
@@ -168,6 +169,53 @@ test("preflight runDependencyPreflight stops when execution budget is exceeded",
   assert.equal(statuses.length, 1);
   assert.equal(statuses[0].ok, false);
   assert.equal(diagnostics[0].code, "RUNTIME_TIMEOUT");
+});
+
+test("preflight runDependencyPreflight probes independent dependencies concurrently", async () => {
+  const diagnostics: RuntimeDiagnostic[] = [];
+  const probes: DependencyProbe[] = [
+    { usage: "import", specifier: "npm:pkg-a" },
+    { usage: "import", specifier: "npm:pkg-b" },
+  ];
+  const pendingResolvers = new Map<string, () => void>();
+  let resolveBothStarted: (() => void) | undefined;
+  const bothStarted = new Promise<void>((resolve) => {
+    resolveBothStarted = resolve;
+  });
+
+  const running = runDependencyPreflight(
+    probes,
+    diagnostics,
+    (probe) =>
+      new Promise<RuntimeDependencyProbeStatus>((resolve) => {
+        pendingResolvers.set(probe.specifier, () =>
+          resolve({ ...probe, ok: true }),
+        );
+        if (pendingResolvers.size === 2) {
+          resolveBothStarted?.();
+        }
+      }),
+    {
+      isAborted: () => false,
+      hasExceededBudget: () => false,
+    },
+  );
+
+  await Promise.race([
+    bothStarted,
+    new Promise<never>((_resolve, reject) => {
+      setTimeout(
+        () => reject(new Error("dependency probes ran sequentially")),
+        250,
+      );
+    }),
+  ]);
+  pendingResolvers.get("npm:pkg-b")?.();
+  pendingResolvers.get("npm:pkg-a")?.();
+  assert.deepEqual(
+    (await running).map((status) => status.specifier),
+    ["npm:pkg-a", "npm:pkg-b"],
+  );
 });
 
 test("preflight executeDependencyProbe rejects unresolved relative source imports", async () => {

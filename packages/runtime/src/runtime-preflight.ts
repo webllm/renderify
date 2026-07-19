@@ -21,12 +21,20 @@ export interface DependencyProbe {
   specifier: string;
 }
 
+const DEPENDENCY_PREFLIGHT_MAX_CONCURRENCY = 8;
+
 export async function collectDependencyProbes(
   plan: RuntimePlan,
   parseSourceImportSpecifiers: (code: string) => Promise<string[]>,
 ): Promise<DependencyProbe[]> {
   const probes: DependencyProbe[] = [];
   const seen = new Set<string>();
+  const sourceImports = plan.source
+    ? await parseSourceImportSpecifiers(plan.source.code)
+    : [];
+  const sourceImportSpecifiers = new Set(
+    sourceImports.map((specifier) => specifier.trim()),
+  );
 
   const pushProbe = (usage: RuntimeDependencyUsage, specifier: unknown) => {
     if (typeof specifier !== "string") {
@@ -52,6 +60,12 @@ export async function collectDependencyProbes(
 
   const declaredImports = Array.isArray(plan.imports) ? plan.imports : [];
   for (const specifier of declaredImports) {
+    if (
+      typeof specifier === "string" &&
+      sourceImportSpecifiers.has(specifier.trim())
+    ) {
+      continue;
+    }
     pushProbe("import", specifier);
   }
 
@@ -59,11 +73,8 @@ export async function collectDependencyProbes(
     pushProbe("component", specifier);
   }
 
-  if (plan.source) {
-    const sourceImports = await parseSourceImportSpecifiers(plan.source.code);
-    for (const specifier of sourceImports) {
-      pushProbe("source-import", specifier);
-    }
+  for (const specifier of sourceImports) {
+    pushProbe("source-import", specifier);
   }
 
   return probes;
@@ -82,8 +93,13 @@ export async function runDependencyPreflight(
 ): Promise<RuntimeDependencyProbeStatus[]> {
   const statuses: RuntimeDependencyProbeStatus[] = [];
 
-  for (const probe of probes) {
+  for (
+    let offset = 0;
+    offset < probes.length;
+    offset += DEPENDENCY_PREFLIGHT_MAX_CONCURRENCY
+  ) {
     if (options.isAborted()) {
+      const probe = probes[offset];
       diagnostics.push({
         level: "error",
         code: "RUNTIME_ABORTED",
@@ -99,6 +115,7 @@ export async function runDependencyPreflight(
     }
 
     if (options.hasExceededBudget()) {
+      const probe = probes[offset];
       diagnostics.push({
         level: "error",
         code: "RUNTIME_TIMEOUT",
@@ -113,7 +130,24 @@ export async function runDependencyPreflight(
       return statuses;
     }
 
-    statuses.push(await probeExecutor(probe));
+    const batch = probes.slice(
+      offset,
+      offset + DEPENDENCY_PREFLIGHT_MAX_CONCURRENCY,
+    );
+    const settled = await Promise.allSettled(batch.map(probeExecutor));
+    const failed = settled.find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (failed) {
+      throw failed.reason;
+    }
+    statuses.push(
+      ...settled.map(
+        (result) =>
+          (result as PromiseFulfilledResult<RuntimeDependencyProbeStatus>)
+            .value,
+      ),
+    );
   }
 
   return statuses;
