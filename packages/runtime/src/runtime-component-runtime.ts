@@ -36,6 +36,11 @@ export async function createPreactRenderArtifact(input: {
   sourceExport: unknown;
   runtimeInput: Record<string, JsonValue>;
   diagnostics: RuntimeDiagnostic[];
+  wrapWithEmotionCache?: boolean;
+  emotionCacheBoundary?: {
+    provider: unknown;
+    value: unknown;
+  };
 }): Promise<RuntimeRenderArtifact | undefined> {
   const preact = await loadPreactModule();
   if (!preact) {
@@ -80,7 +85,23 @@ export async function createPreactRenderArtifact(input: {
       : wrapPreactFunctionComponent(
           input.sourceExport as (props: Record<string, JsonValue>) => unknown,
         );
-    const vnode = preact.h(component, input.runtimeInput);
+    let vnode = preact.h(component, input.runtimeInput);
+    if (input.wrapWithEmotionCache) {
+      if (!input.emotionCacheBoundary) {
+        input.diagnostics.push({
+          level: "error",
+          code: "RUNTIME_EMOTION_CACHE_UNAVAILABLE",
+          message:
+            "Material UI server rendering requires an Emotion CacheProvider, but the local Emotion runtime is unavailable",
+        });
+        return undefined;
+      }
+      vnode = preact.h(
+        input.emotionCacheBoundary.provider,
+        { value: input.emotionCacheBoundary.value },
+        vnode,
+      );
+    }
 
     return {
       mode: "preact-vnode",

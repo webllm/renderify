@@ -63,7 +63,7 @@ import {
   normalizeSourceSandboxMode,
   normalizeSupportedSpecVersions,
 } from "./runtime-defaults";
-import { isBrowserRuntime, nowMs } from "./runtime-environment";
+import { isBrowserRuntime, isNodeRuntime, nowMs } from "./runtime-environment";
 import type {
   CompileOptions,
   RuntimeExecutionInput,
@@ -117,6 +117,12 @@ interface ExecutionFrame {
   materializationBudget: RuntimeModuleMaterializationBudget;
   signal?: AbortSignal;
 }
+
+const EMOTION_CACHE_BRIDGE_SOURCE = [
+  'import { CacheProvider } from "https://esm.sh/@emotion/react@^11.5.0?alias=react:preact/compat&target=es2022";',
+  'import createCache from "https://esm.sh/@emotion/cache@^11.14.0?target=node";',
+  "export { CacheProvider, createCache };",
+].join("\n");
 
 export type { RuntimeComponentFactory } from "./runtime-component-runtime";
 
@@ -1013,16 +1019,24 @@ export class DefaultRuntimeManager implements RuntimeManager {
         ).importSourceModuleFromCode(code),
       normalizeSourceOutput: (output) => this.normalizeSourceOutput(output),
       shouldUsePreactSourceRuntime,
-      createPreactRenderArtifact: ({
+      createPreactRenderArtifact: async ({
         sourceExport,
         runtimeInput,
         diagnostics,
-      }) =>
-        createPreactRenderArtifactFromComponentRuntime({
+      }) => {
+        const wrapWithEmotionCache =
+          isNodeRuntime() && hasMaterialUiSourceImport(source.code);
+        const emotionCacheBoundary = wrapWithEmotionCache
+          ? await this.createEmotionCacheBoundary(diagnostics, frame)
+          : undefined;
+        return createPreactRenderArtifactFromComponentRuntime({
           sourceExport,
           runtimeInput,
           diagnostics,
-        }),
+          wrapWithEmotionCache,
+          emotionCacheBoundary,
+        });
+      },
       isAbortError: (error) => isRuntimeAbortError(error),
       errorToMessage: (error) => this.errorToMessage(error),
       cloneJsonValue,
@@ -1114,6 +1128,40 @@ export class DefaultRuntimeManager implements RuntimeManager {
         ),
       isRemoteUrlAllowed: (url) => this.isRemoteUrlAllowed(url),
     });
+  }
+
+  private async createEmotionCacheBoundary(
+    diagnostics: RuntimeDiagnostic[],
+    frame: ExecutionFrame,
+  ): Promise<{ provider: unknown; value: unknown } | undefined> {
+    try {
+      const namespace = (await this.createSourceModuleLoader(
+        undefined,
+        diagnostics,
+        frame.materializationBudget,
+        frame.signal,
+      ).importSourceModuleFromCode(EMOTION_CACHE_BRIDGE_SOURCE)) as Record<
+        string,
+        unknown
+      >;
+      const provider = namespace.CacheProvider;
+      const createCache = namespace.createCache;
+      if (!provider || typeof createCache !== "function") {
+        return undefined;
+      }
+
+      return {
+        provider,
+        value: createCache({ key: "renderify" }),
+      };
+    } catch (error) {
+      this.pushDiagnosticOnce(diagnostics, {
+        level: "error",
+        code: "RUNTIME_EMOTION_CACHE_BRIDGE_FAILED",
+        message: this.errorToMessage(error),
+      });
+      return undefined;
+    }
   }
 
   private async materializeFetchedModuleSource(
@@ -1431,5 +1479,11 @@ function isBrowserSandboxExecutionProfile(
     profile === "sandbox-worker" ||
     profile === "sandbox-iframe" ||
     profile === "sandbox-shadowrealm"
+  );
+}
+
+function hasMaterialUiSourceImport(code: string): boolean {
+  return /(?:from\s+|import\s*\(\s*)["']@mui\/(?:material|icons-material)(?:@[^/"']+)?(?:\/[^"']+)?["']/.test(
+    code,
   );
 }

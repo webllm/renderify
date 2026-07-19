@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { h } from "preact";
 import {
   createComponentNode,
   createElementNode,
@@ -4602,6 +4603,47 @@ test("runtime reuses stable preact wrapper identities for repeated renders", asy
     ),
     true,
   );
+});
+
+test("runtime wraps server-rendered Preact artifacts with an Emotion cache boundary", async () => {
+  const diagnostics: Array<{
+    level: "info" | "warning" | "error";
+    code: string;
+    message: string;
+  }> = [];
+  const artifact = await createPreactRenderArtifact({
+    sourceExport: function StyledLikeComponent() {
+      return h("span", null, "content");
+    },
+    runtimeInput: {},
+    diagnostics,
+    wrapWithEmotionCache: true,
+    emotionCacheBoundary: {
+      provider: function CacheBoundary(props: {
+        value: { key: string };
+        children?: unknown;
+      }) {
+        return h(
+          "section",
+          { "data-cache-key": props.value.key },
+          props.children as never,
+        );
+      },
+      value: { key: "renderify" },
+    },
+  });
+
+  assert.equal(artifact?.mode, "preact-vnode");
+  assert.equal(
+    await new DefaultUIRenderer().render({
+      planId: "runtime_emotion_cache_boundary_plan",
+      root: createTextNode("fallback"),
+      diagnostics: [],
+      renderArtifact: artifact,
+    }),
+    '<section data-cache-key="renderify"><span>content</span></section>',
+  );
+  assert.deepEqual(diagnostics, []);
 });
 
 test("runtime preact rendering rejects plain object component output", async () => {

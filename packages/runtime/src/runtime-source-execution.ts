@@ -63,6 +63,11 @@ export interface RuntimeSourceExecutionInput {
     sourceExport: unknown;
     runtimeInput: Record<string, JsonValue>;
     diagnostics: RuntimeDiagnostic[];
+    wrapWithEmotionCache?: boolean;
+    emotionCacheBoundary?: {
+      provider: unknown;
+      value: unknown;
+    };
   }) => Promise<RuntimeRenderArtifact | undefined>;
   isAbortError: (error: unknown) => boolean;
   errorToMessage: (error: unknown) => string;
