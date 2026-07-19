@@ -3,4 +3,8 @@ import { source } from "@/lib/source";
 
 export const revalidate = false;
 
-export const { staticGET: GET } = flexsearchFromSource(source);
+export const { staticGET: GET } = flexsearchFromSource(source, {
+  document: {
+    tokenize: "forward",
+  },
+});
