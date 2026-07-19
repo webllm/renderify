@@ -2657,7 +2657,16 @@ test("runtime source loader uses bundled esm.sh modules for Material UI", async 
         ): Promise<{ requestUrl: string }>;
       };
     }
-  ).createSourceModuleLoader(undefined, []);
+  ).createSourceModuleLoader(
+    {
+      "preact/hooks": {
+        resolvedUrl:
+          "https://ga.jspm.io/npm:preact@10.28.3/hooks/dist/hooks.mjs",
+        version: "10.28.3",
+      },
+    },
+    [],
+  );
   const requestedUrls: string[] = [];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL) => {
@@ -2676,6 +2685,8 @@ test("runtime source loader uses bundled esm.sh modules for Material UI", async 
 
     assert.match(fetched.requestUrl, /^https:\/\/esm\.sh\/@mui\/material/);
     assert.match(fetched.requestUrl, /[?&]bundle(?:&|$)/);
+    assert.match(fetched.requestUrl, /[?&]deps=preact@10\.28\.3(?:&|$)/);
+    assert.match(fetched.requestUrl, /[?&]target=node(?:&|$)/);
     assert.deepEqual(requestedUrls, [fetched.requestUrl]);
   } finally {
     globalThis.fetch = originalFetch;

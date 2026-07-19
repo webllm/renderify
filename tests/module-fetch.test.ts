@@ -99,6 +99,7 @@ test("module-fetch generates esm.sh/jsdelivr/unpkg/jspm fallback urls", () => {
   );
   assert.match(String(esm), /[?&]bundle(?:&|$)/);
   assert.match(String(esm), /alias=react:preact\/compat/);
+  assert.match(String(esm), /[?&]target=es2022(?:&|$)/);
 
   const jsdelivr = toConfiguredFallbackUrl(source, "https://cdn.jsdelivr.net");
   assert.equal(
@@ -111,6 +112,18 @@ test("module-fetch generates esm.sh/jsdelivr/unpkg/jspm fallback urls", () => {
 
   const jspm = toConfiguredFallbackUrl(source, "https://cdn.jspm.io/npm");
   assert.equal(jspm, "https://cdn.jspm.io/npm:@mui/material@7.3.5/index.js");
+});
+
+test("module-fetch targets Node and pins Preact for Material UI SSR", () => {
+  const source = "https://ga.jspm.io/npm:@mui/material@9.2.0/index.mjs";
+  const esm = toEsmFallbackUrl(source, undefined, {
+    runtime: "node",
+    preactVersion: "10.28.3",
+  });
+
+  assert.match(String(esm), /[?&]bundle(?:&|$)/);
+  assert.match(String(esm), /[?&]deps=preact@10\.28\.3(?:&|$)/);
+  assert.match(String(esm), /[?&]target=node(?:&|$)/);
 });
 
 test("module-fetch builds deduplicated fallback attempt list", () => {

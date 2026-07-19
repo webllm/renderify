@@ -150,6 +150,7 @@ export class RuntimeSourceModuleLoader {
     | RuntimeModuleMaterializationBudget
     | undefined;
   private readonly integrityByResolvedUrl: Map<string, string>;
+  private readonly preactVersion: string | undefined;
   private readonly localNodeSpecifierUrlCache = new Map<
     string,
     string | null
@@ -197,6 +198,7 @@ export class RuntimeSourceModuleLoader {
     this.integrityByResolvedUrl = collectIntegrityByResolvedUrl(
       this.moduleManifest,
     );
+    this.preactVersion = resolveManifestPreactVersion(this.moduleManifest);
   }
 
   async importSourceModuleFromCode(code: string): Promise<unknown> {
@@ -501,6 +503,10 @@ export class RuntimeSourceModuleLoader {
     const attempts = buildRemoteModuleAttemptUrls(
       url,
       this.remoteFallbackCdnBases,
+      {
+        runtime: isNodeRuntime() ? "node" : "browser",
+        preactVersion: this.preactVersion,
+      },
     );
 
     if (attempts.length === 0) {
@@ -1716,6 +1722,43 @@ function collectIntegrityByResolvedUrl(
   }
 
   return mapped;
+}
+
+function resolveManifestPreactVersion(
+  moduleManifest: RuntimeModuleManifest | undefined,
+): string | undefined {
+  if (!moduleManifest) {
+    return undefined;
+  }
+
+  for (const specifier of [
+    "preact",
+    "preact/hooks",
+    "preact/jsx-runtime",
+    "preact/compat",
+  ]) {
+    const descriptor = moduleManifest[specifier];
+    const declaredVersion = descriptor?.version?.trim();
+    if (
+      declaredVersion &&
+      /^[0-9]+(?:\.[0-9A-Za-z-]+){1,3}$/.test(declaredVersion)
+    ) {
+      return declaredVersion;
+    }
+
+    const resolvedUrl = descriptor?.resolvedUrl?.trim();
+    const resolvedVersion = resolvedUrl?.match(
+      /(?:\/|npm:)preact@([^/?#]+)/i,
+    )?.[1];
+    if (
+      resolvedVersion &&
+      /^[0-9]+(?:\.[0-9A-Za-z-]+){1,3}$/.test(resolvedVersion)
+    ) {
+      return resolvedVersion;
+    }
+  }
+
+  return undefined;
 }
 
 function createAbortError(): Error {

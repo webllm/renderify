@@ -11,15 +11,21 @@ export interface RemoteModuleFetchResult {
 
 export const DEFAULT_ESM_CDN_BASE = "https://esm.sh";
 
+export interface RemoteModuleFallbackOptions {
+  runtime?: "browser" | "node";
+  preactVersion?: string;
+}
+
 export function buildRemoteModuleAttemptUrls(
   url: string,
   fallbackCdnBases: string[],
+  options: RemoteModuleFallbackOptions = {},
 ): string[] {
   const candidates = new Set<string>();
   candidates.add(url);
 
   for (const fallbackBase of fallbackCdnBases) {
-    const fallback = toConfiguredFallbackUrl(url, fallbackBase);
+    const fallback = toConfiguredFallbackUrl(url, fallbackBase, options);
     if (fallback) {
       candidates.add(fallback);
     }
@@ -31,6 +37,7 @@ export function buildRemoteModuleAttemptUrls(
 export function toConfiguredFallbackUrl(
   url: string,
   cdnBase: string,
+  options: RemoteModuleFallbackOptions = {},
 ): string | undefined {
   const normalizedBase = cdnBase.trim().replace(/\/$/, "");
   const specifier = extractJspmNpmSpecifier(url);
@@ -39,7 +46,7 @@ export function toConfiguredFallbackUrl(
   }
 
   if (normalizedBase.includes("esm.sh")) {
-    return toEsmFallbackUrl(url, normalizedBase);
+    return toEsmFallbackUrl(url, normalizedBase, options);
   }
 
   if (normalizedBase.includes("jsdelivr.net")) {
@@ -64,6 +71,7 @@ export function toConfiguredFallbackUrl(
 export function toEsmFallbackUrl(
   url: string,
   cdnBase = DEFAULT_ESM_CDN_BASE,
+  options: RemoteModuleFallbackOptions = {},
 ): string | undefined {
   const specifier = extractJspmNpmSpecifier(url);
   if (!specifier) {
@@ -74,14 +82,30 @@ export function toEsmFallbackUrl(
     return undefined;
   }
 
+  const shouldBundle = shouldBundleEsmFallbackSpecifier(specifier);
+  const target = options.runtime === "node" && shouldBundle ? "node" : "es2022";
+  const preactVersion = normalizeEsmDependencyVersion(options.preactVersion);
   const aliasQuery = [
-    ...(shouldBundleEsmFallbackSpecifier(specifier) ? ["bundle"] : []),
+    ...(shouldBundle ? ["bundle"] : []),
     "alias=react:preact/compat,react-dom:preact/compat,react-dom/client:preact/compat,react/jsx-runtime:preact/jsx-runtime,react/jsx-dev-runtime:preact/jsx-runtime",
-    "target=es2022",
+    ...(shouldBundle && preactVersion
+      ? [`deps=preact@${encodeURIComponent(preactVersion)}`]
+      : []),
+    `target=${target}`,
   ].join("&");
 
   const separator = specifier.includes("?") ? "&" : "?";
   return `${normalizedBase}/${specifier}${separator}${aliasQuery}`;
+}
+
+function normalizeEsmDependencyVersion(
+  value: string | undefined,
+): string | undefined {
+  const normalized = value?.trim();
+  if (!normalized || !/^[0-9]+(?:\.[0-9A-Za-z-]+){1,3}$/.test(normalized)) {
+    return undefined;
+  }
+  return normalized;
 }
 
 function shouldBundleEsmFallbackSpecifier(specifier: string): boolean {
