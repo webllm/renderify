@@ -1004,7 +1004,15 @@ test("core tells the LLM when active policy forbids source plans", async () => {
   );
   await trustedApp.start();
   await trustedApp.renderPrompt("trusted policy plan");
-  assert.equal(trustedLlm.systemPrompts[0], undefined);
+  assert.match(
+    trustedLlm.systemPrompts[0] ?? "",
+    /provide the implementation as RuntimePlan source\.code.*or as one fenced jsx\/tsx code block/i,
+  );
+  assert.match(trustedLlm.systemPrompts[0] ?? "", /source\.runtime="preact"/i);
+  assert.match(
+    trustedLlm.systemPrompts[0] ?? "",
+    /Do not use localStorage.*fetch.*dynamic import/i,
+  );
   await trustedApp.stop();
 });
 
