@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import test from "node:test";
-import type { RuntimeDiagnostic } from "../packages/ir/src/index";
+import type {
+  RuntimeDiagnostic,
+  RuntimeModuleManifest,
+} from "../packages/ir/src/index";
 import {
   createRuntimeModuleMaterializationBudget,
   RuntimeModuleMaterializationLimitError,
@@ -249,6 +253,42 @@ test("remote module timeout covers stalled response bodies and cancels the reade
   }
 });
 
+test("remote module probes verify only the entry without materializing its graph", async () => {
+  const rootUrl = "https://modules.example/root.js";
+  const source = 'import "./child.js"; export default 1;';
+  const requestedUrls: string[] = [];
+  let rewriteCalls = 0;
+  const restoreFetch = installMockFetch(async (input) => {
+    requestedUrls.push(String(input));
+    return createJavaScriptResponse(source);
+  });
+  const budget = createRuntimeModuleMaterializationBudget(0);
+  const loader = createLoader({
+    diagnostics: [],
+    budget,
+    moduleManifest: {
+      root: {
+        resolvedUrl: rootUrl,
+        integrity: `sha256-${createHash("sha256").update(source).digest("base64")}`,
+      },
+    },
+    rewriteImportsAsync: async (code) => {
+      rewriteCalls += 1;
+      return code;
+    },
+  });
+
+  try {
+    const fetched = await loader.probeRemoteModule(rootUrl);
+    assert.equal(fetched.code, source);
+    assert.deepEqual(requestedUrls, [rootUrl]);
+    assert.equal(rewriteCalls, 0);
+    assert.equal(budget.materializedKeys.size, 0);
+  } finally {
+    restoreFetch();
+  }
+});
+
 function createLoader(input: {
   cache?: Map<string, string>;
   budget: ReturnType<typeof createRuntimeModuleMaterializationBudget>;
@@ -258,10 +298,11 @@ function createLoader(input: {
     code: string,
     resolver: (specifier: string) => Promise<string>,
   ) => Promise<string>;
+  moduleManifest?: RuntimeModuleManifest;
   isRemoteUrlAllowed?: (url: string) => boolean;
 }): RuntimeSourceModuleLoader {
   return new RuntimeSourceModuleLoader({
-    moduleManifest: undefined,
+    moduleManifest: input.moduleManifest,
     diagnostics: input.diagnostics,
     materializedModuleUrlCache: input.cache ?? new Map(),
     materializedModuleInflight: new Map(),

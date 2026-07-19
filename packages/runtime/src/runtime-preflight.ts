@@ -183,15 +183,9 @@ export interface RuntimeDependencyProbeExecutor {
     usage: RuntimeDependencyUsage,
   ): string | undefined;
   isHttpUrl(specifier: string): boolean;
-  canMaterializeBrowserModules(): boolean;
-  materializeBrowserRemoteModule(
+  probeRemoteSourceModule(
     url: string,
     moduleManifest: RuntimeModuleManifest | undefined,
-    diagnostics: RuntimeDiagnostic[],
-    signal?: AbortSignal,
-  ): Promise<string>;
-  fetchRemoteModuleCodeWithFallback(
-    url: string,
     diagnostics: RuntimeDiagnostic[],
     signal?: AbortSignal,
   ): Promise<unknown>;
@@ -237,8 +231,50 @@ export async function executeDependencyProbe(
       probe.specifier,
       moduleManifest,
     );
+    const remoteCandidate =
+      loaderCandidate && executor.isHttpUrl(loaderCandidate)
+        ? loaderCandidate
+        : executor.isHttpUrl(resolved)
+          ? resolved
+          : undefined;
 
     try {
+      if (remoteCandidate) {
+        if (
+          executor.isResolvedSpecifierAllowed &&
+          !executor.isResolvedSpecifierAllowed(
+            remoteCandidate,
+            probe.usage,
+            diagnostics,
+          )
+        ) {
+          return {
+            usage: probe.usage,
+            specifier: probe.specifier,
+            resolvedSpecifier: remoteCandidate,
+            ok: false,
+            message: "Blocked by runtime network policy",
+          };
+        }
+
+        await executor.withRemainingBudget(
+          (signal) =>
+            executor.probeRemoteSourceModule(
+              remoteCandidate,
+              moduleManifest,
+              diagnostics,
+              signal,
+            ),
+          timeoutMessage,
+        );
+        return {
+          usage: probe.usage,
+          specifier: probe.specifier,
+          resolvedSpecifier: remoteCandidate,
+          ok: true,
+        };
+      }
+
       const loader = executor.moduleLoader;
       if (loader && loaderCandidate) {
         if (
@@ -266,48 +302,6 @@ export async function executeDependencyProbe(
           usage: probe.usage,
           specifier: probe.specifier,
           resolvedSpecifier: loaderCandidate,
-          ok: true,
-        };
-      }
-
-      if (executor.isHttpUrl(resolved)) {
-        if (
-          executor.isResolvedSpecifierAllowed &&
-          !executor.isResolvedSpecifierAllowed(
-            resolved,
-            probe.usage,
-            diagnostics,
-          )
-        ) {
-          return {
-            usage: probe.usage,
-            specifier: probe.specifier,
-            resolvedSpecifier: resolved,
-            ok: false,
-            message: "Blocked by runtime network policy",
-          };
-        }
-
-        await executor.withRemainingBudget(async (signal) => {
-          if (executor.canMaterializeBrowserModules()) {
-            await executor.materializeBrowserRemoteModule(
-              resolved,
-              moduleManifest,
-              diagnostics,
-              signal,
-            );
-          } else {
-            await executor.fetchRemoteModuleCodeWithFallback(
-              resolved,
-              diagnostics,
-              signal,
-            );
-          }
-        }, timeoutMessage);
-        return {
-          usage: probe.usage,
-          specifier: probe.specifier,
-          resolvedSpecifier: resolved,
           ok: true,
         };
       }

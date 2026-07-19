@@ -580,6 +580,15 @@ export class RuntimeSourceModuleLoader {
     }
   }
 
+  async probeRemoteModule(
+    url: string,
+    signal: AbortSignal | undefined = this.signal,
+  ): Promise<RemoteModuleFetchResult> {
+    const fetched = await this.fetchRemoteModuleCodeWithFallback(url, signal);
+    await this.verifyFetchedModuleIntegrity(fetched);
+    return fetched;
+  }
+
   private resolvePreferredMaterialUiBundleIndex(
     originalUrl: string,
     attempts: string[],

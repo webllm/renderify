@@ -80,13 +80,7 @@ function createExecutor(
     isHttpUrl(specifier: string): boolean {
       return specifier.startsWith("https://");
     },
-    canMaterializeBrowserModules(): boolean {
-      return false;
-    },
-    async materializeBrowserRemoteModule(_url: string): Promise<string> {
-      return "blob:module";
-    },
-    async fetchRemoteModuleCodeWithFallback(_url: string): Promise<unknown> {
+    async probeRemoteSourceModule(_url: string): Promise<unknown> {
       return { ok: true };
     },
     isAbortError(error: unknown): boolean {
@@ -242,7 +236,7 @@ test("preflight executeDependencyProbe rejects unresolved relative source import
   );
 });
 
-test("preflight executeDependencyProbe loads source import via module loader candidate", async () => {
+test("preflight executeDependencyProbe loads non-http source import via module loader candidate", async () => {
   const diagnostics: RuntimeDiagnostic[] = [];
   const loaded: string[] = [];
 
@@ -252,7 +246,7 @@ test("preflight executeDependencyProbe loads source import via module loader can
     diagnostics,
     createExecutor({
       resolveSourceImportLoaderCandidate() {
-        return "https://ga.jspm.io/npm:chart@1";
+        return "virtual:chart";
       },
       moduleLoader: {
         async load(specifier: string): Promise<unknown> {
@@ -264,24 +258,33 @@ test("preflight executeDependencyProbe loads source import via module loader can
   );
 
   assert.equal(status.ok, true);
-  assert.equal(status.resolvedSpecifier, "https://ga.jspm.io/npm:chart@1");
-  assert.deepEqual(loaded, ["https://ga.jspm.io/npm:chart@1"]);
+  assert.equal(status.resolvedSpecifier, "virtual:chart");
+  assert.deepEqual(loaded, ["virtual:chart"]);
 });
 
-test("preflight executeDependencyProbe uses http fetch path for source imports", async () => {
+test("preflight executeDependencyProbe probes only the remote source entry", async () => {
   const diagnostics: RuntimeDiagnostic[] = [];
   const fetchedUrls: string[] = [];
+  const loadedUrls: string[] = [];
 
   const status = await executeDependencyProbe(
     { usage: "source-import", specifier: "https://esm.sh/nanoid@5" },
     undefined,
     diagnostics,
     createExecutor({
-      moduleLoader: undefined,
+      moduleLoader: {
+        async load(specifier: string): Promise<unknown> {
+          loadedUrls.push(specifier);
+          return { ok: true };
+        },
+      },
       resolveRuntimeSourceSpecifier() {
         return "https://esm.sh/nanoid@5";
       },
-      async fetchRemoteModuleCodeWithFallback(url: string): Promise<unknown> {
+      resolveSourceImportLoaderCandidate() {
+        return "https://esm.sh/nanoid@5";
+      },
+      async probeRemoteSourceModule(url: string): Promise<unknown> {
         fetchedUrls.push(url);
         return { ok: true };
       },
@@ -290,6 +293,7 @@ test("preflight executeDependencyProbe uses http fetch path for source imports",
 
   assert.equal(status.ok, true);
   assert.deepEqual(fetchedUrls, ["https://esm.sh/nanoid@5"]);
+  assert.deepEqual(loadedUrls, []);
 });
 
 test("preflight executeDependencyProbe reports skipped status when loader is missing", async () => {

@@ -10,10 +10,7 @@ import {
   type RuntimeDependencyUsage,
   runDependencyPreflight,
 } from "./runtime-preflight";
-import {
-  canMaterializeBrowserModules,
-  parseImportSpecifiersFromSource,
-} from "./runtime-source-utils";
+import { parseImportSpecifiersFromSource } from "./runtime-source-utils";
 import { isHttpUrl } from "./runtime-specifier";
 
 export interface RuntimePlanPreflightInput {
@@ -47,14 +44,9 @@ export interface RuntimePlanPreflightInput {
     usage: RuntimeDependencyUsage,
     diagnostics: RuntimeDiagnostic[],
   ): boolean;
-  materializeBrowserRemoteModule(
+  probeRemoteSourceModule(
     url: string,
     moduleManifest: RuntimeModuleManifest | undefined,
-    diagnostics: RuntimeDiagnostic[],
-    signal?: AbortSignal,
-  ): Promise<string>;
-  fetchRemoteModuleCodeWithFallback(
-    url: string,
     diagnostics: RuntimeDiagnostic[],
     signal?: AbortSignal,
   ): Promise<unknown>;
@@ -109,21 +101,8 @@ export async function preflightRuntimePlanDependencies(
             input.isResolvedSpecifierAllowed?.(specifier, usage, diagnostics) ??
             true,
           isHttpUrl,
-          canMaterializeBrowserModules: () => canMaterializeBrowserModules(),
-          materializeBrowserRemoteModule: (
-            url,
-            manifest,
-            diagnostics,
-            signal,
-          ) =>
-            input.materializeBrowserRemoteModule(
-              url,
-              manifest,
-              diagnostics,
-              signal,
-            ),
-          fetchRemoteModuleCodeWithFallback: (url, diagnostics, signal) =>
-            input.fetchRemoteModuleCodeWithFallback(url, diagnostics, signal),
+          probeRemoteSourceModule: (url, manifest, diagnostics, signal) =>
+            input.probeRemoteSourceModule(url, manifest, diagnostics, signal),
           isAbortError: (error) => input.isAbortError(error),
           errorToMessage: (error) => input.errorToMessage(error),
         },

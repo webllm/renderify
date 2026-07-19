@@ -934,25 +934,13 @@ export class DefaultRuntimeManager implements RuntimeManager {
         ),
       isResolvedSpecifierAllowed: (specifier, usage, runtimeDiagnostics) =>
         this.isResolvedSpecifierAllowed(specifier, usage, runtimeDiagnostics),
-      materializeBrowserRemoteModule: (
-        url,
-        manifest,
-        runtimeDiagnostics,
-        signal,
-      ) =>
+      probeRemoteSourceModule: (url, manifest, runtimeDiagnostics, signal) =>
         this.createSourceModuleLoader(
           manifest,
           runtimeDiagnostics,
-          frame.materializationBudget,
-          signal,
-        ).materializeRemoteModule(url),
-      fetchRemoteModuleCodeWithFallback: (url, runtimeDiagnostics, signal) =>
-        this.createSourceModuleLoader(
-          undefined,
-          runtimeDiagnostics,
           undefined,
           signal,
-        ).fetchRemoteModuleCodeWithFallback(url, signal),
+        ).probeRemoteModule(url, signal),
       isAbortError: (error) => isRuntimeAbortError(error),
       errorToMessage: (error) => this.errorToMessage(error),
       isAborted: () => isRuntimeAborted(frame.signal),
