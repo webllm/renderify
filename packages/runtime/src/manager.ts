@@ -120,7 +120,7 @@ interface ExecutionFrame {
 
 const EMOTION_CACHE_BRIDGE_SOURCE = [
   'import { CacheProvider } from "https://esm.sh/@emotion/react@^11.5.0?alias=react:preact/compat&target=es2022";',
-  'import createCache from "https://esm.sh/@emotion/cache@^11.14.0?target=node";',
+  'import createCache from "https://esm.sh/@emotion/cache@^11.14.0?bundle&target=node";',
   "export { CacheProvider, createCache };",
 ].join("\n");
 
