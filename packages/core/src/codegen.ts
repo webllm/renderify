@@ -40,6 +40,8 @@ const SYNTHETIC_SOURCE_MODULE_SPECIFIER_ALIASES = new Set([
 const SHADCN_ALIAS_IMPORT_PREFIX = "https://esm.sh/@/components/ui/";
 const MUI_MATERIAL_BARE_SPECIFIER = "@mui/material";
 const MUI_ICONS_BARE_PREFIX = "@mui/icons-material";
+const MUI_SOURCE_MAX_IMPORTS = 400;
+const MUI_SOURCE_MAX_EXECUTION_MS = 30_000;
 let generatedPlanIdSequence = 0;
 const codegenTextFallbackPlans = new WeakSet<RuntimePlan>();
 
@@ -1042,7 +1044,24 @@ export class DefaultCodeGenerator implements CodeGenerator {
       delete normalized.maxComponentInvocations;
     }
 
+    if (source && this.hasMaterialUiImport(imports)) {
+      normalized.maxImports ??= MUI_SOURCE_MAX_IMPORTS;
+      normalized.maxExecutionMs ??= MUI_SOURCE_MAX_EXECUTION_MS;
+    }
+
     return normalized;
+  }
+
+  private hasMaterialUiImport(imports: string[]): boolean {
+    return imports.some(
+      (specifier) =>
+        specifier === MUI_MATERIAL_BARE_SPECIFIER ||
+        specifier.startsWith(`${MUI_MATERIAL_BARE_SPECIFIER}/`) ||
+        specifier.startsWith(`${MUI_MATERIAL_BARE_SPECIFIER}@`) ||
+        specifier === MUI_ICONS_BARE_PREFIX ||
+        specifier.startsWith(`${MUI_ICONS_BARE_PREFIX}/`) ||
+        specifier.startsWith(`${MUI_ICONS_BARE_PREFIX}@`),
+    );
   }
 
   private createModuleManifestFromImports(

@@ -1260,6 +1260,8 @@ test("codegen canonicalizes material ui imports to bare npm specifiers", async (
     plan.moduleManifest?.["https://esm.sh/@mui/material@5.15.0"],
     undefined,
   );
+  assert.equal(plan.capabilities.maxImports, 400);
+  assert.equal(plan.capabilities.maxExecutionMs, 30_000);
   assert.equal(
     plan.moduleManifest?.["@mui/material"]?.resolvedUrl,
     "@mui/material@5.15.0",
