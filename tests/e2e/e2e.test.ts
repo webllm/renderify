@@ -2364,30 +2364,42 @@ async function startFakeGoogleServer(port: number): Promise<{
   };
 }
 
+const allocatedPorts = new Set<number>();
+
 async function allocatePort(): Promise<number> {
   const { createServer } = await import("node:net");
 
   return new Promise<number>((resolve, reject) => {
-    const server = createServer();
+    const attempt = () => {
+      const server = createServer();
 
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      const address = server.address();
-      if (!address || typeof address === "string") {
-        reject(new Error("failed to allocate port"));
-        return;
-      }
-
-      const port = address.port;
-      server.close((closeError) => {
-        if (closeError) {
-          reject(closeError);
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", () => {
+        const address = server.address();
+        if (!address || typeof address === "string") {
+          reject(new Error("failed to allocate port"));
           return;
         }
 
-        resolve(port);
+        const port = address.port;
+        server.close((closeError) => {
+          if (closeError) {
+            reject(closeError);
+            return;
+          }
+
+          if (allocatedPorts.has(port)) {
+            attempt();
+            return;
+          }
+
+          allocatedPorts.add(port);
+          resolve(port);
+        });
       });
-    });
+    };
+
+    attempt();
   });
 }
 
