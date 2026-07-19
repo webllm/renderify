@@ -794,6 +794,24 @@ test("openai codex normalizes DOM-like plans and uses low reasoning for Spark", 
     ["text", "element", "component"],
   );
   assert.deepEqual(schema?.properties?.state?.required, ["initial"]);
+  const stateSchema = schema?.properties?.state as
+    | {
+        properties?: {
+          transitions?: {
+            additionalProperties?: {
+              items?: {
+                additionalProperties?: boolean;
+                required?: string[];
+              };
+            };
+          };
+        };
+      }
+    | undefined;
+  const actionSchema =
+    stateSchema?.properties?.transitions?.additionalProperties?.items;
+  assert.equal(actionSchema?.additionalProperties, false);
+  assert.deepEqual(actionSchema?.required, ["type", "path"]);
   assert.deepEqual(
     Object.keys(schema?.properties?.capabilities?.properties ?? {}),
     ["domWrite"],
@@ -823,6 +841,11 @@ test("openai codex normalizes DOM-like plans and uses low reasoning for Spark", 
     (response.raw as { normalized?: boolean } | undefined)?.normalized,
     true,
   );
+  assert.match(
+    String(requests[0].instructions),
+    /Runtime template syntax is \{\{state\.path\}\}/,
+  );
+  assert.match(String(requests[0].instructions), /Never use \$\{\.\.\.\}/);
 });
 
 test("openai codex rejects plans with present invalid semantic fields", async () => {
@@ -973,6 +996,51 @@ test("openai codex rejects plan fields misplaced inside root", async () => {
     "Structured payload is not a valid RuntimePlan",
     "root.state is not valid on a RuntimeNode; move state to the RuntimePlan top level",
     "root.capabilities is not valid on a RuntimeNode; move capabilities to the RuntimePlan top level",
+  ]);
+});
+
+test("openai codex rejects unsupported declarative expressions", async () => {
+  const invalidPlan = {
+    specVersion: "runtime-plan/v1",
+    id: "codex_unsupported_expression_plan",
+    version: 1,
+    root: {
+      type: "element",
+      tag: "p",
+      children: [{ type: "text", value: `已完成: \${completedCount} / 5` }],
+    },
+    capabilities: { domWrite: true },
+  };
+  const llm = new OpenAICodexLLMInterpreter({
+    accessToken: "codex-test-token",
+    fetchImpl: async () =>
+      sseResponse([
+        "event: response.output_text.delta\ndata: " +
+          JSON.stringify({
+            type: "response.output_text.delta",
+            delta: JSON.stringify(invalidPlan),
+          }),
+        "event: response.completed\ndata: " +
+          JSON.stringify({
+            type: "response.completed",
+            response: {
+              id: "resp_codex_unsupported_expression",
+              model: "gpt-5.5",
+            },
+          }),
+      ]),
+  });
+
+  const response = await llm.generateStructuredResponse({
+    prompt: "build a todo list",
+    format: "runtime-plan",
+    strict: true,
+  });
+
+  assert.equal(response.valid, false);
+  assert.deepEqual(response.errors, [
+    "Structured payload is not a valid RuntimePlan",
+    `root.children[0].value uses unsupported \${...} interpolation; use {{state.path}} path templates only`,
   ]);
 });
 

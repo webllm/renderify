@@ -1009,7 +1009,10 @@ export function isRuntimeValueFromPath(
   }
 
   const candidate = value as Partial<RuntimeValueFromPath>;
-  return typeof candidate.$from === "string";
+  return (
+    typeof candidate.$from === "string" &&
+    isRuntimeTemplatePath(candidate.$from)
+  );
 }
 
 export function isRuntimeAction(value: unknown): value is RuntimeAction {
@@ -1022,10 +1025,7 @@ export function isRuntimeAction(value: unknown): value is RuntimeAction {
   }
 
   if (value.type === "set" || value.type === "push") {
-    return (
-      "value" in value &&
-      (isJsonValue(value.value) || isRuntimeValueFromPath(value.value))
-    );
+    return "value" in value && isRuntimeActionValue(value.value);
   }
 
   if (value.type === "increment") {
@@ -1040,6 +1040,17 @@ export function isRuntimeAction(value: unknown): value is RuntimeAction {
   }
 
   return false;
+}
+
+function isRuntimeActionValue(value: unknown): value is RuntimeActionValue {
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    Object.hasOwn(value, "$from")
+  ) {
+    return isRuntimeValueFromPath(value);
+  }
+  return isJsonValue(value);
 }
 
 export function isRuntimeStateSnapshot(
@@ -1382,6 +1393,202 @@ export function isRuntimePlan(value: unknown): value is RuntimePlan {
   return true;
 }
 
+const RUNTIME_TEMPLATE_EXPRESSION_PATTERN = /{{\s*([^{}]+?)\s*}}/g;
+const RUNTIME_TEMPLATE_PATH_PATTERN =
+  /^(?:[A-Za-z_$][A-Za-z0-9_$-]*|\d+)(?:\.(?:[A-Za-z_$][A-Za-z0-9_$-]*|\d+))*$/;
+const MAX_RUNTIME_PLAN_TEMPLATE_DIAGNOSTICS = 8;
+
+export function isRuntimeTemplatePath(expression: string): boolean {
+  const path = expression.trim();
+  return RUNTIME_TEMPLATE_PATH_PATTERN.test(path) && isSafePath(path);
+}
+
+export function collectRuntimePlanTemplateDiagnostics(
+  plan: RuntimePlan,
+): string[] {
+  const diagnostics: string[] = [];
+  const pendingNodes: Array<{ node: RuntimeNode; path: string }> = [
+    { node: plan.root, path: "root" },
+  ];
+
+  while (
+    pendingNodes.length > 0 &&
+    diagnostics.length < MAX_RUNTIME_PLAN_TEMPLATE_DIAGNOSTICS
+  ) {
+    const entry = pendingNodes.pop();
+    if (!entry) {
+      break;
+    }
+
+    if (entry.node.type === "text") {
+      collectRuntimeTemplateStringDiagnostics(
+        entry.node.value,
+        `${entry.path}.value`,
+        "runtime",
+        diagnostics,
+      );
+      continue;
+    }
+
+    if (entry.node.props) {
+      collectRuntimeTemplateJsonDiagnostics(
+        entry.node.props,
+        `${entry.path}.props`,
+        "runtime",
+        diagnostics,
+      );
+    }
+    for (
+      let index = (entry.node.children?.length ?? 0) - 1;
+      index >= 0;
+      index -= 1
+    ) {
+      const child = entry.node.children?.[index];
+      if (child) {
+        pendingNodes.push({
+          node: child,
+          path: `${entry.path}.children[${index}]`,
+        });
+      }
+    }
+  }
+
+  if (
+    plan.state &&
+    diagnostics.length < MAX_RUNTIME_PLAN_TEMPLATE_DIAGNOSTICS
+  ) {
+    collectRuntimeTemplateJsonDiagnostics(
+      plan.state.initial,
+      "state.initial",
+      "initial",
+      diagnostics,
+    );
+
+    for (const [eventType, actions] of Object.entries(
+      plan.state.transitions ?? {},
+    )) {
+      for (let index = 0; index < actions.length; index += 1) {
+        if (diagnostics.length >= MAX_RUNTIME_PLAN_TEMPLATE_DIAGNOSTICS) {
+          break;
+        }
+        const action = actions[index];
+        if (action?.type === "set" || action?.type === "push") {
+          if (!isRuntimeValueFromPath(action.value)) {
+            collectRuntimeTemplateJsonDiagnostics(
+              action.value,
+              `state.transitions.${eventType}[${index}].value`,
+              "action",
+              diagnostics,
+            );
+          }
+        }
+      }
+    }
+  }
+
+  return diagnostics;
+}
+
+type RuntimeTemplateValueLocation = "runtime" | "initial" | "action";
+
+function collectRuntimeTemplateJsonDiagnostics(
+  value: JsonValue,
+  path: string,
+  location: RuntimeTemplateValueLocation,
+  diagnostics: string[],
+): void {
+  const pending: Array<{ value: JsonValue; path: string }> = [{ value, path }];
+
+  while (
+    pending.length > 0 &&
+    diagnostics.length < MAX_RUNTIME_PLAN_TEMPLATE_DIAGNOSTICS
+  ) {
+    const entry = pending.pop();
+    if (!entry) {
+      break;
+    }
+    if (typeof entry.value === "string") {
+      collectRuntimeTemplateStringDiagnostics(
+        entry.value,
+        entry.path,
+        location,
+        diagnostics,
+      );
+      continue;
+    }
+    if (Array.isArray(entry.value)) {
+      for (let index = entry.value.length - 1; index >= 0; index -= 1) {
+        const child = entry.value[index];
+        if (child !== undefined) {
+          pending.push({ value: child, path: `${entry.path}[${index}]` });
+        }
+      }
+      continue;
+    }
+    if (entry.value !== null && typeof entry.value === "object") {
+      const entries = Object.entries(entry.value);
+      for (let index = entries.length - 1; index >= 0; index -= 1) {
+        const [key, child] = entries[index] ?? [];
+        if (key !== undefined && child !== undefined) {
+          pending.push({ value: child, path: `${entry.path}.${key}` });
+        }
+      }
+    }
+  }
+}
+
+function collectRuntimeTemplateStringDiagnostics(
+  value: string,
+  path: string,
+  location: RuntimeTemplateValueLocation,
+  diagnostics: string[],
+): void {
+  if (value.includes("${")) {
+    diagnostics.push(
+      location === "runtime"
+        ? `${path} uses unsupported \${...} interpolation; use {{state.path}} path templates only`
+        : `${path} contains template syntax, but ${location === "initial" ? "state.initial" : "action values"} must be literal JSON; use a {$from:"event.payload.value"} action value for path copies`,
+    );
+    return;
+  }
+
+  if (!value.includes("{{")) {
+    return;
+  }
+  if (location !== "runtime") {
+    diagnostics.push(
+      `${path} contains template syntax, but ${location === "initial" ? "state.initial" : "action values"} must be literal JSON; use a {$from:"event.payload.value"} action value for path copies`,
+    );
+    return;
+  }
+
+  RUNTIME_TEMPLATE_EXPRESSION_PATTERN.lastIndex = 0;
+  let matched = false;
+  let match = RUNTIME_TEMPLATE_EXPRESSION_PATTERN.exec(value);
+  while (
+    match !== null &&
+    diagnostics.length < MAX_RUNTIME_PLAN_TEMPLATE_DIAGNOSTICS
+  ) {
+    matched = true;
+    const expression = match[1] ?? "";
+    if (!isRuntimeTemplatePath(expression)) {
+      diagnostics.push(
+        `${path} contains unsupported template expression "{{${expression.trim()}}}"; only state/context/vars/event path lookups are allowed`,
+      );
+    }
+    match = RUNTIME_TEMPLATE_EXPRESSION_PATTERN.exec(value);
+  }
+  RUNTIME_TEMPLATE_EXPRESSION_PATTERN.lastIndex = 0;
+
+  const unmatched = value.replace(RUNTIME_TEMPLATE_EXPRESSION_PATTERN, "");
+  RUNTIME_TEMPLATE_EXPRESSION_PATTERN.lastIndex = 0;
+  if (!matched || unmatched.includes("{{")) {
+    diagnostics.push(
+      `${path} contains malformed template syntax; use {{state.path}}`,
+    );
+  }
+}
+
 /**
  * Normalizes a JSON RuntimePlan candidate without executing model-provided code.
  * Valid plans are returned unchanged; only well-known DOM-like node aliases are
@@ -1405,7 +1612,9 @@ export function normalizeRuntimePlanCandidate(
     isPlainJsonObject(value) &&
     !Object.hasOwn(value, "nodes")
   ) {
-    return value;
+    return collectRuntimePlanTemplateDiagnostics(value).length === 0
+      ? value
+      : undefined;
   }
   if (!isPlainJsonObject(value)) {
     return undefined;
@@ -1606,7 +1815,10 @@ export function normalizeRuntimePlanCandidate(
     candidate.metadata = rawMetadataProperty.value;
   }
 
-  return isRuntimePlan(candidate) ? candidate : undefined;
+  return isRuntimePlan(candidate) &&
+    collectRuntimePlanTemplateDiagnostics(candidate).length === 0
+    ? candidate
+    : undefined;
 }
 
 export function isRuntimeModuleDescriptor(

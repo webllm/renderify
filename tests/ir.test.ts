@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   asJsonValue,
   collectComponentModules,
+  collectRuntimePlanTemplateDiagnostics,
   createComponentNode,
   createElementNode,
   createFnv1a64Hasher,
@@ -20,6 +21,7 @@ import {
   isRuntimeSourceModule,
   isRuntimeSourceRuntime,
   isRuntimeStateModel,
+  isRuntimeTemplatePath,
   isSafePath,
   normalizeRuntimeNodeCandidate,
   normalizeRuntimePlanCandidate,
@@ -608,6 +610,65 @@ test("runtime candidate normalization rejects present invalid semantic fields", 
     domWrite: true,
     allowedModules: [],
   });
+});
+
+test("runtime plan normalization rejects unsupported template expressions", () => {
+  const createPlan = (value: string) => ({
+    id: "template_expression_plan",
+    version: 1,
+    root: {
+      type: "element" as const,
+      tag: "p",
+      props: { title: value },
+      children: [{ type: "text" as const, value }],
+    },
+    capabilities: { domWrite: true },
+    state: { initial: { count: 1, done: false } },
+  });
+
+  const validPlan = createPlan("Count={{state.count}}");
+  assert.equal(normalizeRuntimePlanCandidate(validPlan), validPlan);
+  assert.deepEqual(collectRuntimePlanTemplateDiagnostics(validPlan), []);
+  assert.equal(isRuntimeTemplatePath("state.todos.0.title"), true);
+  assert.equal(isRuntimeTemplatePath("state.done ? 1 : 0"), false);
+  assert.equal(isRuntimeTemplatePath("state.__proto__.polluted"), false);
+
+  const dollarPlan = createPlan(`Done: \${completedCount}`);
+  assert.equal(normalizeRuntimePlanCandidate(dollarPlan), undefined);
+  assert.match(
+    collectRuntimePlanTemplateDiagnostics(dollarPlan)[0] ?? "",
+    /unsupported \$\{\.\.\.\} interpolation/,
+  );
+
+  const expressionPlan = createPlan("{{state.done ? 'line-through' : 'none'}}");
+  assert.equal(normalizeRuntimePlanCandidate(expressionPlan), undefined);
+  assert.match(
+    collectRuntimePlanTemplateDiagnostics(expressionPlan)[0] ?? "",
+    /unsupported template expression/,
+  );
+
+  assert.equal(
+    normalizeRuntimePlanCandidate({
+      ...createPlan("Todo"),
+      state: { initial: { count: "{{state.other}}" } },
+    }),
+    undefined,
+  );
+  assert.equal(
+    isRuntimeStateModel({
+      initial: { input: "" },
+      transitions: {
+        update: [
+          {
+            type: "set",
+            path: "input",
+            value: { $from: "event.payload.value || state.input" },
+          },
+        ],
+      },
+    }),
+    false,
+  );
 });
 
 test("runtime node guards validate descendants, props, and component exports", () => {

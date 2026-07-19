@@ -7,10 +7,12 @@ import type {
   LLMStructuredResponse,
 } from "@renderify/core";
 import {
+  collectRuntimePlanTemplateDiagnostics,
   hashStringFNV1a64Hex,
   isJsonValue,
   isRuntimeCapabilities,
   isRuntimeModuleManifest,
+  isRuntimePlan,
   isRuntimePlanMetadata,
   isRuntimeSourceLanguage,
   isRuntimeSourceRuntime,
@@ -144,11 +146,19 @@ const createRuntimeNodeJsonSchema = (
       type: "string",
       enum: ["text", "element", "component"],
     },
-    value: { type: "string" },
+    value: {
+      type: "string",
+      description: `Text content. Runtime templates use {{state.path}} path lookups only; never use \${...} or JavaScript expressions.`,
+    },
     tag: { type: "string", minLength: 1 },
     module: { type: "string", minLength: 1 },
     exportName: { type: "string", minLength: 1 },
-    props: { type: "object", additionalProperties: true },
+    props: {
+      type: "object",
+      additionalProperties: true,
+      description:
+        "HTML props and styles. Dynamic values use {{state.path}} path lookups only. Event props contain static transition names.",
+    },
     children: {
       type: "array",
       items:
@@ -158,6 +168,27 @@ const createRuntimeNodeJsonSchema = (
     },
   },
 });
+
+const RUNTIME_ACTION_JSON_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["type", "path"],
+  properties: {
+    type: {
+      type: "string",
+      enum: ["set", "increment", "toggle", "push"],
+    },
+    path: { type: "string", minLength: 1 },
+    value: {
+      description:
+        'Required for set/push. Use literal JSON or {"$from":"event.payload.value"}; never use template or JavaScript expressions.',
+    },
+    by: {
+      type: "number",
+      description: "Optional numeric delta for increment actions only.",
+    },
+  },
+} as const;
 
 const RUNTIME_PLAN_JSON_SCHEMA = {
   type: "object",
@@ -216,12 +247,16 @@ const RUNTIME_PLAN_JSON_SCHEMA = {
         initial: {
           type: "object",
           additionalProperties: true,
+          description:
+            "Literal initial JSON values only. Do not place templates, derived values, or JavaScript expressions here.",
         },
         transitions: {
           type: "object",
+          description:
+            "Maps each static runtime event name to an array of RuntimeAction objects; never use an object patch map.",
           additionalProperties: {
             type: "array",
-            items: { type: "object", additionalProperties: true },
+            items: RUNTIME_ACTION_JSON_SCHEMA,
           },
         },
       },
@@ -285,7 +320,10 @@ function collectRuntimeNodeDiagnostics(
           : undefined;
   if (allowedKeys) {
     const unknownKeys = Object.keys(node).filter(
-      (key) => !allowedKeys.has(key),
+      (key) =>
+        !allowedKeys.has(key) &&
+        key !== "style" &&
+        !(node.type === "text" && (key === "props" || key === "children")),
     );
     for (const key of unknownKeys) {
       if (errors.length >= MAX_RUNTIME_PLAN_DIAGNOSTICS) {
@@ -473,6 +511,9 @@ function collectRuntimePlanDiagnostics(value: unknown): string[] {
     !isRuntimePlanMetadata(plan.metadata)
   ) {
     errors.push("metadata must contain only JSON values and string tags");
+  }
+  if (isRuntimePlan(plan)) {
+    errors.push(...collectRuntimePlanTemplateDiagnostics(plan));
   }
 
   return errors.slice(0, MAX_RUNTIME_PLAN_DIAGNOSTICS + 1);
@@ -1236,7 +1277,10 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
       'RuntimeNode shapes are exactly text={"type":"text","value":"..."}, element={"type":"element","tag":"div","props":{},"children":[]}, or component={"type":"component","module":"...","exportName":"default","props":{},"children":[]}.',
       'Children must recursively use those shapes. Never put an HTML tag such as "div" in type; use type="element" and tag="div". Put inline styles under props.style, not directly on the node.',
       "Text nodes only accept type and value; wrap styled text in an element node.",
-      "Omit imports, moduleManifest, metadata, state, and source unless they are actually needed. If state is present it must contain an initial object. For declarative element/text roots, omit source.",
+      `Runtime template syntax is {{state.path}}, {{context.path}}, {{vars.path}}, or {{event.path}}. Templates are path lookups only. Never use \${...}, JavaScript expressions, operators, ternaries, negation, arithmetic, or Math.* in any declarative field.`,
+      'If state is present, state.initial contains literal JSON only and state.transitions maps each event name to an action array such as [{"type":"toggle","path":"done"}]. Supported action types are set, increment, toggle, and push. For set/push path copies use {"$from":"event.payload.value"}; never emit object patch transitions.',
+      "Declarative onClick/onInput bindings dispatch static event names and cannot read live browser values. Do not simulate value-driven forms with fixed slots or fake event.target expressions. When source is forbidden, render a compact static visual instead and omit nonfunctional handlers/state.",
+      "Omit imports, moduleManifest, metadata, state, and source unless they are actually needed. If state is present it must contain an initial object. For declarative element/text roots, omit source. Keep node trees compact and do not manually unroll repeated dynamic list slots.",
       "Do not emit maxImports, maxComponentInvocations, or maxExecutionMs; those resource budgets are controlled by the host security policy.",
       "Within capabilities, emit only domWrite. Do not request networkHosts, allowedModules, timers, storage, or executionProfile; host policy and code generation derive permissions.",
       "Do not set root.type to component unless source.code is present with a matching export.",

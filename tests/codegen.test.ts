@@ -549,6 +549,28 @@ test("codegen falls back to section root when no JSON payload exists", async () 
   assert.equal(isCodegenTextFallbackPlan(plan), true);
 });
 
+test("codegen rejects unsupported declarative template expressions", async () => {
+  const codegen = new DefaultCodeGenerator();
+  const llmText = JSON.stringify({
+    specVersion: "runtime-plan/v1",
+    id: "unsupported_template_plan",
+    version: 1,
+    root: {
+      type: "element",
+      tag: "p",
+      children: [{ type: "text", value: `Done: \${completedCount}` }],
+    },
+    capabilities: { domWrite: true },
+  });
+
+  const plan = await codegen.generatePlan({
+    prompt: "todo status",
+    llmText,
+  });
+
+  assert.equal(isCodegenTextFallbackPlan(plan), true);
+});
+
 test("codegen assigns unique fallback plan ids and isolates runtime state when the clock does not advance", async () => {
   const codegen = new DefaultCodeGenerator();
   const planJson = JSON.stringify({
