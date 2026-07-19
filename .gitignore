@@ -85,6 +85,7 @@ pnpm-debug.log*
 # Next.js build output
 .next
 out
+apps/website/public/playground-runtime.js
 
 # Nuxt.js build / generate output
 .nuxt

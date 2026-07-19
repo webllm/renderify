@@ -59,3 +59,353 @@ body {
   height: auto;
   max-width: 100%;
 }
+
+.playground-shell {
+  background: color-mix(in srgb, var(--color-fd-card) 88%, transparent);
+  border: 1px solid var(--color-fd-border);
+  border-radius: 1.15rem;
+  box-shadow: 0 1.5rem 5rem rgb(46 38 89 / 10%);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.playground-toolbar {
+  align-items: center;
+  background: color-mix(in srgb, var(--color-fd-muted) 52%, transparent);
+  border-bottom: 1px solid var(--color-fd-border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  padding: 0.7rem;
+}
+
+.playground-mode-switch {
+  background: color-mix(in srgb, var(--color-fd-background) 88%, transparent);
+  border: 1px solid var(--color-fd-border);
+  border-radius: 0.7rem;
+  display: inline-flex;
+  padding: 0.2rem;
+}
+
+.playground-mode-switch button {
+  border-radius: 0.5rem;
+  color: var(--color-fd-muted-foreground);
+  font-size: 0.79rem;
+  font-weight: 650;
+  padding: 0.43rem 0.7rem;
+  transition: 140ms ease;
+}
+
+.playground-mode-switch button:hover {
+  color: var(--color-fd-foreground);
+}
+
+.playground-mode-switch button.is-active {
+  background: var(--color-fd-card);
+  box-shadow: 0 0.15rem 0.5rem rgb(16 24 40 / 9%);
+  color: var(--color-fd-foreground);
+}
+
+.playground-sample-select select,
+.playground-toolbar-actions button,
+.playground-icon-button {
+  align-items: center;
+  background: var(--color-fd-card);
+  border: 1px solid var(--color-fd-border);
+  border-radius: 0.58rem;
+  color: var(--color-fd-foreground);
+  display: inline-flex;
+  font-size: 0.78rem;
+  font-weight: 600;
+  gap: 0.38rem;
+  height: 2.15rem;
+  padding-inline: 0.65rem;
+  transition: 140ms ease;
+}
+
+.playground-sample-select select {
+  min-width: 12rem;
+}
+
+.playground-toolbar-actions button:hover,
+.playground-icon-button:hover {
+  background: var(--color-fd-accent);
+}
+
+.playground-auto-run {
+  align-items: center;
+  color: var(--color-fd-muted-foreground);
+  display: inline-flex;
+  font-size: 0.78rem;
+  font-weight: 600;
+  gap: 0.4rem;
+  white-space: nowrap;
+}
+
+.playground-auto-run input {
+  accent-color: var(--renderify-accent);
+}
+
+.playground-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-left: auto;
+}
+
+.playground-toolbar-actions .playground-run-button {
+  background: var(--renderify-accent);
+  border-color: var(--renderify-accent);
+  color: white;
+  min-width: 5.5rem;
+}
+
+.playground-toolbar-actions .playground-run-button:hover {
+  background: var(--renderify-accent-strong);
+}
+
+.playground-toolbar-actions .playground-run-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.playground-grid {
+  display: grid;
+  min-width: 0;
+}
+
+.playground-pane {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.playground-pane + .playground-pane {
+  border-top: 1px solid var(--color-fd-border);
+}
+
+.playground-pane-heading {
+  align-items: center;
+  background: color-mix(in srgb, var(--color-fd-muted) 36%, transparent);
+  border-bottom: 1px solid var(--color-fd-border);
+  color: var(--color-fd-muted-foreground);
+  display: flex;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.72rem;
+  justify-content: space-between;
+  min-height: 2.55rem;
+  padding: 0.45rem 0.75rem;
+}
+
+.playground-icon-button {
+  background: transparent;
+  font-family: inherit;
+  height: 1.85rem;
+  padding-inline: 0.5rem;
+}
+
+.playground-pane .cm-editor {
+  font-size: 0.82rem;
+}
+
+.playground-pane .cm-scroller {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  line-height: 1.55;
+}
+
+.playground-preview-wrap {
+  background:
+    linear-gradient(45deg, rgb(148 163 184 / 7%) 25%, transparent 25%),
+    linear-gradient(-45deg, rgb(148 163 184 / 7%) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgb(148 163 184 / 7%) 75%),
+    linear-gradient(-45deg, transparent 75%, rgb(148 163 184 / 7%) 75%);
+  background-position:
+    0 0,
+    0 0.7rem,
+    0.7rem -0.7rem,
+    -0.7rem 0;
+  background-size: 1.4rem 1.4rem;
+  height: 640px;
+  position: relative;
+}
+
+.playground-preview {
+  background: white;
+  border: 0;
+  height: 100%;
+  width: 100%;
+}
+
+.playground-preview-overlay {
+  align-items: center;
+  background: color-mix(in srgb, var(--color-fd-background) 88%, transparent);
+  color: var(--color-fd-muted-foreground);
+  display: flex;
+  font-size: 0.84rem;
+  gap: 0.55rem;
+  inset: 0;
+  justify-content: center;
+  position: absolute;
+  z-index: 2;
+}
+
+.playground-status {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.4rem;
+}
+
+.playground-status > span {
+  background: #98a2b3;
+  border-radius: 999px;
+  height: 0.45rem;
+  width: 0.45rem;
+}
+
+.playground-status.is-success {
+  color: #16805f;
+}
+
+.playground-status.is-success > span {
+  background: #12b76a;
+  box-shadow: 0 0 0 0.2rem rgb(18 183 106 / 13%);
+}
+
+.playground-status.is-error {
+  color: #d92d20;
+}
+
+.playground-status.is-error > span {
+  background: #f04438;
+  box-shadow: 0 0 0 0.2rem rgb(240 68 56 / 13%);
+}
+
+.playground-footer-grid {
+  border-top: 1px solid var(--color-fd-border);
+  display: grid;
+}
+
+.playground-safety-note,
+.playground-diagnostics {
+  min-width: 0;
+  padding: 1rem 1.1rem;
+}
+
+.playground-safety-note {
+  align-items: flex-start;
+  background: color-mix(in srgb, #6d5dfc 7%, transparent);
+  color: var(--renderify-accent);
+  display: flex;
+  gap: 0.7rem;
+}
+
+.playground-safety-note svg {
+  flex: none;
+  margin-top: 0.12rem;
+}
+
+.playground-safety-note strong,
+.playground-diagnostics h2 {
+  color: var(--color-fd-foreground);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.playground-safety-note p,
+.playground-diagnostics > p {
+  color: var(--color-fd-muted-foreground);
+  font-size: 0.78rem;
+  line-height: 1.55;
+  margin-top: 0.2rem;
+}
+
+.playground-diagnostics {
+  border-top: 1px solid var(--color-fd-border);
+  max-height: 14rem;
+  overflow: auto;
+}
+
+.playground-diagnostics dl {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.65rem;
+}
+
+.playground-diagnostics dl div {
+  display: grid;
+  font-size: 0.75rem;
+  gap: 0.6rem;
+  grid-template-columns: 5rem minmax(0, 1fr);
+}
+
+.playground-diagnostics dt {
+  color: var(--color-fd-muted-foreground);
+}
+
+.playground-diagnostics dd {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  overflow-wrap: anywhere;
+}
+
+.playground-diagnostics ul {
+  color: var(--color-fd-muted-foreground);
+  font-size: 0.74rem;
+  line-height: 1.5;
+  list-style: disc;
+  margin: 0.7rem 0 0 1rem;
+}
+
+.playground-error {
+  align-items: flex-start;
+  background: rgb(240 68 56 / 8%);
+  border: 1px solid rgb(240 68 56 / 20%);
+  border-radius: 0.65rem;
+  color: #d92d20;
+  display: flex;
+  font-size: 0.77rem;
+  gap: 0.55rem;
+  line-height: 1.5;
+  margin-top: 0.65rem;
+  padding: 0.7rem;
+}
+
+.playground-error svg {
+  flex: none;
+  margin-top: 0.12rem;
+}
+
+@media (min-width: 1024px) {
+  .playground-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .playground-pane + .playground-pane {
+    border-left: 1px solid var(--color-fd-border);
+    border-top: 0;
+  }
+
+  .playground-footer-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .playground-diagnostics {
+    border-left: 1px solid var(--color-fd-border);
+    border-top: 0;
+  }
+}
+
+@media (max-width: 720px) {
+  .playground-toolbar-actions {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .playground-toolbar-actions .playground-run-button {
+    margin-left: auto;
+  }
+
+  .playground-sample-select,
+  .playground-sample-select select {
+    flex: 1;
+    min-width: 0;
+  }
+}
