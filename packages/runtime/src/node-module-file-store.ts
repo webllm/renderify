@@ -10,7 +10,8 @@ export async function createNodeModuleFileUrl(
     return undefined;
   }
 
-  const { createHash } = await import("node:crypto");
+  const { createHash } =
+    await importNodeModule<typeof import("node:crypto")>("node:crypto");
   const digest = createHash("sha256").update(code, "utf8").digest("hex");
   const key = `${digest}-${Buffer.byteLength(code, "utf8")}`;
   const cached = fileUrlPromises.get(key);
@@ -32,9 +33,9 @@ export async function createNodeModuleFileUrl(
 
 async function writeNodeModuleFile(key: string, code: string): Promise<string> {
   const [{ writeFile }, { join }, { pathToFileURL }] = await Promise.all([
-    import("node:fs/promises"),
-    import("node:path"),
-    import("node:url"),
+    importNodeModule<typeof import("node:fs/promises")>("node:fs/promises"),
+    importNodeModule<typeof import("node:path")>("node:path"),
+    importNodeModule<typeof import("node:url")>("node:url"),
   ]);
   const directory = await getStoreDirectory();
   const filePath = join(directory, `${key}.mjs`);
@@ -53,9 +54,9 @@ async function getStoreDirectory(): Promise<string> {
 
   storeDirectoryPromise = (async () => {
     const [{ mkdtemp }, { tmpdir }, { join }] = await Promise.all([
-      import("node:fs/promises"),
-      import("node:os"),
-      import("node:path"),
+      importNodeModule<typeof import("node:fs/promises")>("node:fs/promises"),
+      importNodeModule<typeof import("node:os")>("node:os"),
+      importNodeModule<typeof import("node:path")>("node:path"),
     ]);
     const directory = await mkdtemp(
       join(tmpdir(), "renderify-runtime-modules-"),
@@ -68,7 +69,8 @@ async function getStoreDirectory(): Promise<string> {
 }
 
 async function registerStoreCleanup(directory: string): Promise<void> {
-  const { rmSync } = await import("node:fs");
+  const { rmSync } =
+    await importNodeModule<typeof import("node:fs")>("node:fs");
   process.once("exit", () => {
     try {
       rmSync(directory, { force: true, recursive: true });
@@ -76,4 +78,12 @@ async function registerStoreCleanup(directory: string): Promise<void> {
       // Best-effort cleanup for process-owned temporary source modules.
     }
   });
+}
+
+function importNodeModule<T>(specifier: string): Promise<T> {
+  const dynamicImport = new Function(
+    "specifier",
+    "return import(specifier)",
+  ) as (value: string) => Promise<T>;
+  return dynamicImport(specifier);
 }
