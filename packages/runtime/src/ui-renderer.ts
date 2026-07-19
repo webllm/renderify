@@ -25,6 +25,10 @@ export interface InteractiveRenderTarget {
 
 export type RenderTarget = string | HTMLElement | InteractiveRenderTarget;
 
+export interface DefaultUIRendererOptions {
+  loadPreactRenderer?: () => unknown | Promise<unknown>;
+}
+
 export interface UIRenderer {
   render(
     result: RuntimeExecutionResult,
@@ -63,6 +67,11 @@ interface ResolvedRenderTarget {
 
 export class DefaultUIRenderer implements UIRenderer {
   private readonly mountSessions = new WeakMap<HTMLElement, MountSession>();
+  private readonly options: DefaultUIRendererOptions;
+
+  constructor(options: DefaultUIRendererOptions = {}) {
+    this.options = options;
+  }
 
   async render(
     result: RuntimeExecutionResult,
@@ -609,7 +618,9 @@ export class DefaultUIRenderer implements UIRenderer {
   }
 
   private async loadPreactRenderer(): Promise<PreactRendererLike> {
-    const loaded = (await import(getPreactSpecifier())) as unknown;
+    const loaded = this.options.loadPreactRenderer
+      ? await this.options.loadPreactRenderer()
+      : ((await import(getPreactSpecifier())) as unknown);
     if (!isPreactRendererLike(loaded)) {
       throw new Error("Failed to load preact renderer from `preact` package");
     }

@@ -39,7 +39,11 @@ import {
   resolveCodexAuthFile,
   resolveCodexRuntimeCredentials,
 } from "./codex-auth";
-import { PLAYGROUND_HTML } from "./playground-html";
+import {
+  type PlaygroundBrowserExecution,
+  preparePlaygroundBrowserExecution,
+} from "./playground-browser-execution";
+import { createPlaygroundHtml } from "./playground-html";
 import { RemoteModuleIntegrityFetcher } from "./playground-integrity";
 import {
   formatPlaygroundUrlHost,
@@ -48,6 +52,7 @@ import {
   normalizePlaygroundHost,
   resolvePlaygroundHost,
 } from "./playground-network";
+import { bundlePlaygroundRuntimeClient } from "./playground-runtime-bundle";
 
 interface CliArgs {
   command:
@@ -76,6 +81,12 @@ interface PlaygroundServerOptions {
   autoManifestIntegrityTimeoutMs: number;
   debug: boolean;
   llmLog: boolean;
+  browserRuntime: PlaygroundBrowserRuntimeOptions;
+}
+
+interface PlaygroundBrowserRuntimeOptions {
+  enabled: boolean;
+  config: Record<string, unknown>;
 }
 
 const DEFAULT_PROMPT = "Hello Renderify runtime";
@@ -84,6 +95,7 @@ const DEFAULT_PLAYGROUND_MAX_EXECUTION_MS = 15000;
 const JSON_BODY_LIMIT_BYTES = 1_000_000;
 const AUTO_MANIFEST_INTEGRITY_TIMEOUT_MS = 8000;
 const REMOTE_MODULE_INTEGRITY_FETCHER = new RemoteModuleIntegrityFetcher();
+const PLAYGROUND_RUNTIME_SCRIPT_PATH = "/playground-runtime.js";
 const DEBUG_RECENT_LOG_LIMIT = 120;
 const LLM_LOG_INLINE_LIMIT = 10_000;
 const LLM_LOG_BODY_MAX_BYTES = 64 * 1024;
@@ -510,6 +522,9 @@ async function main() {
     config.get<number>("runtimeRemoteFetchRetries") ?? 2;
   const runtimeRemoteFetchBackoffMs =
     config.get<number>("runtimeRemoteFetchBackoffMs") ?? 150;
+  const runtimeMaxExecutionMs =
+    parsePositiveIntFromEnv(process.env.RENDERIFY_RUNTIME_MAX_EXECUTION_MS) ??
+    DEFAULT_PLAYGROUND_MAX_EXECUTION_MS;
 
   const runtimeModuleLoader = new JspmModuleLoader({
     cdnBaseUrl: config.get<string>("jspmCdnUrl"),
@@ -521,9 +536,7 @@ async function main() {
 
   const runtime = new DefaultRuntimeManager({
     moduleLoader: runtimeModuleLoader,
-    defaultMaxExecutionMs:
-      parsePositiveIntFromEnv(process.env.RENDERIFY_RUNTIME_MAX_EXECUTION_MS) ??
-      DEFAULT_PLAYGROUND_MAX_EXECUTION_MS,
+    defaultMaxExecutionMs: runtimeMaxExecutionMs,
     enforceModuleManifest:
       config.get<boolean>("runtimeEnforceModuleManifest") !== false,
     allowIsolationFallback:
@@ -557,6 +570,43 @@ async function main() {
   const hydrationSecurityPolicy = preloadSecurityChecker.getPolicy();
   const requireIntegrityForHydration =
     hydrationSecurityPolicy.requireModuleIntegrity;
+  const playgroundBrowserRuntime: PlaygroundBrowserRuntimeOptions = {
+    enabled:
+      hydrationSecurityPolicy.allowRuntimeSourceModules &&
+      hydrationSecurityPolicy.allowPreactSourceRuntime,
+    config: {
+      securityInitialization: {
+        profile: preloadSecurityChecker.getProfile(),
+        overrides: hydrationSecurityPolicy,
+      },
+      runtimeOptions: {
+        defaultMaxExecutionMs: runtimeMaxExecutionMs,
+        enforceModuleManifest:
+          config.get<boolean>("runtimeEnforceModuleManifest") !== false,
+        allowIsolationFallback:
+          config.get<boolean>("runtimeAllowIsolationFallback") === true,
+        supportedPlanSpecVersions: config.get<string[]>(
+          "runtimeSupportedSpecVersions",
+        ),
+        enableDependencyPreflight:
+          config.get<boolean>("runtimeEnableDependencyPreflight") !== false,
+        failOnDependencyPreflightError:
+          config.get<boolean>("runtimeFailOnDependencyPreflightError") === true,
+        remoteFetchTimeoutMs: runtimeRemoteFetchTimeoutMs,
+        remoteFetchRetries: runtimeRemoteFetchRetries,
+        remoteFetchBackoffMs: runtimeRemoteFetchBackoffMs,
+        remoteFallbackCdnBases: runtimeRemoteFallbackCdnBases,
+        browserSourceSandboxMode: config.get<
+          "none" | "worker" | "iframe" | "shadowrealm"
+        >("runtimeBrowserSourceSandboxMode"),
+        browserSourceSandboxTimeoutMs:
+          config.get<number>("runtimeBrowserSourceSandboxTimeoutMs") ?? 4000,
+        browserSourceSandboxFailClosed:
+          config.get<boolean>("runtimeBrowserSourceSandboxFailClosed") !==
+          false,
+      },
+    },
+  };
 
   const customization = new DefaultCustomizationEngine();
   if (args.command === "playground") {
@@ -679,6 +729,7 @@ async function main() {
           autoManifestIntegrityTimeoutMs: AUTO_MANIFEST_INTEGRITY_TIMEOUT_MS,
           debug: args.debug ?? resolvePlaygroundDebugMode(),
           llmLog: args.llmLog ?? resolvePlaygroundLlmLogMode(),
+          browserRuntime: playgroundBrowserRuntime,
         });
         break;
       }
@@ -992,6 +1043,7 @@ async function runPlaygroundServer(
     autoManifestIntegrityTimeoutMs,
     debug,
     llmLog,
+    browserRuntime,
   } = options;
   const debugTracer = debug ? new PlaygroundDebugTracer() : undefined;
   const restoreFetch =
@@ -1001,6 +1053,18 @@ async function runPlaygroundServer(
           llmLog,
         })
       : undefined;
+  const playgroundHtml = createPlaygroundHtml({
+    browserRuntime: {
+      enabled: browserRuntime.enabled,
+      config: browserRuntime.config,
+      scriptPath: PLAYGROUND_RUNTIME_SCRIPT_PATH,
+    },
+  });
+  let browserRuntimeBundlePromise: Promise<string> | undefined;
+  const loadBrowserRuntimeBundle = (): Promise<string> => {
+    browserRuntimeBundlePromise ??= bundlePlaygroundRuntimeClient();
+    return browserRuntimeBundlePromise;
+  };
 
   const server = http.createServer((req, res) => {
     void handlePlaygroundRequest(
@@ -1010,6 +1074,9 @@ async function runPlaygroundServer(
       moduleLoader,
       autoManifestIntegrityTimeoutMs,
       debugTracer,
+      browserRuntime,
+      playgroundHtml,
+      loadBrowserRuntimeBundle,
     );
   });
 
@@ -1082,6 +1149,12 @@ async function handlePlaygroundRequest(
   moduleLoader: JspmModuleLoader,
   autoManifestIntegrityTimeoutMs: number,
   debugTracer?: PlaygroundDebugTracer,
+  browserRuntime: PlaygroundBrowserRuntimeOptions = {
+    enabled: false,
+    config: {},
+  },
+  playgroundHtml: string = createPlaygroundHtml(),
+  loadBrowserRuntimeBundle?: () => Promise<string>,
 ): Promise<void> {
   const method = (req.method ?? "GET").toUpperCase();
   const parsedUrl = new URL(req.url ?? "/", "http://127.0.0.1");
@@ -1117,8 +1190,26 @@ async function handlePlaygroundRequest(
     }
 
     if (method === "GET" && pathname === "/") {
-      sendHtml(res, PLAYGROUND_HTML);
+      sendHtml(res, playgroundHtml);
       responseSummary = { contentType: "text/html" };
+      finishDebug(200);
+      return;
+    }
+
+    if (method === "GET" && pathname === PLAYGROUND_RUNTIME_SCRIPT_PATH) {
+      if (!browserRuntime.enabled || !loadBrowserRuntimeBundle) {
+        sendJson(res, 404, { error: "Not found" });
+        responseSummary = { error: "not-found" };
+        finishDebug(404);
+        return;
+      }
+
+      const bundle = await loadBrowserRuntimeBundle();
+      sendJavaScript(res, bundle);
+      responseSummary = {
+        contentType: "text/javascript",
+        bytes: Buffer.byteLength(bundle),
+      };
       finishDebug(200);
       return;
     }
@@ -1177,7 +1268,11 @@ async function handlePlaygroundRequest(
       requestSummary = summarizePromptDebugInput(prompt);
       debugTracer?.logInboundStart(method, pathname, requestSummary);
       const result = await app.renderPrompt(prompt);
-      const payload = serializeRenderResult(result);
+      const payload = await serializeRenderResult(
+        result,
+        undefined,
+        browserRuntime,
+      );
       responseSummary = summarizeRenderResultDebugOutput(payload);
       sendJson(res, 200, payload);
       finishDebug(200);
@@ -1193,7 +1288,12 @@ async function handlePlaygroundRequest(
       requestSummary = summarizePromptDebugInput(prompt);
       debugTracer?.logInboundStart(method, pathname, requestSummary);
 
-      const streamSummary = await sendPromptStream(res, app, prompt);
+      const streamSummary = await sendPromptStream(
+        res,
+        app,
+        prompt,
+        browserRuntime,
+      );
       responseSummary = streamSummary;
       finishDebug(200, streamSummary.streamErrorMessage);
       return;
@@ -1220,7 +1320,11 @@ async function handlePlaygroundRequest(
       const result = await app.renderPlan(executionPlan, {
         prompt: "playground:plan",
       });
-      const payload = serializeRenderResult(result);
+      const payload = await serializeRenderResult(
+        result,
+        undefined,
+        browserRuntime,
+      );
       responseSummary = summarizeRenderResultDebugOutput(payload);
       sendJson(res, 200, payload);
       finishDebug(200);
@@ -1289,11 +1393,31 @@ async function handlePlaygroundRequest(
   }
 }
 
-function serializeRenderResult(
+async function serializeRenderResult(
   result: RenderPlanResult | RenderPromptResult,
   planOverride?: RuntimePlan,
-): Record<string, unknown> {
+  browserRuntime?: PlaygroundBrowserRuntimeOptions,
+): Promise<Record<string, unknown>> {
   const plan = planOverride ?? result.plan;
+  let browserExecution: PlaygroundBrowserExecution | undefined;
+  let browserPreparationDiagnostic:
+    | {
+        level: "warning";
+        code: string;
+        message: string;
+      }
+    | undefined;
+  if (browserRuntime?.enabled && plan.source?.runtime === "preact") {
+    try {
+      browserExecution = await preparePlaygroundBrowserExecution(plan);
+    } catch (error) {
+      browserPreparationDiagnostic = {
+        level: "warning",
+        code: "PLAYGROUND_BROWSER_PREPARE_FAILED",
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
 
   return {
     traceId: result.traceId,
@@ -1303,8 +1427,12 @@ function serializeRenderResult(
       version: plan.version,
     },
     planDetail: plan,
-    diagnostics: result.execution.diagnostics,
+    diagnostics: [
+      ...result.execution.diagnostics,
+      ...(browserPreparationDiagnostic ? [browserPreparationDiagnostic] : []),
+    ],
     state: result.execution.state ?? {},
+    ...(browserExecution ? { browserExecution } : {}),
   };
 }
 
@@ -1448,10 +1576,21 @@ function sendHtml(res: ServerResponse, html: string): void {
   res.end(html);
 }
 
+function sendJavaScript(res: ServerResponse, source: string): void {
+  res.writeHead(200, {
+    "content-type": "text/javascript; charset=utf-8",
+    "content-length": Buffer.byteLength(source),
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+  });
+  res.end(source);
+}
+
 async function sendPromptStream(
   res: ServerResponse,
   app: RenderifyApp,
   prompt: string,
+  browserRuntime?: PlaygroundBrowserRuntimeOptions,
 ): Promise<{
   chunkCount: number;
   eventTypeCounts: Record<string, number>;
@@ -1470,7 +1609,10 @@ async function sendPromptStream(
 
   try {
     for await (const chunk of app.renderPromptStream(prompt)) {
-      const serialized = await serializePromptStreamChunk(chunk);
+      const serialized = await serializePromptStreamChunk(
+        chunk,
+        browserRuntime,
+      );
       chunkCount += 1;
       const type = String(serialized.type ?? "unknown");
       eventTypeCounts[type] = (eventTypeCounts[type] ?? 0) + 1;
@@ -1498,6 +1640,7 @@ async function sendPromptStream(
 
 async function serializePromptStreamChunk(
   chunk: RenderPromptStreamChunk,
+  browserRuntime?: PlaygroundBrowserRuntimeOptions,
 ): Promise<Record<string, unknown>> {
   if (chunk.type === "final") {
     return {
@@ -1505,7 +1648,9 @@ async function serializePromptStreamChunk(
       traceId: chunk.traceId,
       prompt: chunk.prompt,
       llmText: chunk.llmText,
-      final: chunk.final ? serializeRenderResult(chunk.final) : undefined,
+      final: chunk.final
+        ? await serializeRenderResult(chunk.final, undefined, browserRuntime)
+        : undefined,
       html: chunk.html,
       diagnostics: chunk.diagnostics ?? [],
       planId: chunk.planId,

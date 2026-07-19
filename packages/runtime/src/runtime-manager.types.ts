@@ -92,6 +92,7 @@ export interface RuntimeManager {
 export interface RuntimeManagerOptions {
   moduleLoader?: RuntimeModuleLoader;
   sourceTranspiler?: RuntimeSourceTranspiler;
+  loadPreactModule?: () => unknown | Promise<unknown>;
   defaultMaxImports?: number;
   defaultMaxComponentInvocations?: number;
   defaultMaxExecutionMs?: number;
@@ -132,6 +133,7 @@ export interface RuntimeSourceTranspileInput {
   language: RuntimeSourceLanguage;
   filename?: string;
   runtime?: RuntimeSourceModule["runtime"];
+  jsxImportSource?: "preact" | "react";
 }
 
 export interface RuntimeSourceTranspiler {

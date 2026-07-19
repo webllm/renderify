@@ -1448,6 +1448,115 @@ test("e2e: playground hash source renders server output without browser re-execu
   }
 });
 
+test("e2e: trusted playground mounts interactive Material UI JSX", async () => {
+  const tempDir = await mkdtemp(
+    path.join(os.tmpdir(), "renderify-e2e-playground-mui-browser-"),
+  );
+  const port = await allocatePort();
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const processHandle = startPlayground(port, {
+    RENDERIFY_SECURITY_PROFILE: "trusted",
+    RENDERIFY_RUNTIME_MAX_EXECUTION_MS: "30000",
+    RENDERIFY_SESSION_FILE: path.join(tempDir, "session.json"),
+  });
+
+  let browser: Browser | undefined;
+
+  try {
+    await waitForHealth(`${baseUrl}/api/health`, 10000);
+    browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+
+    await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
+    const plan = {
+      specVersion: "runtime-plan/v1",
+      id: "playground_mui_browser_interaction",
+      version: 1,
+      root: {
+        type: "element",
+        tag: "section",
+        children: [{ type: "text", value: "server fallback" }],
+      },
+      imports: ["preact/hooks", "@mui/material"],
+      moduleManifest: {
+        "preact/hooks": {
+          resolvedUrl:
+            "https://ga.jspm.io/npm:preact@10.28.3/hooks/dist/hooks.mjs",
+          version: "10.28.3",
+        },
+        "@mui/material": {
+          resolvedUrl: "https://ga.jspm.io/npm:@mui/material@9.2.0/index.mjs",
+          version: "9.2.0",
+        },
+      },
+      capabilities: {
+        domWrite: true,
+        allowedModules: ["preact/hooks", "@mui/material"],
+      },
+      source: {
+        language: "jsx",
+        runtime: "preact",
+        code: [
+          'import { useState } from "preact/hooks";',
+          'import { Button, Stack, TextField } from "@mui/material";',
+          "export default function TodoApp() {",
+          '  const [draft, setDraft] = useState("");',
+          "  const [todos, setTodos] = useState([]);",
+          "  const addTodo = () => {",
+          "    const text = draft.trim();",
+          "    if (!text) return;",
+          "    setTodos((current) => [...current, text]);",
+          '    setDraft("");',
+          "  };",
+          "  return (",
+          "    <Stack>",
+          '      <TextField label="Task" value={draft} onInput={(event) => setDraft(event.currentTarget.value)} />',
+          '      <Button variant="contained" onClick={addTodo}>Add</Button>',
+          "      {todos.map((todo) => <div key={todo}>{todo}</div>)}",
+          "    </Stack>",
+          "  );",
+          "}",
+        ].join("\n"),
+      },
+    };
+
+    await page.fill("#plan-editor", JSON.stringify(plan));
+    await page.click("#run-plan");
+    await page.waitForFunction(
+      () => document.getElementById("status")?.textContent === "Plan rendered.",
+      undefined,
+      { timeout: 90000 },
+    );
+
+    assert.equal(
+      await page.getAttribute("#html-output", "data-runtime"),
+      "react",
+    );
+    const addButton = page.locator("#html-output button", { hasText: "Add" });
+    assert.equal(
+      await addButton.evaluate(
+        (element) => getComputedStyle(element).backgroundColor,
+      ),
+      "rgb(25, 118, 210)",
+    );
+    await page.fill("#html-output input[type=text]", "browser interaction");
+    await addButton.click();
+    await page.waitForFunction(() =>
+      document
+        .getElementById("html-output")
+        ?.textContent?.includes("browser interaction"),
+    );
+    assert.deepEqual(pageErrors, []);
+  } finally {
+    await browser?.close();
+    processHandle.kill("SIGTERM");
+    await onceExit(processHandle, 3000);
+    await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("e2e: framework adapters mount, update, unmount and fallback in browser", async () => {
   const e2eTempRoot = path.join(REPO_ROOT, ".tmp");
   await mkdir(e2eTempRoot, { recursive: true });

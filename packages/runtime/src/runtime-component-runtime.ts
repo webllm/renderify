@@ -36,13 +36,16 @@ export async function createPreactRenderArtifact(input: {
   sourceExport: unknown;
   runtimeInput: Record<string, JsonValue>;
   diagnostics: RuntimeDiagnostic[];
+  preactModule?: unknown;
   wrapWithEmotionCache?: boolean;
   emotionCacheBoundary?: {
     provider: unknown;
     value: unknown;
   };
 }): Promise<RuntimeRenderArtifact | undefined> {
-  const preact = await loadPreactModule();
+  const preact = input.preactModule
+    ? resolvePreactModule(input.preactModule)
+    : await loadPreactModule();
   if (!preact) {
     input.diagnostics.push({
       level: "error",
@@ -53,7 +56,10 @@ export async function createPreactRenderArtifact(input: {
     return undefined;
   }
 
-  if (isPreactLikeVNode(input.sourceExport)) {
+  if (
+    isPreactLikeVNode(input.sourceExport) ||
+    isReactLikeElement(input.sourceExport)
+  ) {
     return {
       mode: "preact-vnode",
       payload: input.sourceExport,
@@ -152,7 +158,27 @@ function isPlainObjectPreactOutput(value: unknown): boolean {
   }
 
   const record = value as Record<string, unknown>;
-  return "type" in record && "props" in record && !isPreactLikeVNode(record);
+  return (
+    "type" in record &&
+    "props" in record &&
+    !isPreactLikeVNode(record) &&
+    !isReactLikeElement(record)
+  );
+}
+
+function isReactLikeElement(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  const brand = record.$$typeof;
+  return (
+    "type" in record &&
+    "props" in record &&
+    (brand === Symbol.for("react.element") ||
+      brand === Symbol.for("react.transitional.element"))
+  );
 }
 
 function isPreactClassComponent(value: unknown): boolean {
@@ -223,6 +249,10 @@ async function loadPreactModule(): Promise<PreactLikeModule | undefined> {
   } catch {
     return undefined;
   }
+}
+
+function resolvePreactModule(value: unknown): PreactLikeModule | undefined {
+  return hasPreactFactory(value) ? value : undefined;
 }
 
 function errorToMessage(error: unknown): string {

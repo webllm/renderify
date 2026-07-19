@@ -1,4 +1,5 @@
 export type {
+  DefaultUIRendererOptions,
   InteractiveRenderTarget,
   RenderTarget,
   RuntimeEventDispatchRequest,

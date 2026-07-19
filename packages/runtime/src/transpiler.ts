@@ -130,7 +130,7 @@ export class BabelRuntimeSourceTranspiler implements RuntimeSourceTranspiler {
           "react",
           {
             runtime: "automatic",
-            importSource: "preact",
+            importSource: input.jsxImportSource ?? "preact",
           },
         ]);
       } else {
@@ -242,10 +242,10 @@ export class EsbuildRuntimeSourceTranspiler implements RuntimeSourceTranspiler {
       return {};
     }
 
-    if (input.runtime === "preact") {
+    if (input.runtime === "preact" || input.jsxImportSource) {
       return {
         jsx: "automatic",
-        jsxImportSource: "preact",
+        jsxImportSource: input.jsxImportSource ?? "preact",
       };
     }
 
@@ -384,6 +384,7 @@ export class DefaultRuntimeSourceTranspiler implements RuntimeSourceTranspiler {
       input.language,
       input.runtime ?? "",
       input.filename ?? "",
+      input.jsxImportSource ?? "",
       input.code,
     ].join("\u0000");
   }

@@ -35,6 +35,20 @@ test("ui renderer can stringify preact render artifacts", async () => {
   assert.match(html, /hello preact/);
 });
 
+test("ui renderer accepts a host-selected Preact renderer", async () => {
+  const selectedRenderer = { render() {} };
+  const renderer = new DefaultUIRenderer({
+    loadPreactRenderer: async () => selectedRenderer,
+  });
+  const loaded = await (
+    renderer as unknown as {
+      loadPreactRenderer(): Promise<{ render(vnode: unknown): void }>;
+    }
+  ).loadPreactRenderer();
+
+  assert.equal(loaded, selectedRenderer);
+});
+
 test("ui renderer serializes runtime event props into delegated attributes", () => {
   const renderer = new DefaultUIRenderer();
   const html = renderer.renderNode(

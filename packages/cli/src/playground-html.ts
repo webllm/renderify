@@ -586,6 +586,8 @@ export const PLAYGROUND_HTML = `<!doctype html>
       </div>
     </div>
 
+    <!-- __RENDERIFY_PLAYGROUND_RUNTIME_CLIENT__ -->
+    <script id="renderify-playground-runtime-config" type="application/json">__RENDERIFY_PLAYGROUND_RUNTIME_CONFIG__</script>
     <script>
       const byId = (id) => document.getElementById(id);
       const statusEl = byId("status");
@@ -608,6 +610,16 @@ export const PLAYGROUND_HTML = `<!doctype html>
       const sourceRuntimeBadge = byId("source-runtime-badge");
       const sourceExportBadge = byId("source-export-badge");
       const copySourceEl = byId("copy-source");
+      const browserRuntimeConfigEl = byId(
+        "renderify-playground-runtime-config",
+      );
+      const browserRuntimeConfig = (() => {
+        try {
+          return JSON.parse(browserRuntimeConfigEl?.textContent || "{}");
+        } catch {
+          return {};
+        }
+      })();
       let lastRawSourceCode = "";
       const renderIsolationModeRaw = String(
         new URLSearchParams(window.location.search).get("isolation") || "",
@@ -898,6 +910,13 @@ export const PLAYGROUND_HTML = `<!doctype html>
       };
 
       const setRenderOutputHtml = (html) => {
+        const browserRuntimeClient = window.RenderifyPlaygroundRuntime;
+        if (
+          browserRuntimeClient &&
+          typeof browserRuntimeClient.unmount === "function"
+        ) {
+          browserRuntimeClient.unmount();
+        }
         const renderRootEl = resolveRenderRoot();
         if (!renderRootEl) {
           return;
@@ -910,6 +929,13 @@ export const PLAYGROUND_HTML = `<!doctype html>
       };
 
       const clearRenderOutputHtml = () => {
+        const browserRuntimeClient = window.RenderifyPlaygroundRuntime;
+        if (
+          browserRuntimeClient &&
+          typeof browserRuntimeClient.unmount === "function"
+        ) {
+          browserRuntimeClient.unmount();
+        }
         const renderRootEl = resolveRenderRoot();
         if (!renderRootEl) {
           return;
@@ -1442,14 +1468,60 @@ export const PLAYGROUND_HTML = `<!doctype html>
         return payload;
       }
 
-      const applyRenderPayload = (payload) => {
+      const applyRenderPayload = async (payload) => {
         setRenderOutputHtml(payload.html ?? "");
+        const browserDiagnostics = [];
+        const browserExecution = payload.browserExecution;
+        const browserRuntimeClient = window.RenderifyPlaygroundRuntime;
+        if (
+          browserRuntimeConfig.enabled === true &&
+          browserExecution &&
+          browserRuntimeClient &&
+          typeof browserRuntimeClient.mount === "function"
+        ) {
+          const renderRootEl = resolveRenderRoot();
+          if (renderRootEl) {
+            try {
+              const browserResult = await browserRuntimeClient.mount({
+                plan: browserExecution.plan,
+                framework: browserExecution.framework,
+                rendererUrl: browserExecution.rendererUrl,
+                rendererDomClientUrl: browserExecution.rendererDomClientUrl,
+                rendererDomUrl: browserExecution.rendererDomUrl,
+                target: renderRootEl,
+                config: browserRuntimeConfig,
+              });
+              if (Array.isArray(browserResult?.diagnostics)) {
+                browserDiagnostics.push(...browserResult.diagnostics);
+              }
+              htmlOutputEl.dataset.runtime = browserExecution.framework;
+              if (renderIsolationMode === "iframe") {
+                scheduleRenderFrameStyleSync();
+                updateRenderFrameHeight();
+              }
+              syncRenderOutputEmptyState();
+            } catch (error) {
+              setRenderOutputHtml(payload.html ?? "");
+              htmlOutputEl.dataset.runtime = "server";
+              browserDiagnostics.push({
+                level: "error",
+                code: "PLAYGROUND_BROWSER_MOUNT_FAILED",
+                message: String(error),
+              });
+            }
+          }
+        } else {
+          htmlOutputEl.dataset.runtime = "server";
+        }
         planEditorEl.value = safeJson(payload.planDetail ?? {});
         displaySourceCode(payload.planDetail);
         writeDiagnostics({
           traceId: payload.traceId,
           state: payload.state ?? {},
-          diagnostics: payload.diagnostics ?? [],
+          diagnostics: [
+            ...(payload.diagnostics ?? []),
+            ...browserDiagnostics,
+          ],
         });
       };
 
@@ -1465,7 +1537,7 @@ export const PLAYGROUND_HTML = `<!doctype html>
         setStatus(statusText || "Rendering plan...");
         try {
           const payload = await request("/api/plan", "POST", { plan });
-          applyRenderPayload(payload);
+          await applyRenderPayload(payload);
           setStatus("Plan rendered.");
           return payload;
         } catch (error) {
@@ -1491,7 +1563,7 @@ export const PLAYGROUND_HTML = `<!doctype html>
         streamOutputEl.textContent = "[]";
         try {
           const payload = await request("/api/prompt", "POST", { prompt });
-          applyRenderPayload(payload);
+          await applyRenderPayload(payload);
           setStatus("Prompt rendered.");
         } catch (error) {
           setStatus("Prompt render failed.");
@@ -1567,7 +1639,7 @@ export const PLAYGROUND_HTML = `<!doctype html>
                 setRenderOutputHtml(event.html);
               }
               if (event.type === "final" && event.final) {
-                applyRenderPayload(event.final);
+                await applyRenderPayload(event.final);
                 streamCompleted = true;
               }
             }
@@ -1736,7 +1808,66 @@ export const PLAYGROUND_HTML = `<!doctype html>
         if (restoreRenderFrameCssomHook) {
           restoreRenderFrameCssomHook();
         }
+        const browserRuntimeClient = window.RenderifyPlaygroundRuntime;
+        if (
+          browserRuntimeClient &&
+          typeof browserRuntimeClient.unmount === "function"
+        ) {
+          browserRuntimeClient.unmount();
+        }
       });
     </script>
   </body>
 </html>`;
+
+export interface CreatePlaygroundHtmlOptions {
+  browserRuntime?: {
+    enabled: boolean;
+    config?: Record<string, unknown>;
+    scriptPath?: string;
+  };
+}
+
+const PLAYGROUND_RUNTIME_CLIENT_MARKER =
+  "<!-- __RENDERIFY_PLAYGROUND_RUNTIME_CLIENT__ -->";
+const PLAYGROUND_RUNTIME_CONFIG_MARKER =
+  "__RENDERIFY_PLAYGROUND_RUNTIME_CONFIG__";
+
+export function createPlaygroundHtml(
+  options: CreatePlaygroundHtmlOptions = {},
+): string {
+  const browserRuntime = options.browserRuntime;
+  const enabled = browserRuntime?.enabled === true;
+  const clientScript = enabled
+    ? `<script src="${escapeHtmlAttribute(browserRuntime.scriptPath ?? "/playground-runtime.js")}"></script>`
+    : "";
+  const config = {
+    ...(browserRuntime?.config ?? {}),
+    enabled,
+  };
+
+  return PLAYGROUND_HTML.replace(
+    PLAYGROUND_RUNTIME_CLIENT_MARKER,
+    clientScript,
+  ).replace(
+    PLAYGROUND_RUNTIME_CONFIG_MARKER,
+    escapeJsonForHtml(JSON.stringify(config)),
+  );
+}
+
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function escapeJsonForHtml(value: string): string {
+  return value
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}

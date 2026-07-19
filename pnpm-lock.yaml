@@ -95,6 +95,9 @@ importers:
       '@renderify/security':
         specifier: workspace:^
         version: link:../security
+      esbuild:
+        specifier: 0.28.1
+        version: 0.28.1
       undici:
         specifier: ^8.7.0
         version: 8.7.0

@@ -120,6 +120,37 @@ test("transpiler configures tsx + preact automatic runtime", async () => {
   }
 });
 
+test("transpiler can target the React automatic JSX runtime", async () => {
+  const calls: BabelCall[] = [];
+  const restore = installMockBabel((code, options) => {
+    calls.push({ code, options });
+    return { code: "compiled-react" };
+  });
+
+  try {
+    const transpiler = new BabelRuntimeSourceTranspiler();
+    const output = await transpiler.transpile({
+      code: "export default () => <button>React</button>;",
+      language: "jsx",
+      runtime: "preact",
+      jsxImportSource: "react",
+    });
+
+    assert.equal(output, "compiled-react");
+    assert.deepEqual(calls[0].options.presets, [
+      [
+        "react",
+        {
+          runtime: "automatic",
+          importSource: "react",
+        },
+      ],
+    ]);
+  } finally {
+    restore();
+  }
+});
+
 test("transpiler throws when Babel is missing", async () => {
   const root = globalThis as Record<string, unknown>;
   const descriptor = Object.getOwnPropertyDescriptor(root, "Babel");

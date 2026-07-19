@@ -8,6 +8,7 @@ export * from "./primitives";
 export * from "./runtime-manager.types";
 export * from "./transpiler";
 export type {
+  DefaultUIRendererOptions,
   InteractiveRenderTarget,
   RenderTarget,
   RuntimeEventDispatchRequest,

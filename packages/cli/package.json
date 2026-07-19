@@ -59,6 +59,7 @@
     "@renderify/llm": "workspace:^",
     "@renderify/runtime": "workspace:^",
     "@renderify/security": "workspace:^",
+    "esbuild": "^0.28.1",
     "undici": "^8.7.0"
   },
   "bin": {

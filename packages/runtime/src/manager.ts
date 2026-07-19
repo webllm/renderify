@@ -129,6 +129,7 @@ export type { RuntimeComponentFactory } from "./runtime-component-runtime";
 export class DefaultRuntimeManager implements RuntimeManager {
   private readonly moduleLoader?: RuntimeModuleLoader;
   private readonly sourceTranspiler: RuntimeSourceTranspiler;
+  private loadPreactModule: (() => unknown | Promise<unknown>) | undefined;
   private readonly states = new Map<string, RuntimeStateSnapshot>();
   private readonly defaultMaxImports: number;
   private readonly defaultMaxComponentInvocations: number;
@@ -231,6 +232,9 @@ export class DefaultRuntimeManager implements RuntimeManager {
       applyDefaults ||
       options.allowArbitraryNetwork !== undefined ||
       options.allowedNetworkHosts !== undefined;
+    if (applyDefaults || options.loadPreactModule !== undefined) {
+      this.loadPreactModule = options.loadPreactModule;
+    }
     if (applyDefaults || options.supportedPlanSpecVersions !== undefined) {
       this.supportedPlanSpecVersions = normalizeSupportedSpecVersions(
         options.supportedPlanSpecVersions,
@@ -1022,6 +1026,9 @@ export class DefaultRuntimeManager implements RuntimeManager {
           sourceExport,
           runtimeInput,
           diagnostics,
+          preactModule: this.loadPreactModule
+            ? await this.loadPreactModule()
+            : undefined,
           wrapWithEmotionCache,
           emotionCacheBoundary,
         });

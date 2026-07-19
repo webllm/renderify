@@ -973,18 +973,24 @@ export class RuntimeSourceModuleLoader {
     const path = parsed.pathname.toLowerCase();
     const host = parsed.hostname.toLowerCase();
     if (host === "ga.jspm.io" || host === "cdn.jspm.io") {
-      return /^\/npm:preact(?:-render-to-string)?@[^/]+(?:\/|$)/.test(path);
+      return /^\/npm:(?:preact(?:-render-to-string)?|react(?:-dom)?)@[^/]+(?:\/|$)/.test(
+        path,
+      );
     }
     if (host === "esm.sh") {
-      return /^\/(?:v\d+\/)?preact(?:-render-to-string)?@[^/]+(?:\/|$)/.test(
+      return /^\/(?:v\d+\/)?(?:preact(?:-render-to-string)?|react(?:-dom)?)@[^/]+(?:\/|$)/.test(
         path,
       );
     }
     if (host === "cdn.jsdelivr.net") {
-      return /^\/npm\/preact(?:-render-to-string)?@[^/]+(?:\/|$)/.test(path);
+      return /^\/npm\/(?:preact(?:-render-to-string)?|react(?:-dom)?)@[^/]+(?:\/|$)/.test(
+        path,
+      );
     }
     if (host === "unpkg.com") {
-      return /^\/preact(?:-render-to-string)?@[^/]+(?:\/|$)/.test(path);
+      return /^\/(?:preact(?:-render-to-string)?|react(?:-dom)?)@[^/]+(?:\/|$)/.test(
+        path,
+      );
     }
 
     const browserOrigin = this.resolveBrowserOrigin();
@@ -992,7 +998,7 @@ export class RuntimeSourceModuleLoader {
       return false;
     }
 
-    return /^\/node_modules\/(?:\.pnpm\/preact(?:-render-to-string)?@[^/]+\/node_modules\/)?preact(?:-render-to-string)?(?:\/|$)/.test(
+    return /^\/node_modules\/(?:\.pnpm\/(?:preact(?:-render-to-string)?|react(?:-dom)?)@[^/]+\/node_modules\/)?(?:preact(?:-render-to-string)?|react(?:-dom)?)(?:\/|$)/.test(
       path,
     );
   }

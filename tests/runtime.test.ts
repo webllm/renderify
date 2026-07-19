@@ -3559,6 +3559,47 @@ test("runtime source loader preserves preact remote imports in browser runtime",
   }
 });
 
+test("runtime source loader preserves React remote imports in browser runtime", async () => {
+  class BrowserWorkerMock {}
+  const restoreGlobals = installBrowserSandboxGlobals(BrowserWorkerMock);
+  const runtime = new DefaultRuntimeManager({
+    remoteFallbackCdnBases: [],
+    remoteFetchRetries: 0,
+    remoteFetchBackoffMs: 10,
+    remoteFetchTimeoutMs: 500,
+  });
+  const loader = (
+    runtime as unknown as {
+      createSourceModuleLoader: (
+        moduleManifest: RuntimeModuleManifest | undefined,
+        diagnostics: Array<{ code?: string; message?: string }>,
+      ) => {
+        materializeRemoteModule(url: string): Promise<string>;
+      };
+    }
+  ).createSourceModuleLoader(undefined, []);
+  const reactUrl = "https://esm.sh/react@19.2.0?target=es2022";
+  let fetchCount = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    fetchCount += 1;
+    return new Response("export default 1;", {
+      status: 200,
+      headers: {
+        "content-type": "text/javascript; charset=utf-8",
+      },
+    });
+  }) as typeof fetch;
+
+  try {
+    assert.equal(await loader.materializeRemoteModule(reactUrl), reactUrl);
+    assert.equal(fetchCount, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreGlobals();
+  }
+});
+
 test("runtime source loader preserves local preact node_modules imports in browser runtime", async () => {
   class BrowserWorkerMock {}
   const restoreGlobals = installBrowserSandboxGlobals(BrowserWorkerMock);
@@ -4655,6 +4696,35 @@ test("runtime wraps server-rendered Preact artifacts with an Emotion cache bound
     '<section data-cache-key="renderify"><span>content</span></section>',
   );
   assert.deepEqual(diagnostics, []);
+});
+
+test("runtime accepts React 19 elements when a host injects a React factory", async () => {
+  const reactElementBrand = Symbol.for("react.transitional.element");
+  const createElement = (
+    type: unknown,
+    props: unknown,
+    ...children: unknown[]
+  ) => ({
+    $$typeof: reactElementBrand,
+    type,
+    key: null,
+    props: {
+      ...((props as Record<string, unknown> | null) ?? {}),
+      ...(children.length > 0 ? { children } : {}),
+    },
+  });
+  const componentOutput = createElement("button", null, "interactive");
+  const artifact = await createPreactRenderArtifact({
+    sourceExport: () => componentOutput,
+    runtimeInput: {},
+    diagnostics: [],
+    preactModule: { h: createElement },
+  });
+
+  assert.equal(artifact?.mode, "preact-vnode");
+  const wrapper = (artifact as { payload: { type: () => unknown } }).payload
+    .type;
+  assert.equal(wrapper(), componentOutput);
 });
 
 test("runtime preact rendering rejects plain object component output", async () => {
