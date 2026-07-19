@@ -580,6 +580,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
 
     await resolveRuntimePlanImports({
       imports,
+      sourceCode: plan.source?.code,
       maxImports,
       moduleManifest: plan.moduleManifest,
       diagnostics,

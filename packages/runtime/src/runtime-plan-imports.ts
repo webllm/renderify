@@ -1,8 +1,10 @@
 import type { RuntimeDiagnostic, RuntimeModuleManifest } from "@renderify/ir";
 import { isRuntimeModuleMaterializationLimitError } from "./runtime-module-materialization-budget";
+import { parseImportSpecifiersFromSource } from "./runtime-source-utils";
 
 export interface RuntimePlanImportResolutionInput {
   imports: string[];
+  sourceCode?: string;
   maxImports: number;
   moduleManifest: RuntimeModuleManifest | undefined;
   diagnostics: RuntimeDiagnostic[];
@@ -31,7 +33,11 @@ export interface RuntimePlanImportResolutionInput {
 export async function resolveRuntimePlanImports(
   input: RuntimePlanImportResolutionInput,
 ): Promise<void> {
-  const { imports, maxImports, moduleManifest, diagnostics } = input;
+  const { maxImports, moduleManifest, diagnostics } = input;
+  const sourceImports = await collectSourceImportSpecifiers(input.sourceCode);
+  const imports = input.imports.filter(
+    (specifier) => !sourceImports.has(specifier.trim()),
+  );
 
   for (let i = 0; i < imports.length; i += 1) {
     if (input.isAborted()) {
@@ -112,4 +118,15 @@ export async function resolveRuntimePlanImports(
       });
     }
   }
+}
+
+async function collectSourceImportSpecifiers(
+  sourceCode: string | undefined,
+): Promise<Set<string>> {
+  if (!sourceCode || sourceCode.trim().length === 0) {
+    return new Set();
+  }
+
+  const parsed = await parseImportSpecifiersFromSource(sourceCode);
+  return new Set(parsed.map((entry) => entry.specifier.trim()));
 }
