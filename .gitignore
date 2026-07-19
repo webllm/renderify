@@ -44,6 +44,7 @@ node_modules/
 jspm_packages/
 openui/
 .turbo/
+.source/
 .claude/
 .artifacts/
 

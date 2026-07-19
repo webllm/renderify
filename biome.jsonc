@@ -4,6 +4,9 @@
     "includes": [
       "**",
       "!**/node_modules",
+      "!**/.next",
+      "!**/.source",
+      "!**/out",
       "!**/dist",
       "!**/dist-types",
       "!.artifacts",
@@ -42,6 +45,8 @@
               "RENDERIFY_RUNTIME_.*",
               "RENDERIFY_SECURITY_PROFILE",
               "RENDERIFY_STRICT_SECURITY",
+              "RENDERIFY_SITE_BASE_PATH",
+              "NEXT_PUBLIC_RENDERIFY_BASE_PATH",
               // Direct scripts and uncached tasks do not contribute these values to Turbo outputs.
               "GITHUB_BASE_REF",
               "GITHUB_STEP_SUMMARY",
