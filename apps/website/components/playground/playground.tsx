@@ -59,7 +59,7 @@ export function Playground() {
     plan: initialPlan.code,
   });
   const [selectedSample, setSelectedSample] = useState(initialJsx.id);
-  const [autoRun, setAutoRun] = useState(false);
+  const [autoRun, setAutoRun] = useState(true);
   const [frameVersion, setFrameVersion] = useState(0);
   const [runnerReady, setRunnerReady] = useState(false);
   const [status, setStatus] = useState<RunStatus>("booting");
