@@ -90,6 +90,34 @@ test("interpolateTemplate resolves state/context/event/vars paths", () => {
   );
 });
 
+test("resolveJsonValue preserves exact template value types", () => {
+  const resolved = resolveJsonValue(
+    {
+      checked: "{{state.done}}",
+      opacity: "{{state.opacity}}",
+      label: "Count={{state.count}}",
+      payload: "{{state.payload}}",
+      missing: "{{state.missing}}",
+    },
+    {},
+    {
+      done: false,
+      opacity: 0.5,
+      count: 2,
+      payload: { id: "todo-1" },
+    },
+    undefined,
+  );
+
+  assert.deepEqual(resolved, {
+    checked: false,
+    opacity: 0.5,
+    label: "Count=2",
+    payload: { id: "todo-1" },
+    missing: "",
+  });
+});
+
 test("resolveJsonValue handles circular structures without throwing", () => {
   const circular: Record<string, unknown> = {
     label: "node",

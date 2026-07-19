@@ -369,6 +369,47 @@ test("ui renderer preserves relative and safe non-network URLs", () => {
   assert.match(svgHtml, /cursor="url\(\/cursors\/pointer\.cur\), pointer"/);
 });
 
+test("ui renderer receives typed exact-template props", async () => {
+  const runtime = new DefaultRuntimeManager();
+  await runtime.initialize();
+  const plan: RuntimePlan = {
+    specVersion: DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
+    id: "ui_typed_template_props",
+    version: 1,
+    root: createElementNode("input", {
+      type: "checkbox",
+      checked: "{{state.done}}",
+      style: { opacity: "{{state.opacity}}" },
+    }),
+    state: {
+      initial: { done: false, opacity: 0.5 },
+    },
+  };
+
+  try {
+    const unchecked = await runtime.executePlan(plan);
+    assert.equal(
+      unchecked.root.type === "element"
+        ? unchecked.root.props?.checked
+        : undefined,
+      false,
+    );
+    const uncheckedHtml = await new DefaultUIRenderer().render(unchecked);
+    assert.doesNotMatch(uncheckedHtml, /\schecked(?:[\s=>])/);
+    assert.match(uncheckedHtml, /opacity:0\.5;/);
+
+    const checked = await runtime.executePlan(plan, {}, undefined, {
+      done: true,
+      opacity: 1,
+    });
+    const checkedHtml = await new DefaultUIRenderer().render(checked);
+    assert.match(checkedHtml, /\schecked(?:[\s>])/);
+    assert.match(checkedHtml, /opacity:1;/);
+  } finally {
+    await runtime.terminate();
+  }
+});
+
 test("ui renderer drops unsafe inline style values", () => {
   const renderer = new DefaultUIRenderer();
   const html = renderer.renderNode(

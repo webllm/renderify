@@ -1,4 +1,5 @@
 import {
+  asJsonValue,
   getValueByPath,
   type JsonValue,
   type RuntimeEvent,
@@ -11,6 +12,7 @@ const TEMPLATE_STRINGIFY_MAX_NODES = 256;
 const TEMPLATE_STRINGIFY_MAX_LENGTH = 4096;
 const TEMPLATE_TRUNCATED_MARKER = "[Truncated]";
 const TEMPLATE_CIRCULAR = Symbol("renderify-template-circular");
+const EXACT_TEMPLATE_EXPRESSION_PATTERN = /^{{\s*([^{}]+?)\s*}}$/;
 
 export function resolveProps(
   props: Record<string, JsonValue> | undefined,
@@ -48,7 +50,7 @@ function resolveJsonValueInternal(
   seen: WeakSet<object>,
 ): JsonValue {
   if (typeof value === "string") {
-    return interpolateTemplate(value, context, state, event);
+    return resolveTemplateValue(value, context, state, event);
   }
 
   if (Array.isArray(value)) {
@@ -83,6 +85,28 @@ function resolveJsonValueInternal(
   }
 
   return value;
+}
+
+function resolveTemplateValue(
+  template: string,
+  context: RuntimeExecutionContext,
+  state: RuntimeStateSnapshot,
+  event: RuntimeEvent | undefined,
+): JsonValue {
+  const exactExpression = EXACT_TEMPLATE_EXPRESSION_PATTERN.exec(template);
+  if (!exactExpression) {
+    return interpolateTemplate(template, context, state, event);
+  }
+
+  const resolved = resolveExpression(
+    exactExpression[1] ?? "",
+    context,
+    state,
+    event,
+  );
+  return resolved === undefined || resolved === null
+    ? ""
+    : asJsonValue(resolved);
 }
 
 export function interpolateTemplate(
