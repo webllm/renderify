@@ -36,7 +36,8 @@ export async function resolveRuntimePlanImports(
   const { maxImports, moduleManifest, diagnostics } = input;
   const sourceImports = await collectSourceImportSpecifiers(input.sourceCode);
   const imports = input.imports.filter(
-    (specifier) => !sourceImports.has(specifier.trim()),
+    (specifier) =>
+      typeof specifier !== "string" || !sourceImports.has(specifier.trim()),
   );
 
   for (let i = 0; i < imports.length; i += 1) {
