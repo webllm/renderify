@@ -289,6 +289,32 @@ test("remote module probes verify only the entry without materializing its graph
   }
 });
 
+test("remote module probes deduplicate repeated fallback diagnostics", async () => {
+  const diagnostics: RuntimeDiagnostic[] = [];
+  const originalUrl = "https://ga.jspm.io/npm:@mui/material@9.2.0/index.mjs";
+  const restoreFetch = installMockFetch(async () =>
+    createJavaScriptResponse("export default 1;"),
+  );
+  const loader = createLoader({
+    diagnostics,
+    budget: createRuntimeModuleMaterializationBudget(4),
+    fallbackCdnBases: ["https://esm.sh"],
+  });
+
+  try {
+    await loader.probeRemoteModule(originalUrl);
+    await loader.probeRemoteModule(originalUrl);
+    assert.equal(
+      diagnostics.filter(
+        (item) => item.code === "RUNTIME_SOURCE_IMPORT_FALLBACK_USED",
+      ).length,
+      1,
+    );
+  } finally {
+    restoreFetch();
+  }
+});
+
 function createLoader(input: {
   cache?: Map<string, string>;
   budget: ReturnType<typeof createRuntimeModuleMaterializationBudget>;
@@ -299,6 +325,7 @@ function createLoader(input: {
     resolver: (specifier: string) => Promise<string>,
   ) => Promise<string>;
   moduleManifest?: RuntimeModuleManifest;
+  fallbackCdnBases?: string[];
   isRemoteUrlAllowed?: (url: string) => boolean;
 }): RuntimeSourceModuleLoader {
   return new RuntimeSourceModuleLoader({
@@ -306,7 +333,7 @@ function createLoader(input: {
     diagnostics: input.diagnostics,
     materializedModuleUrlCache: input.cache ?? new Map(),
     materializedModuleInflight: new Map(),
-    remoteFallbackCdnBases: [],
+    remoteFallbackCdnBases: input.fallbackCdnBases ?? [],
     remoteFetchTimeoutMs: input.timeoutMs ?? 100,
     remoteFetchRetries: 0,
     remoteFetchBackoffMs: 0,

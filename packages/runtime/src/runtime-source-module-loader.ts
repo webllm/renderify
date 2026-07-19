@@ -672,7 +672,7 @@ export class RuntimeSourceModuleLoader {
         );
 
         if (attempt !== originalUrl) {
-          this.diagnostics.push({
+          this.pushDiagnosticOnce({
             level: "warning",
             code: "RUNTIME_SOURCE_IMPORT_FALLBACK_USED",
             message: `Loaded module via fallback URL: ${originalUrl} -> ${attempt}`,
@@ -680,7 +680,7 @@ export class RuntimeSourceModuleLoader {
         }
 
         if (retry > 0) {
-          this.diagnostics.push({
+          this.pushDiagnosticOnce({
             level: "warning",
             code: "RUNTIME_SOURCE_IMPORT_RETRY_SUCCEEDED",
             message: `Recovered remote module after retry ${retry}: ${attempt}`,
@@ -878,6 +878,19 @@ export class RuntimeSourceModuleLoader {
       code: "RUNTIME_MODULE_MATERIALIZATION_LIMIT_EXCEEDED",
       message,
     });
+  }
+
+  private pushDiagnosticOnce(diagnostic: RuntimeDiagnostic): void {
+    if (
+      this.diagnostics.some(
+        (item) =>
+          item.code === diagnostic.code && item.message === diagnostic.message,
+      )
+    ) {
+      return;
+    }
+
+    this.diagnostics.push(diagnostic);
   }
 
   private createAbortController(): AbortController | undefined {
