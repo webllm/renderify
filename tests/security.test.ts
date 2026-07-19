@@ -550,6 +550,11 @@ test("trusted profile enables preact without relaxed network permissions", async
   assert.equal(trustedPolicy.allowArbitraryNetwork, false);
   assert.equal(trustedPolicy.allowDynamicSourceImports, false);
   assert.equal(trustedPolicy.requireModuleManifestForBareSpecifiers, true);
+  assert.deepEqual(trustedPolicy.allowedNetworkHosts, [
+    "ga.jspm.io",
+    "cdn.jspm.io",
+    "esm.sh",
+  ]);
 });
 
 test("strict and balanced profiles disable runtime source modules", () => {

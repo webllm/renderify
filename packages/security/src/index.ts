@@ -188,7 +188,7 @@ const SECURITY_PROFILE_POLICIES: Record<
     maxNodeCount: 1000,
     allowInlineEventHandlers: false,
     allowedModules: ["/", "npm:"],
-    allowedNetworkHosts: ["ga.jspm.io", "cdn.jspm.io"],
+    allowedNetworkHosts: ["ga.jspm.io", "cdn.jspm.io", "esm.sh"],
     allowArbitraryNetwork: false,
     allowedExecutionProfiles: [
       "standard",

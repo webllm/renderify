@@ -31,7 +31,7 @@ RENDERIFY_SECURITY_PROFILE=strict
 | Module integrity required | Yes                                       |
 | Spec version required     | Yes                                       |
 | Dynamic imports in source | Disabled                                  |
-| Allowed network hosts     | ga.jspm.io, cdn.jspm.io                   |
+| Allowed network hosts     | ga.jspm.io, cdn.jspm.io, esm.sh           |
 | Arbitrary network         | Disabled                                  |
 
 **Banned source patterns (strict):** `eval()`, `new Function()`, `fetch()`, `XMLHttpRequest`, `WebSocket`, `importScripts`, `document.cookie`, `localStorage`, `sessionStorage`, `indexedDB`, `navigator.sendBeacon`, `child_process`, `process.env`
