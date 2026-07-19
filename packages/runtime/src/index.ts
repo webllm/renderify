@@ -1,3 +1,5 @@
+export * from "./browser-source-execution";
+export * from "./browser-source-mount";
 export * from "./embed";
 export * from "./framework-adapters";
 export type { JspmModuleLoaderOptions } from "./jspm-module-loader";
