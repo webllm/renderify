@@ -54,6 +54,7 @@
               "RELEASE_TAG",
               "RENDERIFY_BENCH_.*",
               "RENDERIFY_CHANGESET_.*",
+              "RENDERIFY_LIVE_E2E.*",
               "npm_config_user_agent"
             ]
           }
