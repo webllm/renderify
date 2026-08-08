@@ -225,6 +225,28 @@ E2E tests cover:
 - LLM provider integration (with fake servers)
 - Hash deep-link loading in the browser
 
+### Live Codex E2E Tests
+
+`tests/e2e/live-codex.test.ts` exercises the same CLI paths against the real
+OpenAI Codex backend instead of a fake server. It spends quota, so every test
+skips unless `RENDERIFY_LIVE_E2E=1` is set and Codex credentials resolve:
+
+```bash
+renderify auth codex login          # or reuse the Codex CLI login
+RENDERIFY_LIVE_E2E=1 RENDERIFY_CODEX_USE_CLI_AUTH=1 \
+  pnpm exec tsx --test tests/e2e/live-codex.test.ts
+```
+
+| Variable                             | Default               | Purpose                            |
+| ------------------------------------ | --------------------- | ---------------------------------- |
+| `RENDERIFY_LIVE_E2E`                 | unset                 | Set to `1` to opt in               |
+| `RENDERIFY_LIVE_E2E_MODEL`           | `gpt-5.3-codex-spark` | Model under test                   |
+| `RENDERIFY_LIVE_E2E_PLAN_BUDGET_MS`  | `45000`               | Median plan-generation budget      |
+
+Coverage: structured RuntimePlan generation, text-mode fallback, SSE streaming,
+strict-profile policy checks on model output, adversarial prompt containment,
+plan latency, and concurrent generation.
+
 ### Website
 
 The Fumadocs site reads its content directly from `docs/`; do not maintain a
