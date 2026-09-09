@@ -62,11 +62,11 @@
   },
   "sideEffects": false,
   "dependencies": {
-    "@modelcontextprotocol/ext-apps": "^1.7.4",
+    "@modelcontextprotocol/ext-apps": "^1.7.5",
     "@renderify/ir": "workspace:^",
     "@renderify/runtime": "workspace:^",
     "@renderify/security": "workspace:^",
-    "esbuild": "^0.28.1"
+    "esbuild": "^0.28.2"
   },
   "peerDependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
