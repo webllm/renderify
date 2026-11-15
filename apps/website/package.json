@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "brand:assets": "node scripts/generate-brand-assets.mjs",
     "build": "next build",
     "dev": "next dev",
     "postinstall": "fumadocs-mdx",
