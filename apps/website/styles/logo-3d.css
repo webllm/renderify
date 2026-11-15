@@ -1,0 +1,138 @@
+/*
+ * Extruded 3D logo (components/brand/logo-3d.tsx). Fourteen copies of the
+ * logo are stacked along Z; the front copy keeps the true colors and the rest
+ * are darkened so the stack reads as solid side walls when it turns.
+ */
+
+.logo-3d {
+  --logo-3d-depth: 30px;
+  --logo-3d-rx: 8deg;
+  --logo-3d-ry: -22deg;
+  --logo-3d-shine: 60%;
+  aspect-ratio: 512 / 465;
+  perspective: 900px;
+  position: relative;
+  width: 15rem;
+}
+
+.logo-3d-float {
+  height: 100%;
+  width: 100%;
+}
+
+.logo-3d-object {
+  height: 100%;
+  position: relative;
+  transform: rotateX(var(--logo-3d-rx)) rotateY(var(--logo-3d-ry));
+  transform-style: preserve-3d;
+  transition: transform 600ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  width: 100%;
+}
+
+.logo-3d-layer {
+  filter: brightness(0.52) saturate(1.3);
+  height: 100%;
+  left: 0;
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  transform: translateZ(
+    calc(var(--logo-3d-depth) * (0.5 - var(--logo-3d-layer) / 13))
+  );
+  user-select: none;
+  width: 100%;
+}
+
+.logo-3d-layer:first-child {
+  filter: drop-shadow(0 0 1px rgb(255 255 255 / 25%));
+}
+
+/*
+ * Specular sheen clipped to the logo silhouette, sliding with the turn.
+ * No mix-blend-mode here: blending forces the parent into a flat group and
+ * would collapse the preserve-3d stack into a single plane.
+ */
+.logo-3d-shine {
+  background: linear-gradient(
+    110deg,
+    transparent 38%,
+    rgb(255 255 255 / 26%) 48%,
+    transparent 58%
+  );
+  background-position: var(--logo-3d-shine) 0;
+  background-size: 260% 100%;
+  inset: 0;
+  mask-repeat: no-repeat;
+  mask-size: 100% 100%;
+  pointer-events: none;
+  position: absolute;
+  transform: translateZ(calc(var(--logo-3d-depth) * 0.5 + 0.5px));
+  transition: background-position 600ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.logo-3d-shadow {
+  background: radial-gradient(closest-side, rgb(11 33 120 / 38%), transparent);
+  bottom: -16%;
+  filter: blur(6px);
+  height: 12%;
+  left: 14%;
+  position: absolute;
+  right: 14%;
+}
+
+.dark .logo-3d-shadow {
+  background: radial-gradient(closest-side, rgb(11 92 250 / 45%), transparent);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .logo-3d-float {
+    animation: logo-3d-float 6s ease-in-out infinite;
+  }
+
+  .logo-3d:not([data-tracking]) .logo-3d-object {
+    animation: logo-3d-sway 9s ease-in-out infinite;
+  }
+
+  .logo-3d:not([data-tracking]) .logo-3d-shine {
+    animation: logo-3d-shine 9s ease-in-out infinite;
+  }
+
+  .logo-3d-shadow {
+    animation: logo-3d-shadow 6s ease-in-out infinite;
+  }
+}
+
+@keyframes logo-3d-float {
+  50% {
+    translate: 0 -10px;
+  }
+}
+
+@keyframes logo-3d-sway {
+  0%,
+  100% {
+    transform: rotateX(8deg) rotateY(-24deg);
+  }
+
+  50% {
+    transform: rotateX(4deg) rotateY(20deg);
+  }
+}
+
+@keyframes logo-3d-shine {
+  0%,
+  100% {
+    background-position: 85% 0;
+  }
+
+  50% {
+    background-position: 15% 0;
+  }
+}
+
+@keyframes logo-3d-shadow {
+  50% {
+    opacity: 0.7;
+    scale: 0.9 1;
+  }
+}

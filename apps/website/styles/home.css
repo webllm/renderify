@@ -1802,6 +1802,117 @@
   line-height: 1.6;
 }
 
+/* Call to action ------------------------------------------------------- */
+
+.home-cta-section {
+  padding-bottom: clamp(5rem, 10vw, 8rem);
+}
+
+.home-cta {
+  align-items: center;
+  background:
+    radial-gradient(
+      36rem 22rem at 85% 30%,
+      rgb(11 92 250 / 32%),
+      transparent 70%
+    ),
+    radial-gradient(
+      30rem 20rem at 0% 0%,
+      rgb(138 43 249 / 30%),
+      transparent 70%
+    ),
+    radial-gradient(
+      26rem 18rem at 100% 100%,
+      rgb(0 212 251 / 18%),
+      transparent 70%
+    ),
+    #090b19;
+  border: 1px solid rgb(140 160 255 / 18%);
+  border-radius: 2rem;
+  box-shadow: 0 50px 100px -50px rgb(11 33 120 / 70%);
+  color: #eef1ff;
+  display: grid;
+  gap: 2.5rem;
+  isolation: isolate;
+  overflow: hidden;
+  padding: clamp(2rem, 6vw, 4rem);
+  position: relative;
+}
+
+@media (min-width: 900px) {
+  .home-cta {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  }
+}
+
+.home-cta-floor {
+  --home-grid-line: rgb(140 160 255 / 14%);
+  background-image:
+    linear-gradient(to right, var(--home-grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--home-grid-line) 1px, transparent 1px);
+  background-size: 48px 48px;
+  bottom: -45%;
+  height: 90%;
+  left: -20%;
+  mask-image: radial-gradient(
+    ellipse 60% 70% at 70% 0%,
+    #000 10%,
+    transparent 70%
+  );
+  pointer-events: none;
+  position: absolute;
+  right: -20%;
+  transform: perspective(500px) rotateX(70deg);
+  transform-origin: 50% 0%;
+  z-index: -1;
+}
+
+.home-cta .home-eyebrow {
+  color: #8fb8ff;
+}
+
+.home-cta h2 {
+  font-size: clamp(2rem, 4.5vw, 3.2rem);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+  margin-top: 1rem;
+  text-wrap: balance;
+}
+
+.home-cta-copy > p:not(.home-eyebrow) {
+  color: rgb(226 232 255 / 72%);
+  font-size: 1.075rem;
+  line-height: 1.7;
+  margin-top: 1rem;
+  max-width: 32rem;
+}
+
+.home-cta-secondary {
+  background: rgb(255 255 255 / 8%);
+  border: 1px solid rgb(255 255 255 / 16%);
+  color: #fff;
+}
+
+.home-cta-secondary:hover {
+  background: rgb(255 255 255 / 14%);
+  transform: translateY(-1px);
+}
+
+.home-cta-visual {
+  display: grid;
+  min-height: 15rem;
+  place-items: center;
+}
+
+.home-cta .logo-3d {
+  width: min(16rem, 62vw);
+}
+
+.home-cta .logo-3d-shadow {
+  background: radial-gradient(closest-side, rgb(11 92 250 / 55%), transparent);
+}
+
 /* Motion ---------------------------------------------------------------- */
 
 @media (prefers-reduced-motion: reduce) {

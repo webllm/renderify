@@ -1,3 +1,4 @@
+import { CtaSection } from "@/components/home/cta-section";
 import { FeatureGrid } from "@/components/home/feature-grid";
 import { Hero } from "@/components/home/hero";
 import { LanesSection } from "@/components/home/lanes-section";
@@ -12,6 +13,7 @@ export default function HomePage() {
       <LanesSection />
       <FeatureGrid />
       <PackagesSection />
+      <CtaSection />
     </>
   );
 }
