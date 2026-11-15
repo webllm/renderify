@@ -1708,6 +1708,100 @@
   padding: 0.25rem 0.6rem;
 }
 
+/* Packages -------------------------------------------------------------- */
+
+.packages-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 640px) {
+  .packages-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .packages-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.packages-grid > li {
+  display: flex;
+}
+
+.package-card {
+  background: color-mix(in srgb, var(--color-fd-card) 86%, transparent);
+  border: 1px solid var(--color-fd-border);
+  border-radius: 1.1rem;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1.15rem 1.2rem 1.3rem;
+  transition:
+    border-color 250ms ease,
+    box-shadow 250ms ease,
+    transform 250ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.package-card:hover {
+  border-color: color-mix(in srgb, var(--brand-blue) 45%, transparent);
+  box-shadow: 0 24px 50px -36px rgb(11 33 120 / 60%);
+  transform: translateY(-2px);
+}
+
+.package-card[data-featured="true"] {
+  background:
+    linear-gradient(var(--color-fd-card), var(--color-fd-card)) padding-box,
+    var(--brand-gradient) border-box;
+  border-color: transparent;
+}
+
+.package-role {
+  color: var(--color-fd-muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.package-card[data-featured="true"] .package-role {
+  color: var(--brand-text);
+}
+
+.package-name {
+  align-items: center;
+  display: flex;
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  font-weight: 600;
+  gap: 0.35rem;
+  justify-content: space-between;
+}
+
+.package-name svg {
+  color: var(--color-fd-muted-foreground);
+  flex: none;
+  transition:
+    color 200ms ease,
+    transform 200ms ease;
+}
+
+.package-card:hover .package-name svg {
+  color: var(--brand-text);
+  transform: translate(2px, -2px);
+}
+
+.package-body {
+  color: var(--color-fd-muted-foreground);
+  font-size: 0.875rem;
+  line-height: 1.6;
+}
+
 /* Motion ---------------------------------------------------------------- */
 
 @media (prefers-reduced-motion: reduce) {
@@ -1720,11 +1814,13 @@
   .pipeline-step-body,
   .lanes-browser,
   .preview-metrics-bars span,
-  .feature-card {
+  .feature-card,
+  .package-card {
     transition: none;
   }
 
-  .feature-card:hover {
+  .feature-card:hover,
+  .package-card:hover {
     transform: none;
   }
 
