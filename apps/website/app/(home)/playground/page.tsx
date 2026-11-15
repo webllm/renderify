@@ -11,7 +11,7 @@ export default function PlaygroundPage() {
   return (
     <main className="mx-auto flex w-full max-w-[1680px] flex-1 flex-col px-4 pb-16 pt-10 md:px-6 md:pt-14">
       <div className="mb-8 max-w-3xl">
-        <p className="text-sm font-semibold text-[var(--renderify-accent)]">
+        <p className="text-sm font-semibold text-[var(--brand-text)]">
           Renderer-only Playground
         </p>
         <h1 className="mt-2 text-4xl font-bold tracking-tight md:text-5xl">

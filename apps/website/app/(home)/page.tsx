@@ -35,7 +35,7 @@ export default function HomePage() {
         </p>
         <div className="mt-9 flex flex-wrap gap-3">
           <Link
-            className="rounded-xl bg-[var(--renderify-accent)] px-5 py-3 font-semibold text-white shadow-lg shadow-violet-500/20 transition hover:bg-[var(--renderify-accent-strong)]"
+            className="rounded-xl bg-[var(--renderify-accent)] px-5 py-3 font-semibold text-white shadow-lg shadow-blue-600/25 transition hover:bg-[var(--renderify-accent-strong)]"
             href="/playground"
           >
             Open Playground
@@ -62,7 +62,7 @@ export default function HomePage() {
             <p className="mt-3 leading-7 text-fd-muted-foreground">
               {feature.body}
             </p>
-            <span className="mt-5 inline-flex text-sm font-semibold text-[var(--renderify-accent)]">
+            <span className="mt-5 inline-flex text-sm font-semibold text-[var(--brand-text)]">
               Read the guide{" "}
               <span className="ml-1 transition group-hover:translate-x-1">
                 →

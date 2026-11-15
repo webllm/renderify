@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "fumadocs-ui/css/neutral.css";
 @import "fumadocs-ui/css/preset.css";
+@import "../styles/theme.css";
 
 :root {
   /* Tailwind and Fumadocs read these tokens; the Geist variables come from next/font. */
@@ -10,8 +11,6 @@
   --font-mono:
     var(--font-geist-mono), ui-monospace, "SFMono-Regular", Menlo, Consolas,
     "Liberation Mono", monospace;
-  --renderify-accent: #6d5dfc;
-  --renderify-accent-strong: #5145cd;
 }
 
 html {
@@ -20,7 +19,16 @@ html {
 
 body {
   background:
-    radial-gradient(circle at 8% -10%, rgb(109 93 252 / 14%), transparent 34rem),
+    radial-gradient(
+      56rem 26rem at 6% -9rem,
+      rgb(138 43 249 / 10%),
+      transparent 70%
+    ),
+    radial-gradient(
+      48rem 24rem at 94% -10rem,
+      rgb(0 212 251 / 9%),
+      transparent 70%
+    ),
     var(--color-fd-background);
   font-family: var(--font-sans);
   -moz-osx-font-smoothing: grayscale;
@@ -38,9 +46,9 @@ body {
 
 .renderify-brand-mark {
   align-items: center;
-  background: linear-gradient(145deg, #7c6cff, #4b3fbd);
+  background: var(--brand-gradient);
   border-radius: 0.5rem;
-  box-shadow: 0 0.35rem 1rem rgb(82 68 199 / 25%);
+  box-shadow: 0 0.35rem 1rem rgb(11 92 250 / 25%);
   color: white;
   display: inline-flex;
   font-size: 0.72rem;
@@ -308,8 +316,8 @@ body {
 
 .playground-safety-note {
   align-items: flex-start;
-  background: color-mix(in srgb, #6d5dfc 7%, transparent);
-  color: var(--renderify-accent);
+  background: color-mix(in srgb, var(--brand-blue) 6%, transparent);
+  color: var(--brand-text);
   display: flex;
   gap: 0.7rem;
 }

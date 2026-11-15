@@ -1,0 +1,107 @@
+/*
+ * Renderify brand theme.
+ *
+ * The palette is sampled from logo.png, whose stroke runs from violet through
+ * blue to cyan. Fumadocs reads the --color-fd-* tokens, so docs, navigation,
+ * search, and the Playground all inherit the same palette. Light values live
+ * on :root and dark values on .dark; keep both in sync when adding tokens.
+ */
+
+:root {
+  --brand-violet: #8a2bf9;
+  --brand-indigo: #4d36f7;
+  --brand-blue: #0b5cfa;
+  --brand-sky: #0a9cfc;
+  --brand-cyan: #00d4fb;
+  --brand-gradient: linear-gradient(
+    105deg,
+    var(--brand-violet) 0%,
+    var(--brand-indigo) 26%,
+    var(--brand-blue) 52%,
+    var(--brand-sky) 78%,
+    var(--brand-cyan) 100%
+  );
+  /* Readable accent for text and icons on the page background. */
+  --brand-text: #0b5cfa;
+  --brand-glow: rgb(11 92 250 / 45%);
+
+  --renderify-accent: var(--brand-blue);
+  --renderify-accent-strong: #0847c4;
+
+  --color-fd-background: hsl(228, 33%, 98%);
+  --color-fd-foreground: hsl(232, 36%, 9%);
+  --color-fd-muted: hsl(228, 30%, 95%);
+  --color-fd-muted-foreground: hsl(229, 13%, 42%);
+  --color-fd-popover: hsl(0, 0%, 100%);
+  --color-fd-popover-foreground: hsl(232, 36%, 12%);
+  --color-fd-card: hsl(228, 33%, 96.6%);
+  --color-fd-card-foreground: hsl(232, 36%, 9%);
+  --color-fd-border: hsla(229, 30%, 78%, 50%);
+  --color-fd-primary: hsl(220, 96%, 51%);
+  --color-fd-primary-foreground: hsl(0, 0%, 100%);
+  --color-fd-secondary: hsl(228, 30%, 94%);
+  --color-fd-secondary-foreground: hsl(232, 36%, 12%);
+  --color-fd-accent: hsla(226, 60%, 86%, 50%);
+  --color-fd-accent-foreground: hsl(232, 36%, 12%);
+  --color-fd-ring: hsl(220, 96%, 56%);
+}
+
+.dark {
+  --brand-text: #6aa8ff;
+  --brand-glow: rgb(43 125 255 / 50%);
+
+  --renderify-accent-strong: #2f76ff;
+
+  --color-fd-background: hsl(234, 32%, 5%);
+  --color-fd-foreground: hsl(228, 33%, 93%);
+  --color-fd-muted: hsl(234, 24%, 11%);
+  --color-fd-muted-foreground: hsla(228, 18%, 72%, 0.88);
+  --color-fd-popover: hsl(234, 26%, 9%);
+  --color-fd-popover-foreground: hsl(228, 33%, 90%);
+  --color-fd-card: hsl(234, 26%, 8%);
+  --color-fd-card-foreground: hsl(228, 33%, 96%);
+  --color-fd-border: hsla(228, 40%, 64%, 16%);
+  --color-fd-primary: hsl(214, 100%, 71%);
+  --color-fd-primary-foreground: hsl(234, 40%, 8%);
+  --color-fd-secondary: hsl(234, 24%, 12%);
+  --color-fd-secondary-foreground: hsl(228, 33%, 92%);
+  --color-fd-accent: hsla(226, 45%, 50%, 18%);
+  --color-fd-accent-foreground: hsl(228, 40%, 92%);
+  --color-fd-ring: hsl(214, 100%, 71%);
+}
+
+/* fumadocs-ui/css/neutral.css tints the dark sidebar gray; keep it on-brand. */
+.dark #nd-sidebar {
+  --color-fd-muted: hsl(234, 22%, 13%);
+  --color-fd-secondary: hsl(234, 22%, 15%);
+  --color-fd-muted-foreground: hsl(228, 18%, 72%);
+}
+
+html {
+  scrollbar-color: color-mix(
+      in srgb,
+      var(--color-fd-muted-foreground) 35%,
+      transparent
+    )
+    transparent;
+}
+
+::selection {
+  background: rgb(11 92 250 / 22%);
+}
+
+.dark ::selection {
+  background: rgb(106 168 255 / 30%);
+}
+
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-fd-ring);
+  outline-offset: 2px;
+}
+
+.renderify-gradient-text {
+  -webkit-background-clip: text;
+  background-clip: text;
+  background-image: var(--brand-gradient);
+  color: transparent;
+}
