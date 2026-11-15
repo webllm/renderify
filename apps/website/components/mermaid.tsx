@@ -5,6 +5,34 @@ import { useEffect, useId, useRef, useState } from "react";
 
 const renderCache = new Map<string, Promise<MermaidRenderResult>>();
 
+// Brand palette (styles/theme.css) for Mermaid's customizable "base" theme.
+const LIGHT_THEME_VARIABLES = {
+  background: "#ffffff",
+  clusterBkg: "#f6f8fe",
+  clusterBorder: "#cdd6f0",
+  edgeLabelBackground: "#ffffff",
+  lineColor: "#6f7ca6",
+  primaryBorderColor: "#8aa8f8",
+  primaryColor: "#edf2ff",
+  primaryTextColor: "#111633",
+  secondaryColor: "#f3eeff",
+  tertiaryColor: "#e9f9ff",
+};
+
+const DARK_THEME_VARIABLES = {
+  background: "#0b0d1a",
+  clusterBkg: "#0f1328",
+  clusterBorder: "#2c3566",
+  darkMode: true,
+  edgeLabelBackground: "#0b0d1a",
+  lineColor: "#8b96c8",
+  primaryBorderColor: "#4f7dff",
+  primaryColor: "#151b3d",
+  primaryTextColor: "#e8ecff",
+  secondaryColor: "#1d1640",
+  tertiaryColor: "#0e2236",
+};
+
 interface MermaidRenderResult {
   svg: string;
   bindFunctions?: (element: Element) => void;
@@ -46,7 +74,11 @@ function MermaidContent({ chart }: { chart: string }) {
         htmlLabels: false,
         securityLevel: "strict",
         startOnLoad: false,
-        theme: resolvedTheme === "dark" ? "dark" : "default",
+        theme: "base",
+        themeVariables:
+          resolvedTheme === "dark"
+            ? DARK_THEME_VARIABLES
+            : LIGHT_THEME_VARIABLES,
       });
       return mermaid.render(`renderify-${id}`, chart.replaceAll("\\n", "\n"));
     });

@@ -80,6 +80,18 @@ body {
   padding: 1.25rem;
 }
 
+/* A faint dot grid gives rendered diagrams a canvas. */
+.mermaid-diagram {
+  background:
+    radial-gradient(
+      circle,
+      color-mix(in srgb, var(--color-fd-muted-foreground) 24%, transparent) 1px,
+      transparent 1.5px
+    )
+    0 0 / 18px 18px,
+    color-mix(in srgb, var(--color-fd-card) 72%, transparent);
+}
+
 .mermaid-error {
   color: #d92d20;
   font-size: 0.85rem;
