@@ -2,6 +2,7 @@
 @import "fumadocs-ui/css/neutral.css";
 @import "fumadocs-ui/css/preset.css";
 @import "../styles/theme.css";
+@import "../styles/home.css";
 
 :root {
   /* Tailwind and Fumadocs read these tokens; the Geist variables come from next/font. */

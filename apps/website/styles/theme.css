@@ -21,6 +21,21 @@
     var(--brand-sky) 78%,
     var(--brand-cyan) 100%
   );
+  /* Stops that keep white text above 4.5:1 contrast (buttons, pills). */
+  --brand-gradient-deep: linear-gradient(
+    105deg,
+    var(--brand-violet) 0%,
+    var(--brand-indigo) 50%,
+    var(--brand-blue) 100%
+  );
+  /* Gradient text: darker cyan end on light backgrounds for legibility. */
+  --brand-text-gradient: linear-gradient(
+    100deg,
+    #7a1ff0 0%,
+    #4d36f7 32%,
+    #0b5cfa 64%,
+    #0384d4 100%
+  );
   /* Readable accent for text and icons on the page background. */
   --brand-text: #0b5cfa;
   --brand-glow: rgb(11 92 250 / 45%);
@@ -47,6 +62,14 @@
 }
 
 .dark {
+  --brand-text-gradient: linear-gradient(
+    100deg,
+    #a766ff 0%,
+    #7b7dff 30%,
+    #4b93ff 58%,
+    #22c7fb 84%,
+    #5fe3ff 100%
+  );
   --brand-text: #6aa8ff;
   --brand-glow: rgb(43 125 255 / 50%);
 
@@ -102,6 +125,6 @@ html {
 .renderify-gradient-text {
   -webkit-background-clip: text;
   background-clip: text;
-  background-image: var(--brand-gradient);
+  background-image: var(--brand-text-gradient);
   color: transparent;
 }
