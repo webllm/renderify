@@ -1,4 +1,6 @@
 import type { BaseLayoutProps } from "fumadocs-ui/layouts/shared";
+import Image from "next/image";
+import logoMark from "@/assets/brand/renderify-mark.webp";
 import { siteConfig } from "./site";
 
 export function baseOptions(): BaseLayoutProps {
@@ -6,10 +8,13 @@ export function baseOptions(): BaseLayoutProps {
     nav: {
       title: (
         <span className="renderify-brand">
-          <span aria-hidden="true" className="renderify-brand-mark">
-            R
-          </span>
-          Renderify
+          <Image
+            alt=""
+            className="renderify-brand-mark"
+            loading="eager"
+            src={logoMark}
+          />
+          <span>Renderify</span>
         </span>
       ),
     },
