@@ -92,13 +92,138 @@ body {
   max-width: 100%;
 }
 
+.playground-page {
+  isolation: isolate;
+  /* Extend the backdrop behind the transparent navigation bar. */
+  margin-top: -3.5rem;
+  overflow-x: clip;
+  padding-top: 3.5rem;
+  position: relative;
+}
+
+.playground-page-backdrop {
+  background:
+    radial-gradient(
+      40rem 26rem at 4% -4rem,
+      rgb(138 43 249 / 13%),
+      transparent 70%
+    ),
+    radial-gradient(
+      36rem 24rem at 70% -2rem,
+      rgb(11 92 250 / 11%),
+      transparent 70%
+    ),
+    radial-gradient(
+      30rem 22rem at 104% 0%,
+      rgb(0 212 251 / 12%),
+      transparent 70%
+    );
+  height: 36rem;
+  inset: 0 0 auto;
+  pointer-events: none;
+  position: absolute;
+  z-index: -1;
+}
+
+.dark .playground-page-backdrop {
+  background:
+    radial-gradient(
+      40rem 26rem at 4% -4rem,
+      rgb(138 43 249 / 20%),
+      transparent 70%
+    ),
+    radial-gradient(
+      36rem 24rem at 70% -2rem,
+      rgb(11 92 250 / 17%),
+      transparent 70%
+    ),
+    radial-gradient(
+      30rem 22rem at 104% 0%,
+      rgb(0 212 251 / 14%),
+      transparent 70%
+    );
+}
+
+.playground-page-header {
+  margin-bottom: 2.25rem;
+  max-width: 52rem;
+}
+
+.playground-page-badge {
+  align-items: center;
+  backdrop-filter: blur(10px);
+  background: color-mix(in srgb, var(--color-fd-card) 72%, transparent);
+  border: 1px solid var(--color-fd-border);
+  border-radius: 999px;
+  color: var(--brand-text);
+  display: inline-flex;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  gap: 0.45rem;
+  padding: 0.3rem 0.8rem;
+}
+
+.playground-page-header h1 {
+  font-size: clamp(2.25rem, 5vw, 3.5rem);
+  font-weight: 700;
+  letter-spacing: -0.045em;
+  line-height: 1.05;
+  margin-top: 1.1rem;
+  text-wrap: balance;
+}
+
+.playground-page-header > p:not(.playground-page-badge) {
+  color: var(--color-fd-muted-foreground);
+  font-size: 1.1rem;
+  line-height: 1.7;
+  margin-top: 1rem;
+  max-width: 46rem;
+  text-wrap: pretty;
+}
+
+.playground-page-header ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1.4rem;
+}
+
+.playground-page-header li {
+  background: color-mix(in srgb, var(--color-fd-card) 80%, transparent);
+  border: 1px solid var(--color-fd-border);
+  border-radius: 999px;
+  color: var(--color-fd-muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  padding: 0.3rem 0.7rem;
+}
+
 .playground-shell {
   background: color-mix(in srgb, var(--color-fd-card) 88%, transparent);
   border: 1px solid var(--color-fd-border);
   border-radius: 1.15rem;
-  box-shadow: 0 1.5rem 5rem rgb(46 38 89 / 10%);
+  box-shadow:
+    0 1.5rem 5rem rgb(11 33 120 / 12%),
+    0 0 0 1px rgb(255 255 255 / 3%);
   min-width: 0;
   overflow: hidden;
+  position: relative;
+}
+
+.dark .playground-shell {
+  box-shadow:
+    0 2rem 6rem -2rem rgb(0 0 0 / 65%),
+    0 0 70px -36px var(--brand-glow);
+}
+
+/* Brand accent along the top edge of the editor. */
+.playground-shell::before {
+  background: var(--brand-gradient);
+  content: "";
+  height: 2px;
+  inset: 0 0 auto;
+  position: absolute;
+  z-index: 3;
 }
 
 .playground-toolbar {
@@ -186,14 +311,17 @@ body {
 }
 
 .playground-toolbar-actions .playground-run-button {
-  background: var(--renderify-accent);
-  border-color: var(--renderify-accent);
+  background: var(--brand-gradient-deep);
+  border-color: transparent;
+  box-shadow: 0 8px 20px -10px var(--brand-glow);
   color: white;
   min-width: 5.5rem;
 }
 
 .playground-toolbar-actions .playground-run-button:hover {
-  background: var(--renderify-accent-strong);
+  background: var(--brand-gradient-deep);
+  box-shadow: 0 10px 26px -10px var(--brand-glow);
+  filter: brightness(1.08);
 }
 
 .playground-toolbar-actions .playground-run-button:disabled {

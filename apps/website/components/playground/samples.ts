@@ -170,17 +170,17 @@ export default function App() {
       display: "grid",
       placeItems: "center",
       fontFamily: "Inter, system-ui, sans-serif",
-      background: "linear-gradient(145deg, #f5f3ff, #eef2ff)",
+      background: "linear-gradient(145deg, #f3f0ff, #e8f4ff)",
     }}>
       <section style={{
         width: "min(420px, calc(100% - 32px))",
         padding: 32,
         borderRadius: 24,
         background: "white",
-        boxShadow: "0 24px 70px rgba(76, 61, 150, 0.18)",
+        boxShadow: "0 24px 70px rgba(11, 92, 250, 0.18)",
         textAlign: "center",
       }}>
-        <p style={{ color: "#6d5dfc", fontWeight: 700 }}>PREACT JSX</p>
+        <p style={{ color: "#0b5cfa", fontWeight: 700 }}>PREACT JSX</p>
         <h1 style={{ margin: "8px 0 12px", fontSize: 34 }}>Interactive card</h1>
         <p style={{ color: "#667085" }}>Edit the source and render it instantly.</p>
         <button
@@ -191,7 +191,7 @@ export default function App() {
             border: 0,
             borderRadius: 12,
             padding: "12px 18px",
-            background: "#6d5dfc",
+            background: "linear-gradient(105deg, #8a2bf9, #4d36f7 50%, #0b5cfa)",
             color: "white",
             fontSize: 16,
             fontWeight: 700,
@@ -220,7 +220,7 @@ const COUNTER_PLAN = JSON.stringify(
           placeItems: "center",
           padding: 24,
           fontFamily: "Inter, system-ui, sans-serif",
-          background: "linear-gradient(145deg, #f8fafc, #ede9fe)",
+          background: "linear-gradient(145deg, #f8fafc, #e8f0ff)",
         },
       },
       children: [
@@ -233,7 +233,7 @@ const COUNTER_PLAN = JSON.stringify(
               padding: 32,
               borderRadius: 24,
               background: "#ffffff",
-              boxShadow: "0 24px 70px rgba(76, 61, 150, 0.16)",
+              boxShadow: "0 24px 70px rgba(11, 92, 250, 0.16)",
               textAlign: "center",
             },
           },
@@ -241,7 +241,7 @@ const COUNTER_PLAN = JSON.stringify(
             {
               type: "element",
               tag: "p",
-              props: { style: { color: "#6d5dfc", fontWeight: 700 } },
+              props: { style: { color: "#0b5cfa", fontWeight: 700 } },
               children: [{ type: "text", value: "RUNTIMEPLAN STATE" }],
             },
             {
@@ -296,7 +296,7 @@ const COUNTER_PLAN = JSON.stringify(
                       padding: "10px 18px",
                       border: 0,
                       borderRadius: 10,
-                      background: "#6d5dfc",
+                      background: "#0b5cfa",
                       color: "white",
                       fontWeight: 700,
                       cursor: "pointer",
