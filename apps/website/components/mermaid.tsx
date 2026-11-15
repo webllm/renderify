@@ -40,6 +40,10 @@ function MermaidContent({ chart }: { chart: string }) {
       const { default: mermaid } = await import("mermaid");
       mermaid.initialize({
         fontFamily: "inherit",
+        // Render labels as SVG text. HTML labels live in <foreignObject>,
+        // which the sanitizer below strips, leaving empty nodes.
+        flowchart: { htmlLabels: false },
+        htmlLabels: false,
         securityLevel: "strict",
         startOnLoad: false,
         theme: resolvedTheme === "dark" ? "dark" : "default",
