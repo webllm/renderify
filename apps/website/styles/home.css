@@ -1986,6 +1986,84 @@
   text-underline-offset: 3px;
 }
 
+/* Not found ------------------------------------------------------------- */
+
+.not-found {
+  align-items: center;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  isolation: isolate;
+  justify-content: center;
+  /* Extend behind the transparent navigation bar. */
+  margin-top: -3.5rem;
+  overflow-x: clip;
+  padding: calc(3.5rem + clamp(3rem, 8vw, 5rem)) 1.5rem clamp(4rem, 9vw, 6rem);
+  position: relative;
+  text-align: center;
+}
+
+.not-found-backdrop {
+  background:
+    radial-gradient(
+      34rem 24rem at 50% 18%,
+      rgb(11 92 250 / 16%),
+      transparent 70%
+    ),
+    radial-gradient(
+      28rem 20rem at 15% 0%,
+      rgb(138 43 249 / 12%),
+      transparent 70%
+    ),
+    radial-gradient(
+      26rem 20rem at 90% 10%,
+      rgb(0 212 251 / 10%),
+      transparent 70%
+    );
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: -1;
+}
+
+.not-found .logo-3d {
+  width: min(12rem, 50vw);
+}
+
+.not-found-code {
+  font-size: clamp(4rem, 12vw, 6.5rem);
+  font-weight: 750;
+  letter-spacing: -0.06em;
+  line-height: 1;
+  margin-top: 2.75rem;
+}
+
+.not-found h1 {
+  font-size: clamp(1.6rem, 4vw, 2.4rem);
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  margin-top: 0.85rem;
+  text-wrap: balance;
+}
+
+.not-found > p:not(.not-found-code) {
+  color: var(--color-fd-muted-foreground);
+  font-size: 1.05rem;
+  margin-top: 0.75rem;
+}
+
+.not-found-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: center;
+  margin-top: 2rem;
+}
+
+.not-found-actions .home-button-primary:hover svg {
+  transform: translateX(-3px);
+}
+
 /* Motion ---------------------------------------------------------------- */
 
 @media (prefers-reduced-motion: reduce) {

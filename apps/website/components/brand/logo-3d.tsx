@@ -16,9 +16,16 @@ const MAX_TURN_X = 22;
 
 /**
  * The Renderify logo extruded into a 3D solid. It turns toward the pointer
- * anywhere on the page and floats gently while idle. Decorative only.
+ * anywhere on the page and floats gently while idle. Decorative only; pass
+ * `eager` when it renders above the fold.
  */
-export function Logo3D({ className }: { className?: string }) {
+export function Logo3D({
+  className,
+  eager = false,
+}: {
+  className?: string;
+  eager?: boolean;
+}) {
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -101,6 +108,7 @@ export function Logo3D({ className }: { className?: string }) {
               className="logo-3d-layer"
               draggable={false}
               key={layer.id}
+              loading={eager ? "eager" : undefined}
               sizes="(min-width: 1024px) 18rem, 14rem"
               src={logo}
               style={{ "--logo-3d-layer": layer.index } as CSSProperties}
