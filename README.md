@@ -1,3 +1,5 @@
+<img src="./logo.png" alt="Renderify logo" width="128">
+
 # Renderify
 
 ![Node CI](https://github.com/webllm/renderify/workflows/CI/badge.svg)
