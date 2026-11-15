@@ -61,7 +61,8 @@ Check these routes after the Pages job completes:
 - `/renderify/docs/` — documentation tree and static search;
 - `/renderify/playground/` — isolated editor and renderer;
 - `/renderify/api/search` — static FlexSearch data;
-- `/renderify/sitemap.xml` and `/renderify/robots.txt` — crawler metadata.
+- `/renderify/sitemap.xml` and `/renderify/robots.txt` — crawler metadata;
+- `/renderify/opengraph-image.jpg` — social card referenced by `og:image`.
 
 For the Playground, run both bundled examples and verify more than visible HTML:
 
