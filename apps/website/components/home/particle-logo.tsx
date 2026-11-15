@@ -156,10 +156,12 @@ export function ParticleLogo() {
         </div>
       </div>
       <figcaption className="particle-logo-caption">
-        <span>
-          <MousePointer2 aria-hidden="true" size={13} />
-          Move through the logo
-        </span>
+        {ready ? (
+          <span>
+            <MousePointer2 aria-hidden="true" size={13} />
+            Move through the logo
+          </span>
+        ) : null}
         {canBurst ? (
           <button onClick={() => engineRef.current?.burst()} type="button">
             <RefreshCw aria-hidden="true" size={13} />
