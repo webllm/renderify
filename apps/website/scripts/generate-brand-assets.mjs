@@ -6,6 +6,8 @@
 //
 // Rasterization runs in Chromium through the repository's Playwright dev
 // dependency so resampling and PNG encoding are identical on every platform.
+// The Open Graph card loads Geist from Google Fonts; without network access
+// it falls back to system fonts.
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -55,13 +57,141 @@ try {
       asset,
       source: logoSource,
     });
-    const outputPath = `${websiteRoot}${asset.file}`;
-    await mkdir(dirname(outputPath), { recursive: true });
-    await writeFile(outputPath, Buffer.from(base64, "base64"));
-    console.log(`wrote ${relative(process.cwd(), outputPath)}`);
+    await writeAsset(asset.file, Buffer.from(base64, "base64"));
   }
+
+  const card = await browser.newPage({
+    deviceScaleFactor: 1,
+    viewport: { height: 630, width: 1200 },
+  });
+  await card.setContent(renderSocialCard(logoSource), {
+    waitUntil: "networkidle",
+  });
+  await card.evaluate(() => document.fonts.ready);
+  // JPEG keeps the gradient-heavy card around a third of the PNG size.
+  await writeAsset(
+    "app/opengraph-image.jpg",
+    await card.screenshot({ quality: 90, type: "jpeg" }),
+  );
 } finally {
   await browser.close();
+}
+
+/**
+ * @param {string} file
+ * @param {Uint8Array} data
+ */
+async function writeAsset(file, data) {
+  const outputPath = `${websiteRoot}${file}`;
+  await mkdir(dirname(outputPath), { recursive: true });
+  await writeFile(outputPath, data);
+  console.log(`wrote ${relative(process.cwd(), outputPath)}`);
+}
+
+/**
+ * The 1200x630 social card: logo, wordmark, and tagline on the brand
+ * backdrop with the landing page's receding grid floor.
+ *
+ * @param {string} logo Logo image source.
+ */
+function renderSocialCard(logo) {
+  return `<!doctype html>
+<html>
+  <head>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;700&family=Geist+Mono:wght@500&display=block" rel="stylesheet">
+    <style>
+      * { box-sizing: border-box; margin: 0; }
+      body {
+        width: 1200px;
+        height: 630px;
+        overflow: hidden;
+        position: relative;
+        color: #eef1ff;
+        font-family: Geist, ui-sans-serif, system-ui, sans-serif;
+        background:
+          radial-gradient(560px 420px at 0% 0%, rgb(138 43 249 / 34%), transparent 70%),
+          radial-gradient(620px 460px at 30% 60%, rgb(11 92 250 / 30%), transparent 70%),
+          radial-gradient(520px 380px at 100% 100%, rgb(0 212 251 / 22%), transparent 70%),
+          #070912;
+      }
+      .floor {
+        position: absolute;
+        left: -20%;
+        right: -20%;
+        top: 62%;
+        height: 80%;
+        background-image:
+          linear-gradient(to right, rgb(140 160 255 / 16%) 1px, transparent 1px),
+          linear-gradient(to bottom, rgb(140 160 255 / 16%) 1px, transparent 1px);
+        background-size: 56px 56px;
+        background-position: 50% 0;
+        transform: perspective(520px) rotateX(70deg);
+        transform-origin: 50% 0;
+        -webkit-mask-image: radial-gradient(ellipse 55% 70% at 30% 0%, #000 10%, transparent 72%);
+      }
+      main {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        gap: 72px;
+        padding: 0 96px;
+      }
+      img {
+        width: 330px;
+        height: auto;
+        filter: drop-shadow(0 30px 60px rgb(11 92 250 / 45%));
+      }
+      h1 {
+        font-size: 104px;
+        font-weight: 700;
+        letter-spacing: -0.05em;
+        line-height: 1;
+      }
+      p {
+        margin-top: 24px;
+        max-width: 600px;
+        color: rgb(226 232 255 / 78%);
+        font-size: 34px;
+        line-height: 1.3;
+        letter-spacing: -0.01em;
+      }
+      ul {
+        display: flex;
+        gap: 10px;
+        margin-top: 36px;
+        padding: 0;
+        list-style: none;
+      }
+      li {
+        padding: 8px 16px;
+        border: 1px solid rgb(140 160 255 / 28%);
+        border-radius: 999px;
+        background: rgb(255 255 255 / 6%);
+        color: #c7d6ff;
+        font-family: "Geist Mono", ui-monospace, monospace;
+        font-size: 18px;
+        white-space: nowrap;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="floor"></div>
+    <main>
+      <img src="${logo}" alt="">
+      <div>
+        <h1>Renderify</h1>
+        <p>Runtime-first UI rendering for RuntimePlans and reviewed JSX</p>
+        <ul>
+          <li>Browser-native</li>
+          <li>Security-first</li>
+          <li>LLM optional</li>
+        </ul>
+      </div>
+    </main>
+  </body>
+</html>`;
 }
 
 /**

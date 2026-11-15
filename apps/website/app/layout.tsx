@@ -18,7 +18,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL(`${siteConfig.productionUrl}/`),
+  // File-based metadata images (icons, Open Graph card) already carry the
+  // basePath, so resolve them against the production origin only.
+  metadataBase: new URL(new URL(siteConfig.productionUrl).origin),
   title: {
     default: "Renderify — Runtime-first UI rendering",
     template: "%s | Renderify",
@@ -30,6 +32,11 @@ export const metadata: Metadata = {
     title: "Renderify — Runtime-first UI rendering",
     type: "website",
     url: siteConfig.productionUrl,
+  },
+  twitter: {
+    card: "summary_large_image",
+    description: siteConfig.description,
+    title: "Renderify — Runtime-first UI rendering",
   },
 };
 
