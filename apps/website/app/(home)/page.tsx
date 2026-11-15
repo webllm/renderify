@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Hero } from "@/components/home/hero";
+import { LanesSection } from "@/components/home/lanes-section";
 import { RenderPipeline } from "@/components/home/render-pipeline";
 
 const features = [
@@ -25,6 +26,7 @@ export default function HomePage() {
     <>
       <Hero />
       <RenderPipeline />
+      <LanesSection />
 
       <section className="home-container grid gap-4 pb-24 pt-8 md:grid-cols-3">
         {features.map((feature) => (
