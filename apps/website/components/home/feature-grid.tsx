@@ -31,13 +31,12 @@ const HOOK_MARQUEE = [
   ...HOOKS.map((hook) => ({ hook, key: `${hook}-repeat` })),
 ];
 
-const PROVIDERS = [
-  "OpenAI",
-  "Anthropic",
-  "Google",
-  "Ollama",
-  "LM Studio",
-  "OpenAI Codex",
+const AGENT_STACKS = [
+  "Vercel AI SDK",
+  "CopilotKit",
+  "assistant-ui",
+  "AG-UI",
+  "MCP Apps",
 ];
 
 interface Feature {
@@ -107,16 +106,16 @@ const FEATURES: Feature[] = [
     ),
   },
   {
-    title: "Bring your own producer",
-    body: "Render plans from authored code, your backend, or any model pipeline. The renderer never requires an LLM.",
-    href: "/docs/browser-integration",
+    title: "Fits your agent stack",
+    body: "Render plans returned by Vercel AI SDK, CopilotKit, assistant-ui, AG-UI, or MCP tools, or by your own code. The renderer never requires an LLM.",
+    href: "/docs/integrations",
     icon: <Workflow size={18} />,
     visual: (
       <div className="feature-pills feature-pills-compact">
-        {PROVIDERS.map((provider) => (
-          <span key={provider}>{provider}</span>
+        {AGENT_STACKS.map((stack) => (
+          <span key={stack}>{stack}</span>
         ))}
-        <span data-active="true">or none</span>
+        <span data-active="true">or your code</span>
       </div>
     ),
   },

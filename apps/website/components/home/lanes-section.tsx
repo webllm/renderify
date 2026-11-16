@@ -33,7 +33,7 @@ export async function LanesSection() {
       file: "counter.plan.json",
       title: "Declarative lane",
       summary:
-        "Validated JSON describes the UI tree, state, and named transitions. Strict and balanced security profiles accept this lane and reject source modules.",
+        "Validated JSON describes the UI tree, state, lists, forms, and transitions. No code runs, so strict and balanced profiles and MCP Apps accept it.",
       code: planCode,
       playgroundHref: `/playground/${playgroundHash("plan", COUNTER_PLAN_SOURCE)}`,
     },
@@ -41,9 +41,9 @@ export async function LanesSection() {
       id: "jsx",
       label: "JSX / TSX",
       file: "App.jsx",
-      title: "Trusted source lane",
+      title: "Sandboxed source lane",
       summary:
-        "Reviewed React-compatible JSX is transpiled in the browser and its bare imports are pinned through JSPM. Use it for hooks and richer DOM events.",
+        "Model-written React-compatible JSX runs in an opaque-origin sandboxed iframe, with bare imports pinned through JSPM. Use it when a plan is not expressive enough.",
       code: jsxCode,
       playgroundHref: `/playground/${playgroundHash("jsx", METRICS_JSX_SOURCE)}`,
     },
@@ -55,7 +55,7 @@ export async function LanesSection() {
         <header className="home-section-header home-reveal">
           <p className="home-eyebrow">Two input lanes</p>
           <h2 id="lanes-title">
-            Declarative when you can. Reviewed JSX when you need it.
+            Declarative when you can. Sandboxed JSX when you need it.
           </h2>
           <p>
             Pick the lane per render. Both end in the same browser runtime, and

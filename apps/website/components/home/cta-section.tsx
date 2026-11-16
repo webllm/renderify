@@ -15,8 +15,8 @@ export function CtaSection() {
             <p className="home-eyebrow">Get started</p>
             <h2 id="cta-title">Start rendering in minutes</h2>
             <p>
-              Install the SDK, hand it a RuntimePlan or reviewed JSX, and mount
-              interactive UI in your page. No build server required.
+              Install @renderify/react, hand it a RuntimePlan from your model,
+              and render interactive UI in your app. No build server required.
             </p>
             <div className="home-hero-actions">
               <Link

@@ -11,7 +11,9 @@ Repo: [github.com/webllm/renderify](https://github.com/webllm/renderify)
 
 As large language models (LLMs) advance rapidly, AI can now generate structurally complete and logically sound UI code. Yet a key engineering question remains open: **how do you safely and efficiently render LLM-generated UI directly in the browser — without any backend compilation or deployment pipeline?**
 
-Existing approaches each have limitations: v0/Bolt.new rely on a full Next.js compilation backend; Streamlit/Gradio are Python-based and server-rendered; Anthropic Artifacts is closed-source and non-embeddable; JSON Schema renderers can only express a predefined component set; Sandpack/WebContainers are powerful but heavyweight.
+Existing approaches each have limitations: v0/Bolt.new rely on a full Next.js compilation backend; Streamlit/Gradio are Python-based and server-rendered; Anthropic Artifacts is closed-source and non-embeddable; Sandpack/WebContainers are powerful but heavyweight.
+
+Agent protocols are a different layer. MCP Apps standardizes how MCP servers ship UI into hosts, AG-UI standardizes events between agents and frontends, and A2UI lets agents compose UI from a client's trusted component catalog. Renderify complements them as a renderer: plans travel over any of these channels, and Renderify validates and renders them, or runs model-written JSX in a sandboxed frame.
 
 **Renderify** was built to fill this gap. It is a runtime-first dynamic rendering engine that transpiles, sandboxes, and renders LLM-generated JSX/TSX (or structured JSON plans) directly in the browser as interactive UI — with zero build steps, zero server-side compilation, and zero deployment pipeline.
 

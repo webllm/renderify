@@ -33,9 +33,9 @@ export function Hero() {
             </span>
           </h1>
           <p className="home-hero-lede">
-            Renderify turns validated RuntimePlans or reviewed JSX/TSX modules
-            into interactive browser UI—without adding an application build or
-            deploy step to the render path.
+            Renderify renders the UI your model describes: validated
+            RuntimePlans by default, model-written JSX in a sandboxed frame when
+            you need more, and no build or deploy step in between.
           </p>
           <div className="home-hero-actions">
             <Link

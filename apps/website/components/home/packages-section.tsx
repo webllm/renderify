@@ -8,6 +8,11 @@ const PACKAGES = [
     featured: true,
   },
   {
+    name: "@renderify/react",
+    role: "React",
+    body: "RenderifyView for validated plans, RenderifyFrame for sandboxed model-written JSX, and the useRenderifySession hook.",
+  },
+  {
     name: "@renderify/ir",
     role: "Contracts",
     body: "The RuntimePlan schema, node, state, and action types, guards, and shared constants.",
@@ -16,6 +21,11 @@ const PACKAGES = [
     name: "@renderify/runtime",
     role: "Execution",
     body: "Executes plans and source modules, resolves JSPM imports, and renders to HTML or browser targets.",
+  },
+  {
+    name: "@renderify/frame",
+    role: "Sandbox",
+    body: "An opaque-origin iframe for model-written JSX/TSX with a strict CSP, an action allowlist, loop guards, and a watchdog.",
   },
   {
     name: "@renderify/security",
