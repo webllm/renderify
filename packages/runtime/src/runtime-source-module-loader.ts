@@ -1413,7 +1413,9 @@ export class RuntimeSourceModuleLoader {
       }
 
       try {
-        const moduleNamespace = (await import("node:module")) as {
+        const moduleNamespace = (await import(
+          /* webpackIgnore: true */ "node:module"
+        )) as {
           createRequire?: (filename: string) => NodeModuleResolver;
         };
         if (typeof moduleNamespace.createRequire !== "function") {
@@ -1444,7 +1446,9 @@ export class RuntimeSourceModuleLoader {
       }
 
       try {
-        const urlNamespace = (await import("node:url")) as {
+        const urlNamespace = (await import(
+          /* webpackIgnore: true */ "node:url"
+        )) as {
           pathToFileURL?: NodePathToFileUrl;
         };
         if (typeof urlNamespace.pathToFileURL !== "function") {
@@ -1470,7 +1474,9 @@ export class RuntimeSourceModuleLoader {
       }
 
       try {
-        const pathNamespace = (await import("node:path")) as {
+        const pathNamespace = (await import(
+          /* webpackIgnore: true */ "node:path"
+        )) as {
           dirname?: NodePathModule["dirname"];
           join?: NodePathModule["join"];
         };
@@ -1503,7 +1509,9 @@ export class RuntimeSourceModuleLoader {
       }
 
       try {
-        const fsNamespace = (await import("node:fs")) as {
+        const fsNamespace = (await import(
+          /* webpackIgnore: true */ "node:fs"
+        )) as {
           existsSync?: NodeFsModule["existsSync"];
         };
         if (typeof fsNamespace.existsSync !== "function") {

@@ -254,5 +254,5 @@ function clearMountPoint(mountPoint: HTMLDivElement | null): void {
 }
 
 async function dynamicImport(specifier: string): Promise<unknown> {
-  return import(specifier);
+  return import(/* webpackIgnore: true */ specifier);
 }

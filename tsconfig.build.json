@@ -29,6 +29,9 @@
       "path": "packages/frame"
     },
     {
+      "path": "packages/react"
+    },
+    {
       "path": "./tsconfig.tests.json"
     }
   ]

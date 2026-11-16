@@ -1,95 +1,112 @@
 ---
 title: Getting started
-description: Install Renderify, start the development Playground, and render your first RuntimePlan.
+description: Install Renderify, render your first RuntimePlan in React or plain JavaScript, and connect it to your model.
 ---
 
 # Getting Started
 
-Renderify is a runtime-first dynamic renderer that lets LLMs produce real, interactive UI on the fly. It bridges the gap between "LLM can generate code" and "users can see and interact with that UI instantly" — with inline transpilation, JSPM package support, and security-governed execution.
+Renderify renders UI that a model describes. A model (or your code) produces a
+RuntimePlan, a JSON description of interactive UI with state, lists, forms,
+and events; Renderify validates it, checks it against a security policy, and
+renders it. When a plan is not enough and the model writes JSX, Renderify runs
+that code in a sandboxed iframe instead of your page.
 
-## Prerequisites
-
-- **Node.js** >= 22.0.0
-- **pnpm** >= 10.29.3
-
-## Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/webllm/renderify.git
-cd renderify
-
-# Install dependencies
-pnpm install
-```
-
-## Quick Start
-
-### 1. Choose a Playground
-
-To paste JSX/TSX or RuntimePlan JSON without configuring a model, open the
-[renderer-only website Playground](https://webllm.github.io/renderify/playground/).
-It is a static browser renderer and never makes an LLM request.
-
-To generate plans from prompts or exercise the CLI APIs, start the local
-development Playground:
-
-The fastest way to explore Renderify is through the browser playground:
+## Install
 
 ```bash
-pnpm playground
+# React apps
+npm install @renderify/react @renderify/ir
+
+# Any framework or plain JavaScript
+npm install @renderify/runtime @renderify/ir
 ```
 
-Open `http://127.0.0.1:4317` in your browser. Try a prompt like:
+Server-side packages require Node.js 22 or newer.
 
-```
-Build an analytics dashboard with a LineChart from recharts and KPI toggle buttons
-```
+## Render a plan in React
 
-Use `Render Prompt` for one-shot execution, or `Stream Prompt` to see incremental preview updates followed by the final interactive result.
-
-### 2. CLI Usage
-
-```bash
-# Render a prompt and print HTML
-pnpm cli -- run "Build a welcome card"
-
-# Print the RuntimePlan JSON (inspect LLM output before rendering)
-pnpm cli -- plan "Build a welcome card"
-
-# Probe a RuntimePlan file for compatibility (no execution)
-pnpm cli -- probe-plan examples/runtime/recharts-dashboard-plan.json
-
-# Execute a RuntimePlan JSON file
-pnpm cli -- render-plan examples/runtime/counter-plan.json
-```
-
-### 3. Programmatic Usage
-
-The minimal embed path uses `@renderify/runtime` and `@renderify/ir`:
-
-```ts
-import { renderPlanInBrowser } from "@renderify/runtime";
+```tsx
+import { RenderifyView } from "@renderify/react";
 import type { RuntimePlan } from "@renderify/ir";
 
 const plan: RuntimePlan = {
   specVersion: "runtime-plan/v1",
-  id: "hello",
+  id: "counter",
   version: 1,
+  capabilities: { domWrite: true },
+  state: {
+    initial: { count: 0 },
+    transitions: { increment: [{ type: "increment", path: "count" }] },
+  },
   root: {
     type: "element",
-    tag: "div",
-    children: [{ type: "text", value: "Hello from Renderify" }],
+    tag: "button",
+    props: { onClick: "increment" },
+    children: [{ type: "text", value: "Clicked {{state.count}} times" }],
   },
-  capabilities: {},
 };
 
-await renderPlanInBrowser(plan, { target: "#app" });
+export function Counter() {
+  return <RenderifyView plan={plan} onEvent={(event, state) => console.log(event.type, state)} />;
+}
 ```
 
-### 4. Full Pipeline with LLM
+`<RenderifyView>` checks the plan against the `balanced` security profile,
+renders it, and runs its transitions locally. Plans can also loop over arrays,
+render conditionally, and bind form fields to state; see the
+[RuntimePlan IR reference](./runtime-plan-ir.md).
 
-For the complete prompt-to-UI pipeline:
+## Render without React
+
+```ts
+import { createInteractiveSession } from "@renderify/runtime";
+
+const session = await createInteractiveSession(plan, {
+  target: document.getElementById("app")!,
+});
+console.log(session.getState());
+```
+
+For a one-off static render, use `renderPlanInBrowser(plan, { target: "#app" })`.
+
+## Let your model produce plans
+
+Give your model a `render_ui` tool whose input is a RuntimePlan, and render the
+tool result with `<RenderifyView>`. `@renderify/ir` provides the JSON Schema,
+validation with repair messages, and prompt guidance. The
+[integrations guide](./integrations.md) shows the Vercel AI SDK, CopilotKit,
+assistant-ui, and AG-UI, and the
+[Next.js chat template](https://github.com/webllm/renderify/tree/main/templates/nextjs-chat)
+is a working app.
+
+## Run model-written JSX safely
+
+```tsx
+import { RenderifyFrame } from "@renderify/react";
+
+<RenderifyFrame source={code} allowedActions={["save"]} onAction={handleAction} />;
+```
+
+The code runs in an opaque-origin [sandboxed frame](./sandboxed-frame.md): it
+can use npm packages from JSPM, but it cannot read your page, and only the
+action types you allow reach your app.
+
+## Serve UIs from an MCP server
+
+`@renderify/mcp-app` turns tool results into interactive views in MCP Apps
+hosts. Start from the
+[MCP server template](https://github.com/webllm/renderify/tree/main/templates/mcp-server).
+
+## Try it without code
+
+The [website Playground](https://webllm.github.io/renderify/playground/) renders
+JSX/TSX or RuntimePlan JSON in your browser with no model and no account.
+
+## Renderify's own prompt-to-UI pipeline
+
+If you do not use an agent framework, `@renderify/core` and `@renderify/llm`
+run the whole loop: prompt, structured generation with repair, policy checks,
+and rendering.
 
 ```ts
 import {
@@ -146,6 +163,27 @@ for await (const chunk of app.renderPromptStream("Build a dashboard")) {
 await app.stop();
 ```
 
+## Work on Renderify
+
+To run the local development Playground, the CLI, or the test suites, clone
+the repository (pnpm 10.29.3 or newer):
+
+```bash
+git clone https://github.com/webllm/renderify.git
+cd renderify
+pnpm install
+pnpm playground   # http://127.0.0.1:4317
+```
+
+The CLI renders prompts and plan files:
+
+```bash
+pnpm cli -- run "Build a welcome card"           # render a prompt and print HTML
+pnpm cli -- plan "Build a welcome card"          # print the RuntimePlan JSON
+pnpm cli -- probe-plan examples/runtime/recharts-dashboard-plan.json
+pnpm cli -- render-plan examples/runtime/counter-plan.json
+```
+
 ## LLM Provider Configuration
 
 Renderify supports hosted and local LLM providers out of the box. Configure via environment variables:
@@ -198,7 +236,7 @@ RENDERIFY_RUNTIME_JSPM_ONLY_STRICT_MODE=true pnpm playground
 
 See [Security Guide](./security.md) for detailed policy configuration.
 
-## Monorepo Commands
+### Monorepo commands
 
 ```bash
 pnpm install          # Install dependencies
@@ -214,18 +252,23 @@ pnpm format           # Auto-format code
 
 ## Package Overview
 
-| Package             | npm Name              | Purpose                                                       |
-| ------------------- | --------------------- | ------------------------------------------------------------- |
-| `packages/renderify` | `renderify`          | Official top-level SDK facade (recommended app entry)          |
-| `packages/ir`        | `@renderify/ir`       | Intermediate representation: plan/node/state/action types      |
-| `packages/runtime`   | `@renderify/runtime`  | Execution engine, JSPM loader, browser embed API               |
-| `packages/security`  | `@renderify/security` | Security policy profiles and static checks                     |
-| `packages/core`      | `@renderify/core`     | Orchestration facade: config, codegen, plugins, LLM interface  |
-| `packages/llm`       | `@renderify/llm`      | LLM provider implementations (OpenAI, Codex, Anthropic, Google, local) |
-| `packages/cli`       | `@renderify/cli`      | CLI commands and browser playground server                     |
+| Package | Purpose |
+| --- | --- |
+| `@renderify/react` | `<RenderifyView>`, `<RenderifyFrame>`, and `useRenderifySession` for React apps |
+| `@renderify/ir` | RuntimePlan types, validation, the shared LLM schema, and repair diagnostics |
+| `@renderify/runtime` | Execution engine, browser embedding, and the JSPM module loader |
+| `@renderify/frame` | Sandboxed iframe for model-written JSX, TSX, and plans |
+| `@renderify/security` | Security profiles and static policy checks |
+| `@renderify/mcp-app` | MCP Apps server and view adapter for declarative plans |
+| `@renderify/core` | Prompt-to-UI orchestration: config, codegen, plugins, LLM interface |
+| `@renderify/llm` | Providers for OpenAI, Codex, Anthropic, Google, Ollama, and LM Studio |
+| `@renderify/cli` | CLI commands and the development Playground server |
+| `renderify` | Top-level SDK facade |
 
 ## Next Steps
 
+- [Integrations](./integrations.md) — AI SDK, CopilotKit, assistant-ui, AG-UI, and MCP Apps
+- [Sandboxed frame](./sandboxed-frame.md) — run model-written source safely
 - [Architecture Overview](./architecture/index.md) — understand the full pipeline
 - [Visual Architecture (Mermaid)](./architecture-visual.md) — system diagrams for data flow and package boundaries
 - [RuntimePlan IR Reference](./runtime-plan-ir.md) — learn the intermediate representation

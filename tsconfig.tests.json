@@ -35,6 +35,9 @@
     },
     {
       "path": "packages/frame"
+    },
+    {
+      "path": "packages/react"
     }
   ]
 }

@@ -820,7 +820,9 @@ export class DefaultUIRenderer implements UIRenderer {
   private async loadPreactRenderer(): Promise<PreactRendererLike> {
     const loaded = this.options.loadPreactRenderer
       ? await this.options.loadPreactRenderer()
-      : ((await import(getPreactSpecifier())) as unknown);
+      : ((await import(
+          /* webpackIgnore: true */ getPreactSpecifier()
+        )) as unknown);
     if (!isPreactRendererLike(loaded)) {
       throw new Error("Failed to load preact renderer from `preact` package");
     }
@@ -832,7 +834,7 @@ export class DefaultUIRenderer implements UIRenderer {
     (payload: unknown) => string
   > {
     const loaded = (await import(
-      getPreactRenderToStringSpecifier()
+      /* webpackIgnore: true */ getPreactRenderToStringSpecifier()
     )) as unknown;
     if (!isPreactRenderToStringLike(loaded)) {
       throw new Error(

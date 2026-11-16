@@ -10,6 +10,7 @@ const REQUIRED_PACKAGES = [
   "ir",
   "llm",
   "mcp-app",
+  "react",
   "renderify",
   "runtime",
   "security",

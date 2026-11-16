@@ -240,7 +240,9 @@ function wrapPreactFunctionComponent(
 
 async function loadPreactModule(): Promise<PreactLikeModule | undefined> {
   try {
-    const maybePreact = (await import(getPreactSpecifier())) as unknown;
+    const maybePreact = (await import(
+      /* webpackIgnore: true */ getPreactSpecifier()
+    )) as unknown;
     if (!hasPreactFactory(maybePreact)) {
       return undefined;
     }

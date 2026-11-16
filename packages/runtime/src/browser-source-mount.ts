@@ -121,7 +121,7 @@ async function loadBrowserFrameworkRuntime(
   }
 
   const loaded = (await import(
-    /* @vite-ignore */ input.rendererUrl
+    /* webpackIgnore: true */ /* @vite-ignore */ input.rendererUrl
   )) as unknown;
   if (!isPreactRuntimeModule(loaded)) {
     throw new Error(`Browser Preact runtime is invalid: ${input.rendererUrl}`);
@@ -143,9 +143,11 @@ async function loadReactBrowserRuntime(
   }
 
   const [react, reactDomClient, reactDom] = (await Promise.all([
-    import(/* @vite-ignore */ input.rendererUrl),
-    import(/* @vite-ignore */ input.rendererDomClientUrl),
-    import(/* @vite-ignore */ input.rendererDomUrl),
+    import(/* webpackIgnore: true */ /* @vite-ignore */ input.rendererUrl),
+    import(
+      /* webpackIgnore: true */ /* @vite-ignore */ input.rendererDomClientUrl
+    ),
+    import(/* webpackIgnore: true */ /* @vite-ignore */ input.rendererDomUrl),
   ])) as unknown[];
   if (!isReactRuntimeModule(react)) {
     throw new Error(`Browser React runtime is invalid: ${input.rendererUrl}`);

@@ -22,6 +22,7 @@ architecture and decision-record collections.
 - [RuntimePlan IR](./runtime-plan-ir.md) - Plan and node contracts.
 - [Runtime execution](./runtime-execution.md) - Runtime engine behavior.
 - [Browser integration](./browser-integration.md) - Direct browser embedding.
+- [Integrations](./integrations.md) - Vercel AI SDK, CopilotKit, assistant-ui, AG-UI, and MCP Apps.
 - [Sandboxed frame](./sandboxed-frame.md) - Run model-written JSX and TSX in an opaque-origin iframe.
 - [MCP Apps architecture](./architecture/mcp-app-runtime-modules.md) - Offline official-protocol MCP embedding.
 

@@ -1,0 +1,73 @@
+{
+  "name": "@renderify/react",
+  "version": "0.10.0",
+  "description": "React components and hooks for rendering Renderify RuntimePlans and sandboxed model-written UI",
+  "main": "dist/react.cjs",
+  "types": "dist/react.d.ts",
+  "module": "dist/react.mjs",
+  "exports": {
+    ".": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.mjs",
+      "require": "./dist/react.cjs",
+      "default": "./dist/react.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "prepublishOnly": "node ../../scripts/ensure-pnpm.js",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "typecheck": "tsc -p tsconfig.json --pretty false --noEmit",
+    "lint": "biome lint src",
+    "clean": "node -e \"for (const dir of ['dist', 'dist-types']) require('node:fs').rmSync(dir, { recursive: true, force: true })\"",
+    "build:repo": "tsup --config tsup.config.ts",
+    "watch:repo": "tsup --config tsup.config.ts --watch"
+  },
+  "author": "unadlib",
+  "license": "MIT",
+  "keywords": [
+    "renderify",
+    "react",
+    "generative-ui",
+    "runtime-plan",
+    "ai-sdk",
+    "llm"
+  ],
+  "homepage": "https://github.com/webllm/renderify#readme",
+  "bugs": {
+    "url": "https://github.com/webllm/renderify/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/webllm/renderify.git",
+    "directory": "packages/react"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "sideEffects": false,
+  "dependencies": {
+    "@renderify/frame": "workspace:^",
+    "@renderify/ir": "workspace:^",
+    "@renderify/runtime": "workspace:^",
+    "@renderify/security": "workspace:^"
+  },
+  "peerDependencies": {
+    "react": ">=18.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  }
+}

@@ -52,6 +52,7 @@ const libraryPackages = [
   "llm",
   "mcp-app",
   "frame",
+  "react",
   "renderify",
 ];
 

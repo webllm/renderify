@@ -1,0 +1,22 @@
+{
+  "name": "renderify-mcp-server-template",
+  "version": "0.0.0",
+  "private": true,
+  "description": "MCP server whose tools return interactive Renderify UIs (MCP Apps)",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.4.0",
+    "@renderify/ir": "workspace:^",
+    "@renderify/mcp-app": "workspace:^",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "tsx": "^4.23.0",
+    "typescript": "^7.0.2"
+  }
+}

@@ -133,7 +133,9 @@ async function loadNodeCreateHash(): Promise<
   | undefined
 > {
   try {
-    const cryptoNamespace = (await import("node:crypto")) as {
+    const cryptoNamespace = (await import(
+      /* webpackIgnore: true */ "node:crypto"
+    )) as {
       createHash?: (algorithm: string) => {
         update(data: Uint8Array): { digest(encoding: "base64"): string };
       };

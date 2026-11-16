@@ -31,6 +31,8 @@
               "PORT",
               // Official Codex CLI home directory, reused for local `code cli` auth.
               "CODEX_HOME",
+              // Model selection in the Next.js chat template.
+              "OPENAI_MODEL",
               // Standard proxy variables honored for outbound CLI requests.
               "HTTPS_PROXY",
               "https_proxy",
