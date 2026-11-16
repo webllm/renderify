@@ -5,6 +5,7 @@ import type {
   RuntimeDiagnostic,
   RuntimeModuleManifest,
 } from "../packages/ir/src/index";
+import { clearRemoteModuleCache } from "../packages/runtime/src/remote-module-cache";
 import {
   createRuntimeModuleMaterializationBudget,
   RuntimeModuleMaterializationLimitError,
@@ -315,6 +316,50 @@ test("remote module probes deduplicate repeated fallback diagnostics", async () 
   }
 });
 
+test("browser loaders share module fetches and keep their own limits", async () => {
+  const restoreBrowser = installBrowserGlobals();
+  const requested: string[] = [];
+  const restoreFetch = installMockFetch(async (input) => {
+    requested.push(String(input));
+    return createJavaScriptResponse("export const value = 42;");
+  });
+  const pinned = "https://ga.jspm.io/npm:pinned-lib@1.2.3/index.js";
+  const unpinned = "https://esm.sh/pinned-lib?target=es2022";
+  const newLoader = (remoteModuleMaxBytes?: number) =>
+    createLoader({
+      diagnostics: [],
+      budget: createRuntimeModuleMaterializationBudget(4),
+      remoteModuleMaxBytes,
+    });
+
+  try {
+    const [first, concurrent] = await Promise.all([
+      newLoader().fetchRemoteModuleCodeWithFallback(pinned),
+      newLoader().fetchRemoteModuleCodeWithFallback(pinned),
+    ]);
+    const later = await newLoader().fetchRemoteModuleCodeWithFallback(pinned);
+    for (const fetched of [first, concurrent, later]) {
+      assert.equal(fetched.code, "export const value = 42;");
+      assert.equal(fetched.originalUrl, pinned);
+    }
+    assert.deepEqual(requested, [pinned]);
+
+    // A stricter loader enforces its own size limit on the shared response.
+    await assert.rejects(
+      newLoader(8).fetchRemoteModuleCodeWithFallback(pinned),
+      /exceeds maximum response size of 8 bytes/,
+    );
+
+    // Unpinned URLs are shared too, but only for a few minutes.
+    await newLoader().fetchRemoteModuleCodeWithFallback(unpinned);
+    await newLoader().fetchRemoteModuleCodeWithFallback(unpinned);
+    assert.deepEqual(requested, [pinned, unpinned]);
+  } finally {
+    restoreFetch();
+    restoreBrowser();
+  }
+});
+
 function createLoader(input: {
   cache?: Map<string, string>;
   budget: ReturnType<typeof createRuntimeModuleMaterializationBudget>;
@@ -327,6 +372,7 @@ function createLoader(input: {
   moduleManifest?: RuntimeModuleManifest;
   fallbackCdnBases?: string[];
   isRemoteUrlAllowed?: (url: string) => boolean;
+  remoteModuleMaxBytes?: number;
 }): RuntimeSourceModuleLoader {
   return new RuntimeSourceModuleLoader({
     moduleManifest: input.moduleManifest,
@@ -337,7 +383,7 @@ function createLoader(input: {
     remoteFetchTimeoutMs: input.timeoutMs ?? 100,
     remoteFetchRetries: 0,
     remoteFetchBackoffMs: 0,
-    remoteModuleMaxBytes: 1024,
+    remoteModuleMaxBytes: input.remoteModuleMaxBytes ?? 1024,
     canMaterializeRuntimeModules: () => true,
     rewriteImportsAsync:
       input.rewriteImportsAsync ?? (async (code: string) => code),
@@ -349,6 +395,9 @@ function createLoader(input: {
 }
 
 function installBrowserGlobals(): () => void {
+  // Browsers share pinned module responses document-wide; give every
+  // simulated browser test a fresh "document".
+  clearRemoteModuleCache();
   const root = globalThis as Record<string, unknown>;
   const previous = new Map(
     ["window", "document", "navigator"].map((key) => [

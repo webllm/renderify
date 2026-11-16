@@ -19,6 +19,10 @@ import {
   verifyModuleIntegrity,
 } from "./module-integrity";
 import { createNodeModuleFileUrl } from "./node-module-file-store";
+import {
+  type CachedRemoteModuleResponse,
+  loadSharedRemoteModule,
+} from "./remote-module-cache";
 import { isBrowserRuntime, isNodeRuntime } from "./runtime-environment";
 import {
   assertRuntimeModuleMaterializationBudgetActive,
@@ -631,6 +635,56 @@ export class RuntimeSourceModuleLoader {
       await this.delayWithSignal(startDelayMs, signal);
     }
 
+    // Browsers share pinned module responses document-wide; elsewhere each
+    // loader fetches on its own so servers and tests see fresh responses.
+    const load = () =>
+      this.fetchRemoteModuleAttempt(attempt, originalUrl, signal);
+    const response = isBrowserRuntime()
+      ? await loadSharedRemoteModule(attempt, load)
+      : await load();
+
+    // A shared response may have been fetched by another runtime instance, so
+    // this instance's network policy, pinning rule, and size limit apply again.
+    this.assertEffectiveRemoteUrlAllowed(originalUrl, attempt, response.url);
+    if (
+      isLikelyUnpinnedJspmNpmUrl(attempt) ||
+      isLikelyUnpinnedJspmNpmUrl(response.url)
+    ) {
+      throw new Error(
+        `Failed to load module ${attempt}: non-executable JSPM package index endpoint`,
+      );
+    }
+    if (
+      response.code.length > this.remoteModuleMaxBytes ||
+      (response.code.length * 3 > this.remoteModuleMaxBytes &&
+        new TextEncoder().encode(response.code).byteLength >
+          this.remoteModuleMaxBytes)
+    ) {
+      throw this.createRemoteModuleSizeError(response.url);
+    }
+
+    if (attempt !== originalUrl) {
+      this.pushDiagnosticOnce({
+        level: "warning",
+        code: "RUNTIME_SOURCE_IMPORT_FALLBACK_USED",
+        message: `Loaded module via fallback URL: ${originalUrl} -> ${attempt}`,
+      });
+    }
+
+    return {
+      url: response.url,
+      code: response.code,
+      contentType: response.contentType,
+      requestUrl: attempt,
+      originalUrl,
+    };
+  }
+
+  private async fetchRemoteModuleAttempt(
+    attempt: string,
+    originalUrl: string,
+    signal?: AbortSignal,
+  ): Promise<CachedRemoteModuleResponse> {
     let lastError: unknown;
     for (let retry = 0; retry <= this.remoteFetchRetries; retry += 1) {
       try {
@@ -670,20 +724,10 @@ export class RuntimeSourceModuleLoader {
                 ),
                 contentType:
                   response.headers.get("content-type")?.toLowerCase() ?? "",
-                requestUrl: attempt,
-                originalUrl,
               };
             },
           },
         );
-
-        if (attempt !== originalUrl) {
-          this.pushDiagnosticOnce({
-            level: "warning",
-            code: "RUNTIME_SOURCE_IMPORT_FALLBACK_USED",
-            message: `Loaded module via fallback URL: ${originalUrl} -> ${attempt}`,
-          });
-        }
 
         if (retry > 0) {
           this.pushDiagnosticOnce({

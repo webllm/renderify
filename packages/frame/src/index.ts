@@ -35,6 +35,7 @@ export {
 
 declare const __RENDERIFY_FRAME_VERSION__: string;
 declare const __RENDERIFY_FRAME_RUNNER_INTEGRITY__: string;
+declare const __RENDERIFY_FRAME_PLAN_RUNNER_INTEGRITY__: string;
 
 export const RENDERIFY_FRAME_VERSION =
   typeof __RENDERIFY_FRAME_VERSION__ === "string"
@@ -48,9 +49,20 @@ export const RENDERIFY_FRAME_VERSION =
  */
 export const DEFAULT_RENDERIFY_FRAME_RUNNER_URL = `https://cdn.jsdelivr.net/npm/@renderify/frame@${RENDERIFY_FRAME_VERSION}/dist/runner.js`;
 
+/**
+ * The declarative-only runner: renders RuntimePlans without bundling Babel,
+ * so the frame downloads and boots much faster. Select it with
+ * `runner: "plan"`.
+ */
+export const DEFAULT_RENDERIFY_FRAME_PLAN_RUNNER_URL = `https://cdn.jsdelivr.net/npm/@renderify/frame@${RENDERIFY_FRAME_VERSION}/dist/runner-plan.js`;
+
 const DEFAULT_RUNNER_INTEGRITY =
   typeof __RENDERIFY_FRAME_RUNNER_INTEGRITY__ === "string"
     ? __RENDERIFY_FRAME_RUNNER_INTEGRITY__
+    : undefined;
+const DEFAULT_PLAN_RUNNER_INTEGRITY =
+  typeof __RENDERIFY_FRAME_PLAN_RUNNER_INTEGRITY__ === "string"
+    ? __RENDERIFY_FRAME_PLAN_RUNNER_INTEGRITY__
     : undefined;
 
 export type RenderifyFrameStatus =
@@ -92,6 +104,11 @@ export class RenderifyFrameError extends Error {
 export interface RenderifyFrameOptions {
   /** Element the iframe is appended to. */
   container: HTMLElement;
+  /**
+   * `full` (default) renders source and plans; `plan` loads the smaller
+   * declarative-only runner, which rejects source.
+   */
+  runner?: "full" | "plan";
   /** Runner script URL; defaults to this version on jsDelivr. */
   runnerUrl?: string;
   /**
@@ -173,6 +190,7 @@ export function createRenderifyFrame(
     throw new Error("createRenderifyFrame requires a browser document");
   }
   const container = options.container;
+  const planOnly = options.runner === "plan";
   const frameDocument =
     options.runnerSource !== undefined
       ? createRenderifyFrameDocument({
@@ -181,12 +199,17 @@ export function createRenderifyFrame(
         })
       : createRenderifyFrameDocument({
           runnerUrl: new URL(
-            options.runnerUrl ?? DEFAULT_RENDERIFY_FRAME_RUNNER_URL,
+            options.runnerUrl ??
+              (planOnly
+                ? DEFAULT_RENDERIFY_FRAME_PLAN_RUNNER_URL
+                : DEFAULT_RENDERIFY_FRAME_RUNNER_URL),
             document.baseURI,
           ).href,
           runnerIntegrity:
             options.runnerUrl === undefined
-              ? DEFAULT_RUNNER_INTEGRITY
+              ? planOnly
+                ? DEFAULT_PLAN_RUNNER_INTEGRITY
+                : DEFAULT_RUNNER_INTEGRITY
               : options.runnerIntegrity,
           moduleOrigins: options.moduleOrigins,
         });

@@ -7,6 +7,7 @@ import {
   type RuntimePlan,
 } from "@renderify/ir";
 import { JspmModuleLoader } from "./jspm-module-loader";
+import { isBrowserRuntime } from "./runtime-environment";
 import type { RuntimeModuleLoader } from "./runtime-manager.types";
 
 const FALLBACK_JSPM_CDN_ROOT = "https://ga.jspm.io";
@@ -156,19 +157,57 @@ export async function autoPinRuntimePlanModuleManifest(
   };
 }
 
+/**
+ * In browsers, lookups are shared by every auto-pin call in the document:
+ * `package.json` for an exact version never changes, and "latest" answers are
+ * reused for a few minutes. Failed lookups are evicted so a transient error is
+ * retried. Other runtimes keep per-call caches.
+ */
+const SHARED_PACKAGE_JSON_CACHE = new Map<
+  string,
+  Promise<JspmPackageJsonShape | undefined>
+>();
+const SHARED_LATEST_VERSION_CACHE = new Map<
+  string,
+  { expiresAt: number; version: Promise<string | undefined> }
+>();
+const LATEST_VERSION_TTL_MS = 10 * 60 * 1000;
+const MAX_SHARED_AUTOPIN_ENTRIES = 512;
+
+function rememberSharedLookup<T>(
+  cache: Map<string, T>,
+  key: string,
+  value: T,
+  promise: Promise<unknown>,
+): void {
+  cache.set(key, value);
+  if (cache.size > MAX_SHARED_AUTOPIN_ENTRIES) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) {
+      cache.delete(oldest);
+    }
+  }
+  promise.catch(() => {
+    if (cache.get(key) === value) {
+      cache.delete(key);
+    }
+  });
+}
+
 class JspmLatestAutoPinResolver {
   private readonly moduleLoader: RuntimeModuleLoader;
   private readonly fetchTimeoutMs: number;
   private readonly signal: AbortSignal | undefined;
   private readonly fallbackCdnRoot: string;
-  private readonly latestVersionCache = new Map<
-    string,
-    Promise<string | undefined>
-  >();
-  private readonly packageJsonCache = new Map<
-    string,
-    Promise<JspmPackageJsonShape | undefined>
-  >();
+  private readonly packageJsonCache = isBrowserRuntime()
+    ? SHARED_PACKAGE_JSON_CACHE
+    : new Map<string, Promise<JspmPackageJsonShape | undefined>>();
+  private readonly latestVersionCache = isBrowserRuntime()
+    ? SHARED_LATEST_VERSION_CACHE
+    : new Map<
+        string,
+        { expiresAt: number; version: Promise<string | undefined> }
+      >();
 
   constructor(options: {
     moduleLoader: RuntimeModuleLoader;
@@ -245,8 +284,8 @@ class JspmLatestAutoPinResolver {
   ): Promise<string | undefined> {
     const cacheKey = `${cdnRoot}::${packageName}`;
     const cached = this.latestVersionCache.get(cacheKey);
-    if (cached) {
-      return cached;
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.version;
     }
 
     const loading = (async () => {
@@ -258,7 +297,12 @@ class JspmLatestAutoPinResolver {
       return text.length > 0 ? text : undefined;
     })();
 
-    this.latestVersionCache.set(cacheKey, loading);
+    rememberSharedLookup(
+      this.latestVersionCache,
+      cacheKey,
+      { expiresAt: Date.now() + LATEST_VERSION_TTL_MS, version: loading },
+      loading,
+    );
     return loading;
   }
 
@@ -311,7 +355,7 @@ class JspmLatestAutoPinResolver {
       isRecord(value) ? (value as JspmPackageJsonShape) : undefined,
     );
 
-    this.packageJsonCache.set(cacheKey, loading);
+    rememberSharedLookup(this.packageJsonCache, cacheKey, loading, loading);
     return loading;
   }
 

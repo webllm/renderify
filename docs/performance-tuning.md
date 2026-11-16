@@ -111,7 +111,52 @@ const runtime = new DefaultRuntimeManager({
 - Keep `serializeTargetRenders` enabled for same-target UI safety.
 - Bound render cancellations with `AbortController` to shed load quickly.
 
-## 5. Memory and Lifecycle Hygiene
+## 5. Browser Cold Start
+
+Where the time goes on a first render of model-written JSX in a browser, from
+a desktop on a typical connection to the JSPM and esm.sh CDNs:
+
+| Phase | Typical cost |
+| --- | --- |
+| Babel transform of a 120-line component | 5-10 ms |
+| Frame runner boot (download excluded) | ~190 ms full runner, ~12 ms plan-only runner |
+| Module graph download | seconds; one CDN round trip per dependency level |
+
+Network round trips dominate, so the runtime focuses on not repeating them:
+
+- **Shared module responses (browsers).** Responses for version-pinned CDN URLs
+  are cached for the life of the document; responses for ranges and tags
+  (`@^11.5.0`) are reused for 10 minutes. Dependency preflight,
+  materialization, and later renders share one fetch per URL, and concurrent
+  requests share one in-flight fetch. Each runtime instance still applies its
+  own network policy, integrity, pinning, and size checks to cached responses.
+  Call `clearRemoteModuleCache()` to drop them.
+- **Shared auto-pin lookups (browsers).** `package.json` for an exact version
+  is fetched once per document; "latest version" answers are reused for 10
+  minutes.
+- **No wasted pinning.** `seedPlaygroundBrowserModules(plan)` registers the
+  Preact or React builds the browser source path will use, so auto-pinning
+  skips them.
+- **Plan-only runner.** `@renderify/frame` with `runner: "plan"` loads a 59 KiB
+  (gzip) runner without Babel instead of 623 KiB.
+- **Placeholder.** The frame shows a loading state while a source render
+  downloads its module graph.
+
+Measured with the website Playground samples in `@renderify/frame`:
+
+| Sample | Before | After |
+| --- | --- | --- |
+| Preact card, first render | 5.0-6.6 s | ~2.6 s |
+| Preact card, re-render in the same frame | ~1.3 s | ~10 ms |
+| React + Material UI todo, first render | ~7.5 s | ~5.3 s |
+| React + Material UI todo, re-render in the same frame | ~3.3 s | ~60 ms |
+
+First renders of npm-heavy components remain bound by CDN latency: one round
+trip per dependency level, plus a security audit fetch for each Preact module
+the browser imports natively. Self-hosting modules near your users, or
+rendering declarative RuntimePlans, avoids that cost entirely.
+
+## 6. Memory and Lifecycle Hygiene
 
 The runtime keeps in-memory module URL caches for browser source execution. For long-lived pages:
 
@@ -131,7 +176,7 @@ try {
 }
 ```
 
-## 6. Protect Against Regressions
+## 7. Protect Against Regressions
 
 Use these checks in CI:
 
@@ -145,7 +190,7 @@ Suggested policy:
 - Block merge if `meanMs` regresses more than an agreed threshold (for example 10%).
 - Track trend over multiple runs instead of a single datapoint to reduce noise.
 
-## 7. Quick Debug Checklist for Slow Renders
+## 8. Quick Debug Checklist for Slow Renders
 
 1. Run `probe-plan` to isolate dependency failures from execution logic.
 2. Inspect `execution.diagnostics` for timeout and import budget messages.

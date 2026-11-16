@@ -16,6 +16,7 @@ const SOURCE_ALIASES = {
 interface Bundles {
   host: string;
   runner: string;
+  planRunner: string;
   runnerIntegrity: string;
 }
 
@@ -23,7 +24,7 @@ let bundles: Promise<Bundles> | undefined;
 
 function loadBundles(): Promise<Bundles> {
   bundles ??= (async () => {
-    const [host, runner] = await Promise.all([
+    const [host, runner, planRunner] = await Promise.all([
       build({
         entryPoints: [path.join(REPO_ROOT, "packages/frame/src/index.ts")],
         bundle: true,
@@ -46,11 +47,26 @@ function loadBundles(): Promise<Bundles> {
         alias: SOURCE_ALIASES,
         define: { "process.env.NODE_ENV": '"production"' },
       }),
+      build({
+        entryPoints: [
+          path.join(REPO_ROOT, "packages/frame/src/runner-plan.ts"),
+        ],
+        bundle: true,
+        format: "iife",
+        platform: "browser",
+        target: "es2022",
+        write: false,
+        logLevel: "silent",
+        external: ["node:*"],
+        alias: SOURCE_ALIASES,
+        define: { "process.env.NODE_ENV": '"production"' },
+      }),
     ]);
     const runnerText = runner.outputFiles[0]?.text ?? "";
     return {
       host: host.outputFiles[0]?.text ?? "",
       runner: runnerText,
+      planRunner: planRunner.outputFiles[0]?.text ?? "",
       runnerIntegrity: `sha384-${createHash("sha384").update(runnerText).digest("base64")}`,
     };
   })();
@@ -58,7 +74,7 @@ function loadBundles(): Promise<Bundles> {
 }
 
 async function openHost(browser: Browser): Promise<Page> {
-  const { host, runner } = await loadBundles();
+  const { host, runner, planRunner } = await loadBundles();
   const page = await browser.newPage();
   // tsx wraps named functions in __name(); evaluated callbacks need it too.
   await page.addInitScript("globalThis.__name = (target) => target;");
@@ -79,6 +95,10 @@ async function openHost(browser: Browser): Promise<Page> {
         contentType: "text/javascript",
         headers: { "Access-Control-Allow-Origin": "*" },
       });
+      return;
+    }
+    if (url.pathname === "/runner-plan.js") {
+      await route.fulfill({ body: planRunner, contentType: "text/javascript" });
       return;
     }
     if (url.pathname === "/host.js") {
@@ -450,5 +470,32 @@ test("e2e: the runner must match its integrity hash", async (t) => {
     assert.equal(await page.locator("#host iframe").count(), 0);
     await createFrame(page, { runnerIntegrity });
     assert.equal((await renderInFrame(page, { plan: ACTION_PLAN })).ok, true);
+  });
+});
+
+test("e2e: the plan-only runner renders plans and rejects source", async (t) => {
+  await withBrowser(t, async (browser) => {
+    const { runner, planRunner } = await loadBundles();
+    assert.ok(
+      planRunner.length * 5 < runner.length,
+      "plan runner is not small",
+    );
+    const page = await openHost(browser);
+    await createFrame(page, { runnerUrl: "/runner-plan.js" });
+    const rendered = await renderInFrame(page, { plan: ACTION_PLAN });
+    assert.equal(rendered.ok, true, JSON.stringify(rendered));
+    const frame = await sandboxFrame(page);
+    await frame.locator("#save").click();
+    await frame.getByText("Count 1").waitFor();
+
+    const source = await renderInFrame(page, {
+      runtime: "renderify",
+      source: "export default function App() { return <p>source</p>; }",
+    });
+    assert.equal(source.ok, false);
+    if (!source.ok) {
+      assert.equal(source.code, "render-failed");
+      assert.match(source.message, /declarative RuntimePlans only/);
+    }
   });
 });

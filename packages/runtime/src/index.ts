@@ -7,6 +7,12 @@ export { JspmModuleLoader } from "./jspm-module-loader";
 export * from "./manager";
 export * from "./module-manifest-autopin";
 export * from "./primitives";
+export {
+  type CachedRemoteModuleResponse,
+  clearRemoteModuleCache,
+  getRemoteModuleCacheStats,
+  isImmutableRemoteModuleUrl,
+} from "./remote-module-cache";
 export * from "./runtime-manager.types";
 export * from "./transpiler";
 export type {

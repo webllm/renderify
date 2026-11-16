@@ -77,6 +77,7 @@ and the [threat model](./threat-model.md).
 | Option | Default | Purpose |
 | --- | --- | --- |
 | `container` | required | Element the iframe is appended to. |
+| `runner` | `"full"` | `"plan"` loads the declarative-only runner (59 KiB gzip instead of 623 KiB, about 15x faster to boot). It renders RuntimePlans and rejects source. |
 | `runnerUrl` | jsDelivr, this version | Where to load the runner script. |
 | `runnerIntegrity` | built in for the default URL | SRI hash for a custom `runnerUrl`. |
 | `runnerSource` | none | The runner's code, inlined into the frame instead of loaded from `runnerUrl`, for pages that must not fetch scripts. An inherited CSP must allow that script by hash. |
@@ -103,8 +104,9 @@ a frame and renders one module.
 ## Self-hosting the runner
 
 The runner (`@renderify/frame/runner.js`, about 2.6 MB with Babel and the
-runtime) is the only script that runs inside the frame. To avoid loading it
-from jsDelivr, copy it to your static assets and pass its URL:
+runtime; `runner-plan.js` is about 200 KB without Babel) is the only script
+that runs inside the frame. To avoid loading it from jsDelivr, copy it to your
+static assets and pass its URL:
 
 ```ts
 createRenderifyFrame({

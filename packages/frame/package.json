@@ -13,6 +13,7 @@
       "default": "./dist/frame.mjs"
     },
     "./runner.js": "./dist/runner.js",
+    "./runner-plan.js": "./dist/runner-plan.js",
     "./package.json": "./package.json"
   },
   "files": [

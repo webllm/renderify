@@ -42,7 +42,9 @@ await frame.render({ plan: runtimePlan }); // RuntimePlans work too
 
 The runner script (`@renderify/frame/runner.js`) loads from jsDelivr, pinned
 to this package version with Subresource Integrity. To self-host it, copy the
-file to your static assets and pass `runnerUrl`.
+file to your static assets and pass `runnerUrl`. Hosts that only render
+RuntimePlans can pass `runner: "plan"` to load `runner-plan.js`, which skips
+Babel (59 KiB gzip instead of 623 KiB).
 
 ## Not responsible for
 

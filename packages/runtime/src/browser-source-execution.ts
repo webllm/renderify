@@ -18,6 +18,33 @@ export interface PlaygroundBrowserExecution {
 const PLAYGROUND_SOURCE_TRANSPILER = new DefaultRuntimeSourceTranspiler();
 const PLAYGROUND_REACT_VERSION = "19.2.0";
 
+/**
+ * Registers the framework modules (Preact or React builds) that
+ * {@link preparePlaygroundBrowserExecution} will use. Run it before
+ * auto-pinning so the pinning step does not spend network round trips
+ * resolving framework packages that would be replaced anyway.
+ */
+export async function seedPlaygroundBrowserModules(
+  plan: RuntimePlan,
+): Promise<RuntimePlan> {
+  const source = plan.source;
+  if (source?.runtime !== "preact") {
+    return plan;
+  }
+  const sourceImports = await parseRuntimeSourceImportRanges(source.code);
+  const moduleManifest: RuntimeModuleManifest = {
+    ...(plan.moduleManifest ?? {}),
+  };
+  if (
+    sourceImports.some((item) => shouldUseReactBrowserRuntime(item.specifier))
+  ) {
+    configureReactBrowserModules(moduleManifest);
+  } else {
+    configurePreactBrowserModules(moduleManifest);
+  }
+  return { ...plan, moduleManifest };
+}
+
 export async function preparePlaygroundBrowserExecution(
   plan: RuntimePlan,
 ): Promise<PlaygroundBrowserExecution> {

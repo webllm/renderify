@@ -107,17 +107,18 @@ for (const [format, namespace] of [
 
 // The frame host API pins the runner it ships with by SRI hash.
 const frameDirectory = path.join(root, "packages/frame");
-const frameRunner = fs.readFileSync(
-  path.join(frameDirectory, "dist/runner.js"),
-);
-const frameRunnerIntegrity = `sha384-${createHash("sha384").update(frameRunner).digest("base64")}`;
-for (const artifact of ["dist/frame.mjs", "dist/frame.cjs"]) {
-  assert.ok(
-    fs
-      .readFileSync(path.join(frameDirectory, artifact), "utf8")
-      .includes(frameRunnerIntegrity),
-    `${artifact} does not pin the runner integrity ${frameRunnerIntegrity}`,
-  );
+for (const runner of ["runner.js", "runner-plan.js"]) {
+  const runnerIntegrity = `sha384-${createHash("sha384")
+    .update(fs.readFileSync(path.join(frameDirectory, "dist", runner)))
+    .digest("base64")}`;
+  for (const artifact of ["dist/frame.mjs", "dist/frame.cjs"]) {
+    assert.ok(
+      fs
+        .readFileSync(path.join(frameDirectory, artifact), "utf8")
+        .includes(runnerIntegrity),
+      `${artifact} does not pin the ${runner} integrity ${runnerIntegrity}`,
+    );
+  }
 }
 const frameEsm = await import(
   pathToFileURL(path.join(frameDirectory, "dist/frame.mjs")).href
