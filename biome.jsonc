@@ -7,7 +7,7 @@
       "!**/.next",
       "!**/.source",
       "!**/out",
-      "!apps/website/public/playground-runtime.js",
+      "!apps/website/public/renderify-frame-runner.js",
       "!**/dist",
       "!**/dist-types",
       "!.artifacts",

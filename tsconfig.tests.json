@@ -32,6 +32,9 @@
     },
     {
       "path": "packages/mcp-app"
+    },
+    {
+      "path": "packages/frame"
     }
   ]
 }

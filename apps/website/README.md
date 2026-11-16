@@ -4,8 +4,9 @@ The Fumadocs website and renderer-only Playground are statically exported for
 GitHub Pages. No LLM provider or API key is used by this application.
 
 Documentation is sourced from the repository-level `docs/` directory. The
-Playground runner is generated into `public/playground-runtime.js` by the
-`predev` and `prebuild` scripts; that generated bundle is intentionally ignored.
+Playground preview is a `@renderify/frame` sandbox. Its runner is built from
+the workspace sources into `public/renderify-frame-runner.js` by the `predev`
+and `prebuild` scripts; that generated bundle is intentionally ignored.
 
 ```bash
 pnpm website:dev

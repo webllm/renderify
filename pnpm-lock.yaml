@@ -83,15 +83,15 @@ importers:
 
   apps/website:
     dependencies:
-      '@babel/standalone':
-        specifier: 8.0.4
-        version: 8.0.4
       '@codemirror/lang-javascript':
         specifier: 6.2.5
         version: 6.2.5
       '@codemirror/lang-json':
         specifier: 6.0.2
         version: 6.0.2
+      '@renderify/frame':
+        specifier: workspace:^
+        version: link:../../packages/frame
       '@renderify/ir':
         specifier: workspace:^
         version: link:../../packages/ir
@@ -135,9 +135,6 @@ importers:
       '@tailwindcss/postcss':
         specifier: ^4.3.0
         version: 4.3.3
-      '@types/babel__standalone':
-        specifier: 7.1.9
-        version: 7.1.9
       '@types/mdx':
         specifier: ^2.0.13
         version: 2.0.14
@@ -208,6 +205,24 @@ importers:
         specifier: ^6.7.0
         version: 6.7.0(preact@10.29.7)
 
+  packages/frame:
+    devDependencies:
+      '@babel/standalone':
+        specifier: 8.0.4
+        version: 8.0.4
+      '@renderify/ir':
+        specifier: workspace:^
+        version: link:../ir
+      '@renderify/runtime':
+        specifier: workspace:^
+        version: link:../runtime
+      '@renderify/security':
+        specifier: workspace:^
+        version: link:../security
+      '@types/babel__standalone':
+        specifier: 7.1.9
+        version: 7.1.9
+
   packages/ir:
     dependencies:
       es-module-lexer:
@@ -234,6 +249,9 @@ importers:
       '@modelcontextprotocol/server':
         specifier: ^2.0.0
         version: 2.4.0
+      '@renderify/frame':
+        specifier: workspace:^
+        version: link:../frame
       '@renderify/ir':
         specifier: workspace:^
         version: link:../ir

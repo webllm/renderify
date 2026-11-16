@@ -6,6 +6,7 @@ const PACKAGE_DIR = "packages";
 const REQUIRED_PACKAGES = [
   "cli",
   "core",
+  "frame",
   "ir",
   "llm",
   "mcp-app",

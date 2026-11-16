@@ -1,4 +1,8 @@
 {
   "title": "Decision records",
-  "pages": ["index", "0001-offline-declarative-mcp-app-boundary"]
+  "pages": [
+    "index",
+    "0001-offline-declarative-mcp-app-boundary",
+    "0002-sandboxed-source-frame"
+  ]
 }

@@ -12,14 +12,15 @@ contract in IR, security, and runtime.
 
 ## Module responsibilities
 
-| Module          | Responsibility                                                   | Not responsible for                              | Verification                           |
-| --------------- | ---------------------------------------------------------------- | ------------------------------------------------ | -------------------------------------- |
-| `plan.ts`       | JSON detach, size bound, and offline declarative validation      | Runtime rendering or MCP transport               | Plan corpus in `tests/mcp-app.test.ts` |
-| `bundle.ts`     | Bundle the browser view as an inline-safe IIFE                   | HTML policy or server registration               | Default shell build and artifact smoke |
-| `shell.ts`      | Escape configuration, hash scripts, and emit restrictive CSP     | Host iframe sandbox flags                        | CSP reconstruction tests               |
-| `server.ts`     | Official resource/tool registration and result metadata          | Authentication or host capability implementation | Official in-memory SDK test            |
-| `view.ts`       | Official lifecycle, rendering, context, tool allowlist, teardown | Arbitrary source or external modules             | Official AppBridge browser test        |
-| IR event parser | Define the only declarative `onX` binding shape                  | DOM listener ownership                           | IR/security/runtime tests              |
+| Module             | Responsibility                                                   | Not responsible for                              | Verification                           |
+| ------------------ | ---------------------------------------------------------------- | ------------------------------------------------ | -------------------------------------- |
+| `plan.ts`          | JSON detach, size bound, offline plan and source payload checks  | Runtime rendering or MCP transport               | Plan corpus in `tests/mcp-app.test.ts` |
+| `bundle.ts`        | Bundle the browser view as an inline-safe IIFE                   | HTML policy or server registration               | Default shell build and artifact smoke |
+| `shell.ts`         | Escape configuration, hash scripts, and emit restrictive CSP     | Host iframe sandbox flags                        | CSP reconstruction tests               |
+| `inline-script.ts` | Reject text that would end or corrupt an inline script           | Escaping                                         | Shell and frame document tests         |
+| `server.ts`        | Official resource/tool registration and result metadata          | Authentication or host capability implementation | Official in-memory SDK test            |
+| `view.ts`          | Official lifecycle, rendering, context, tool allowlist, teardown | Running source in its own window                 | Official AppBridge browser test        |
+| IR event parser    | Define the only declarative `onX` binding shape                  | DOM listener ownership                           | IR/security/runtime tests              |
 
 ## Dependency rationale
 
@@ -30,6 +31,8 @@ contract in IR, security, and runtime.
 | `server.ts`      | official MCP SDK + Apps helpers         | Normalize resource/tool metadata and SDK registrations           | MCP clients/servers            |
 | `view.ts`        | official MCP Apps `App`                 | Own wire lifecycle and source-checked postMessage transport      | MCP host iframe                |
 | `view.ts`        | `@renderify/runtime`                    | Execute state transitions and render RuntimeNodes                | Browser test                   |
+| `view.ts`        | `@renderify/frame`                      | Render source-mode payloads in a nested sandboxed frame          | Source-mode browser test       |
+| `shell.ts`       | `@renderify/frame/runner.js`            | Inline the frame runner for source-mode resources                | Artifact smoke                 |
 | security/runtime | IR event parser                         | Keep validation and rendering semantics identical                | Strict declarative interaction |
 
 ## Dependency rules
@@ -37,13 +40,15 @@ contract in IR, security, and runtime.
 - The view MUST depend on the official bridge, not a local protocol copy.
 - Node-only shell/server modules MUST NOT enter the browser view bundle.
 - The MCP boundary MUST remain narrower than the general trusted Renderify
-  source APIs.
+  source APIs: source-mode payloads run only inside `@renderify/frame`.
 - Server tool authorization MUST remain outside the view.
 
 ## Boundary diagram
 
 What this shows: only validated RuntimePlan data crosses from MCP results into
 the offline runtime; server effects return through an explicit host proxy.
+Source-mode apps add a second path in which validated source goes to a frame
+nested in the view, and its allowlisted actions use the same host proxy.
 
 ```mermaid
 flowchart LR
@@ -53,6 +58,8 @@ flowchart LR
     Runtime --> DOM["Sandboxed iframe DOM"]
     Runtime -->|"allowlisted event"| Bridge["Host tool proxy"]
     Bridge --> Server["Authorized MCP server tool"]
+    Validator -->|"source mode"| Frame["Nested sandboxed frame"]
+    Frame -->|"allowlisted action"| Bridge
     Shell["shell.ts hash CSP"] --> View
     Bundle["bundle.ts"] --> Shell
 ```

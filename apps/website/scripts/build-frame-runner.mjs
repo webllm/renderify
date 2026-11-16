@@ -4,6 +4,8 @@ import { build } from "esbuild";
 const websiteRoot = fileURLToPath(new URL("..", import.meta.url));
 const repositoryRoot = fileURLToPath(new URL("../../..", import.meta.url));
 
+// The Playground preview runs @renderify/frame's runner, built from source so
+// the website always matches the workspace packages it documents.
 await build({
   absWorkingDir: repositoryRoot,
   alias: {
@@ -12,12 +14,13 @@ await build({
     "@renderify/security": `${repositoryRoot}/packages/security/src/index.ts`,
   },
   bundle: true,
-  entryPoints: [`${websiteRoot}/playground-runtime/runner.ts`],
+  define: { "process.env.NODE_ENV": '"production"' },
+  entryPoints: [`${repositoryRoot}/packages/frame/src/runner.ts`],
   external: ["node:*"],
   format: "iife",
-  legalComments: "none",
+  legalComments: "eof",
   minify: true,
-  outfile: `${websiteRoot}/public/playground-runtime.js`,
+  outfile: `${websiteRoot}/public/renderify-frame-runner.js`,
   platform: "browser",
   target: ["es2022"],
 });

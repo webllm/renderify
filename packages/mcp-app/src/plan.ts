@@ -11,6 +11,8 @@ import {
 
 export const DEFAULT_MCP_PLAN_MAX_BYTES = 512 * 1024;
 export const MAX_MCP_PLAN_MAX_BYTES = 5 * 1024 * 1024;
+export const DEFAULT_MCP_SOURCE_MAX_BYTES = 256 * 1024;
+export const MAX_MCP_SOURCE_MAX_BYTES = 1024 * 1024;
 
 const MCP_LOCAL_FRAGMENT_ATTRIBUTE_NAMES = new Set([
   "usemap",
@@ -65,7 +67,9 @@ export type DeclarativeMcpPlanErrorCode =
   | "NETWORK_DISABLED"
   | "PERSISTENT_STORAGE_DISABLED"
   | "TIMERS_DISABLED"
-  | "EXECUTION_PROFILE_DISABLED";
+  | "EXECUTION_PROFILE_DISABLED"
+  | "INVALID_SOURCE"
+  | "SOURCE_TOO_LARGE";
 
 export class DeclarativeMcpPlanError extends Error {
   readonly code: DeclarativeMcpPlanErrorCode;
@@ -311,4 +315,117 @@ function isAllowedLocalFragmentReference(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export type RenderifyMcpSourceLanguage = "js" | "jsx" | "ts" | "tsx";
+
+/**
+ * Model-written UI source for apps that enable `sourceMode`. The view runs it
+ * in a nested sandboxed frame, never in its own window.
+ */
+export interface RenderifyMcpSource {
+  code: string;
+  language?: RenderifyMcpSourceLanguage;
+  /** `preact` (default) for React-style components; `renderify` for static JSX. */
+  runtime?: "preact" | "renderify";
+}
+
+export interface ParseMcpSourceOptions {
+  maxBytes?: number;
+}
+
+/** Validates a source payload's shape and size. */
+export function parseMcpSource(
+  value: unknown,
+  options: ParseMcpSourceOptions = {},
+): RenderifyMcpSource {
+  const maxBytes = options.maxBytes ?? DEFAULT_MCP_SOURCE_MAX_BYTES;
+  if (
+    !Number.isInteger(maxBytes) ||
+    maxBytes < 1 ||
+    maxBytes > MAX_MCP_SOURCE_MAX_BYTES
+  ) {
+    throw new DeclarativeMcpPlanError(
+      "INVALID_LIMIT",
+      `maxSourceBytes must be an integer between 1 and ${MAX_MCP_SOURCE_MAX_BYTES}`,
+    );
+  }
+  if (
+    !isRecord(value) ||
+    typeof value.code !== "string" ||
+    value.code.trim().length === 0 ||
+    (value.language !== undefined &&
+      value.language !== "js" &&
+      value.language !== "jsx" &&
+      value.language !== "ts" &&
+      value.language !== "tsx") ||
+    (value.runtime !== undefined &&
+      value.runtime !== "preact" &&
+      value.runtime !== "renderify")
+  ) {
+    throw new DeclarativeMcpPlanError(
+      "INVALID_SOURCE",
+      "Source must be { code, language?: js|jsx|ts|tsx, runtime?: preact|renderify }",
+    );
+  }
+  const bytes = new TextEncoder().encode(value.code).byteLength;
+  if (bytes > maxBytes) {
+    throw new DeclarativeMcpPlanError(
+      "SOURCE_TOO_LARGE",
+      `Source is ${bytes} bytes; the limit is ${maxBytes} bytes`,
+    );
+  }
+  return {
+    code: value.code,
+    ...(value.language !== undefined
+      ? { language: value.language as RenderifyMcpSourceLanguage }
+      : {}),
+    ...(value.runtime !== undefined
+      ? { runtime: value.runtime as "preact" | "renderify" }
+      : {}),
+  };
+}
+
+export type RenderifyMcpViewPayload =
+  | { plan: RuntimePlan }
+  | { source: RenderifyMcpSource };
+
+export interface ReadRenderifyPayloadOptions
+  extends ParseDeclarativeMcpPlanOptions {
+  /** Accept `{ source }` payloads; only apps registered with `sourceMode`. */
+  allowSource?: boolean;
+  maxSourceBytes?: number;
+}
+
+/**
+ * Reads the Renderify payload from a tool result: a declarative plan, or,
+ * when `allowSource` is set, model-written source. Returns undefined when the
+ * result carries no Renderify payload.
+ */
+export function readRenderifyPayloadFromToolResult(
+  result: unknown,
+  options: ReadRenderifyPayloadOptions = {},
+): RenderifyMcpViewPayload | undefined {
+  if (!isRecord(result) || !isRecord(result.structuredContent)) {
+    return undefined;
+  }
+  const payload = result.structuredContent.renderify;
+  if (payload === undefined) {
+    return undefined;
+  }
+  if (isRecord(payload) && "source" in payload && !("plan" in payload)) {
+    if (!options.allowSource) {
+      throw new DeclarativeMcpPlanError(
+        "RUNTIME_SOURCE_DISABLED",
+        "This MCP App renders declarative plans only; register it with sourceMode to render source",
+      );
+    }
+    return {
+      source: parseMcpSource(payload.source, {
+        maxBytes: options.maxSourceBytes,
+      }),
+    };
+  }
+  const plan = readDeclarativePlanFromToolResult(result, options);
+  return plan ? { plan } : undefined;
 }

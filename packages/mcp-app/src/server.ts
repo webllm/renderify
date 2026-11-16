@@ -23,6 +23,8 @@ import { isRuntimePlan, type RuntimePlan } from "@renderify/ir";
 import {
   type ParseDeclarativeMcpPlanOptions,
   parseDeclarativeMcpPlan,
+  parseMcpSource,
+  type RenderifyMcpSource,
   readDeclarativePlanFromToolResult,
 } from "./plan";
 import {
@@ -35,6 +37,11 @@ export const RENDERIFY_STRUCTURED_CONTENT_KEY = "renderify";
 
 export interface RenderifyUiPayload {
   plan: RuntimePlan;
+}
+
+/** Model-written source for apps registered with `sourceMode: true`. */
+export interface RenderifySourcePayload {
+  source: RenderifyMcpSource;
 }
 
 export interface RenderifyToolResult extends CallToolResult {
@@ -152,6 +159,39 @@ export async function createRenderifyUiResource(
   };
 }
 
+export interface RenderifySourceResultOptions {
+  maxSourceBytes?: number;
+  summary?: string;
+  meta?: Record<string, unknown>;
+}
+
+/**
+ * Builds a tool result carrying model-written source. Only views registered
+ * with `sourceMode: true` render it, inside a nested sandboxed frame.
+ */
+export function renderifySourceResult(
+  payload: RenderifySourcePayload,
+  options: RenderifySourceResultOptions = {},
+): CallToolResult & {
+  structuredContent: { renderify: RenderifySourcePayload };
+} {
+  const source = parseMcpSource(payload.source, {
+    maxBytes: options.maxSourceBytes,
+  });
+  return {
+    structuredContent: {
+      [RENDERIFY_STRUCTURED_CONTENT_KEY]: { source },
+    },
+    content: [
+      {
+        type: "text",
+        text: options.summary ?? "Rendered an interactive UI from source.",
+      },
+    ],
+    ...(options.meta ? { _meta: options.meta } : {}),
+  };
+}
+
 export interface RegisterRenderifyAppOptions
   extends CreateRenderifyUiResourceOptions {
   toolName: string;
@@ -160,13 +200,18 @@ export interface RegisterRenderifyAppOptions
   toolInputSchema?: McpUiAppToolConfig["inputSchema"];
   toolVisibility?: readonly RenderifyToolVisibility[];
   summary?: string | ((plan: RuntimePlan) => string);
+  /**
+   * Returns a plan, or `{ source }` when the app is registered with
+   * `sourceMode: true`.
+   */
   handler: (
     args: unknown,
     extra: RenderifyToolHandlerExtra,
   ) =>
     | RuntimePlan
     | RenderifyUiPayload
-    | Promise<RuntimePlan | RenderifyUiPayload>;
+    | RenderifySourcePayload
+    | Promise<RuntimePlan | RenderifyUiPayload | RenderifySourcePayload>;
 }
 
 export interface RegisteredRenderifyApp {
@@ -236,6 +281,19 @@ export async function registerRenderifyApp(
           args,
           extra as RenderifyToolHandlerExtra,
         );
+        if (!isRuntimePlan(produced) && "source" in produced) {
+          if (options.sourceMode !== true) {
+            throw new Error(
+              "Return { source } only from apps registered with sourceMode: true",
+            );
+          }
+          return renderifySourceResult(produced, {
+            maxSourceBytes: options.maxSourceBytes,
+            ...(typeof options.summary === "string"
+              ? { summary: options.summary }
+              : {}),
+          });
+        }
         const payload = isRuntimePlan(produced)
           ? planPayload(produced, { maxBytes: options.maxPlanBytes })
           : planPayload(produced.plan, { maxBytes: options.maxPlanBytes });

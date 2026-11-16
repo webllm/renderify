@@ -12,6 +12,7 @@
     "noEmit": true,
     "paths": {
       "@/*": ["./*"],
+      "@renderify/frame": ["../../packages/frame/src/index.ts"],
       "@renderify/ir": ["../../packages/ir/src/index.ts"],
       "@renderify/runtime": ["../../packages/runtime/src/index.ts"],
       "@renderify/security": ["../../packages/security/src/index.ts"],

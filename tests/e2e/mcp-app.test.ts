@@ -8,6 +8,7 @@ import {
   bundleRenderifyMcpView,
   createRenderifyShell,
   planPayload,
+  renderifySourceResult,
   renderifyToolResult,
 } from "../../packages/mcp-app/src/index";
 
@@ -1012,6 +1013,341 @@ test("e2e: HTTP srcdoc blocks browser-resolved URL escapes", async () => {
         server.close((error) => (error ? reject(error) : resolve()));
       });
     }
+  }
+});
+
+const SOURCE_VIEW = `
+document.addEventListener("click", (event) => {
+  const id = event.target && event.target.id;
+  if (id === "save") {
+    window.renderify.action("tool:refresh_view", { mode: "source" });
+  }
+  if (id === "blocked") {
+    window.renderify.action("tool:delete_everything", {});
+  }
+  if (id === "spoof") {
+    const call = {
+      jsonrpc: "2.0",
+      id: 990,
+      method: "tools/call",
+      params: { name: "refresh_view", arguments: { mode: "spoofed" } },
+    };
+    window.top.postMessage(call, "*");
+    window.parent.postMessage(call, "*");
+  }
+});
+
+export default function App() {
+  return (
+    <section>
+      <h1 id="title">Source view</h1>
+      <button id="save">Save</button>
+      <button id="blocked">Blocked</button>
+      <button id="spoof">Spoof</button>
+    </section>
+  );
+}
+`;
+
+/**
+ * The CSP the ext-apps reference host (examples/basic-host) sends for a view,
+ * built from the resource's declared domains. Delivered here as a second meta
+ * policy so the view, and the frame nested in it, must satisfy both.
+ */
+function referenceHostCsp(csp: {
+  connectDomains?: string[];
+  resourceDomains?: string[];
+}): string {
+  const resources = (csp.resourceDomains ?? []).join(" ");
+  const connect = (csp.connectDomains ?? []).join(" ");
+  return [
+    "default-src 'self' 'unsafe-inline'",
+    `script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: data: ${resources}`,
+    `style-src 'self' 'unsafe-inline' blob: data: ${resources}`,
+    `img-src 'self' data: blob: ${resources}`,
+    `font-src 'self' data: blob: ${resources}`,
+    `media-src 'self' data: blob: ${resources}`,
+    `connect-src 'self' ${connect}`,
+    `worker-src 'self' blob: ${resources}`,
+    "frame-src 'none'",
+    "object-src 'none'",
+    "base-uri 'none'",
+  ].join("; ");
+}
+
+test("e2e: source mode renders model-written JSX in a nested sandboxed frame", async () => {
+  const hostBundle = await bundleOfficialHostBridge();
+  const shell = await createRenderifyShell({
+    allowedTools: ["refresh_view"],
+    sourceMode: true,
+  });
+  assert.deepEqual(shell.uiCsp.resourceDomains, [
+    "https://ga.jspm.io",
+    "https://cdn.jspm.io",
+    "https://esm.sh",
+  ]);
+  assert.equal(shell.uiCsp.frameDomains?.length, 0);
+  const hostCsp = referenceHostCsp(shell.uiCsp);
+  const viewHtml = shell.html.replace(
+    "<head>",
+    `<head><meta http-equiv="Content-Security-Policy" content="${hostCsp}">`,
+  );
+  assert.notEqual(viewHtml, shell.html);
+
+  const sourceResult = asBrowserToolResult(
+    renderifySourceResult({
+      source: { code: SOURCE_VIEW, language: "jsx", runtime: "renderify" },
+    }),
+  );
+  const planAfterSource = asBrowserToolResult(
+    renderifyToolResult(
+      planPayload(createTextPlan("after_source", "PLAN AFTER SOURCE")),
+    ),
+  );
+  const secondSource = asBrowserToolResult(
+    renderifySourceResult({
+      source: {
+        code: 'export default function App() { return <p id="second">Second source</p>; }',
+        language: "jsx",
+        runtime: "renderify",
+      },
+    }),
+  );
+
+  const externalRequests: string[] = [];
+  const pageErrors: string[] = [];
+  const cspViolations: string[] = [];
+  let browser: Browser | undefined;
+  try {
+    browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    page.on("request", (request) => {
+      if (/^https?:/i.test(request.url())) {
+        externalRequests.push(request.url());
+      }
+    });
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+    page.on("console", (message) => {
+      if (/Content Security Policy/i.test(message.text())) {
+        cspViolations.push(message.text());
+      }
+    });
+
+    await page.setContent(
+      '<iframe id="app" name="app" sandbox="allow-scripts"></iframe>',
+    );
+    await page.addScriptTag({ content: hostBundle });
+    await page.evaluate(
+      async ({
+        shellHtml,
+        firstResult,
+        nextResult,
+      }: {
+        shellHtml: string;
+        firstResult: BrowserToolResult;
+        nextResult: BrowserToolResult;
+      }) => {
+        const hostModule = (
+          globalThis as unknown as { McpAppsHost: BrowserHostModule }
+        ).McpAppsHost;
+        const iframe = document.querySelector<HTMLIFrameElement>("#app");
+        if (!iframe?.contentWindow) {
+          throw new Error("MCP App iframe is unavailable");
+        }
+        const state: BrowserHostState = {
+          initialized: 0,
+          modelContexts: [],
+          toolCalls: [],
+        };
+        const bridge = new hostModule.AppBridge(
+          null,
+          { name: "Renderify source-mode host", version: "1.0.0" },
+          { serverTools: {}, updateModelContext: { structuredContent: {} } },
+          { hostContext: { theme: "dark", locale: "en-US" } },
+        );
+        bridge.onupdatemodelcontext = async (params) => {
+          state.modelContexts.push(params as Record<string, unknown>);
+          return {};
+        };
+        bridge.oncalltool = async (params) => {
+          state.toolCalls.push(params);
+          return nextResult;
+        };
+        bridge.oninitialized = () => {
+          state.initialized += 1;
+          void bridge
+            .sendToolInput({ arguments: {} })
+            .then(() => bridge.sendToolResult(firstResult));
+        };
+        const transport = new hostModule.PostMessageTransport(
+          iframe.contentWindow,
+          iframe.contentWindow,
+        );
+        await bridge.connect(transport);
+        Object.assign(globalThis, {
+          __mcpBridge: bridge,
+          __mcpHostState: state,
+        });
+        iframe.srcdoc = shellHtml;
+      },
+      {
+        shellHtml: viewHtml,
+        firstResult: sourceResult,
+        nextResult: planAfterSource,
+      },
+    );
+
+    const app = page.frameLocator("#app");
+    const mount = app.locator("#renderify-mcp-root");
+    const nested = app.locator("#renderify-mcp-root iframe");
+    const source = app.frameLocator("#renderify-mcp-root iframe");
+    await source.locator("#title").waitFor({ timeout: 30_000 });
+    assert.equal(await nested.getAttribute("sandbox"), "allow-scripts");
+    await mount.and(app.locator('[data-renderify-status="ready"]')).waitFor();
+    assert.equal(
+      await mount.getAttribute("data-renderify-framework"),
+      "runtime-plan",
+    );
+    // The model learns that a source view is showing, not its contents.
+    await page.waitForFunction(
+      () =>
+        (globalThis as unknown as { __mcpHostState: BrowserHostState })
+          .__mcpHostState.modelContexts.length > 0,
+    );
+    assert.deepEqual((await readHostState(page)).modelContexts.at(-1), {
+      structuredContent: {
+        renderify: { view: "source", framework: "runtime-plan" },
+      },
+    });
+    // The host's dark theme reaches the nested frame.
+    const nestedFrame = page
+      .frames()
+      .find(
+        (frame) =>
+          frame.parentFrame()?.name() === "app" && frame.name() !== "app",
+      );
+    assert.ok(nestedFrame);
+    assert.equal(
+      await nestedFrame.evaluate(
+        () => document.documentElement.style.colorScheme,
+      ),
+      "dark",
+    );
+
+    // Messages posted by the source as if it were the view reach nobody.
+    await source.locator("#spoof").click();
+    await page.waitForTimeout(250);
+    assert.deepEqual((await readHostState(page)).toolCalls, []);
+
+    // Actions outside the allowlist are dropped by the view.
+    await source.locator("#blocked").click();
+    await app.locator('[data-renderify-tool-error="disallowed"]').waitFor();
+    assert.deepEqual((await readHostState(page)).toolCalls, []);
+
+    // An allowlisted action calls the server tool through the view's bridge,
+    // and the returned plan replaces the source view.
+    await source.locator("#save").click();
+    await app.getByText("PLAN AFTER SOURCE").waitFor();
+    assert.deepEqual(
+      (await readHostState(page)).toolCalls.map(
+        ({ name, arguments: args }) => ({
+          name,
+          arguments: args,
+        }),
+      ),
+      [{ name: "refresh_view", arguments: { mode: "source" } }],
+    );
+    assert.equal(await nested.count(), 0);
+    assert.equal(await mount.getAttribute("data-renderify-tool-error"), null);
+
+    // A later source result mounts a fresh frame; teardown removes it.
+    await page.evaluate(
+      (result) =>
+        (
+          globalThis as unknown as { __mcpBridge: BrowserBridge }
+        ).__mcpBridge.sendToolResult(result),
+      secondSource,
+    );
+    await source.locator("#second").waitFor({ timeout: 30_000 });
+    assert.equal(await app.getByText("PLAN AFTER SOURCE").count(), 0);
+    await page.evaluate(() =>
+      (
+        globalThis as unknown as { __mcpBridge: BrowserBridge }
+      ).__mcpBridge.teardownResource({}),
+    );
+    await mount
+      .and(app.locator('[data-renderify-status="terminated"]'))
+      .waitFor();
+    assert.equal(await nested.count(), 0);
+
+    assert.deepEqual(externalRequests, []);
+    assert.deepEqual(pageErrors, []);
+    assert.deepEqual(cspViolations, []);
+  } finally {
+    await browser?.close();
+  }
+});
+
+test("e2e: declarative-only apps reject source results", async () => {
+  const hostBundle = await bundleOfficialHostBridge();
+  const shell = await createRenderifyShell({ allowedTools: [] });
+  assert.equal(shell.html.includes('<script type="text/plain"'), false);
+  assert.equal(shell.csp.includes("blob:"), false);
+  const sourceResult = asBrowserToolResult(
+    renderifySourceResult({
+      source: {
+        code: 'export default () => <p id="never">never</p>;',
+        language: "jsx",
+        runtime: "renderify",
+      },
+    }),
+  );
+  let browser: Browser | undefined;
+  try {
+    browser = await chromium.launch({ headless: true });
+    const page = await browser.newPage();
+    await page.setContent(
+      '<iframe id="app" name="app" sandbox="allow-scripts"></iframe>',
+    );
+    await page.addScriptTag({ content: hostBundle });
+    await page.evaluate(
+      async ({
+        shellHtml,
+        result,
+      }: {
+        shellHtml: string;
+        result: BrowserToolResult;
+      }) => {
+        const hostModule = (
+          globalThis as unknown as { McpAppsHost: BrowserHostModule }
+        ).McpAppsHost;
+        const iframe = document.querySelector<HTMLIFrameElement>("#app");
+        if (!iframe?.contentWindow) {
+          throw new Error("MCP App iframe is unavailable");
+        }
+        const bridge = new hostModule.AppBridge(
+          null,
+          { name: "Renderify declarative host", version: "1.0.0" },
+          { serverTools: {} },
+        );
+        bridge.oninitialized = () => {
+          void bridge.sendToolResult(result);
+        };
+        await bridge.connect(
+          new hostModule.PostMessageTransport(
+            iframe.contentWindow,
+            iframe.contentWindow,
+          ),
+        );
+        iframe.srcdoc = shellHtml;
+      },
+      { shellHtml: shell.html, result: sourceResult },
+    );
+    const app = page.frameLocator("#app");
+    await app.locator('[data-renderify-status="error"]').waitFor();
+    assert.equal(await app.locator("iframe").count(), 0);
+  } finally {
+    await browser?.close();
   }
 });
 

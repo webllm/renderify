@@ -64,6 +64,7 @@
   "dependencies": {
     "@modelcontextprotocol/client": "^2.4.0",
     "@modelcontextprotocol/ext-apps": "^2.0.4",
+    "@renderify/frame": "workspace:^",
     "@renderify/ir": "workspace:^",
     "@renderify/runtime": "workspace:^",
     "@renderify/security": "workspace:^",

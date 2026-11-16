@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import type { BuildOptions } from "esbuild";
+import { isSafeInlineScriptText } from "./inline-script";
 
 declare const __RENDERIFY_MCP_APP_DIR__: string;
 
@@ -39,8 +40,10 @@ export async function bundleRenderifyMcpView(
     legalComments: "none",
     sourcemap: false,
     treeShaking: true,
+    // Escapes `</script` in strings, templates, and regexes so the bundle
+    // can be inlined into the shell.
     supported: {
-      "inline-script": false,
+      "inline-script": true,
     },
     conditions: ["browser", "import", "default"],
     mainFields: ["browser", "module", "main"],
@@ -53,8 +56,10 @@ export async function bundleRenderifyMcpView(
   if (!code) {
     throw new Error("esbuild did not produce an MCP App view bundle");
   }
-  if (/<\/script/i.test(code)) {
-    throw new Error("MCP App view bundle contains an unsafe </script sequence");
+  if (!isSafeInlineScriptText(code)) {
+    throw new Error(
+      "MCP App view bundle contains a sequence that would break its inline script",
+    );
   }
 
   return {

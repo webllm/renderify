@@ -2,6 +2,13 @@
 
 import { javascript } from "@codemirror/lang-javascript";
 import { json } from "@codemirror/lang-json";
+import {
+  createRenderifyFrame,
+  type RenderifyFrame,
+  RenderifyFrameError,
+  type RenderifyFrameInput,
+  type RenderifyFrameResult,
+} from "@renderify/frame";
 import CodeMirror from "@uiw/react-codemirror";
 import {
   AlertTriangle,
@@ -20,35 +27,12 @@ import {
   type PlaygroundMode,
 } from "./samples";
 
-interface PlaygroundDiagnostic {
-  level: "info" | "warning" | "error";
-  code: string;
-  message: string;
-}
-
-interface PlaygroundResult {
-  durationMs: number;
-  diagnostics: PlaygroundDiagnostic[];
-  framework: "react" | "preact" | "runtime-plan";
-  planId: string;
-  state?: Record<string, unknown>;
-}
-
 type RunStatus = "booting" | "idle" | "running" | "success" | "error";
 
-interface RunnerMessage {
-  type?: unknown;
-  runId?: unknown;
-  durationMs?: unknown;
-  diagnostics?: unknown;
-  framework?: unknown;
-  planId?: unknown;
-  state?: unknown;
-  message?: unknown;
-}
-
 const SITE_BASE_PATH = process.env.NEXT_PUBLIC_RENDERIFY_BASE_PATH ?? "";
+const RUNNER_URL = `${SITE_BASE_PATH}/renderify-frame-runner.js`;
 const RENDER_TIMEOUT_MS = 45_000;
+const MAX_SOURCE_BYTES = 120_000;
 
 export function Playground() {
   const initialJsx = firstSampleForMode("jsx");
@@ -60,17 +44,13 @@ export function Playground() {
   });
   const [selectedSample, setSelectedSample] = useState(initialJsx.id);
   const [autoRun, setAutoRun] = useState(true);
-  const [frameVersion, setFrameVersion] = useState(0);
   const [runnerReady, setRunnerReady] = useState(false);
   const [status, setStatus] = useState<RunStatus>("booting");
-  const [result, setResult] = useState<PlaygroundResult>();
+  const [result, setResult] = useState<RenderifyFrameResult>();
   const [errorMessage, setErrorMessage] = useState<string>();
   const [copied, setCopied] = useState(false);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  const portRef = useRef<MessagePort | undefined>(undefined);
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(
-    undefined,
-  );
+  const previewHostRef = useRef<HTMLDivElement>(null);
+  const frameRef = useRef<RenderifyFrame | undefined>(undefined);
   const runIdRef = useRef(0);
 
   const code = codeByMode[mode];
@@ -79,106 +59,87 @@ export function Playground() {
     () => [mode === "jsx" ? javascript({ jsx: true }) : json()],
     [mode],
   );
-  const iframeDocument = createIframeDocument();
 
-  const clearRunTimeout = useCallback(() => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = undefined;
+  // The SDK owns the sandboxed iframe: boot, handshake, watchdog, and reset.
+  useEffect(() => {
+    const container = previewHostRef.current;
+    if (!container) {
+      return;
     }
+    const frame = createRenderifyFrame({
+      container,
+      runnerUrl: RUNNER_URL,
+      autoResize: false,
+      timeoutMs: RENDER_TIMEOUT_MS,
+      maxInputBytes: MAX_SOURCE_BYTES,
+      title: "Renderify isolated preview",
+      onStatusChange: (next) => {
+        if (next === "booting") {
+          setRunnerReady(false);
+          setStatus("booting");
+        } else if (next === "ready") {
+          setRunnerReady(true);
+          setStatus((current) => (current === "booting" ? "idle" : current));
+        }
+      },
+    });
+    frameRef.current = frame;
+    return () => {
+      frame.dispose();
+      frameRef.current = undefined;
+    };
   }, []);
 
-  const run = useCallback(() => {
-    const port = portRef.current;
-    if (!runnerReady || !port) {
+  const run = useCallback(async () => {
+    const frame = frameRef.current;
+    if (!runnerReady || !frame) {
       return;
     }
 
     const runId = runIdRef.current + 1;
     runIdRef.current = runId;
-    clearRunTimeout();
     setStatus("running");
     setErrorMessage(undefined);
-    port.postMessage({
-      type: "render",
-      runId,
-      mode,
-      code,
-    });
-    timeoutRef.current = setTimeout(() => {
-      if (runIdRef.current !== runId) {
+
+    let input: RenderifyFrameInput;
+    if (mode === "plan") {
+      try {
+        input = { plan: JSON.parse(code) as unknown };
+      } catch (error) {
+        setStatus("error");
+        setErrorMessage(
+          `Invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return;
+      }
+    } else {
+      input = { source: code, language: "jsx" };
+    }
+
+    try {
+      const rendered = await frame.render(input);
+      if (runIdRef.current === runId) {
+        setResult(rendered);
+        setStatus("success");
+      }
+    } catch (error) {
+      if (
+        runIdRef.current !== runId ||
+        (error instanceof RenderifyFrameError &&
+          (error.code === "superseded" || error.code === "reset"))
+      ) {
         return;
       }
       setStatus("error");
       setErrorMessage(
-        "Render timed out. Reset the sandbox to terminate the current document, then review loops and remote imports.",
+        error instanceof RenderifyFrameError && error.code === "timeout"
+          ? "Render timed out, so the sandbox was reset. Review loops and remote imports, then run again."
+          : error instanceof Error
+            ? error.message
+            : String(error),
       );
-    }, RENDER_TIMEOUT_MS);
-  }, [clearRunTimeout, code, mode, runnerReady]);
-
-  const handleRunnerMessage = useCallback(
-    (event: MessageEvent<unknown>) => {
-      const message = event.data as RunnerMessage;
-      if (message.type === "ready") {
-        setRunnerReady(true);
-        setStatus("idle");
-        return;
-      }
-
-      if (
-        typeof message.runId !== "number" ||
-        message.runId !== runIdRef.current
-      ) {
-        return;
-      }
-
-      clearRunTimeout();
-      if (message.type === "error") {
-        setStatus("error");
-        setErrorMessage(
-          typeof message.message === "string"
-            ? message.message
-            : "Unknown renderer error",
-        );
-        return;
-      }
-
-      if (
-        message.type === "result" &&
-        typeof message.durationMs === "number" &&
-        typeof message.framework === "string" &&
-        typeof message.planId === "string"
-      ) {
-        setResult({
-          durationMs: message.durationMs,
-          diagnostics: isDiagnostics(message.diagnostics)
-            ? message.diagnostics
-            : [],
-          framework: message.framework as PlaygroundResult["framework"],
-          planId: message.planId,
-          ...(isRecord(message.state) ? { state: message.state } : {}),
-        });
-        setStatus("success");
-      }
-    },
-    [clearRunTimeout],
-  );
-
-  const connectRunner = useCallback(() => {
-    const contentWindow = iframeRef.current?.contentWindow;
-    if (!contentWindow) {
-      return;
     }
-
-    portRef.current?.close();
-    const channel = new MessageChannel();
-    channel.port1.onmessage = handleRunnerMessage;
-    channel.port1.start();
-    portRef.current = channel.port1;
-    contentWindow.postMessage({ type: "renderify-playground-connect" }, "*", [
-      channel.port2,
-    ]);
-  }, [handleRunnerMessage]);
+  }, [code, mode, runnerReady]);
 
   useEffect(() => {
     const decoded = decodeLocationHash(window.location.hash);
@@ -197,17 +158,9 @@ export function Playground() {
     if (!autoRun || !runnerReady) {
       return;
     }
-    const timer = setTimeout(run, 700);
+    const timer = setTimeout(() => void run(), 700);
     return () => clearTimeout(timer);
   }, [autoRun, run, runnerReady]);
-
-  useEffect(
-    () => () => {
-      clearRunTimeout();
-      portRef.current?.close();
-    },
-    [clearRunTimeout],
-  );
 
   const selectMode = (nextMode: PlaygroundMode) => {
     if (nextMode === mode) {
@@ -244,14 +197,10 @@ export function Playground() {
   };
 
   const resetSandbox = () => {
-    clearRunTimeout();
-    portRef.current?.close();
-    portRef.current = undefined;
-    setRunnerReady(false);
-    setStatus("booting");
+    runIdRef.current += 1;
     setErrorMessage(undefined);
     setResult(undefined);
-    setFrameVersion((value) => value + 1);
+    void frameRef.current?.reset().catch(() => {});
   };
 
   const share = async () => {
@@ -338,7 +287,7 @@ export function Playground() {
           <button
             className="playground-run-button"
             disabled={!runnerReady || status === "running"}
-            onClick={run}
+            onClick={() => void run()}
             type="button"
           >
             {status === "running" ? (
@@ -406,15 +355,7 @@ export function Playground() {
                 Starting isolated renderer…
               </div>
             ) : null}
-            <iframe
-              key={frameVersion}
-              className="playground-preview"
-              onLoad={connectRunner}
-              ref={iframeRef}
-              sandbox="allow-scripts"
-              srcDoc={iframeDocument}
-              title="Renderify isolated preview"
-            />
+            <div className="playground-preview" ref={previewHostRef} />
           </div>
         </section>
       </div>
@@ -480,7 +421,7 @@ function StatusLabel({
   result,
   status,
 }: {
-  result: PlaygroundResult | undefined;
+  result: RenderifyFrameResult | undefined;
   status: RunStatus;
 }) {
   if (status === "success" && result) {
@@ -505,27 +446,6 @@ function StatusLabel({
     return <span className="playground-status">Starting sandbox…</span>;
   }
   return <span className="playground-status">Preview ready</span>;
-}
-
-function createIframeDocument(): string {
-  const runtimeUrl = `${SITE_BASE_PATH}/playground-runtime.js`;
-  return `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' blob: http: https:; connect-src blob: https://ga.jspm.io https://cdn.jspm.io https://esm.sh; style-src 'unsafe-inline'; img-src data: blob: https:; font-src data: https:;">
-    <style>
-      html, body, #renderify-root { min-height: 100%; margin: 0; }
-      body { color: #101828; background: #fff; }
-      * { box-sizing: border-box; }
-    </style>
-  </head>
-  <body>
-    <div id="renderify-root"></div>
-    <script src="${escapeHtmlAttribute(runtimeUrl)}"></script>
-  </body>
-</html>`;
 }
 
 function encodeLocationHash(mode: PlaygroundMode, code: string): string {
@@ -562,31 +482,4 @@ function decodeLocationHash(
   } catch {
     return undefined;
   }
-}
-
-function escapeHtmlAttribute(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isDiagnostics(value: unknown): value is PlaygroundDiagnostic[] {
-  return (
-    Array.isArray(value) &&
-    value.every(
-      (entry) =>
-        isRecord(entry) &&
-        (entry.level === "info" ||
-          entry.level === "warning" ||
-          entry.level === "error") &&
-        typeof entry.code === "string" &&
-        typeof entry.message === "string",
-    )
-  );
 }

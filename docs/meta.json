@@ -11,6 +11,7 @@
     "---Runtime---",
     "runtime-plan-ir",
     "runtime-execution",
+    "sandboxed-frame",
     "security",
     "threat-model",
     "performance-tuning",

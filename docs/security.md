@@ -300,7 +300,7 @@ the DOM, so plan content cannot navigate the host or post fields to another
 origin. Password and file inputs are never read into state, event payloads,
 or submitted fields.
 
-This render-time tag sanitization applies to the declarative RuntimeNode path. `source.runtime: "preact"` renders through Preact directly and should be treated as trusted source output instead of relying on RuntimeNode tag sanitization.
+This render-time tag sanitization applies to the declarative RuntimeNode path. `source.runtime: "preact"` renders through Preact directly and should be treated as trusted source output instead of relying on RuntimeNode tag sanitization. To run model-written source without trusting it, render it in a [`@renderify/frame`](./sandboxed-frame.md) sandbox instead.
 
 ### Attribute Sanitization
 
@@ -408,6 +408,12 @@ The generated resource uses hashed inline scripts, no `unsafe-eval`, no script
 permissions. The official `PostMessageTransport` validates that messages come
 from `window.parent`; app-to-server tool calls additionally require an exact
 local allowlist and host capability.
+
+Apps registered with `sourceMode: true` also accept model-written source. The
+view renders it only in a sandboxed `@renderify/frame` nested inside it, and
+the view's CSP adds the frame runner's hash, `blob:`, and the declared module
+CDNs, never `unsafe-eval`. See
+[ADR-0002](./adr/0002-sandboxed-source-frame.md#mcp-source-mode).
 
 These controls do not authorize server tools and cannot force a host to create
 a strong outer iframe sandbox. See the

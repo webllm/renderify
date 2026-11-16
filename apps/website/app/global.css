@@ -401,10 +401,14 @@ body {
 }
 
 .playground-preview {
-  background: white;
-  border: 0;
   height: 100%;
   width: 100%;
+}
+
+/* The iframe is created by @renderify/frame inside .playground-preview. */
+.playground-preview iframe {
+  background: white;
+  height: 100%;
 }
 
 .playground-preview-overlay {

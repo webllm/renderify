@@ -4,11 +4,26 @@ import {
   type BundleRenderifyMcpViewOptions,
   bundleRenderifyMcpView,
 } from "./bundle";
-import { DEFAULT_MCP_PLAN_MAX_BYTES, MAX_MCP_PLAN_MAX_BYTES } from "./plan";
+import { isSafeInlineScriptText } from "./inline-script";
+import {
+  DEFAULT_MCP_PLAN_MAX_BYTES,
+  DEFAULT_MCP_SOURCE_MAX_BYTES,
+  MAX_MCP_PLAN_MAX_BYTES,
+  MAX_MCP_SOURCE_MAX_BYTES,
+} from "./plan";
 
 declare const __RENDERIFY_MCP_APP_VERSION__: string;
+declare const __RENDERIFY_MCP_APP_DIR__: string;
 
 export const DEFAULT_MCP_MOUNT_ID = "renderify-mcp-root";
+export const RENDERIFY_MCP_FRAME_RUNNER_ID = "renderify-frame-runner";
+/** Module CDNs source-mode views may import from by default. */
+export const DEFAULT_MCP_SOURCE_MODULE_ORIGINS: readonly string[] =
+  Object.freeze([
+    "https://ga.jspm.io",
+    "https://cdn.jspm.io",
+    "https://esm.sh",
+  ]);
 export const DEFAULT_MCP_TOOL_EVENT_PREFIX = "tool:";
 
 export const RENDERIFY_MCP_SHELL_STYLE = `
@@ -36,6 +51,20 @@ export interface CreateRenderifyShellOptions
   toolEventPrefix?: string;
   maxPlanBytes?: number;
   enableModelContext?: boolean;
+  /**
+   * Let tools return model-written source as well as plans. The view renders
+   * source in a nested opaque-origin frame (`@renderify/frame`), never in its
+   * own window, and the frame reaches the server only through `allowedTools`.
+   * Opting in adds the frame runner (about 2.6 MB), its hash, `blob:`, and
+   * `moduleOrigins` to the view's CSP and declares those origins to the host.
+   */
+  sourceMode?: boolean;
+  /** CDNs source may import npm modules from. @defaultValue JSPM and esm.sh */
+  moduleOrigins?: readonly string[];
+  /** Largest accepted source, in UTF-8 bytes. @defaultValue 262144 */
+  maxSourceBytes?: number;
+  /** Frame runner code; defaults to the installed `@renderify/frame/runner.js`. */
+  frameRunner?: string;
 }
 
 export interface RenderifyShellCspDirectives {
@@ -60,6 +89,16 @@ export async function createRenderifyShell(
       ? createProvidedBrowserBundle(options.browserBundle)
       : await bundleRenderifyMcpView(options);
 
+  const sourceMode = options.sourceMode === true;
+  const moduleOrigins = sourceMode
+    ? normalizeModuleOrigins(
+        options.moduleOrigins ?? DEFAULT_MCP_SOURCE_MODULE_ORIGINS,
+      )
+    : [];
+  const frameRunner = sourceMode
+    ? normalizeFrameRunner(options.frameRunner ?? (await loadFrameRunner()))
+    : undefined;
+
   const config = {
     mountId,
     appName: normalizeLabel(options.appName, "@renderify/mcp-app"),
@@ -71,21 +110,37 @@ export async function createRenderifyShell(
     toolEventPrefix: normalizeToolEventPrefix(options.toolEventPrefix),
     maxPlanBytes: normalizeMaxPlanBytes(options.maxPlanBytes),
     enableModelContext: options.enableModelContext !== false,
+    ...(sourceMode
+      ? {
+          sourceMode: true,
+          moduleOrigins,
+          maxSourceBytes: normalizeMaxSourceBytes(options.maxSourceBytes),
+          frameRunnerId: RENDERIFY_MCP_FRAME_RUNNER_ID,
+        }
+      : {}),
   };
   const bootstrap = buildBootstrapScript(config);
   assertSafeInlineScript(bundle.code, "browser bundle");
   assertSafeInlineScript(bootstrap, "bootstrap");
 
   const scripts = [bundle.code, bootstrap];
+  // The nested source frame inherits this policy, so source mode allows the
+  // frame runner by hash, blob: module URLs, and the module CDNs. Nothing
+  // else is added: no other origins, no eval, and frames stay unloadable by URL.
   const directives: RenderifyShellCspDirectives = {
     "default-src": ["'none'"],
     "base-uri": ["'none'"],
     "object-src": ["'none'"],
-    "script-src": scripts.map((script) => `'sha256-${sha256(script)}'`),
-    "style-src": ["'unsafe-inline'"],
-    "img-src": ["data:"],
+    "script-src": [
+      ...scripts.map((script) => `'sha256-${sha256(script)}'`),
+      ...(frameRunner
+        ? [`'sha256-${sha256(frameRunner)}'`, "blob:", ...moduleOrigins]
+        : []),
+    ],
+    "style-src": ["'unsafe-inline'", ...moduleOrigins],
+    "img-src": frameRunner ? ["data:", "blob:"] : ["data:"],
     "font-src": ["data:"],
-    "connect-src": ["'none'"],
+    "connect-src": moduleOrigins.length > 0 ? [...moduleOrigins] : ["'none'"],
     "media-src": ["'none'"],
     "frame-src": ["'none'"],
     "worker-src": ["'none'"],
@@ -105,6 +160,12 @@ export async function createRenderifyShell(
     "</head>",
     "<body>",
     `<main id="${escapeHtmlAttribute(mountId)}" data-renderify-mount aria-live="polite"></main>`,
+    // A data block: never executed here, read by the view for the frame.
+    ...(frameRunner
+      ? [
+          `<script type="text/plain" id="${RENDERIFY_MCP_FRAME_RUNNER_ID}">${frameRunner}</script>`,
+        ]
+      : []),
     ...scripts.map((script) => `<script>${script}</script>`),
     "</body>",
     "</html>",
@@ -115,8 +176,8 @@ export async function createRenderifyShell(
     csp,
     cspDirectives: directives,
     uiCsp: {
-      connectDomains: [],
-      resourceDomains: [],
+      connectDomains: [...moduleOrigins],
+      resourceDomains: [...moduleOrigins],
       frameDomains: [],
       baseUriDomains: [],
     },
@@ -155,9 +216,78 @@ function serializeInlineJson(value: unknown): string {
     .replaceAll("\u2029", "\\u2029");
 }
 
+async function loadFrameRunner(): Promise<string> {
+  const [{ createRequire }, { readFile }, path] = await Promise.all([
+    import("node:module"),
+    import("node:fs/promises"),
+    import("node:path"),
+  ]);
+  const directory =
+    typeof __RENDERIFY_MCP_APP_DIR__ === "string"
+      ? __RENDERIFY_MCP_APP_DIR__
+      : typeof __dirname === "string"
+        ? __dirname
+        : process.cwd();
+  const require = createRequire(path.join(directory, "package.json"));
+  return readFile(require.resolve("@renderify/frame/runner.js"), "utf8");
+}
+
+function normalizeMaxSourceBytes(value: number | undefined): number {
+  const maxBytes = value ?? DEFAULT_MCP_SOURCE_MAX_BYTES;
+  if (
+    !Number.isInteger(maxBytes) ||
+    maxBytes < 1 ||
+    maxBytes > MAX_MCP_SOURCE_MAX_BYTES
+  ) {
+    throw new Error(
+      `maxSourceBytes must be an integer between 1 and ${MAX_MCP_SOURCE_MAX_BYTES}`,
+    );
+  }
+  return maxBytes;
+}
+
+function normalizeFrameRunner(value: string): string {
+  const normalized = value.replace(/\r\n?/g, "\n");
+  // The parser rewrites NULs in the data block, which would break the hash.
+  if (normalized.includes("\u0000")) {
+    throw new Error("frameRunner must not contain null characters");
+  }
+  if (normalized.trim().length === 0) {
+    throw new Error("frameRunner must not be empty");
+  }
+  assertSafeInlineScript(normalized, "frame runner");
+  return normalized;
+}
+
+function normalizeModuleOrigins(values: readonly string[]): string[] {
+  return [
+    ...new Set(
+      values.map((value) => {
+        let url: URL;
+        try {
+          url = new URL(value);
+        } catch {
+          throw new Error(`Invalid module origin: ${value}`);
+        }
+        if (
+          url.protocol !== "https:" ||
+          url.origin !== value.replace(/\/+$/, "")
+        ) {
+          throw new Error(
+            `Module origins must be bare https origins: ${value}`,
+          );
+        }
+        return url.origin;
+      }),
+    ),
+  ];
+}
+
 function assertSafeInlineScript(value: string, label: string): void {
-  if (/<\/script/i.test(value)) {
-    throw new Error(`${label} contains an unsafe </script sequence`);
+  if (!isSafeInlineScriptText(value)) {
+    throw new Error(
+      `${label} contains a sequence that would break its inline script`,
+    );
   }
 }
 

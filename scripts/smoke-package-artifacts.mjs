@@ -2,6 +2,7 @@
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -50,6 +51,7 @@ const libraryPackages = [
   "core",
   "llm",
   "mcp-app",
+  "frame",
   "renderify",
 ];
 
@@ -101,6 +103,67 @@ for (const [format, namespace] of [
     false,
     `${format} MCP App shell uses script unsafe-inline`,
   );
+}
+
+// The frame host API pins the runner it ships with by SRI hash.
+const frameDirectory = path.join(root, "packages/frame");
+const frameRunner = fs.readFileSync(
+  path.join(frameDirectory, "dist/runner.js"),
+);
+const frameRunnerIntegrity = `sha384-${createHash("sha384").update(frameRunner).digest("base64")}`;
+for (const artifact of ["dist/frame.mjs", "dist/frame.cjs"]) {
+  assert.ok(
+    fs
+      .readFileSync(path.join(frameDirectory, artifact), "utf8")
+      .includes(frameRunnerIntegrity),
+    `${artifact} does not pin the runner integrity ${frameRunnerIntegrity}`,
+  );
+}
+const frameEsm = await import(
+  pathToFileURL(path.join(frameDirectory, "dist/frame.mjs")).href
+);
+assert.equal(typeof frameEsm.createRenderifyFrame, "function");
+assert.match(
+  frameEsm.DEFAULT_RENDERIFY_FRAME_RUNNER_URL,
+  new RegExp(
+    `@renderify/frame@${JSON.parse(fs.readFileSync(path.join(frameDirectory, "package.json"), "utf8")).version}/dist/runner\\.js$`,
+  ),
+);
+assert.doesNotMatch(
+  fs.readFileSync(path.join(frameDirectory, "README.md"), "utf8"),
+  /\]\(\/docs\//,
+  "@renderify/frame README contains repository-root links that break on npm",
+);
+assert.equal(
+  fs.readFileSync(path.join(frameDirectory, "LICENSE"), "utf8"),
+  fs.readFileSync(path.join(root, "LICENSE"), "utf8"),
+  "@renderify/frame LICENSE differs from the repository license",
+);
+
+// MCP source mode inlines the installed frame runner and allows it by hash.
+const sourceModeRunner = fs.readFileSync(
+  path.join(frameDirectory, "dist/runner.js"),
+  "utf8",
+);
+const sourceModeRunnerHash = createHash("sha256")
+  .update(sourceModeRunner, "utf8")
+  .digest("base64");
+for (const [format, namespace] of [
+  ["ESM", mcpAppEsm],
+  ["CommonJS", mcpAppCjs],
+]) {
+  const shell = await namespace.createRenderifyShell({ sourceMode: true });
+  assert.ok(
+    shell.html.includes(
+      `<script type="text/plain" id="renderify-frame-runner">${sourceModeRunner}</script>`,
+    ),
+    `${format} MCP App source-mode shell does not inline the frame runner`,
+  );
+  assert.ok(
+    shell.csp.includes(`'sha256-${sourceModeRunnerHash}'`),
+    `${format} MCP App source-mode CSP does not allow the frame runner`,
+  );
+  assert.equal(shell.csp.includes("unsafe-eval"), false);
 }
 
 const mcpAppDirectory = path.join(root, "packages/mcp-app");

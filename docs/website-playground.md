@@ -69,11 +69,13 @@ capabilities fail the render instead of being silently accepted.
 
 ## Isolation and network behavior
 
-Each preview starts in an iframe with `sandbox="allow-scripts"` and without
-`allow-same-origin`. The editor communicates through a transferred
-`MessagePort`; rendered code does not receive a reference to the parent page.
-The iframe applies a restrictive Content Security Policy, and the trusted
-runtime policy limits module traffic to the configured JSPM and esm.sh hosts.
+The preview is a [`@renderify/frame`](./sandboxed-frame.md) sandbox: an
+iframe with `sandbox="allow-scripts"` and without `allow-same-origin`. The
+editor communicates through a transferred `MessagePort`; rendered code does not
+receive a reference to the parent page. The iframe applies a restrictive
+Content Security Policy that limits module traffic to the JSPM and esm.sh
+hosts, and synchronous loops in your code stop with an error after 1.5 seconds
+instead of freezing the page.
 
 The first render of a dependency-heavy example can be noticeably slower because
 the browser must download the compiler and a cold browser module graph. Re-runs
@@ -84,7 +86,7 @@ Current website limits are:
 
 - editor content up to 120,000 UTF-8 bytes;
 - runtime execution budget up to 30 seconds;
-- host timeout of 45 seconds, after which you can reset the sandbox;
+- host timeout of 45 seconds, after which the sandbox is reset automatically;
 - bare package imports resolved from browser ESM CDNs, so the first such render
   requires network access;
 - no relative multi-file project graph or Node.js built-in modules.

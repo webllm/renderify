@@ -26,6 +26,9 @@
       "path": "packages/mcp-app"
     },
     {
+      "path": "packages/frame"
+    },
+    {
       "path": "./tsconfig.tests.json"
     }
   ]

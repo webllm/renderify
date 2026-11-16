@@ -7,6 +7,13 @@ import {
   PostMessageTransport,
 } from "@modelcontextprotocol/ext-apps";
 import {
+  createRenderifyFrame,
+  type RenderifyFrame,
+  type RenderifyFrameAction,
+  type RenderifyFrameResult,
+  type RenderifyFrameTheme,
+} from "@renderify/frame";
+import {
   RUNTIME_BIND_EVENT_TYPE,
   type RuntimeEvent,
   type RuntimePlan,
@@ -19,8 +26,11 @@ import {
 } from "@renderify/runtime";
 import {
   DEFAULT_MCP_PLAN_MAX_BYTES,
+  DEFAULT_MCP_SOURCE_MAX_BYTES,
   parseDeclarativeMcpPlan,
-  readDeclarativePlanFromToolResult,
+  type RenderifyMcpSource,
+  type RenderifyMcpViewPayload,
+  readRenderifyPayloadFromToolResult,
 } from "./plan";
 
 declare const __RENDERIFY_MCP_APP_VERSION__: string;
@@ -39,6 +49,13 @@ export interface RenderifyMcpViewConfig {
   toolEventPrefix?: string;
   maxPlanBytes?: number;
   enableModelContext?: boolean;
+  /** Render `{ source }` tool results in a nested sandboxed frame. */
+  sourceMode?: boolean;
+  /** CDNs source may import modules from. */
+  moduleOrigins?: readonly string[];
+  maxSourceBytes?: number;
+  /** Id of the data block holding the frame runner code. */
+  frameRunnerId?: string;
 }
 
 export interface RenderifyMcpViewDependencies {
@@ -76,6 +93,21 @@ export async function startRenderifyMcpApp(
       { autoResize: false, strict: true, allowUnsafeEval: false },
     );
   const ui = new DefaultUIRenderer();
+  // Source mode renders model-written code in a nested opaque-origin frame,
+  // so that code never runs in this window and cannot post to the host as
+  // this view. The frame reaches server tools only through `allowedTools`.
+  const frameRunner =
+    config.sourceMode === true
+      ? document.getElementById(
+          config.frameRunnerId ?? "renderify-frame-runner",
+        )?.textContent || undefined
+      : undefined;
+  const payloadOptions = {
+    maxBytes: maxPlanBytes,
+    allowSource: frameRunner !== undefined,
+    maxSourceBytes: config.maxSourceBytes ?? DEFAULT_MCP_SOURCE_MAX_BYTES,
+  };
+  let frame: RenderifyFrame | undefined;
 
   let session: RuntimeInteractiveSession | undefined;
   let disposed = false;
@@ -129,8 +161,14 @@ export async function startRenderifyMcpApp(
     }
   };
 
+  const disposeFrame = (): void => {
+    frame?.dispose();
+    frame = undefined;
+  };
+
   const releaseRenderedView = async (): Promise<void> => {
     cancelPendingBindContext();
+    disposeFrame();
     const activeSession = session;
     session = undefined;
     try {
@@ -184,6 +222,7 @@ export async function startRenderifyMcpApp(
     }
     const plan = parseDeclarativeMcpPlan(candidate, { maxBytes: maxPlanBytes });
     const generation = ++renderGeneration;
+    disposeFrame();
     const previous = session;
     session = undefined;
     if (previous) {
@@ -252,16 +291,17 @@ export async function startRenderifyMcpApp(
                 return;
               }
               delete mount.dataset.renderifyToolError;
-              const nextPlan = readDeclarativePlanFromToolResult(result, {
-                maxBytes: maxPlanBytes,
-              });
-              if (nextPlan) {
+              const nextPayload = readRenderifyPayloadFromToolResult(
+                result,
+                payloadOptions,
+              );
+              if (nextPayload) {
                 await enqueue(async () => {
                   if (!isCurrentSession(activeSession, generation)) {
                     return;
                   }
                   try {
-                    await renderPlan(nextPlan);
+                    await renderPayload(nextPayload);
                   } catch (error) {
                     if (isInactive()) {
                       return;
@@ -328,6 +368,183 @@ export async function startRenderifyMcpApp(
     await updateModelContext(created);
   };
 
+  /**
+   * Replaces the previous plan's context: source state stays in the frame,
+   * so the model only learns that a source view is showing.
+   */
+  const reportSourceView = async (
+    generation: number,
+    framework: RenderifyFrameResult["framework"],
+  ): Promise<void> => {
+    if (
+      config.enableModelContext === false ||
+      isInactive() ||
+      renderGeneration !== generation
+    ) {
+      return;
+    }
+    try {
+      await app.updateModelContext({
+        structuredContent: { renderify: { view: "source", framework } },
+      });
+      if (isInactive() || renderGeneration !== generation) {
+        return;
+      }
+      delete mount.dataset.renderifyContextError;
+    } catch (error) {
+      if (isInactive() || renderGeneration !== generation) {
+        return;
+      }
+      mount.dataset.renderifyContextError = "true";
+      console.error("[renderify/mcp-app] model context update failed", error);
+    }
+  };
+
+  const renderSource = async (source: RenderifyMcpSource): Promise<void> => {
+    if (isInactive()) {
+      return;
+    }
+    if (frameRunner === undefined) {
+      throw new Error("Source views are disabled for this app");
+    }
+    const generation = ++renderGeneration;
+    cancelPendingBindContext();
+    const previous = session;
+    session = undefined;
+    if (previous) {
+      await previous.terminate();
+    }
+    ui.disposeTarget(mount);
+    if (isInactive() || renderGeneration !== generation) {
+      return;
+    }
+    if (!frame) {
+      mount.replaceChildren();
+      frame = createRenderifyFrame({
+        container: mount,
+        runnerSource: frameRunner,
+        moduleOrigins: config.moduleOrigins ?? [],
+        maxInputBytes: payloadOptions.maxSourceBytes,
+        allowedActions: [...allowedTools].map(
+          (tool) => `${toolEventPrefix}${tool}`,
+        ),
+        onAction: (action) => {
+          void callToolFromSource(action);
+        },
+        onBlockedAction: (action) => {
+          mount.dataset.renderifyToolError = "disallowed";
+          console.error(
+            `[renderify/mcp-app] source view requested a disallowed action: ${action.type}`,
+          );
+        },
+        theme: frameThemeFromHostContext(app.getHostContext()),
+        title: "Interactive view",
+      });
+    }
+    setStatus("loading");
+    let result: RenderifyFrameResult;
+    try {
+      result = await frame.render({
+        source: source.code,
+        ...(source.language ? { language: source.language } : {}),
+        ...(source.runtime ? { runtime: source.runtime } : {}),
+      });
+    } catch (error) {
+      if (isInactive() || renderGeneration !== generation) {
+        return;
+      }
+      // The frame reports compile errors, runtime errors, and timeouts; the
+      // view stays usable for the next tool result.
+      disposeFrame();
+      mount.replaceChildren();
+      setStatus("error", "This interactive view could not be rendered.");
+      console.error("[renderify/mcp-app] source view failed to render", error);
+      return;
+    }
+    if (isInactive() || renderGeneration !== generation) {
+      return;
+    }
+    mount.dataset.renderifyFramework = result.framework;
+    setStatus("ready");
+    await reportSourceView(generation, result.framework);
+  };
+
+  const renderPayload = async (
+    payload: RenderifyMcpViewPayload,
+  ): Promise<void> => {
+    if ("plan" in payload) {
+      await renderPlan(payload.plan);
+    } else {
+      await renderSource(payload.source);
+    }
+  };
+
+  /** Calls an allowlisted server tool for an action from the source frame. */
+  const callToolFromSource = async (
+    action: RenderifyFrameAction,
+  ): Promise<void> => {
+    const generation = renderGeneration;
+    const toolName = action.type.slice(toolEventPrefix.length);
+    if (!allowedTools.has(toolName) || isInactive()) {
+      return;
+    }
+    if (!app.getHostCapabilities()?.serverTools) {
+      mount.dataset.renderifyToolError = "unsupported";
+      return;
+    }
+    try {
+      const result = await app.callServerTool({
+        name: toolName,
+        arguments: isPlainRecord(action.payload) ? action.payload : {},
+      });
+      if (isInactive() || renderGeneration !== generation) {
+        return;
+      }
+      if (result.isError) {
+        mount.dataset.renderifyToolError = "call-failed";
+        console.error(
+          "[renderify/mcp-app] server tool returned an error result",
+          extractText(result) ?? "Unknown server tool error",
+        );
+        return;
+      }
+      delete mount.dataset.renderifyToolError;
+      const nextPayload = readRenderifyPayloadFromToolResult(
+        result,
+        payloadOptions,
+      );
+      if (nextPayload) {
+        await enqueue(async () => {
+          if (isInactive() || renderGeneration !== generation) {
+            return;
+          }
+          try {
+            await renderPayload(nextPayload);
+          } catch (error) {
+            if (isInactive()) {
+              return;
+            }
+            await releaseRenderedView();
+            setStatus(
+              "error",
+              "This interactive view was rejected by its security policy.",
+            );
+            console.error(
+              "[renderify/mcp-app] server tool result rejected",
+              error,
+            );
+          }
+        });
+      }
+    } catch (error) {
+      if (isInactive() || renderGeneration !== generation) {
+        return;
+      }
+      mount.dataset.renderifyToolError = "call-failed";
+      console.error("[renderify/mcp-app] server tool call failed", error);
+    }
+  };
+
   const consumeToolResult = async (result: CallToolResult): Promise<void> => {
     if (result.isError) {
       await releaseRenderedView();
@@ -337,10 +554,8 @@ export async function startRenderifyMcpApp(
       );
       return;
     }
-    const plan = readDeclarativePlanFromToolResult(result, {
-      maxBytes: maxPlanBytes,
-    });
-    if (!plan) {
+    const payload = readRenderifyPayloadFromToolResult(result, payloadOptions);
+    if (!payload) {
       await releaseRenderedView();
       setStatus(
         "empty",
@@ -349,7 +564,7 @@ export async function startRenderifyMcpApp(
       );
       return;
     }
-    await renderPlan(plan);
+    await renderPayload(payload);
   };
 
   app.ontoolresult = (result) => {
@@ -387,6 +602,11 @@ export async function startRenderifyMcpApp(
   app.onhostcontextchanged = (context) => {
     if (!isInactive()) {
       applyHostContext(context);
+      try {
+        frame?.setTheme(frameThemeFromHostContext(app.getHostContext()));
+      } catch (error) {
+        console.error("[renderify/mcp-app] frame theme update failed", error);
+      }
     }
   };
   app.onteardown = async () => {
@@ -469,6 +689,41 @@ function applyHostContext(context: McpUiHostContext | undefined): void {
   if (context?.styles?.variables) {
     applyHostStyleVariables(context.styles.variables);
   }
+}
+
+const FRAME_THEME_VARIABLE = /^--[A-Za-z0-9_-]{1,64}$/;
+
+/** Maps the host's theme and style variables to what the frame accepts. */
+function frameThemeFromHostContext(
+  context: McpUiHostContext | undefined,
+): RenderifyFrameTheme {
+  const theme: RenderifyFrameTheme = {};
+  if (context?.theme === "light" || context?.theme === "dark") {
+    theme.colorScheme = context.theme;
+  }
+  const variables: Record<string, string> = {};
+  let count = 0;
+  for (const [name, value] of Object.entries(
+    context?.styles?.variables ?? {},
+  )) {
+    if (
+      count < 128 &&
+      typeof value === "string" &&
+      value.length <= 512 &&
+      FRAME_THEME_VARIABLE.test(name)
+    ) {
+      variables[name] = value;
+      count += 1;
+    }
+  }
+  if (count > 0) {
+    theme.variables = variables;
+  }
+  return theme;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function extractText(result: CallToolResult): string | undefined {

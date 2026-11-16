@@ -1,0 +1,66 @@
+{
+  "name": "@renderify/frame",
+  "version": "0.10.0",
+  "description": "Opaque-origin sandboxed iframe for running model-generated JSX, TSX, and RuntimePlans",
+  "main": "dist/frame.cjs",
+  "types": "dist/frame.d.ts",
+  "module": "dist/frame.mjs",
+  "exports": {
+    ".": {
+      "types": "./dist/frame.d.ts",
+      "import": "./dist/frame.mjs",
+      "require": "./dist/frame.cjs",
+      "default": "./dist/frame.mjs"
+    },
+    "./runner.js": "./dist/runner.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "prepublishOnly": "node ../../scripts/ensure-pnpm.js",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "typecheck": "tsc -p tsconfig.json --pretty false --noEmit",
+    "lint": "biome lint src",
+    "clean": "node -e \"for (const dir of ['dist', 'dist-types']) require('node:fs').rmSync(dir, { recursive: true, force: true })\"",
+    "build:repo": "tsup --config tsup.config.ts",
+    "watch:repo": "tsup --config tsup.config.ts --watch"
+  },
+  "author": "unadlib",
+  "license": "MIT",
+  "keywords": [
+    "renderify",
+    "sandbox",
+    "iframe",
+    "generative-ui",
+    "jsx",
+    "runtime-plan"
+  ],
+  "homepage": "https://github.com/webllm/renderify#readme",
+  "bugs": {
+    "url": "https://github.com/webllm/renderify/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/webllm/renderify.git",
+    "directory": "packages/frame"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "sideEffects": false,
+  "devDependencies": {
+    "@babel/standalone": "8.0.4",
+    "@renderify/ir": "workspace:^",
+    "@renderify/runtime": "workspace:^",
+    "@renderify/security": "workspace:^",
+    "@types/babel__standalone": "7.1.9"
+  }
+}

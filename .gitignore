@@ -85,7 +85,7 @@ pnpm-debug.log*
 # Next.js build output
 .next
 out
-apps/website/public/playground-runtime.js
+apps/website/public/renderify-frame-runner.js
 
 # Nuxt.js build / generate output
 .nuxt

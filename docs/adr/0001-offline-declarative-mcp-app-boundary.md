@@ -77,6 +77,21 @@ code and network out of untrusted tool results.
   change.
 - Require a new ADR before adding source execution or external domains.
 
+## Amendment: opt-in source tier
+
+[ADR-0002](./0002-sandboxed-source-frame.md) is the separate security decision
+this record asked for before source execution. It adds an opt-in tier rather
+than changing this contract:
+
+- Apps registered without `sourceMode` are unchanged: offline plans, no
+  external origins, and a view that rejects source payloads.
+- An app registered with `sourceMode: true` serves a different resource. It
+  declares its module CDNs in `_meta.ui.csp`, so hosts see the wider surface
+  before rendering, and it runs source only in a sandboxed frame nested in the
+  view, never in the view's window.
+- Tool calls from source go through the same exact-name allowlist as
+  declarative events.
+
 ## Supersedes / Superseded by
 
-None.
+Amended by ADR-0002 (opt-in source tier).

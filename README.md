@@ -446,7 +446,10 @@ The handler's second argument is the official MCP SDK v2 `ServerContext`:
 `http?.authInfo` when the transport supplies authentication.
 
 Runtime source, imports, component modules, network access, timers, persistent
-storage, and undeclared UI-to-tool calls fail closed. See the
+storage, and undeclared UI-to-tool calls fail closed. Apps registered with
+`sourceMode: true` can return model-written JSX instead, which the view renders
+in a sandboxed frame nested inside it
+([source mode](packages/mcp-app/README.md#source-mode)). See the
 [MCP Apps architecture](docs/architecture/mcp-app-runtime-modules.md) and
 [threat model](docs/threat-model.md).
 

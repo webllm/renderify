@@ -22,9 +22,12 @@ import {
   extractRenderifyPlan,
   MCP_UI_EXTENSION_ID,
   parseDeclarativeMcpPlan,
+  parseMcpSource,
   planPayload,
   type RenderifyToolHandlerExtra,
+  readRenderifyPayloadFromToolResult,
   registerRenderifyApp,
+  renderifySourceResult,
   renderifyToolMeta,
   renderifyToolResult,
 } from "../packages/mcp-app/src/index";
@@ -607,6 +610,216 @@ test("mcp-app registers interoperable tools and resources with the official SDK"
         : undefined,
       "",
     );
+  } finally {
+    await client.close();
+    await server.close();
+  }
+});
+
+const STUB_BROWSER_BUNDLE =
+  "globalThis.RenderifyMcpApp={startRenderifyMcpApp:async()=>{}};";
+
+function isPlanError(code: string) {
+  return (error: unknown) =>
+    error instanceof DeclarativeMcpPlanError && error.code === code;
+}
+
+test("mcp-app validates source payloads and accepts them only when enabled", () => {
+  const source = {
+    code: "export default () => <p>Hi</p>;",
+    language: "jsx" as const,
+    runtime: "renderify" as const,
+  };
+  assert.deepEqual(parseMcpSource(source), source);
+  assert.deepEqual(parseMcpSource({ code: "x" }), { code: "x" });
+  for (const invalid of [
+    undefined,
+    {},
+    { code: 1 },
+    { code: "  " },
+    { code: "x", language: "py" },
+    { code: "x", runtime: "vue" },
+  ]) {
+    assert.throws(() => parseMcpSource(invalid), isPlanError("INVALID_SOURCE"));
+  }
+  assert.throws(
+    () => parseMcpSource({ code: "é".repeat(6) }, { maxBytes: 10 }),
+    isPlanError("SOURCE_TOO_LARGE"),
+  );
+  assert.throws(
+    () => parseMcpSource(source, { maxBytes: 0 }),
+    isPlanError("INVALID_LIMIT"),
+  );
+
+  const result = renderifySourceResult(
+    { source },
+    { summary: "Rendered a form." },
+  );
+  assert.deepEqual(result.structuredContent, { renderify: { source } });
+  assert.deepEqual(result.content, [
+    { type: "text", text: "Rendered a form." },
+  ]);
+  assert.throws(
+    () => renderifySourceResult({ source: { code: "" } }),
+    isPlanError("INVALID_SOURCE"),
+  );
+
+  // Declarative-only views refuse source; source-mode views accept it.
+  assert.throws(
+    () => readRenderifyPayloadFromToolResult(result),
+    isPlanError("RUNTIME_SOURCE_DISABLED"),
+  );
+  assert.deepEqual(
+    readRenderifyPayloadFromToolResult(result, { allowSource: true }),
+    { source },
+  );
+  assert.throws(
+    () =>
+      readRenderifyPayloadFromToolResult(result, {
+        allowSource: true,
+        maxSourceBytes: 8,
+      }),
+    isPlanError("SOURCE_TOO_LARGE"),
+  );
+  const planResult = renderifyToolResult(planPayload(createPlan()));
+  const payload = readRenderifyPayloadFromToolResult(planResult, {
+    allowSource: true,
+  });
+  assert.equal(
+    payload && "plan" in payload ? payload.plan.id : undefined,
+    "mcp_unit_plan",
+  );
+  assert.equal(
+    readRenderifyPayloadFromToolResult({ content: [], structuredContent: {} }),
+    undefined,
+  );
+});
+
+test("mcp-app source mode inlines the frame runner as data and widens CSP only for it", async () => {
+  const frameRunner = "globalThis.__runner = 1; // a <!-- marker";
+  const shell = await createRenderifyShell({
+    browserBundle: STUB_BROWSER_BUNDLE,
+    allowedTools: ["save"],
+    sourceMode: true,
+    frameRunner,
+    moduleOrigins: ["https://ga.jspm.io/", "https://esm.sh"],
+  });
+  const block = `<script type="text/plain" id="renderify-frame-runner">${frameRunner}</script>`;
+  assert.ok(shell.html.includes(block));
+  assert.ok(shell.html.indexOf(block) < shell.html.indexOf("<script>"));
+  assert.match(shell.html, /"sourceMode":true/);
+  assert.match(shell.html, /"maxSourceBytes":262144/);
+
+  const directives = new Map(
+    shell.csp.split("; ").map((directive) => {
+      const [name, ...values] = directive.split(" ");
+      return [name, values];
+    }),
+  );
+  const runnerHash = createHash("sha256")
+    .update(frameRunner, "utf8")
+    .digest("base64");
+  const scriptSrc = directives.get("script-src") ?? [];
+  assert.ok(scriptSrc.includes(`'sha256-${runnerHash}'`));
+  assert.deepEqual(scriptSrc.slice(-3), [
+    "blob:",
+    "https://ga.jspm.io",
+    "https://esm.sh",
+  ]);
+  assert.ok(!scriptSrc.includes("'unsafe-inline'"));
+  assert.ok(!scriptSrc.includes("'unsafe-eval'"));
+  assert.deepEqual(directives.get("connect-src"), [
+    "https://ga.jspm.io",
+    "https://esm.sh",
+  ]);
+  assert.deepEqual(directives.get("img-src"), ["data:", "blob:"]);
+  assert.deepEqual(directives.get("frame-src"), ["'none'"]);
+  assert.deepEqual(directives.get("worker-src"), ["'none'"]);
+  assert.deepEqual(shell.uiCsp, {
+    connectDomains: ["https://ga.jspm.io", "https://esm.sh"],
+    resourceDomains: ["https://ga.jspm.io", "https://esm.sh"],
+    frameDomains: [],
+    baseUriDomains: [],
+  });
+
+  const base = {
+    browserBundle: STUB_BROWSER_BUNDLE,
+    sourceMode: true,
+    frameRunner,
+  };
+  for (const options of [
+    { ...base, frameRunner: "x = '</script>';" },
+    { ...base, frameRunner: "a = '<!--'; b = '<script>';" },
+    { ...base, frameRunner: " " },
+    { ...base, frameRunner: "x = 1;\u0000" },
+    { ...base, moduleOrigins: ["http://ga.jspm.io"] },
+    { ...base, moduleOrigins: ["https://ga.jspm.io/npm:react"] },
+    { ...base, maxSourceBytes: 0 },
+  ]) {
+    await assert.rejects(() => createRenderifyShell(options));
+  }
+
+  // Without sourceMode, module origins change nothing.
+  const declarative = await createRenderifyShell({
+    browserBundle: STUB_BROWSER_BUNDLE,
+    moduleOrigins: ["https://esm.sh"],
+  });
+  assert.match(declarative.csp, /connect-src 'none'/);
+  assert.doesNotMatch(declarative.csp, /blob:/);
+  assert.doesNotMatch(declarative.html, /renderify-frame-runner/);
+  assert.deepEqual(declarative.uiCsp.resourceDomains, []);
+});
+
+test("mcp-app tools return source only from apps registered with sourceMode", async () => {
+  const server = new McpServer({ name: "renderify-source", version: "1.0.0" });
+  const source = { code: "export default () => <p>Hi</p>;", language: "jsx" };
+  await registerRenderifyApp(server, {
+    uri: "ui://renderify/source",
+    name: "Renderify source view",
+    browserBundle: STUB_BROWSER_BUNDLE,
+    sourceMode: true,
+    frameRunner: "globalThis.__runner = 1;",
+    toolName: "show_source",
+    summary: "Rendered a source view.",
+    handler: () => ({ source: { ...source, language: "jsx" as const } }),
+  });
+  await registerRenderifyApp(server, {
+    uri: "ui://renderify/plans-only",
+    name: "Renderify plans",
+    browserBundle: STUB_BROWSER_BUNDLE,
+    toolName: "show_plans_only",
+    handler: () => ({ source: { code: "export default () => null;" } }),
+  });
+
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
+  const client = new Client({ name: "test-client", version: "1.0.0" });
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  try {
+    const called = (await client.callTool({
+      name: "show_source",
+    })) as CallToolResult;
+    assert.deepEqual(called.structuredContent, { renderify: { source } });
+    assert.deepEqual(called.content, [
+      { type: "text", text: "Rendered a source view." },
+    ]);
+
+    const resource = (await client.listResources()).resources.find(
+      (entry) => entry.uri === "ui://renderify/source",
+    );
+    const ui = McpUiResourceMetaSchema.parse(resource?._meta?.ui ?? {});
+    assert.deepEqual(ui.csp?.resourceDomains, [
+      "https://ga.jspm.io",
+      "https://cdn.jspm.io",
+      "https://esm.sh",
+    ]);
+
+    const refused = (await client.callTool({
+      name: "show_plans_only",
+    })) as CallToolResult;
+    assert.equal(refused.isError, true);
+    assert.equal(refused.structuredContent, undefined);
   } finally {
     await client.close();
     await server.close();
