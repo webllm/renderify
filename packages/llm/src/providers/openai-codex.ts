@@ -7,18 +7,8 @@ import type {
   LLMStructuredResponse,
 } from "@renderify/core";
 import {
-  collectRuntimePlanTemplateDiagnostics,
-  hashStringFNV1a64Hex,
-  isJsonValue,
-  isRuntimeCapabilities,
-  isRuntimeModuleManifest,
-  isRuntimePlan,
-  isRuntimePlanMetadata,
-  isRuntimeSourceLanguage,
-  isRuntimeSourceRuntime,
-  isRuntimeStateModel,
-  normalizeRuntimeNodeCandidate,
-  normalizeRuntimePlanCandidate,
+  acceptRuntimePlanCandidate,
+  RUNTIME_PLAN_JSON_SCHEMA,
 } from "@renderify/ir";
 import {
   consumeSseEvents,
@@ -133,391 +123,6 @@ const DEFAULT_INSTRUCTIONS = "You are Renderify Codex runtime.";
 const SPARK_MODEL = "gpt-5.3-codex-spark";
 const SPARK_REASONING_EFFORTS: ReadonlySet<OpenAICodexReasoningEffort> =
   new Set(["low", "medium", "high", "xhigh"]);
-let codexFallbackPlanIdSequence = 0;
-
-const createRuntimeNodeJsonSchema = (
-  remainingDepth: number,
-): Record<string, unknown> => ({
-  type: "object",
-  additionalProperties: false,
-  required: ["type"],
-  properties: {
-    type: {
-      type: "string",
-      enum: ["text", "element", "component"],
-    },
-    value: {
-      type: "string",
-      description: `Text content. Runtime templates use {{state.path}} path lookups only; never use \${...} or JavaScript expressions.`,
-    },
-    tag: { type: "string", minLength: 1 },
-    module: { type: "string", minLength: 1 },
-    exportName: { type: "string", minLength: 1 },
-    props: {
-      type: "object",
-      additionalProperties: true,
-      description:
-        "HTML props and styles. Dynamic values use {{state.path}} path lookups only. Event props contain static transition names.",
-    },
-    children: {
-      type: "array",
-      items:
-        remainingDepth > 0
-          ? createRuntimeNodeJsonSchema(remainingDepth - 1)
-          : { type: "object", additionalProperties: true },
-    },
-  },
-});
-
-const RUNTIME_ACTION_JSON_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["type", "path"],
-  properties: {
-    type: {
-      type: "string",
-      enum: ["set", "increment", "toggle", "push"],
-    },
-    path: { type: "string", minLength: 1 },
-    value: {
-      description:
-        'Required for set/push. Use literal JSON or {"$from":"event.payload.value"}; never use template or JavaScript expressions.',
-    },
-    by: {
-      type: "number",
-      description: "Optional numeric delta for increment actions only.",
-    },
-  },
-} as const;
-
-const RUNTIME_PLAN_JSON_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["specVersion", "id", "version", "root", "capabilities"],
-  properties: {
-    specVersion: {
-      type: "string",
-      enum: ["runtime-plan/v1"],
-    },
-    id: {
-      type: "string",
-      minLength: 1,
-    },
-    version: {
-      type: "integer",
-      minimum: 1,
-    },
-    root: createRuntimeNodeJsonSchema(6),
-    capabilities: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        domWrite: { type: "boolean" },
-      },
-    },
-    imports: {
-      type: "array",
-      items: {
-        type: "string",
-      },
-    },
-    moduleManifest: {
-      type: "object",
-      additionalProperties: {
-        type: "object",
-        additionalProperties: false,
-        required: ["resolvedUrl"],
-        properties: {
-          resolvedUrl: { type: "string", minLength: 1 },
-          integrity: { type: "string", minLength: 1 },
-          version: { type: "string", minLength: 1 },
-          signer: { type: "string", minLength: 1 },
-        },
-      },
-    },
-    metadata: {
-      type: "object",
-      additionalProperties: true,
-    },
-    state: {
-      type: "object",
-      additionalProperties: false,
-      required: ["initial"],
-      properties: {
-        initial: {
-          type: "object",
-          additionalProperties: true,
-          description:
-            "Literal initial JSON values only. Do not place templates, derived values, or JavaScript expressions here.",
-        },
-        transitions: {
-          type: "object",
-          description:
-            "Maps each static runtime event name to an array of RuntimeAction objects; never use an object patch map.",
-          additionalProperties: {
-            type: "array",
-            items: RUNTIME_ACTION_JSON_SCHEMA,
-          },
-        },
-      },
-    },
-    source: {
-      type: "object",
-      additionalProperties: false,
-      required: ["language", "code"],
-      properties: {
-        language: {
-          type: "string",
-          enum: ["js", "jsx", "ts", "tsx"],
-        },
-        code: {
-          type: "string",
-          minLength: 1,
-        },
-        exportName: {
-          type: "string",
-          minLength: 1,
-        },
-        runtime: {
-          type: "string",
-          enum: ["renderify", "preact"],
-        },
-      },
-    },
-  },
-} as const;
-
-const INVALID_RUNTIME_PLAN_ERROR =
-  "Structured payload is not a valid RuntimePlan";
-const MAX_RUNTIME_PLAN_DIAGNOSTICS = 8;
-
-function collectRuntimeNodeDiagnostics(
-  value: unknown,
-  path: string,
-  errors: string[],
-): void {
-  if (errors.length >= MAX_RUNTIME_PLAN_DIAGNOSTICS) {
-    return;
-  }
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    errors.push(`${path} must be a RuntimeNode object`);
-    return;
-  }
-
-  const node = value as Record<string, unknown>;
-  if (typeof node.type !== "string") {
-    errors.push(`${path}.type must be "text", "element", or "component"`);
-    return;
-  }
-
-  const allowedKeys =
-    node.type === "text"
-      ? new Set(["type", "value"])
-      : node.type === "element"
-        ? new Set(["type", "tag", "props", "children"])
-        : node.type === "component"
-          ? new Set(["type", "module", "exportName", "props", "children"])
-          : undefined;
-  if (allowedKeys) {
-    const unknownKeys = Object.keys(node).filter(
-      (key) =>
-        !allowedKeys.has(key) &&
-        key !== "style" &&
-        !(node.type === "text" && (key === "props" || key === "children")),
-    );
-    for (const key of unknownKeys) {
-      if (errors.length >= MAX_RUNTIME_PLAN_DIAGNOSTICS) {
-        return;
-      }
-      const placementHint =
-        key === "state" ||
-        key === "capabilities" ||
-        key === "imports" ||
-        key === "moduleManifest" ||
-        key === "source" ||
-        key === "metadata"
-          ? `; move ${key} to the RuntimePlan top level`
-          : "";
-      errors.push(
-        `${path}.${key} is not valid on a RuntimeNode${placementHint}`,
-      );
-    }
-  }
-
-  if (node.type === "text") {
-    if (typeof node.value !== "string") {
-      errors.push(`${path}.value must be a string for a text node`);
-    }
-    if (Object.hasOwn(node, "style")) {
-      errors.push(
-        `${path}.style is invalid on a text node; wrap it in an element and use props.style`,
-      );
-    }
-    if (Object.hasOwn(node, "props") || Object.hasOwn(node, "children")) {
-      errors.push(`${path} text nodes only accept type and value`);
-    }
-    return;
-  }
-
-  if (node.type === "element") {
-    if (typeof node.tag !== "string" || node.tag.trim().length === 0) {
-      errors.push(`${path}.tag must be a non-empty string for an element node`);
-    }
-  } else if (node.type === "component") {
-    if (typeof node.module !== "string" || node.module.trim().length === 0) {
-      errors.push(
-        `${path}.module must be a non-empty string for a component node`,
-      );
-    }
-    if (
-      node.exportName !== undefined &&
-      (typeof node.exportName !== "string" ||
-        node.exportName.trim().length === 0)
-    ) {
-      errors.push(`${path}.exportName must be a non-empty string when present`);
-    }
-  } else {
-    errors.push(`${path}.type must be "text", "element", or "component"`);
-    return;
-  }
-
-  if (
-    node.props !== undefined &&
-    (typeof node.props !== "object" ||
-      node.props === null ||
-      Array.isArray(node.props) ||
-      !isJsonValue(node.props))
-  ) {
-    errors.push(`${path}.props must be an object containing JSON values`);
-  }
-  if (Object.hasOwn(node, "style")) {
-    errors.push(`${path}.style must be nested under ${path}.props.style`);
-  }
-  if (node.children === undefined) {
-    return;
-  }
-  if (!Array.isArray(node.children)) {
-    errors.push(`${path}.children must be an array of RuntimeNode objects`);
-    return;
-  }
-  for (let index = 0; index < node.children.length; index += 1) {
-    if (errors.length >= MAX_RUNTIME_PLAN_DIAGNOSTICS) {
-      return;
-    }
-    if (!normalizeRuntimeNodeCandidate(node.children[index])) {
-      collectRuntimeNodeDiagnostics(
-        node.children[index],
-        `${path}.children[${index}]`,
-        errors,
-      );
-    }
-  }
-}
-
-function collectRuntimePlanDiagnostics(value: unknown): string[] {
-  const errors = [INVALID_RUNTIME_PLAN_ERROR];
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    errors.push("The top-level structured payload must be an object");
-    return errors;
-  }
-
-  const plan = value as Record<string, unknown>;
-  if (
-    plan.id !== undefined &&
-    (typeof plan.id !== "string" || plan.id.trim().length === 0)
-  ) {
-    errors.push("id must be a non-empty string when present");
-  }
-  if (
-    plan.version !== undefined &&
-    (typeof plan.version !== "number" ||
-      !Number.isInteger(plan.version) ||
-      plan.version <= 0)
-  ) {
-    errors.push("version must be a positive integer when present");
-  }
-  if (
-    plan.specVersion !== undefined &&
-    (typeof plan.specVersion !== "string" ||
-      plan.specVersion.trim().length === 0)
-  ) {
-    errors.push("specVersion must be a non-empty string when present");
-  }
-
-  if (!Object.hasOwn(plan, "root")) {
-    errors.push("root is required");
-  } else if (!normalizeRuntimeNodeCandidate(plan.root)) {
-    collectRuntimeNodeDiagnostics(plan.root, "root", errors);
-  }
-  if (
-    Object.hasOwn(plan, "capabilities") &&
-    !isRuntimeCapabilities(plan.capabilities)
-  ) {
-    errors.push(
-      "capabilities contains invalid values; omit unused entries or use the RuntimeCapabilities types",
-    );
-  }
-  if (
-    Object.hasOwn(plan, "imports") &&
-    (!Array.isArray(plan.imports) ||
-      plan.imports.some((entry) => typeof entry !== "string"))
-  ) {
-    errors.push("imports must be an array of strings");
-  }
-  if (
-    Object.hasOwn(plan, "moduleManifest") &&
-    !isRuntimeModuleManifest(plan.moduleManifest)
-  ) {
-    errors.push(
-      "moduleManifest must map module specifiers to descriptors with a non-empty resolvedUrl",
-    );
-  }
-  if (Object.hasOwn(plan, "state") && !isRuntimeStateModel(plan.state)) {
-    errors.push(
-      "state must contain an initial object and optional valid transitions; omit state when unused",
-    );
-  }
-  if (Object.hasOwn(plan, "source")) {
-    const source = plan.source;
-    if (
-      typeof source !== "object" ||
-      source === null ||
-      Array.isArray(source)
-    ) {
-      errors.push("source must be an object; omit source when unused");
-    } else {
-      const sourceRecord = source as Record<string, unknown>;
-      if (
-        typeof sourceRecord.code !== "string" ||
-        sourceRecord.code.trim().length === 0
-      ) {
-        errors.push("source.code must be a non-empty string");
-      }
-      if (!isRuntimeSourceLanguage(sourceRecord.language)) {
-        errors.push('source.language must be "js", "jsx", "ts", or "tsx"');
-      }
-      if (
-        sourceRecord.runtime !== undefined &&
-        !isRuntimeSourceRuntime(sourceRecord.runtime)
-      ) {
-        errors.push(
-          'source.runtime must be "renderify" or "preact"; omit source for declarative plans',
-        );
-      }
-    }
-  }
-  if (
-    Object.hasOwn(plan, "metadata") &&
-    !isRuntimePlanMetadata(plan.metadata)
-  ) {
-    errors.push("metadata must contain only JSON values and string tags");
-  }
-  if (isRuntimePlan(plan)) {
-    errors.push(...collectRuntimePlanTemplateDiagnostics(plan));
-  }
-
-  return errors.slice(0, MAX_RUNTIME_PLAN_DIAGNOSTICS + 1);
-}
 
 export class OpenAICodexLLMInterpreter implements LLMInterpreter {
   private readonly templates = new Map<string, string>();
@@ -972,15 +577,15 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
       };
     }
 
-    const normalizedPlan = normalizeRuntimePlanCandidate(parsed.value, {
-      fallbackId: this.createFallbackPlanId(req.prompt, payload.id),
+    const accepted = acceptRuntimePlanCandidate(parsed.value, {
+      fallbackIdSeed: `${payload.id ?? "response-without-id"}\0${req.prompt}`,
     });
-    if (!normalizedPlan) {
+    if (!accepted.valid) {
       return {
         text: output.text,
         value: parsed.value as T,
         valid: false,
-        errors: collectRuntimePlanDiagnostics(parsed.value),
+        errors: accepted.errors,
         tokensUsed: resolveTokensUsed(payload.usage),
         model: payload.model ?? this.options.model,
         raw: {
@@ -990,17 +595,16 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
       };
     }
 
-    const normalized = normalizedPlan !== parsed.value;
     return {
-      text: normalized ? JSON.stringify(normalizedPlan) : output.text,
-      value: normalizedPlan as T,
+      text: accepted.normalized ? JSON.stringify(accepted.plan) : output.text,
+      value: accepted.plan as T,
       valid: true,
       tokensUsed: resolveTokensUsed(payload.usage),
       model: payload.model ?? this.options.model,
       raw: {
         mode: "structured",
         responseId: payload.id,
-        ...(normalized ? { normalized: true } : {}),
+        ...(accepted.normalized ? { normalized: true } : {}),
       },
     };
   }
@@ -1205,21 +809,6 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
       this.options.reasoningEffort ??
       (this.options.model === SPARK_MODEL ? "low" : undefined);
     return effort ? { reasoning: { effort } } : {};
-  }
-
-  private createFallbackPlanId(prompt: string, responseId?: string): string {
-    codexFallbackPlanIdSequence += 1;
-    const responseKey =
-      typeof responseId === "string" && responseId.trim().length > 0
-        ? responseId.trim()
-        : "response-without-id";
-    const uniqueInput = [
-      responseKey,
-      prompt,
-      Date.now().toString(36),
-      codexFallbackPlanIdSequence.toString(36),
-    ].join("\0");
-    return `renderify_${hashStringFNV1a64Hex(uniqueInput)}`;
   }
 
   private buildInstructions(req: LLMRequest): string {

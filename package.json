@@ -26,6 +26,7 @@
     "bench": "turbo run bench:repo",
     "bench:repo": "tsx tests/bench/runtime.bench.ts",
     "bench:ci": "node --import tsx scripts/run-benchmark-ci.mjs",
+    "eval:generation": "tsx tests/evals/run-generation-eval.ts",
     "test": "pnpm run typecheck && pnpm run unit",
     "test:all": "pnpm run test && pnpm run e2e",
     "clean": "turbo run clean:repo",

@@ -34,6 +34,7 @@ architecture and decision-record collections.
 ## Extensions and providers
 
 - [LLM integration](./llm-integration.md) - Provider integration.
+- [Generation evals](./generation-evals.md) - Shared LLM contract and model quality reports.
 - [Plugin system](./plugin-system.md) - Extension hooks.
 - [CLI playground](./cli-playground.md) - Browser playground workflow.
 - [Website Playground](./website-playground.md) - Static renderer-only editor with no LLM request.

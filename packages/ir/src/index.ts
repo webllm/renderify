@@ -8,6 +8,18 @@ export {
   hashStringFNV1a64Hex,
 } from "./hash";
 export {
+  type AcceptRuntimePlanCandidateOptions,
+  acceptRuntimePlanCandidate,
+  createRuntimePlanJsonSchema,
+  type DiagnoseRuntimePlanOptions,
+  diagnoseRuntimePlanCandidate,
+  RUNTIME_PLAN_INVALID_PAYLOAD_MESSAGE,
+  RUNTIME_PLAN_JSON_SCHEMA,
+  type RuntimePlanCandidateResult,
+  type RuntimePlanJsonSchema,
+  type RuntimePlanJsonSchemaOptions,
+} from "./llm-contract";
+export {
   collectRuntimeSourceImports,
   parseRuntimeSourceImportRanges,
   type RuntimeSourceImportRange,

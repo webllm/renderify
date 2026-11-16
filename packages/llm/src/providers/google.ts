@@ -6,7 +6,10 @@ import type {
   LLMStructuredRequest,
   LLMStructuredResponse,
 } from "@renderify/core";
-import { isRuntimePlan } from "@renderify/ir";
+import {
+  acceptRuntimePlanCandidate,
+  RUNTIME_PLAN_JSON_SCHEMA,
+} from "@renderify/ir";
 import {
   consumeSseEvents,
   createLLMReliabilityState,
@@ -67,130 +70,6 @@ interface GoogleGenerateContentPayload {
 const DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 const DEFAULT_MODEL = "gemini-2.5-flash";
 const DEFAULT_TIMEOUT_MS = 30000;
-const RUNTIME_PLAN_JSON_SCHEMA = {
-  type: "object",
-  additionalProperties: true,
-  required: ["id", "version", "root", "capabilities"],
-  properties: {
-    specVersion: {
-      type: "string",
-      enum: ["runtime-plan/v1"],
-    },
-    id: {
-      type: "string",
-      minLength: 1,
-    },
-    version: {
-      type: "integer",
-      minimum: 1,
-    },
-    root: {
-      type: "object",
-      required: ["type"],
-      additionalProperties: true,
-      properties: {
-        type: {
-          type: "string",
-          enum: ["text", "element", "component"],
-        },
-        value: {
-          type: "string",
-        },
-        tag: {
-          type: "string",
-          minLength: 1,
-        },
-        module: {
-          type: "string",
-          minLength: 1,
-        },
-        exportName: {
-          type: "string",
-          minLength: 1,
-        },
-        props: {
-          type: "object",
-          additionalProperties: true,
-        },
-        children: {
-          type: "array",
-          items: {
-            type: "object",
-            additionalProperties: true,
-          },
-        },
-      },
-    },
-    capabilities: {
-      type: "object",
-      required: ["domWrite"],
-      additionalProperties: true,
-      properties: {
-        domWrite: {
-          type: "boolean",
-        },
-        allowedModules: {
-          type: "array",
-          items: {
-            type: "string",
-          },
-        },
-      },
-    },
-    imports: {
-      type: "array",
-      items: {
-        type: "string",
-      },
-    },
-    moduleManifest: {
-      type: "object",
-      additionalProperties: {
-        type: "object",
-        additionalProperties: false,
-        required: ["resolvedUrl"],
-        properties: {
-          resolvedUrl: { type: "string", minLength: 1 },
-          integrity: { type: "string", minLength: 1 },
-          version: { type: "string", minLength: 1 },
-          signer: { type: "string", minLength: 1 },
-        },
-      },
-    },
-    metadata: {
-      type: "object",
-      additionalProperties: true,
-    },
-    state: {
-      type: "object",
-      additionalProperties: true,
-    },
-    source: {
-      type: "object",
-      additionalProperties: false,
-      required: ["language", "code"],
-      properties: {
-        language: {
-          type: "string",
-          enum: ["js", "jsx", "ts", "tsx"],
-        },
-        code: {
-          type: "string",
-          minLength: 1,
-        },
-        exportName: {
-          type: "string",
-          minLength: 1,
-        },
-        runtime: {
-          type: "string",
-          enum: ["renderify", "preact"],
-        },
-      },
-    },
-  },
-} as const;
-
 export class GoogleLLMInterpreter implements LLMInterpreter {
   private readonly templates = new Map<string, string>();
   private options: Required<
@@ -548,12 +427,15 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
       };
     }
 
-    if (!isRuntimePlan(parsed.value)) {
+    const accepted = acceptRuntimePlanCandidate(parsed.value, {
+      fallbackIdSeed: req.prompt,
+    });
+    if (!accepted.valid) {
       return {
         text,
         value: parsed.value as T,
         valid: false,
-        errors: ["Structured payload is not a valid RuntimePlan"],
+        errors: accepted.errors,
         tokensUsed: this.extractTotalTokens(payload),
         model: payload.modelVersion ?? this.options.model,
         raw: {
@@ -564,14 +446,15 @@ export class GoogleLLMInterpreter implements LLMInterpreter {
     }
 
     return {
-      text,
-      value: parsed.value as T,
+      text: accepted.normalized ? JSON.stringify(accepted.plan) : text,
+      value: accepted.plan as T,
       valid: true,
       tokensUsed: this.extractTotalTokens(payload),
       model: payload.modelVersion ?? this.options.model,
       raw: {
         mode: "structured",
         finishReason: payload.candidates?.[0]?.finishReason,
+        ...(accepted.normalized ? { normalized: true } : {}),
       },
     };
   }

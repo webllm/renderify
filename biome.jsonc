@@ -39,6 +39,8 @@
               "ALL_PROXY",
               "all_proxy",
               "RENDERIFY_CODEX_.*",
+              // Generation eval providers, credentials, and case selection.
+              "RENDERIFY_EVAL_.*",
               "RENDERIFY_HOME",
               "RENDERIFY_JSPM_CDN_URL",
               "RENDERIFY_LLM_.*",

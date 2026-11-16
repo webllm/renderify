@@ -1,0 +1,80 @@
+[
+  {
+    "id": "counter",
+    "prompt": "Build a counter with increment, decrement, and reset buttons.",
+    "lane": "declarative",
+    "checks": { "tags": ["button"], "minTransitions": 2 }
+  },
+  {
+    "id": "profile-card",
+    "prompt": "Render a user profile card with avatar initials, name, role, and a follow button that toggles to Following.",
+    "lane": "declarative",
+    "checks": { "tags": ["button"], "minTransitions": 1 }
+  },
+  {
+    "id": "pricing-table",
+    "prompt": "Show a pricing table with three plans, their monthly prices, and a short feature list for each.",
+    "lane": "declarative",
+    "checks": { "minNodes": 12 }
+  },
+  {
+    "id": "kpi-dashboard",
+    "prompt": "Build a KPI dashboard with four metric tiles, each showing a value and a trend label.",
+    "lane": "declarative",
+    "checks": { "minNodes": 12 }
+  },
+  {
+    "id": "onboarding-checklist",
+    "prompt": "Display an onboarding checklist of five steps with a completion badge on each step.",
+    "lane": "declarative",
+    "checks": { "minNodes": 10 }
+  },
+  {
+    "id": "tab-switcher",
+    "prompt": "Create tabs labelled Overview, Activity, and Settings that update a heading showing the selected tab.",
+    "lane": "declarative",
+    "checks": { "tags": ["button"], "minTransitions": 2 }
+  },
+  {
+    "id": "empty-inbox",
+    "prompt": "Design an empty state for an inbox with an illustration placeholder, a short message, and a call-to-action button.",
+    "lane": "declarative",
+    "checks": { "tags": ["button"] }
+  },
+  {
+    "id": "weather-forecast",
+    "prompt": "Show a three-day weather forecast with the day, temperature range, and conditions for each day.",
+    "lane": "declarative",
+    "checks": { "minNodes": 8 }
+  },
+  {
+    "id": "jsx-counter",
+    "prompt": "Using React hooks in JSX, build a counter component with increment and reset buttons.",
+    "lane": "source",
+    "checks": { "tags": ["button"], "sourceIncludes": ["useState"] }
+  },
+  {
+    "id": "jsx-todo",
+    "prompt": "Using React in JSX, build a todo list where users can type a task, add it, and remove tasks.",
+    "lane": "source",
+    "checks": { "tags": ["input", "button"], "sourceIncludes": ["useState"] }
+  },
+  {
+    "id": "jsx-signup-form",
+    "prompt": "Using React in JSX, build a newsletter signup form that validates the email address and shows a success message.",
+    "lane": "source",
+    "checks": { "tags": ["form", "input"], "sourceIncludes": ["useState"] }
+  },
+  {
+    "id": "jsx-bar-chart",
+    "prompt": "Using React in JSX, create a bar chart of weekly sales using plain div elements and inline styles.",
+    "lane": "source",
+    "checks": { "sourceIncludes": ["map("] }
+  },
+  {
+    "id": "jsx-metric-toggle",
+    "prompt": "Using React hooks in JSX, build a dashboard card with buttons that switch between Revenue, Users, and Latency metrics.",
+    "lane": "source",
+    "checks": { "tags": ["button"], "sourceIncludes": ["useState"] }
+  }
+]

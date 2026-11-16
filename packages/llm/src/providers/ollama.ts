@@ -6,7 +6,7 @@ import type {
   LLMStructuredRequest,
   LLMStructuredResponse,
 } from "@renderify/core";
-import { isRuntimePlan } from "@renderify/ir";
+import { acceptRuntimePlanCandidate } from "@renderify/ir";
 import {
   createLLMReliabilityState,
   createTimeoutAbortScope,
@@ -386,12 +386,15 @@ export class OllamaLLMInterpreter implements LLMInterpreter {
       };
     }
 
-    if (!isRuntimePlan(parsed.value)) {
+    const accepted = acceptRuntimePlanCandidate(parsed.value, {
+      fallbackIdSeed: req.prompt,
+    });
+    if (!accepted.valid) {
       return {
         text,
         value: parsed.value as T,
         valid: false,
-        errors: ["Structured payload is not a valid RuntimePlan"],
+        errors: accepted.errors,
         tokensUsed,
         model,
         raw,
@@ -399,12 +402,12 @@ export class OllamaLLMInterpreter implements LLMInterpreter {
     }
 
     return {
-      text,
-      value: parsed.value as T,
+      text: accepted.normalized ? JSON.stringify(accepted.plan) : text,
+      value: accepted.plan as T,
       valid: true,
       tokensUsed,
       model,
-      raw,
+      raw: accepted.normalized ? { ...raw, normalized: true } : raw,
     };
   }
 

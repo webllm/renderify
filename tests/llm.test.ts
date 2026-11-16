@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { LLMInterpreter } from "../packages/core/src/llm-interpreter";
+import { RUNTIME_PLAN_JSON_SCHEMA } from "../packages/ir/src/index";
 import {
   AnthropicLLMInterpreter,
   createDefaultLLMProviderRegistry,
@@ -306,11 +307,15 @@ test("openai interpreter validates structured runtime plan response", async () =
 
   const responseFormat = requests[0].response_format as {
     type: string;
-    json_schema?: { name?: string; strict?: boolean };
+    json_schema?: { name?: string; strict?: boolean; schema?: unknown };
   };
   assert.equal(responseFormat.type, "json_schema");
   assert.equal(responseFormat.json_schema?.name, "runtime_plan");
   assert.equal(responseFormat.json_schema?.strict, false);
+  assert.deepEqual(
+    responseFormat.json_schema?.schema,
+    RUNTIME_PLAN_JSON_SCHEMA,
+  );
 });
 
 test("openai interpreter marks invalid structured JSON as invalid result", async () => {
@@ -343,6 +348,102 @@ test("openai interpreter marks invalid structured JSON as invalid result", async
     String(response.errors?.[0] ?? ""),
     /Structured JSON parse failed/,
   );
+});
+
+test("openai, anthropic, and google return shared RuntimePlan repair diagnostics", async () => {
+  const invalidPlan = {
+    specVersion: "runtime-plan/v1",
+    id: "invalid_plan",
+    version: 1,
+    capabilities: { domWrite: true },
+    root: {
+      type: "element",
+      children: [{ type: "text", value: 42 }],
+    },
+  };
+  const content = JSON.stringify(invalidPlan);
+  const interpreters = [
+    new OpenAILLMInterpreter({
+      apiKey: "test-key",
+      fetchImpl: async () =>
+        jsonResponse({
+          id: "chatcmpl_diagnostics",
+          model: "gpt-5-mini",
+          choices: [{ message: { content } }],
+        }),
+    }),
+    new AnthropicLLMInterpreter({
+      apiKey: "test-key",
+      fetchImpl: async () =>
+        jsonResponse({
+          id: "msg_diagnostics",
+          model: "claude-sonnet-4-5",
+          content: [
+            {
+              type: "tool_use",
+              name: "runtime_plan",
+              input: invalidPlan,
+            },
+          ],
+        }),
+    }),
+    new GoogleLLMInterpreter({
+      apiKey: "test-key",
+      fetchImpl: async () =>
+        jsonResponse({
+          modelVersion: "gemini-2.5-flash",
+          candidates: [{ content: { parts: [{ text: content }] } }],
+        }),
+    }),
+  ];
+
+  for (const llm of interpreters) {
+    const response = await llm.generateStructuredResponse({
+      prompt: "build an invalid plan",
+      format: "runtime-plan",
+      strict: true,
+    });
+    assert.equal(response.valid, false);
+    assert.deepEqual(response.errors, [
+      "Structured payload is not a valid RuntimePlan",
+      "root.tag must be a non-empty string for an element node",
+      "root.children[0].value must be a string for a text node",
+    ]);
+  }
+});
+
+test("openai interpreter normalizes a recoverable plan with a fallback id", async () => {
+  const llm = new OpenAILLMInterpreter({
+    apiKey: "test-key",
+    fetchImpl: async () =>
+      jsonResponse({
+        id: "chatcmpl_normalize",
+        model: "gpt-5-mini",
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                specVersion: "runtime-plan/v1",
+                version: 1,
+                capabilities: { domWrite: true },
+                root: { type: "text", value: "No id" },
+              }),
+            },
+          },
+        ],
+      }),
+  });
+
+  const response = await llm.generateStructuredResponse<{ id: string }>({
+    prompt: "build a plan without an id",
+    format: "runtime-plan",
+    strict: true,
+  });
+
+  assert.equal(response.valid, true);
+  assert.match(String(response.value?.id), /^renderify_[0-9a-f]{16}$/);
+  assert.equal((response.raw as { normalized?: boolean }).normalized, true);
+  assert.equal(JSON.parse(response.text).id, response.value?.id);
 });
 
 test("openai interpreter accepts fenced json in structured mode", async () => {
@@ -778,6 +879,7 @@ test("openai codex normalizes DOM-like plans and uses low reasoning for Spark", 
       };
     }
   ).format?.schema;
+  assert.deepEqual(schema, RUNTIME_PLAN_JSON_SCHEMA);
   assert.equal(schema?.additionalProperties, false);
   assert.deepEqual(schema?.properties?.root?.properties?.type?.enum, [
     "text",
@@ -1498,6 +1600,10 @@ test("anthropic interpreter validates structured runtime plan response", async (
   assert.equal(requests.length, 1);
   assert.equal(requests[0].model, "claude-sonnet-4-5");
   assert.ok(Array.isArray(requests[0].tools));
+  assert.deepEqual(
+    (requests[0].tools as Array<{ input_schema?: unknown }>)[0]?.input_schema,
+    RUNTIME_PLAN_JSON_SCHEMA,
+  );
   assert.deepEqual(requests[0].tool_choice, {
     type: "tool",
     name: "runtime_plan",
@@ -1745,8 +1851,10 @@ test("google interpreter validates structured runtime plan response", async () =
     string,
     unknown
   >;
+  assert.deepEqual(responseJsonSchema, RUNTIME_PLAN_JSON_SCHEMA);
   assert.equal(responseJsonSchema.type, "object");
   assert.deepEqual(responseJsonSchema.required, [
+    "specVersion",
     "id",
     "version",
     "root",

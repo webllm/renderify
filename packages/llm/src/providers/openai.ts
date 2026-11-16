@@ -6,7 +6,10 @@ import type {
   LLMStructuredRequest,
   LLMStructuredResponse,
 } from "@renderify/core";
-import { isRuntimePlan } from "@renderify/ir";
+import {
+  acceptRuntimePlanCandidate,
+  RUNTIME_PLAN_JSON_SCHEMA,
+} from "@renderify/ir";
 import {
   consumeSseEvents,
   createLLMReliabilityState,
@@ -89,85 +92,6 @@ interface OpenAIExtractedOutput {
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_MODEL = "gpt-5-mini";
 const DEFAULT_TIMEOUT_MS = 30000;
-
-const RUNTIME_PLAN_JSON_SCHEMA = {
-  type: "object",
-  additionalProperties: true,
-  required: ["id", "version", "root", "capabilities"],
-  properties: {
-    specVersion: {
-      type: "string",
-      minLength: 1,
-    },
-    id: {
-      type: "string",
-      minLength: 1,
-    },
-    version: {
-      type: "integer",
-      minimum: 1,
-    },
-    root: {
-      type: "object",
-      additionalProperties: true,
-    },
-    capabilities: {
-      type: "object",
-      additionalProperties: true,
-    },
-    imports: {
-      type: "array",
-      items: {
-        type: "string",
-      },
-    },
-    moduleManifest: {
-      type: "object",
-      additionalProperties: {
-        type: "object",
-        additionalProperties: false,
-        required: ["resolvedUrl"],
-        properties: {
-          resolvedUrl: { type: "string", minLength: 1 },
-          integrity: { type: "string", minLength: 1 },
-          version: { type: "string", minLength: 1 },
-          signer: { type: "string", minLength: 1 },
-        },
-      },
-    },
-    metadata: {
-      type: "object",
-      additionalProperties: true,
-    },
-    state: {
-      type: "object",
-      additionalProperties: true,
-    },
-    source: {
-      type: "object",
-      additionalProperties: false,
-      required: ["language", "code"],
-      properties: {
-        language: {
-          type: "string",
-          enum: ["js", "jsx", "ts", "tsx"],
-        },
-        code: {
-          type: "string",
-          minLength: 1,
-        },
-        exportName: {
-          type: "string",
-          minLength: 1,
-        },
-        runtime: {
-          type: "string",
-          enum: ["renderify", "preact"],
-        },
-      },
-    },
-  },
-} as const;
 
 export class OpenAILLMInterpreter implements LLMInterpreter {
   private readonly templates = new Map<string, string>();
@@ -556,12 +480,15 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
       };
     }
 
-    if (!isRuntimePlan(parsed.value)) {
+    const accepted = acceptRuntimePlanCandidate(parsed.value, {
+      fallbackIdSeed: `${payload.id ?? ""}\0${req.prompt}`,
+    });
+    if (!accepted.valid) {
       return {
         text: output.text,
         value: parsed.value as T,
         valid: false,
-        errors: ["Structured payload is not a valid RuntimePlan"],
+        errors: accepted.errors,
         tokensUsed: payload.usage?.total_tokens,
         model: payload.model ?? this.options.model,
         raw: {
@@ -572,14 +499,15 @@ export class OpenAILLMInterpreter implements LLMInterpreter {
     }
 
     return {
-      text: output.text,
-      value: parsed.value as T,
+      text: accepted.normalized ? JSON.stringify(accepted.plan) : output.text,
+      value: accepted.plan as T,
       valid: true,
       tokensUsed: payload.usage?.total_tokens,
       model: payload.model ?? this.options.model,
       raw: {
         mode: "structured",
         responseId: payload.id,
+        ...(accepted.normalized ? { normalized: true } : {}),
       },
     };
   }
