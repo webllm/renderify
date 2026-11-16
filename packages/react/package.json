@@ -1,6 +1,6 @@
 {
   "name": "@renderify/react",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "React components and hooks for rendering Renderify RuntimePlans and sandboxed model-written UI",
   "main": "dist/react.cjs",
   "types": "dist/react.d.ts",

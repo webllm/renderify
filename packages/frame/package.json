@@ -1,6 +1,6 @@
 {
   "name": "@renderify/frame",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "description": "Opaque-origin sandboxed iframe for running model-generated JSX, TSX, and RuntimePlans",
   "main": "dist/frame.cjs",
   "types": "dist/frame.d.ts",

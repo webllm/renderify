@@ -210,6 +210,10 @@ jobs:
       - name: Smoke test package artifacts
         run: pnpm artifacts:smoke
 
+      # Templates resolve @renderify/* from the built packages.
+      - name: Typecheck templates
+        run: pnpm templates:typecheck
+
   e2e:
     runs-on: ubuntu-latest
     needs: [build]
@@ -244,6 +248,46 @@ jobs:
 
       - name: End-to-end tests
         run: pnpm e2e
+
+  # The website and its Playground are built from the workspace sources, so a
+  # package change can break them; check them on every PR, not only on deploy.
+  website:
+    runs-on: ubuntu-latest
+    needs: [lint]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check website
+        run: pnpm website:typecheck
+
+      - name: Build static website
+        env:
+          RENDERIFY_SITE_BASE_PATH: renderify
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: pnpm website:build
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Smoke test website and Playground
+        env:
+          RENDERIFY_SITE_BASE_PATH: renderify
+        run: pnpm website:smoke
 
   benchmark:
     runs-on: ubuntu-latest

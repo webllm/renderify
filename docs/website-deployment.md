@@ -12,13 +12,19 @@ Node.js server in production.
 
 ## Local validation
 
-Run the same primary gates used by deployment:
+Run the same gates used by CI and deployment:
 
 ```bash
 pnpm install --frozen-lockfile
 pnpm website:typecheck
 RENDERIFY_SITE_BASE_PATH=renderify pnpm website:build
+RENDERIFY_SITE_BASE_PATH=renderify pnpm website:smoke
 ```
+
+`website:smoke` serves the export under the base path, with GitHub Pages'
+`404.html` behavior, and checks the home page, a docs page, the 404 page, and
+an interaction inside the sandboxed Playground. It blocks external requests,
+so it needs no network. CI runs these three steps on every pull request.
 
 `RENDERIFY_SITE_BASE_PATH` is a build-time value. For the repository project
 site at `https://webllm.github.io/renderify/`, it must be `renderify` so static

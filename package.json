@@ -37,6 +37,7 @@
     "playground": "node --env-file-if-exists=.env --import tsx packages/cli/src/index.ts playground",
     "website:dev": "pnpm --filter @renderify/website dev",
     "website:build": "pnpm --filter @renderify/website build",
+    "website:smoke": "node scripts/smoke-website.mjs",
     "website:typecheck": "pnpm --filter @renderify/website typecheck",
     "website:preview": "pnpm --filter @renderify/website preview",
     "changeset": "changeset",
@@ -44,7 +45,8 @@
     "version-packages": "changeset version",
     "release": "changeset publish",
     "prepare": "husky",
-    "commit": "cz"
+    "commit": "cz",
+    "templates:typecheck": "pnpm -r --filter \"./templates/*\" run typecheck"
   },
   "author": "unadlib",
   "license": "MIT",

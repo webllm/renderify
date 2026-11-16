@@ -1,5 +1,28 @@
 # @renderify/runtime
 
+## 0.11.0
+
+### Minor Changes
+
+- 8086c6b: Expose the shared browser source preparation and mounting helpers used by renderer-only hosts, including the static website Playground.
+- 0553ac5: Faster browser cold starts. In browsers, remote module responses are shared document-wide (pinned versions for the document's life, ranges for 10 minutes), so preflight, materialization, and re-renders stop refetching the same modules; auto-pin `package.json` and latest-version lookups are shared the same way, and `seedPlaygroundBrowserModules()` keeps auto-pinning from resolving framework packages the browser path replaces. Re-rendering the website's React + Material UI sample dropped from about 3.3 s to about 60 ms, and its Preact sample's first render from about 5 s to about 2.6 s. `@renderify/frame` adds a declarative-only runner (`runner: "plan"`, 59 KiB gzip, no Babel) and a loading placeholder for source renders.
+- af7d8bf: Declarative plans can now build real forms and lists without source code.
+
+  - New `each` and `if` RuntimeNodes repeat or conditionally render children, with loop variables (`{{todo.title}}`, `{{index}}`), item keys, and a 10,000-node expansion cap.
+  - `bind` keeps an input, textarea, or select in sync with a state path; events from form controls carry their live value in `event.payload.value`; `onEnter` fires on Enter in a field.
+  - `form` nodes render as inert containers with emulated submit: `onSubmit` receives the form's named fields. Password and file inputs are never captured.
+  - New `remove` action, array-aware paths (`todos.2.done`), whole-segment path templates (`todos.{{event.payload.index}}.done`), and `{"$from"}` references at any depth in action values and event payloads, resolved when the event is handled.
+  - MCP Apps pass those resolved payloads as tool arguments and debounce model-context updates from bound inputs.
+  - The shared LLM schema, repair diagnostics, and system prompts teach models the new vocabulary.
+
+### Patch Changes
+
+- 5fdbd52: New package: `@renderify/react` with `<RenderifyView>` (renders a validated RuntimePlan and keeps it interactive, remounting only when the plan's content changes), `<RenderifyFrame>` (runs model-written JSX in a `@renderify/frame` sandbox), and `useRenderifySession`. The runtime now marks its runtime-only dynamic imports with `webpackIgnore`, so Next.js (Turbopack and webpack) builds apps that import it. The repository adds a Next.js chat template (Vercel AI SDK) and an MCP server template, an integrations guide for the AI SDK, CopilotKit, assistant-ui, and AG-UI, and a Getting Started that begins with `npm install`.
+- Updated dependencies [af7d8bf]
+- Updated dependencies [0b2c7e6]
+  - @renderify/ir@0.11.0
+  - @renderify/security@0.11.0
+
 ## 0.10.0
 
 ### Minor Changes

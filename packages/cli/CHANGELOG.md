@@ -1,5 +1,24 @@
 # @renderify/cli
 
+## 0.11.0
+
+### Minor Changes
+
+- Release alongside the 0.11 runtime: prompts in the CLI and SDK facade now generate plans with forms, lists, and conditions, using the RuntimePlan contract shared by every provider.
+
+### Patch Changes
+
+- Updated dependencies [8086c6b]
+- Updated dependencies [0553ac5]
+- Updated dependencies [af7d8bf]
+- Updated dependencies [5fdbd52]
+- Updated dependencies [0b2c7e6]
+  - @renderify/runtime@0.11.0
+  - @renderify/ir@0.11.0
+  - @renderify/security@0.11.0
+  - @renderify/core@0.11.0
+  - @renderify/llm@0.11.0
+
 ## 0.10.0
 
 ### Minor Changes

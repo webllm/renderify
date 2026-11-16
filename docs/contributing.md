@@ -86,6 +86,9 @@ pnpm build
 # Validate package metadata
 pnpm validate
 
+# Typecheck the app templates (after pnpm build)
+pnpm templates:typecheck
+
 # Clean build artifacts
 pnpm clean
 ```
@@ -250,12 +253,14 @@ plan latency, and concurrent generation.
 ### Website
 
 The Fumadocs site reads its content directly from `docs/`; do not maintain a
-second documentation copy under the website app. The static Playground bundles
-only the IR, security, runtime, and browser compiler path—never the LLM package.
+second documentation copy under the website app. The static Playground runs the
+`@renderify/frame` runner, built from the IR, security, runtime, and frame
+sources—never the LLM package.
 
 ```bash
 pnpm website:typecheck
 pnpm website:build
+pnpm website:smoke     # after a build; checks pages and the Playground offline
 pnpm website:preview
 ```
 
