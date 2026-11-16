@@ -6,10 +6,11 @@ import {
   type McpUiHostContext,
   PostMessageTransport,
 } from "@modelcontextprotocol/ext-apps";
-import type {
-  RuntimeEvent,
-  RuntimePlan,
-  RuntimeStateSnapshot,
+import {
+  RUNTIME_BIND_EVENT_TYPE,
+  type RuntimeEvent,
+  type RuntimePlan,
+  type RuntimeStateSnapshot,
 } from "@renderify/ir";
 import {
   createInteractiveSession,
@@ -23,6 +24,12 @@ import {
 } from "./plan";
 
 declare const __RENDERIFY_MCP_APP_VERSION__: string;
+
+/**
+ * Bound inputs dispatch on every keystroke; their model-context update is
+ * sent once typing pauses for this long. Other events flush it immediately.
+ */
+const BIND_MODEL_CONTEXT_DELAY_MS = 400;
 
 export interface RenderifyMcpViewConfig {
   mountId?: string;
@@ -77,7 +84,15 @@ export async function startRenderifyMcpApp(
   let teardownPromise: Promise<void> | undefined;
   let disposePromise: Promise<void> | undefined;
   let stopAutoResize: (() => void) | undefined;
+  let pendingBindContext: ReturnType<typeof setTimeout> | undefined;
   let queue = Promise.resolve();
+
+  const cancelPendingBindContext = (): void => {
+    if (pendingBindContext !== undefined) {
+      clearTimeout(pendingBindContext);
+      pendingBindContext = undefined;
+    }
+  };
 
   const enqueue = async <T>(operation: () => Promise<T>): Promise<T> => {
     const run = queue.then(operation, operation);
@@ -115,6 +130,7 @@ export async function startRenderifyMcpApp(
   };
 
   const releaseRenderedView = async (): Promise<void> => {
+    cancelPendingBindContext();
     const activeSession = session;
     session = undefined;
     try {
@@ -190,6 +206,16 @@ export async function startRenderifyMcpApp(
           if (!activeSession || !isCurrentSession(activeSession, generation)) {
             return;
           }
+          if (event.type === RUNTIME_BIND_EVENT_TYPE) {
+            // State already holds the new value; report it once typing pauses.
+            cancelPendingBindContext();
+            pendingBindContext = setTimeout(() => {
+              pendingBindContext = undefined;
+              void updateModelContext(activeSession, event);
+            }, BIND_MODEL_CONTEXT_DELAY_MS);
+            return;
+          }
+          cancelPendingBindContext();
           if (event.type.startsWith(toolEventPrefix)) {
             const toolName = event.type.slice(toolEventPrefix.length);
             if (!allowedTools.has(toolName)) {
@@ -415,6 +441,7 @@ export async function startRenderifyMcpApp(
     dispose: () => {
       if (!disposePromise) {
         disposed = true;
+        cancelPendingBindContext();
         stopAutoResizeNotifications();
         disposePromise = (async () => {
           try {

@@ -13,6 +13,7 @@ export {
   createRuntimePlanJsonSchema,
   type DiagnoseRuntimePlanOptions,
   diagnoseRuntimePlanCandidate,
+  RUNTIME_PLAN_INTERACTION_GUIDANCE,
   RUNTIME_PLAN_INVALID_PAYLOAD_MESSAGE,
   RUNTIME_PLAN_JSON_SCHEMA,
   type RuntimePlanCandidateResult,
@@ -20,10 +21,36 @@ export {
   type RuntimePlanJsonSchemaOptions,
 } from "./llm-contract";
 export {
+  areRuntimeValuesEqual,
+  collectRuntimeValueReferences,
+  DEFAULT_RUNTIME_EACH_INDEX_NAME,
+  DEFAULT_RUNTIME_EACH_ITEM_NAME,
+  isRuntimeBindPathTemplate,
+  isRuntimeScopeName,
+  isRuntimeStatePathTemplate,
+  isRuntimeTruthy,
+  normalizeRuntimeBindPath,
+  RUNTIME_BIND_EVENT_TYPE,
+  RUNTIME_RESERVED_SCOPE_NAMES,
+  type RuntimeTemplateScope,
+  readRuntimeValueReference,
+  resolveRuntimeEventReferences,
+  resolveRuntimeStatePath,
+  resolveRuntimeValueReferences,
+} from "./runtime-bindings";
+export {
   collectRuntimeSourceImports,
   parseRuntimeSourceImportRanges,
   type RuntimeSourceImportRange,
 } from "./source-imports";
+
+import {
+  DEFAULT_RUNTIME_EACH_INDEX_NAME,
+  DEFAULT_RUNTIME_EACH_ITEM_NAME,
+  isRuntimeScopeName,
+  isRuntimeStatePathTemplate,
+  readRuntimeValueReference,
+} from "./runtime-bindings";
 
 export type JsonValue = JsonPrimitive | JsonObject | JsonValue[];
 
@@ -51,10 +78,54 @@ export interface RuntimeComponentNode {
   children?: RuntimeNode[];
 }
 
+/**
+ * Repeats its children once per item of an array. Inside the loop, templates
+ * and props can read the item (`{{item.title}}`) and its position
+ * (`{{index}}`); rename them with `as` and `index`. `key` names an item field
+ * used as a stable key for reconciliation.
+ */
+export interface RuntimeEachNode {
+  type: "each";
+  /** Array reference, such as `state.todos` or `{{state.todos}}`. */
+  items: string;
+  /** Loop variable for the current item. @defaultValue "item" */
+  as?: string;
+  /** Loop variable for the zero-based position. @defaultValue "index" */
+  index?: string;
+  /** Item-relative path of a stable key, such as `id`. */
+  key?: string;
+  children?: RuntimeNode[];
+}
+
+/**
+ * Renders its children only when `when` is truthy, or equals `equals` when
+ * that is set; `not` inverts the result. Empty arrays are falsy.
+ */
+export interface RuntimeIfNode {
+  type: "if";
+  /** Value reference, such as `state.open` or `{{item.done}}`. */
+  when: string;
+  /** Compare with this value instead of testing truthiness. Strings may be templates. */
+  equals?: JsonPrimitive;
+  /** Invert the condition. */
+  not?: boolean;
+  children?: RuntimeNode[];
+}
+
+export type RuntimeControlNode = RuntimeEachNode | RuntimeIfNode;
+
 export type RuntimeNode =
   | RuntimeTextNode
   | RuntimeElementNode
-  | RuntimeComponentNode;
+  | RuntimeComponentNode
+  | RuntimeEachNode
+  | RuntimeIfNode;
+
+export function isRuntimeControlNode(
+  node: RuntimeNode,
+): node is RuntimeControlNode {
+  return node.type === "each" || node.type === "if";
+}
 
 export type RuntimeExecutionProfile =
   | "standard"
@@ -150,11 +221,18 @@ export interface RuntimePushAction {
   value: RuntimeActionValue;
 }
 
+/** Deletes the value at `path`; array items are spliced out. */
+export interface RuntimeRemoveAction {
+  type: "remove";
+  path: string;
+}
+
 export type RuntimeAction =
   | RuntimeSetAction
   | RuntimeIncrementAction
   | RuntimeToggleAction
-  | RuntimePushAction;
+  | RuntimePushAction
+  | RuntimeRemoveAction;
 
 export interface RuntimeEvent {
   type: string;
@@ -306,6 +384,21 @@ const RUNTIME_COMPONENT_NODE_KEYS = new Set([
   "props",
   "children",
 ]);
+const RUNTIME_EACH_NODE_KEYS = new Set([
+  "type",
+  "items",
+  "as",
+  "index",
+  "key",
+  "children",
+]);
+const RUNTIME_IF_NODE_KEYS = new Set([
+  "type",
+  "when",
+  "equals",
+  "not",
+  "children",
+]);
 const RUNTIME_TEXT_NODE_CANDIDATE_KEYS = new Set([
   "type",
   "value",
@@ -324,6 +417,14 @@ const RUNTIME_COMPONENT_NODE_CANDIDATE_KEYS = new Set([
   ...RUNTIME_COMPONENT_NODE_KEYS,
   "nodes",
   ...RUNTIME_NODE_NORMALIZATION_ALIAS_KEYS,
+]);
+const RUNTIME_EACH_NODE_CANDIDATE_KEYS = new Set([
+  ...RUNTIME_EACH_NODE_KEYS,
+  "nodes",
+]);
+const RUNTIME_IF_NODE_CANDIDATE_KEYS = new Set([
+  ...RUNTIME_IF_NODE_KEYS,
+  "nodes",
 ]);
 
 interface RuntimeNodeNormalizationState {
@@ -448,6 +549,25 @@ function normalizeRuntimeNodeCandidateInternal(
       return undefined;
     }
     const typeValue = typeProperty.value;
+    if (typeValue === "each" || typeValue === "if") {
+      if (
+        !hasOnlyRuntimeNodeKeys(
+          value,
+          typeValue === "each"
+            ? RUNTIME_EACH_NODE_CANDIDATE_KEYS
+            : RUNTIME_IF_NODE_CANDIDATE_KEYS,
+        )
+      ) {
+        return undefined;
+      }
+      const fields = readRuntimeControlNodeFields(value, typeValue);
+      const children = fields
+        ? normalizeRuntimeNodeCandidateChildren(value, state, depth)
+        : undefined;
+      return fields && children
+        ? ({ ...fields, children } as RuntimeNode)
+        : undefined;
+    }
     const candidateKeys =
       typeValue === "text"
         ? RUNTIME_TEXT_NODE_CANDIDATE_KEYS
@@ -797,6 +917,17 @@ function inspectRuntimeNodeShape(value: unknown): RuntimeNodeShape | undefined {
     return undefined;
   }
 
+  if (type.value === "each" || type.value === "if") {
+    const control = readRuntimeControlNodeFields(value, type.value);
+    return control &&
+      hasOnlyRuntimeNodeKeys(
+        value,
+        type.value === "each" ? RUNTIME_EACH_NODE_KEYS : RUNTIME_IF_NODE_KEYS,
+      )
+      ? { node: value as unknown as RuntimeNode, children }
+      : undefined;
+  }
+
   if (type.value === "element") {
     if (!hasOnlyRuntimeNodeKeys(value, RUNTIME_ELEMENT_NODE_KEYS)) {
       return undefined;
@@ -837,6 +968,83 @@ function inspectRuntimeNodeShape(value: unknown): RuntimeNodeShape | undefined {
   }
 
   return undefined;
+}
+
+type RuntimeControlNodeFields =
+  | Omit<RuntimeEachNode, "children">
+  | Omit<RuntimeIfNode, "children">;
+
+/**
+ * Reads and validates the non-children fields of an `each` or `if` node.
+ * Returns canonical fields with optional values omitted, or undefined when a
+ * field is present but invalid.
+ */
+function readRuntimeControlNodeFields(
+  value: Record<string, unknown>,
+  type: "each" | "if",
+): RuntimeControlNodeFields | undefined {
+  const read = (key: string): unknown => {
+    const property = readOwnDataProperty(value, key);
+    if (!property) {
+      throw new TypeError(`Invalid ${key}`);
+    }
+    return property.present ? property.value : undefined;
+  };
+
+  try {
+    if (type === "each") {
+      const items = read("items");
+      const as = read("as");
+      const index = read("index");
+      const key = read("key");
+      if (
+        typeof items !== "string" ||
+        readRuntimeValueReference(items) === undefined ||
+        (as !== undefined && !isRuntimeScopeName(as)) ||
+        (index !== undefined && !isRuntimeScopeName(index)) ||
+        (key !== undefined &&
+          (typeof key !== "string" || !isRuntimeTemplatePath(key)))
+      ) {
+        return undefined;
+      }
+      const itemName = as ?? DEFAULT_RUNTIME_EACH_ITEM_NAME;
+      const indexName = index ?? DEFAULT_RUNTIME_EACH_INDEX_NAME;
+      if (itemName === indexName) {
+        return undefined;
+      }
+      return {
+        type: "each",
+        items,
+        ...(as !== undefined ? { as: as as string } : {}),
+        ...(index !== undefined ? { index: index as string } : {}),
+        ...(key !== undefined ? { key: key as string } : {}),
+      };
+    }
+
+    const when = read("when");
+    const equals = read("equals");
+    const not = read("not");
+    if (
+      typeof when !== "string" ||
+      readRuntimeValueReference(when) === undefined ||
+      (equals !== undefined &&
+        equals !== null &&
+        typeof equals !== "string" &&
+        typeof equals !== "boolean" &&
+        !(typeof equals === "number" && Number.isFinite(equals))) ||
+      (not !== undefined && typeof not !== "boolean")
+    ) {
+      return undefined;
+    }
+    return {
+      type: "if",
+      when,
+      ...(equals !== undefined ? { equals: equals as JsonPrimitive } : {}),
+      ...(not !== undefined ? { not: not as boolean } : {}),
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 function hasOnlyRuntimeNodeKeys(
@@ -1036,6 +1244,10 @@ export function isRuntimeAction(value: unknown): value is RuntimeAction {
     return false;
   }
 
+  if (value.path.includes("{{") && !isRuntimeStatePathTemplate(value.path)) {
+    return false;
+  }
+
   if (value.type === "set" || value.type === "push") {
     return "value" in value && isRuntimeActionValue(value.value);
   }
@@ -1047,7 +1259,7 @@ export function isRuntimeAction(value: unknown): value is RuntimeAction {
     );
   }
 
-  if (value.type === "toggle") {
+  if (value.type === "toggle" || value.type === "remove") {
     return true;
   }
 
@@ -1442,7 +1654,19 @@ export function collectRuntimePlanTemplateDiagnostics(
       continue;
     }
 
-    if (entry.node.props) {
+    if (entry.node.type === "if" && typeof entry.node.equals === "string") {
+      collectRuntimeTemplateStringDiagnostics(
+        entry.node.equals,
+        `${entry.path}.equals`,
+        "runtime",
+        diagnostics,
+      );
+    }
+
+    if (
+      (entry.node.type === "element" || entry.node.type === "component") &&
+      entry.node.props
+    ) {
       collectRuntimeTemplateJsonDiagnostics(
         entry.node.props,
         `${entry.path}.props`,
@@ -2199,34 +2423,105 @@ export function getValueByPath(source: unknown, path: string): unknown {
   return cursor;
 }
 
+/**
+ * Writes `value` at `path`, creating missing objects along the way. Array
+ * items are addressed by index (`todos.2.done`); a non-index segment or an
+ * out-of-range index on an array is rejected instead of replacing the array.
+ * Returns whether the value was written.
+ */
 export function setValueByPath(
   target: RuntimeStateSnapshot,
   path: string,
   value: JsonValue,
-): void {
+): boolean {
   const segments = splitPath(path);
   if (segments.length === 0 || !isSafePath(path)) {
-    return;
+    return false;
   }
 
-  let cursor: Record<string, JsonValue> = target;
+  let cursor: Record<string, JsonValue> | JsonValue[] = target;
 
   for (let i = 0; i < segments.length; i += 1) {
     const segment = segments[i];
     const isLast = i === segments.length - 1;
 
-    if (isLast) {
-      cursor[segment] = value;
-      return;
+    if (Array.isArray(cursor)) {
+      const index = readArrayIndex(segment, cursor.length);
+      if (index === undefined) {
+        return false;
+      }
+      if (isLast) {
+        cursor[index] = value;
+        return true;
+      }
+      const item: JsonValue = cursor[index];
+      if (typeof item !== "object" || item === null) {
+        cursor[index] = {};
+      }
+      cursor = cursor[index] as Record<string, JsonValue> | JsonValue[];
+      continue;
     }
 
-    const next = cursor[segment];
-    if (typeof next !== "object" || next === null || Array.isArray(next)) {
+    if (isLast) {
+      cursor[segment] = value;
+      return true;
+    }
+
+    const next = Object.hasOwn(cursor, segment) ? cursor[segment] : undefined;
+    if (typeof next !== "object" || next === null) {
       cursor[segment] = {};
     }
 
-    cursor = cursor[segment] as Record<string, JsonValue>;
+    cursor = cursor[segment] as Record<string, JsonValue> | JsonValue[];
   }
+
+  return false;
+}
+
+/**
+ * Deletes the value at `path`. Array items are spliced out so later items
+ * shift down; object keys are deleted. Returns whether anything was removed.
+ */
+export function removeValueByPath(
+  target: RuntimeStateSnapshot,
+  path: string,
+): boolean {
+  const segments = splitPath(path);
+  if (segments.length === 0 || !isSafePath(path)) {
+    return false;
+  }
+
+  const parent = getValueByPath(target, segments.slice(0, -1).join("."));
+  const container = segments.length === 1 ? target : parent;
+  const last = segments[segments.length - 1];
+
+  if (Array.isArray(container)) {
+    const index = readArrayIndex(last, container.length);
+    if (index === undefined) {
+      return false;
+    }
+    container.splice(index, 1);
+    return true;
+  }
+
+  if (
+    typeof container === "object" &&
+    container !== null &&
+    Object.hasOwn(container, last)
+  ) {
+    delete (container as Record<string, JsonValue>)[last];
+    return true;
+  }
+
+  return false;
+}
+
+function readArrayIndex(segment: string, length: number): number | undefined {
+  if (!/^(?:0|[1-9]\d*)$/.test(segment)) {
+    return undefined;
+  }
+  const index = Number(segment);
+  return index < length ? index : undefined;
 }
 
 export function cloneJsonValue<T extends JsonValue>(value: T): T {

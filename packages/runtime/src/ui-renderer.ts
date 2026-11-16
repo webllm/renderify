@@ -4,7 +4,11 @@ import type {
   RuntimeExecutionResult,
   RuntimeNode,
 } from "@renderify/ir";
-import { parseRuntimeEventBinding } from "@renderify/ir";
+import {
+  normalizeRuntimeBindPath,
+  parseRuntimeEventBinding,
+  RUNTIME_BIND_EVENT_TYPE,
+} from "@renderify/ir";
 import {
   hasRuntimeCssImageSetFunction,
   inspectRuntimeUrlAttribute,
@@ -43,16 +47,31 @@ interface SerializedEventBinding {
   runtimeEvent: RuntimeEvent;
 }
 
+interface SerializedControlBinding {
+  bindId: string;
+  path: string;
+}
+
 interface RenderSerializationContext {
   nextBindingId: number;
   eventBindings: SerializedEventBinding[];
+  nextBindId: number;
+  controlBindings: SerializedControlBinding[];
+}
+
+interface DelegatedListener {
+  domTypes: string[];
+  listener: (event: Event) => void;
 }
 
 interface MountSession {
   html: string;
   planId: string;
   runtimeEvents: Map<string, RuntimeEvent>;
-  listeners: Map<string, (event: Event) => void>;
+  /** Bind id → state path for form controls with a `bind` prop. */
+  controlBindings: Map<string, string>;
+  /** Binding event name → its delegated listener and the DOM events it uses. */
+  listeners: Map<string, DelegatedListener>;
   onRuntimeEvent?: (
     request: RuntimeEventDispatchRequest,
   ) => void | Promise<void>;
@@ -67,6 +86,11 @@ interface ResolvedRenderTarget {
 
 export class DefaultUIRenderer implements UIRenderer {
   private readonly mountSessions = new WeakMap<HTMLElement, MountSession>();
+  /** Last rendered value/checked per form control, for controlled updates. */
+  private readonly renderedControlState = new WeakMap<
+    Element,
+    { value: string | null; checked: boolean }
+  >();
   private readonly options: DefaultUIRendererOptions;
 
   constructor(options: DefaultUIRendererOptions = {}) {
@@ -104,8 +128,10 @@ export class DefaultUIRenderer implements UIRenderer {
       mountPoint,
       result.planId,
       serialized.eventBindings,
+      serialized.controlBindings,
       onRuntimeEvent,
     );
+    this.syncControlledFormValues(mountPoint);
 
     return mountPoint.innerHTML;
   }
@@ -151,8 +177,10 @@ export class DefaultUIRenderer implements UIRenderer {
       return;
     }
 
-    for (const [eventType, listener] of session.listeners.entries()) {
-      mountPoint.removeEventListener(eventType, listener);
+    for (const { domTypes, listener } of session.listeners.values()) {
+      for (const domType of domTypes) {
+        mountPoint.removeEventListener(domType, listener);
+      }
     }
     session.listeners.clear();
     this.mountSessions.delete(mountPoint);
@@ -161,15 +189,19 @@ export class DefaultUIRenderer implements UIRenderer {
   private renderNodeWithBindings(node: RuntimeNode): {
     html: string;
     eventBindings: SerializedEventBinding[];
+    controlBindings: SerializedControlBinding[];
   } {
     const context: RenderSerializationContext = {
       nextBindingId: 0,
       eventBindings: [],
+      nextBindId: 0,
+      controlBindings: [],
     };
 
     return {
       html: this.renderNodeInternal(node, context),
       eventBindings: context.eventBindings,
+      controlBindings: context.controlBindings,
     };
   }
 
@@ -185,6 +217,12 @@ export class DefaultUIRenderer implements UIRenderer {
       return `<div data-renderify-unresolved-component="${escapeHtml(node.module)}"></div>`;
     }
 
+    if (node.type === "each" || node.type === "if") {
+      // Control nodes are expanded by the runtime before rendering; an
+      // unexecuted plan has no state to evaluate them against.
+      return `<div data-renderify-unresolved-control="${node.type}"></div>`;
+    }
+
     const children = (node.children ?? [])
       .map((child) => this.renderNodeInternal(child, context))
       .join("");
@@ -192,11 +230,21 @@ export class DefaultUIRenderer implements UIRenderer {
     if (!normalizedTag) {
       return `<div data-renderify-sanitized-tag="${escapeHtml(node.tag)}">${children}</div>`;
     }
+    if (normalizedTag === "form") {
+      // A real form could navigate the host or post its fields elsewhere, so
+      // forms render as inert containers and the runtime emulates submit.
+      const attributes = serializeProps(
+        withoutFormSubmissionProps(node.props),
+        context,
+        "div",
+      );
+      return `<div data-renderify-form${attributes}>${children}</div>`;
+    }
     if (BLOCKED_TAG_NAMES.has(normalizedTag)) {
       return `<div data-renderify-sanitized-tag="${escapeHtml(node.tag)}"></div>`;
     }
 
-    const attributes = serializeProps(node.props, context);
+    const attributes = serializeProps(node.props, context, normalizedTag);
 
     return `<${normalizedTag}${attributes}>${children}</${normalizedTag}>`;
   }
@@ -450,9 +498,6 @@ export class DefaultUIRenderer implements UIRenderer {
     currentElement: Element,
     nextElement: Element,
   ): void {
-    const activeElement =
-      typeof document !== "undefined" ? document.activeElement : undefined;
-
     for (const attribute of Array.from(currentElement.attributes)) {
       if (!nextElement.hasAttribute(attribute.name)) {
         currentElement.removeAttribute(attribute.name);
@@ -460,47 +505,74 @@ export class DefaultUIRenderer implements UIRenderer {
     }
 
     for (const attribute of Array.from(nextElement.attributes)) {
-      if (
-        this.shouldSkipInteractivePropertySync(
-          currentElement,
-          activeElement,
-          attribute.name,
-        )
-      ) {
-        continue;
-      }
-
       if (currentElement.getAttribute(attribute.name) !== attribute.value) {
         currentElement.setAttribute(attribute.name, attribute.value);
       }
     }
   }
 
-  private shouldSkipInteractivePropertySync(
-    element: Element,
-    activeElement: Element | null | undefined,
-    attributeName: string,
-  ): boolean {
-    if (!activeElement || element !== activeElement) {
-      return false;
-    }
+  /**
+   * Applies rendered `value`/`checked` to form control properties when the
+   * render changed them, so state updates (such as clearing a bound input
+   * after "Add") reach controls the user has already edited. Controls whose
+   * rendered value did not change keep whatever the user entered, and a
+   * focused control is only updated when it is being cleared, so in-flight
+   * renders never overwrite text the user is typing.
+   */
+  private syncControlledFormValues(mountPoint: HTMLElement): void {
+    const activeElement =
+      typeof document !== "undefined" ? document.activeElement : null;
+    for (const element of Array.from(
+      mountPoint.querySelectorAll("input, textarea, select"),
+    )) {
+      const control = element as HTMLInputElement;
+      const tag = element.tagName.toLowerCase();
+      const type =
+        tag === "input" ? (control.type || "text").toLowerCase() : tag;
+      const previous = this.renderedControlState.get(element);
 
-    if (
-      !(
-        element instanceof HTMLInputElement ||
-        element instanceof HTMLTextAreaElement
-      )
-    ) {
-      return false;
-    }
+      if (type === "checkbox" || type === "radio") {
+        const rendered = element.hasAttribute("checked");
+        if (
+          previous === undefined
+            ? control.checked !== rendered
+            : previous.checked !== rendered
+        ) {
+          control.checked = rendered;
+        }
+        this.renderedControlState.set(element, {
+          value: null,
+          checked: rendered,
+        });
+        continue;
+      }
 
-    return attributeName === "value" || attributeName === "checked";
+      const rendered = element.getAttribute("value");
+      const changed = previous === undefined || previous.value !== rendered;
+      this.renderedControlState.set(element, {
+        value: rendered,
+        checked: false,
+      });
+      if (
+        rendered === null ||
+        !changed ||
+        type === "file" ||
+        (tag === "select" && (element as HTMLSelectElement).multiple) ||
+        (element === activeElement && rendered !== "")
+      ) {
+        continue;
+      }
+      if (control.value !== rendered) {
+        control.value = rendered;
+      }
+    }
   }
 
   private syncMountSession(
     mountPoint: HTMLElement,
     planId: string,
     eventBindings: SerializedEventBinding[],
+    controlBindings: SerializedControlBinding[],
     onRuntimeEvent?: (
       request: RuntimeEventDispatchRequest,
     ) => void | Promise<void>,
@@ -508,17 +580,26 @@ export class DefaultUIRenderer implements UIRenderer {
     const existing = this.mountSessions.get(mountPoint);
 
     const runtimeEvents = new Map<string, RuntimeEvent>();
+    const boundControls = new Map<string, string>();
     const delegatedEventTypes = new Set<string>();
 
     for (const binding of eventBindings) {
       runtimeEvents.set(binding.bindingId, binding.runtimeEvent);
       delegatedEventTypes.add(binding.domEvent);
     }
+    for (const binding of controlBindings) {
+      boundControls.set(binding.bindId, binding.path);
+    }
+    if (boundControls.size > 0) {
+      delegatedEventTypes.add("input");
+      delegatedEventTypes.add("change");
+    }
 
     const session: MountSession = existing ?? {
       html: "",
       planId,
       runtimeEvents,
+      controlBindings: boundControls,
       listeners: new Map(),
       onRuntimeEvent,
     };
@@ -526,6 +607,7 @@ export class DefaultUIRenderer implements UIRenderer {
     session.html = mountPoint.innerHTML;
     session.planId = planId;
     session.runtimeEvents = runtimeEvents;
+    session.controlBindings = boundControls;
     session.onRuntimeEvent = onRuntimeEvent;
 
     this.syncDelegatedListeners(mountPoint, session, delegatedEventTypes);
@@ -537,9 +619,11 @@ export class DefaultUIRenderer implements UIRenderer {
     session: MountSession,
     delegatedEventTypes: Set<string>,
   ): void {
-    for (const [eventType, listener] of session.listeners.entries()) {
+    for (const [eventType, entry] of session.listeners.entries()) {
       if (!delegatedEventTypes.has(eventType)) {
-        mountPoint.removeEventListener(eventType, listener);
+        for (const domType of entry.domTypes) {
+          mountPoint.removeEventListener(domType, entry.listener);
+        }
         session.listeners.delete(eventType);
       }
     }
@@ -553,8 +637,11 @@ export class DefaultUIRenderer implements UIRenderer {
         this.handleDelegatedRuntimeEvent(mountPoint, session, eventType, event);
       };
 
-      mountPoint.addEventListener(eventType, listener);
-      session.listeners.set(eventType, listener);
+      const domTypes = toDomListenerTypes(eventType);
+      for (const domType of domTypes) {
+        mountPoint.addEventListener(domType, listener);
+      }
+      session.listeners.set(eventType, { domTypes, listener });
     }
   }
 
@@ -566,6 +653,19 @@ export class DefaultUIRenderer implements UIRenderer {
   ): void {
     const eventTarget = event.target;
     if (!eventTarget || !(eventTarget instanceof Element)) {
+      return;
+    }
+
+    if (domEvent === "input" || domEvent === "change") {
+      this.dispatchControlBinding(mountPoint, session, domEvent, eventTarget);
+    }
+
+    if (domEvent === "submit") {
+      this.dispatchFormSubmit(mountPoint, session, event, eventTarget);
+      return;
+    }
+
+    if (domEvent === "enter" && !isPlainEnterKey(event)) {
       return;
     }
 
@@ -590,6 +690,106 @@ export class DefaultUIRenderer implements UIRenderer {
       return;
     }
 
+    if (domEvent === "enter") {
+      // Enter triggers the bound action instead of inserting a newline.
+      event.preventDefault();
+    }
+
+    // Events from form controls carry the control's live value, so plans can
+    // copy it with {"$from":"event.payload.value"}. Declared payload keys win.
+    const captured = captureControlValues(eventTarget, matched);
+    this.dispatchRuntimeEvent(
+      mountPoint,
+      session,
+      captured
+        ? {
+            ...runtimeEvent,
+            payload: { ...captured, ...(runtimeEvent.payload ?? {}) },
+          }
+        : runtimeEvent,
+    );
+  }
+
+  /**
+   * Emulates form submission for `form` nodes, which render as inert
+   * containers: a click on a submit button or Enter in a text field inside a
+   * container with an `onSubmit` binding dispatches it, with the container's
+   * named fields in the payload.
+   */
+  private dispatchFormSubmit(
+    mountPoint: HTMLElement,
+    session: MountSession,
+    event: Event,
+    target: Element,
+  ): void {
+    const bindingAttribute = getBindingAttributeName("submit");
+    const form = target.closest(`[${bindingAttribute}]`);
+    if (!form || !mountPoint.contains(form)) {
+      return;
+    }
+    if (event.type === "click") {
+      const submitter = target.closest("button, input");
+      if (
+        !submitter ||
+        !form.contains(submitter) ||
+        !isSubmitControl(submitter)
+      ) {
+        return;
+      }
+    } else if (
+      event.type !== "keydown" ||
+      !isPlainEnterKey(event) ||
+      !isImplicitSubmitField(target)
+    ) {
+      return;
+    }
+    event.preventDefault();
+
+    const bindingId = form.getAttribute(bindingAttribute);
+    const runtimeEvent = bindingId
+      ? session.runtimeEvents.get(bindingId)
+      : undefined;
+    if (!runtimeEvent) {
+      return;
+    }
+    this.dispatchRuntimeEvent(mountPoint, session, {
+      ...runtimeEvent,
+      payload: { ...collectFormFields(form), ...(runtimeEvent.payload ?? {}) },
+    });
+  }
+
+  private dispatchControlBinding(
+    mountPoint: HTMLElement,
+    session: MountSession,
+    domEvent: "input" | "change",
+    target: Element,
+  ): void {
+    const bindId = target.getAttribute(CONTROL_BIND_ATTRIBUTE);
+    const path = bindId ? session.controlBindings.get(bindId) : undefined;
+    if (!path || getControlBindDomEvent(target) !== domEvent) {
+      return;
+    }
+    if (
+      readControlType(target) === "radio" &&
+      !(target as HTMLInputElement).checked
+    ) {
+      return;
+    }
+    const value = readControlValue(target);
+    if (value === undefined) {
+      return;
+    }
+    this.dispatchRuntimeEvent(mountPoint, session, {
+      type: RUNTIME_BIND_EVENT_TYPE,
+      payload: { path, value },
+    });
+  }
+
+  private dispatchRuntimeEvent(
+    mountPoint: HTMLElement,
+    session: MountSession,
+    runtimeEvent: RuntimeEvent,
+  ): void {
     const dispatchRequest: RuntimeEventDispatchRequest = {
       planId: session.planId,
       event: runtimeEvent,
@@ -738,6 +938,224 @@ function getBindingAttributeName(domEvent: string): string {
   return `data-renderify-event-${domEvent}`;
 }
 
+const CONTROL_BIND_ATTRIBUTE = "data-renderify-bind";
+const BINDABLE_TAG_NAMES = new Set(["input", "textarea", "select"]);
+const UNCAPTURED_INPUT_TYPES = new Set([
+  "password",
+  "file",
+  "button",
+  "submit",
+  "reset",
+  "image",
+]);
+
+/**
+ * DOM events a binding listens to: `onEnter` is a keydown filtered to Enter,
+ * and `onSubmit` on a form container is emulated from submit-button clicks
+ * and Enter in its text fields.
+ */
+function toDomListenerTypes(domEvent: string): string[] {
+  if (domEvent === "enter") {
+    return ["keydown"];
+  }
+  if (domEvent === "submit") {
+    return ["click", "keydown"];
+  }
+  return [domEvent];
+}
+
+const FORM_SUBMISSION_PROPS = new Set([
+  "action",
+  "method",
+  "target",
+  "enctype",
+  "novalidate",
+  "accept-charset",
+  "acceptcharset",
+]);
+
+function withoutFormSubmissionProps(
+  props: Record<string, JsonValue> | undefined,
+): Record<string, JsonValue> | undefined {
+  if (!props) {
+    return props;
+  }
+  return Object.fromEntries(
+    Object.entries(props).filter(
+      ([key]) => !FORM_SUBMISSION_PROPS.has(key.toLowerCase()),
+    ),
+  );
+}
+
+function isSubmitControl(element: Element): boolean {
+  const tag = element.tagName.toLowerCase();
+  const type = ((element as HTMLButtonElement).type || "").toLowerCase();
+  return (
+    (tag === "button" && type === "submit") ||
+    (tag === "input" && (type === "submit" || type === "image"))
+  );
+}
+
+const NON_TEXT_INPUT_TYPES = new Set([
+  "checkbox",
+  "radio",
+  "file",
+  "button",
+  "submit",
+  "reset",
+  "image",
+  "range",
+  "color",
+  "hidden",
+]);
+
+function isImplicitSubmitField(element: Element): boolean {
+  return (
+    element.tagName.toLowerCase() === "input" &&
+    !NON_TEXT_INPUT_TYPES.has(
+      ((element as HTMLInputElement).type || "text").toLowerCase(),
+    )
+  );
+}
+
+const FORM_FIELD_NAME_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$-]*$/;
+const UNSAFE_FIELD_NAMES = new Set(["__proto__", "prototype", "constructor"]);
+
+/**
+ * Reads named fields inside a form container, like FormData but as JSON:
+ * a lone checkbox is a boolean, a group of same-named checkboxes is the
+ * array of checked values, a radio group is the checked value or null.
+ * Password, file, and disabled fields are skipped.
+ */
+function collectFormFields(form: Element): Record<string, JsonValue> {
+  const fields: Record<string, JsonValue> = {};
+  const controls = Array.from(
+    form.querySelectorAll("input[name], select[name], textarea[name]"),
+  );
+  const checkboxCounts = new Map<string, number>();
+  for (const control of controls) {
+    if (readControlType(control) === "checkbox") {
+      const name = control.getAttribute("name") ?? "";
+      checkboxCounts.set(name, (checkboxCounts.get(name) ?? 0) + 1);
+    }
+  }
+
+  for (const control of controls) {
+    const name = control.getAttribute("name") ?? "";
+    const type = readControlType(control);
+    if (
+      !FORM_FIELD_NAME_PATTERN.test(name) ||
+      UNSAFE_FIELD_NAMES.has(name) ||
+      type === undefined ||
+      (control as HTMLInputElement).disabled
+    ) {
+      continue;
+    }
+    if (type === "radio") {
+      const input = control as HTMLInputElement;
+      if (input.checked) {
+        fields[name] = input.value;
+      } else if (!Object.hasOwn(fields, name)) {
+        fields[name] = null;
+      }
+      continue;
+    }
+    if (type === "checkbox" && (checkboxCounts.get(name) ?? 0) > 1) {
+      const input = control as HTMLInputElement;
+      const checked = Array.isArray(fields[name])
+        ? (fields[name] as JsonValue[])
+        : [];
+      fields[name] = input.checked ? [...checked, input.value] : checked;
+      continue;
+    }
+    const value = readControlValue(control);
+    if (value !== undefined) {
+      fields[name] = value;
+    }
+  }
+  return fields;
+}
+
+function isPlainEnterKey(event: Event): boolean {
+  const keyboard = event as KeyboardEvent;
+  return (
+    keyboard.key === "Enter" &&
+    !keyboard.isComposing &&
+    !keyboard.shiftKey &&
+    !keyboard.altKey &&
+    !keyboard.ctrlKey &&
+    !keyboard.metaKey
+  );
+}
+
+function readControlType(element: Element): string | undefined {
+  const tag = element.tagName.toLowerCase();
+  if (!BINDABLE_TAG_NAMES.has(tag)) {
+    return undefined;
+  }
+  return tag === "input"
+    ? ((element as HTMLInputElement).type || "text").toLowerCase()
+    : tag;
+}
+
+/** Checkboxes, radios, and selects commit on change; text-like controls on input. */
+function getControlBindDomEvent(element: Element): "input" | "change" {
+  const type = readControlType(element);
+  return type === "checkbox" || type === "radio" || type === "select"
+    ? "change"
+    : "input";
+}
+
+/**
+ * Reads a form control's current value as JSON: booleans for checkboxes,
+ * numbers for number and range inputs, an array for multi-selects, and
+ * strings otherwise. Password and file inputs are never read.
+ */
+function readControlValue(element: Element): JsonValue | undefined {
+  const type = readControlType(element);
+  if (type === undefined || UNCAPTURED_INPUT_TYPES.has(type)) {
+    return undefined;
+  }
+  if (type === "checkbox") {
+    return (element as HTMLInputElement).checked;
+  }
+  if (type === "number" || type === "range") {
+    const input = element as HTMLInputElement;
+    return Number.isFinite(input.valueAsNumber)
+      ? input.valueAsNumber
+      : input.value;
+  }
+  if (type === "select" && (element as HTMLSelectElement).multiple) {
+    return Array.from((element as HTMLSelectElement).selectedOptions).map(
+      (option) => option.value,
+    );
+  }
+  return (element as HTMLInputElement).value;
+}
+
+function captureControlValues(
+  target: Element,
+  matched: Element,
+): Record<string, JsonValue> | undefined {
+  const control =
+    readControlType(target) !== undefined
+      ? target
+      : readControlType(matched) !== undefined
+        ? matched
+        : undefined;
+  if (!control) {
+    return undefined;
+  }
+  const value = readControlValue(control);
+  if (value === undefined) {
+    return undefined;
+  }
+  const type = readControlType(control);
+  return type === "checkbox" || type === "radio"
+    ? { value, checked: (control as HTMLInputElement).checked }
+    : { value };
+}
+
 const BLOCKED_TAG_NAMES = new Set([
   "script",
   "style",
@@ -846,6 +1264,7 @@ function isSafeAttributeName(attributeName: string): boolean {
 function serializeProps(
   props: Record<string, JsonValue> | undefined,
   context: RenderSerializationContext,
+  tagName: string,
 ): string {
   if (!props) {
     return "";
@@ -880,6 +1299,24 @@ function serializeProps(
         attributes.push(
           ` data-renderify-key="${escapeHtml(String(rawValue))}"`,
         );
+      }
+      continue;
+    }
+
+    if (key === "bind") {
+      const path = normalizeRuntimeBindPath(rawValue);
+      const inputType =
+        typeof props.type === "string"
+          ? props.type.trim().toLowerCase()
+          : "text";
+      if (
+        path &&
+        BINDABLE_TAG_NAMES.has(tagName) &&
+        !(tagName === "input" && UNCAPTURED_INPUT_TYPES.has(inputType))
+      ) {
+        const bindId = `bind_${String(++context.nextBindId)}`;
+        context.controlBindings.push({ bindId, path });
+        attributes.push(` ${CONTROL_BIND_ATTRIBUTE}="${escapeHtml(bindId)}"`);
       }
       continue;
     }

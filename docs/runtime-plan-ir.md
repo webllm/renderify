@@ -41,7 +41,7 @@ const RUNTIME_PLAN_SPEC_VERSION_V1 = "runtime-plan/v1";
 
 ## Node Types
 
-The UI tree is composed of three node types:
+The UI tree is composed of five node types: `text`, `element`, and `component` render content, while `each` and `if` repeat or conditionally render their children.
 
 ### Text Node
 
@@ -65,9 +65,7 @@ interface RuntimeElementNode {
 }
 ```
 
-Props support standard HTML attributes. Event handlers use the `onClick`, `onInput` format and are converted to runtime event bindings.
-
-In the declarative RuntimeNode lane, those bindings dispatch static runtime events. They do not extract live browser values such as `event.target.value`, `checked`, or `FormData`. Use `source.runtime: "preact"` when the UI needs value-driven forms or richer DOM event handling.
+Props support standard HTML attributes. Event handlers use the `onClick`, `onInput` format and are converted to runtime event bindings; see [Events and forms](#events-and-forms).
 
 ### Component Node
 
@@ -84,6 +82,54 @@ interface RuntimeComponentNode {
 Component nodes reference external modules loaded via the JSPM module loader. The `module` specifier is resolved through the module manifest or JSPM CDN.
 
 The referenced export is invoked as a Renderify component factory and must return a `RuntimeNode` tree or a string. Component nodes are not React or Preact component hosts.
+
+### Each Node
+
+```ts
+interface RuntimeEachNode {
+  type: "each";
+  items: string; // Array reference: "state.todos" or "{{state.todos}}"
+  as?: string; // Item variable (default: "item")
+  index?: string; // Position variable (default: "index")
+  key?: string; // Item field used as a stable key, e.g. "id"
+  children?: RuntimeNode[]; // Rendered once per item
+}
+```
+
+Children are rendered once per array item, in place: an `each` inside a `ul`
+produces `li` siblings without a wrapper element. Inside the loop, templates
+and props can read the loop variables, such as `{{todo.title}}` and
+`{{index}}`. Loops nest, and inner loops can read outer variables. `as` and
+`index` must be simple identifiers other than `state`, `event`, `context`,
+and `vars`.
+
+With `key`, each element produced by an iteration gets a stable key, so
+removing or reordering items reuses the right DOM nodes (and keeps focus and
+checkbox state on the right row). A single render may produce at most 10,000
+nodes through `each`; beyond that, rendering stops and the runtime reports
+`RUNTIME_EACH_LIMIT_EXCEEDED`.
+
+### If Node
+
+```ts
+interface RuntimeIfNode {
+  type: "if";
+  when: string; // Value reference: "state.open", "todo.done", "{{state.tab}}"
+  equals?: string | number | boolean | null; // Compare instead of testing truthiness
+  not?: boolean; // Invert the condition
+  children?: RuntimeNode[];
+}
+```
+
+Without `equals`, children render when the value is truthy. Truthiness follows
+JavaScript except that an empty array is false, so `"when": "state.todos"`
+means "has todos". With `equals`, primitives compare by their text form
+(`2` equals `"2"`), and string values may be templates such as
+`"{{item.id}}"`. Use two `if` nodes, one with `"not": true`, for if/else.
+
+A control node in the plan root renders inside a
+`<div data-renderify-fragment style="display:contents">` wrapper so it does
+not affect layout.
 
 ## Capabilities
 
@@ -141,7 +187,7 @@ When `state` is present, `state.initial` is required. The runtime maintains a sn
 
 ### Actions
 
-Four action types are available for state transitions:
+Five action types are available for state transitions:
 
 ```ts
 // Set a value at a path
@@ -170,7 +216,27 @@ interface RuntimePushAction {
   path: string;
   value: JsonValue | { $from: string };
 }
+
+// Delete a value; array items are spliced out
+interface RuntimeRemoveAction {
+  type: "remove";
+  path: string;
+}
 ```
+
+Paths address array items by index (`todos.2.done`). A whole path segment may
+be a template, resolved when the event is handled, to target the item an event
+came from:
+
+```json
+{ "type": "toggle", "path": "todos.{{event.payload.index}}.done" }
+{ "type": "remove", "path": "todos.{{event.payload.index}}" }
+```
+
+A template must fill its segment, and its value must be a string or
+non-negative integer that forms one safe segment; otherwise the action is
+skipped with a `RUNTIME_ACTION_PATH_UNRESOLVED` diagnostic. Writing to a
+missing array index is also skipped rather than replacing the array.
 
 ### Value References
 
@@ -182,6 +248,97 @@ The `$from` syntax references values from other contexts:
 { "$from": "context.userId" }    // Execution context
 { "$from": "vars.theme" }        // Context variables
 ```
+
+References may appear anywhere inside a `set` or `push` value, so a new list
+item can combine bound state and literals:
+
+```json
+{
+  "type": "push",
+  "path": "todos",
+  "value": { "title": { "$from": "state.draft" }, "done": false }
+}
+```
+
+Event binding payloads may contain references too. They are resolved against
+state when the event is handled, after earlier events in the same interaction
+have been applied, so the payload always carries what the user just entered.
+A payload that is a single reference, such as `{ "$from": "state.form" }`,
+becomes the referenced object.
+
+## Events and forms
+
+Element props named `on` + an event (`onClick`, `onInput`, `onChange`,
+`onKeyDown`, ...) dispatch a runtime event. The value is either a transition
+name or `{ "type": "...", "payload": { ... } }`. Inside `each`, payload
+templates such as `"{{index}}"` capture the current item:
+
+```json
+{ "onClick": { "type": "remove", "payload": { "index": "{{index}}" } } }
+```
+
+`onEnter` dispatches when Enter is pressed in a field (without modifier keys
+or an active IME composition) and suppresses the newline.
+
+Events from `input`, `textarea`, and `select` elements carry the control's
+live value in `event.payload.value`: a boolean for checkboxes (with
+`event.payload.checked`), a number for number and range inputs, an array for
+multi-selects, and a string otherwise. Keys declared in the binding's payload
+take precedence over captured values.
+
+### Bound controls
+
+`bind` keeps a form control and a state path in sync without writing
+transitions:
+
+```json
+{ "type": "element", "tag": "input", "props": { "bind": "draft", "placeholder": "New task" } }
+{ "type": "element", "tag": "input", "props": { "type": "checkbox", "bind": "todos.{{index}}.done" } }
+```
+
+The control shows the state value, and each edit writes back to the path
+(text-like controls on `input`, checkboxes, radios, and selects on `change`)
+through a `renderify:bind` runtime event before any transitions run.
+Checkboxes bind booleans; a radio is checked when the bound value equals its
+`value`; number inputs bind numbers. The `state.` prefix is optional, and loop
+templates in the path are resolved per item.
+
+When state changes the bound value, for example when an "Add" transition
+clears `draft`, the control updates even if the user already edited it. A
+focused control is only updated when it is being cleared, so renders never
+overwrite text while the user is typing.
+
+Password and file inputs are never bound and never captured, so their
+contents cannot reach plan state, events, or a host's model context.
+
+### Forms
+
+A `form` element renders as an inert `<div data-renderify-form>` container
+without `action`, `method`, or `target`, so it can never navigate the page or
+post fields anywhere. The runtime emulates submission instead: `onSubmit`
+fires when a submit button inside the form is clicked or Enter is pressed in
+one of its text fields. The payload contains the form's named fields, merged
+under any declared payload keys:
+
+```json
+{
+  "type": "element",
+  "tag": "form",
+  "props": { "onSubmit": "tool:search_flights" },
+  "children": [
+    { "type": "element", "tag": "input", "props": { "name": "from" } },
+    { "type": "element", "tag": "input", "props": { "name": "to" } },
+    { "type": "element", "tag": "button", "children": [{ "type": "text", "value": "Search" }] }
+  ]
+}
+```
+
+Submitting this form dispatches `tool:search_flights` with
+`{ "from": "...", "to": "..." }`. A lone checkbox is a boolean, same-named
+checkboxes are the array of checked values, and a radio group is the checked
+value or `null`. Disabled, password, and file fields are skipped. Fields keep
+what the user typed after a submit; bind them when a transition should clear
+them.
 
 ### Path Safety
 
@@ -320,7 +477,9 @@ const modules = collectComponentModules(plan.root);
 
 ```ts
 getValueByPath(state, "user.name"); // => "Alice"
-setValueByPath(state, "user.name", "Bob");
+setValueByPath(state, "user.name", "Bob"); // => true when written
+setValueByPath(state, "todos.9.done", true); // => false for a missing item
+removeValueByPath(state, "todos.0"); // splices the array
 isSafePath("user.name"); // => true
 isSafePath("__proto__.hack"); // => false
 ```

@@ -92,6 +92,18 @@ test("generation eval checks explain why a plan misses the prompt", () => {
   assert.deepEqual(
     evaluateChecks(
       {
+        id: "interaction",
+        prompt: "p",
+        lane: "declarative",
+        checks: { nodeTypes: ["each", "if"], props: ["bind"] },
+      },
+      plan,
+    ),
+    ["missing each node", "missing if node", "missing bind prop"],
+  );
+  assert.deepEqual(
+    evaluateChecks(
+      {
         id: "source",
         prompt: "p",
         lane: "source",

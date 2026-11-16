@@ -64,6 +64,13 @@ Use `allowedTools` only when a declarative event such as
 the host. The default allowlist is empty and the registered display tool is
 model-only by default.
 
+The event payload becomes the tool arguments. It can carry what the user
+entered: a `form` with `onSubmit: "tool:search_flights"` sends its named
+fields (`{ "from": "SFO", "to": "JFK" }`), and payload values such as
+`{ "$from": "state.query" }` read state bound with `bind` at the moment of the
+click. Password and file inputs are never included. Typing into bound inputs
+updates the model context once typing pauses rather than on every keystroke.
+
 ## Public API
 
 - `registerRenderifyApp` composes one tool and one resource.

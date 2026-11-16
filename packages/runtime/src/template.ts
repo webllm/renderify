@@ -5,6 +5,7 @@ import {
   type RuntimeEvent,
   type RuntimeExecutionContext,
   type RuntimeStateSnapshot,
+  type RuntimeTemplateScope,
 } from "@renderify/ir";
 
 const TEMPLATE_STRINGIFY_MAX_DEPTH = 8;
@@ -19,6 +20,7 @@ export function resolveProps(
   context: RuntimeExecutionContext,
   state: RuntimeStateSnapshot,
   event: RuntimeEvent | undefined,
+  scope?: RuntimeTemplateScope,
 ): Record<string, JsonValue> | undefined {
   if (!props) {
     return undefined;
@@ -27,7 +29,7 @@ export function resolveProps(
   const resolved: Record<string, JsonValue> = {};
 
   for (const [key, value] of Object.entries(props)) {
-    resolved[key] = resolveJsonValue(value, context, state, event);
+    resolved[key] = resolveJsonValue(value, context, state, event, scope);
   }
 
   return resolved;
@@ -38,8 +40,16 @@ export function resolveJsonValue(
   context: RuntimeExecutionContext,
   state: RuntimeStateSnapshot,
   event: RuntimeEvent | undefined,
+  scope?: RuntimeTemplateScope,
 ): JsonValue {
-  return resolveJsonValueInternal(value, context, state, event, new WeakSet());
+  return resolveJsonValueInternal(
+    value,
+    context,
+    state,
+    event,
+    scope,
+    new WeakSet(),
+  );
 }
 
 function resolveJsonValueInternal(
@@ -47,10 +57,11 @@ function resolveJsonValueInternal(
   context: RuntimeExecutionContext,
   state: RuntimeStateSnapshot,
   event: RuntimeEvent | undefined,
+  scope: RuntimeTemplateScope | undefined,
   seen: WeakSet<object>,
 ): JsonValue {
   if (typeof value === "string") {
-    return resolveTemplateValue(value, context, state, event);
+    return resolveTemplateValue(value, context, state, event, scope);
   }
 
   if (Array.isArray(value)) {
@@ -59,7 +70,7 @@ function resolveJsonValueInternal(
     }
     seen.add(value);
     const resolved = value.map((item) =>
-      resolveJsonValueInternal(item, context, state, event, seen),
+      resolveJsonValueInternal(item, context, state, event, scope, seen),
     );
     seen.delete(value);
     return resolved;
@@ -77,6 +88,7 @@ function resolveJsonValueInternal(
         context,
         state,
         event,
+        scope,
         seen,
       );
     }
@@ -92,17 +104,19 @@ function resolveTemplateValue(
   context: RuntimeExecutionContext,
   state: RuntimeStateSnapshot,
   event: RuntimeEvent | undefined,
+  scope: RuntimeTemplateScope | undefined,
 ): JsonValue {
   const exactExpression = EXACT_TEMPLATE_EXPRESSION_PATTERN.exec(template);
   if (!exactExpression) {
-    return interpolateTemplate(template, context, state, event);
+    return interpolateTemplate(template, context, state, event, scope);
   }
 
-  const resolved = resolveExpression(
+  const resolved = resolveTemplateExpression(
     exactExpression[1] ?? "",
     context,
     state,
     event,
+    scope,
   );
   return resolved === undefined || resolved === null
     ? ""
@@ -114,9 +128,16 @@ export function interpolateTemplate(
   context: RuntimeExecutionContext,
   state: RuntimeStateSnapshot,
   event: RuntimeEvent | undefined,
+  scope?: RuntimeTemplateScope,
 ): string {
   return template.replace(/{{\s*([^}]+)\s*}}/g, (_match, expression) => {
-    const resolved = resolveExpression(expression, context, state, event);
+    const resolved = resolveTemplateExpression(
+      expression,
+      context,
+      state,
+      event,
+      scope,
+    );
     if (resolved === undefined || resolved === null) {
       return "";
     }
@@ -232,11 +253,17 @@ function toTemplateSerializable(
   return normalizedRecord;
 }
 
-function resolveExpression(
+/**
+ * Resolves one template path. `state.`, `event.`, `context.`, and `vars.`
+ * roots come first; inside `each` loops the loop variables are next; any
+ * other path reads plan state.
+ */
+export function resolveTemplateExpression(
   expression: string,
   context: RuntimeExecutionContext,
   state: RuntimeStateSnapshot,
   event: RuntimeEvent | undefined,
+  scope?: RuntimeTemplateScope,
 ): unknown {
   const path = expression.trim();
 
@@ -254,6 +281,16 @@ function resolveExpression(
 
   if (path.startsWith("vars.")) {
     return getValueByPath(context.variables, path.slice(5));
+  }
+
+  if (scope) {
+    const separator = path.indexOf(".");
+    const head = separator === -1 ? path : path.slice(0, separator);
+    if (Object.hasOwn(scope, head)) {
+      return separator === -1
+        ? scope[head]
+        : getValueByPath(scope[head], path.slice(separator + 1));
+    }
   }
 
   return getValueByPath(state, path);

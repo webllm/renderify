@@ -292,6 +292,14 @@ Even if a tag passes the policy check, the renderer blocks: `script`, `style`, `
 
 Blocked tags are rendered as: `<div data-renderify-sanitized-tag="script"></div>`
 
+`form` nodes are the one exception: they render as inert
+`<div data-renderify-form>` containers that keep their children but drop
+`action`, `method`, `target`, and `enctype`, and the runtime emulates
+`onSubmit` from submit buttons and Enter. Real `<form>` elements never reach
+the DOM, so plan content cannot navigate the host or post fields to another
+origin. Password and file inputs are never read into state, event payloads,
+or submitted fields.
+
 This render-time tag sanitization applies to the declarative RuntimeNode path. `source.runtime: "preact"` renders through Preact directly and should be treated as trusted source output instead of relying on RuntimeNode tag sanitization.
 
 ### Attribute Sanitization

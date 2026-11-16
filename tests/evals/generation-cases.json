@@ -48,6 +48,38 @@
     "checks": { "minNodes": 8 }
   },
   {
+    "id": "todo-list",
+    "prompt": "Build a todo list where I can type a task, add it with Enter or an Add button, check tasks off, and remove them.",
+    "lane": "declarative",
+    "checks": {
+      "tags": ["input", "button"],
+      "nodeTypes": ["each"],
+      "props": ["bind"],
+      "minTransitions": 2
+    }
+  },
+  {
+    "id": "contact-form",
+    "prompt": "Build a contact form with name, email, and message fields and a Send button. After sending, replace the form with a thank-you message that uses the person's name.",
+    "lane": "declarative",
+    "checks": {
+      "tags": ["input", "textarea", "button"],
+      "nodeTypes": ["if"],
+      "props": ["bind"],
+      "minTransitions": 1
+    }
+  },
+  {
+    "id": "filtered-list",
+    "prompt": "Show six fruits with their colors and buttons that filter the list to all, red, or yellow fruits.",
+    "lane": "declarative",
+    "checks": {
+      "tags": ["button"],
+      "nodeTypes": ["each", "if"],
+      "minTransitions": 1
+    }
+  },
+  {
     "id": "jsx-counter",
     "prompt": "Using React hooks in JSX, build a counter component with increment and reset buttons.",
     "lane": "source",

@@ -32,6 +32,10 @@ export interface GenerationEvalChecks {
   minTransitions?: number;
   /** Substrings that must appear in the source module. */
   sourceIncludes?: string[];
+  /** Declarative node types that must appear, such as "each" or "if". */
+  nodeTypes?: string[];
+  /** Element prop names that must appear somewhere, such as "bind". */
+  props?: string[];
 }
 
 export interface GenerationEvalCase {
@@ -310,7 +314,49 @@ export function evaluateChecks(
       failures.push(`source does not include ${JSON.stringify(fragment)}`);
     }
   }
+  const nodeTypes = collectNodeTypes(plan.root);
+  for (const nodeType of checks.nodeTypes ?? []) {
+    if (!nodeTypes.has(nodeType)) {
+      failures.push(`missing ${nodeType} node`);
+    }
+  }
+  const propNames = collectPropNames(plan.root);
+  for (const prop of checks.props ?? []) {
+    if (!propNames.has(prop)) {
+      failures.push(`missing ${prop} prop`);
+    }
+  }
   return failures;
+}
+
+function collectNodeTypes(
+  node: RuntimeNode,
+  types = new Set<string>(),
+): Set<string> {
+  types.add(node.type);
+  if (node.type !== "text") {
+    for (const child of node.children ?? []) {
+      collectNodeTypes(child, types);
+    }
+  }
+  return types;
+}
+
+function collectPropNames(
+  node: RuntimeNode,
+  names = new Set<string>(),
+): Set<string> {
+  if (node.type === "element" || node.type === "component") {
+    for (const name of Object.keys(node.props ?? {})) {
+      names.add(name);
+    }
+  }
+  if (node.type !== "text") {
+    for (const child of node.children ?? []) {
+      collectPropNames(child, names);
+    }
+  }
+  return names;
 }
 
 function collectTags(node: RuntimeNode, tags = new Set<string>()): Set<string> {
@@ -531,6 +577,44 @@ function mockPlanFor(evalCase: GenerationEvalCase): RuntimePlan {
     children: [{ type: "text", value: tag }],
   }));
   children.push(...buttons);
+  if (checks.props && checks.props.length > 0) {
+    children.push({
+      type: "element",
+      tag: "input",
+      props: Object.fromEntries(
+        checks.props.map((prop) => [
+          prop,
+          prop === "bind" ? "draft" : "action0",
+        ]),
+      ),
+    });
+  }
+  if (checks.nodeTypes?.includes("each")) {
+    children.push({
+      type: "element",
+      tag: "ul",
+      children: [
+        {
+          type: "each",
+          items: "state.items",
+          children: [
+            {
+              type: "element",
+              tag: "li",
+              children: [{ type: "text", value: "{{item}}" }],
+            },
+          ],
+        },
+      ],
+    });
+  }
+  if (checks.nodeTypes?.includes("if")) {
+    children.push({
+      type: "if",
+      when: "state.count",
+      children: [{ type: "text", value: "Done" }],
+    });
+  }
   while (children.length + 1 < (checks.minNodes ?? 0)) {
     children.push({ type: "text", value: "Item" });
   }
@@ -538,7 +622,7 @@ function mockPlanFor(evalCase: GenerationEvalCase): RuntimePlan {
     ...base,
     root: { type: "element", tag: "section", children },
     state: {
-      initial: { count: 0 },
+      initial: { count: 0, draft: "", items: ["One", "Two"] },
       transitions: transitions as NonNullable<
         RuntimePlan["state"]
       >["transitions"],

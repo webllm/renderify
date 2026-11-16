@@ -989,7 +989,9 @@ test("core tells the LLM when active policy forbids source plans", async () => {
     balancedLlm.systemPrompts[0] ?? "",
     /templates use \{\{state\.path\}\} path lookups only; never use \$\{\.\.\.\}/i,
   );
-  assert.match(
+  assert.match(balancedLlm.systemPrompts[0] ?? "", /"type":"each"/);
+  assert.match(balancedLlm.systemPrompts[0] ?? "", /props\.bind/);
+  assert.doesNotMatch(
     balancedLlm.systemPrompts[0] ?? "",
     /do not capture live browser values/i,
   );

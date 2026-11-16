@@ -8,6 +8,7 @@ import type {
 } from "@renderify/core";
 import {
   acceptRuntimePlanCandidate,
+  RUNTIME_PLAN_INTERACTION_GUIDANCE,
   RUNTIME_PLAN_JSON_SCHEMA,
 } from "@renderify/ir";
 import {
@@ -863,13 +864,14 @@ export class OpenAICodexLLMInterpreter implements LLMInterpreter {
       "Return only JSON with no markdown or explanations.",
       'Use specVersion exactly as "runtime-plan/v1".',
       "Schema priority: id/version/root/capabilities must be valid.",
-      'RuntimeNode shapes are exactly text={"type":"text","value":"..."}, element={"type":"element","tag":"div","props":{},"children":[]}, or component={"type":"component","module":"...","exportName":"default","props":{},"children":[]}.',
+      'RuntimeNode shapes are exactly text={"type":"text","value":"..."}, element={"type":"element","tag":"div","props":{},"children":[]}, component={"type":"component","module":"...","exportName":"default","props":{},"children":[]}, each={"type":"each","items":"state.list","children":[]}, or if={"type":"if","when":"state.flag","children":[]}.',
       'Children must recursively use those shapes. Never put an HTML tag such as "div" in type; use type="element" and tag="div". Put inline styles under props.style, not directly on the node.',
       "Text nodes only accept type and value; wrap styled text in an element node.",
       `Runtime template syntax is {{state.path}}, {{context.path}}, {{vars.path}}, or {{event.path}}. Templates are path lookups only. Never use \${...}, JavaScript expressions, operators, ternaries, negation, arithmetic, or Math.* in any declarative field.`,
-      'If state is present, state.initial contains literal JSON only and state.transitions maps each event name to an action array such as [{"type":"toggle","path":"done"}]. Supported action types are set, increment, toggle, and push. For set/push path copies use {"$from":"event.payload.value"}; never emit object patch transitions.',
-      "Declarative onClick/onInput bindings dispatch static event names and cannot read live browser values. Do not simulate value-driven forms with fixed slots or fake event.target expressions. When source is forbidden, render a compact static visual instead and omit nonfunctional handlers/state.",
-      "Omit imports, moduleManifest, metadata, state, and source unless they are actually needed. If state is present it must contain an initial object. For declarative element/text roots, omit source. Keep node trees compact and do not manually unroll repeated dynamic list slots.",
+      'If state is present, state.initial contains literal JSON only and state.transitions maps each event name to an action array such as [{"type":"toggle","path":"done"}]. Supported action types are set, increment, toggle, push, and remove. For set/push path copies use {"$from":"event.payload.value"}; never emit object patch transitions.',
+      RUNTIME_PLAN_INTERACTION_GUIDANCE,
+      "Never use fake event.target expressions.",
+      "Omit imports, moduleManifest, metadata, state, and source unless they are actually needed. If state is present it must contain an initial object. For declarative roots, omit source. Keep node trees compact and use each instead of manually unrolling repeated list slots.",
       "Do not emit maxImports, maxComponentInvocations, or maxExecutionMs; those resource budgets are controlled by the host security policy.",
       "Within capabilities, emit only domWrite. Do not request networkHosts, allowedModules, timers, storage, or executionProfile; host policy and code generation derive permissions.",
       "Do not set root.type to component unless source.code is present with a matching export.",

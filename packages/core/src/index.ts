@@ -1,6 +1,7 @@
 import {
   asJsonValue,
   type JsonObject,
+  RUNTIME_PLAN_INTERACTION_GUIDANCE,
   type RuntimeExecutionContext,
   type RuntimeExecutionResult,
   type RuntimePlan,
@@ -121,10 +122,11 @@ const STRUCTURED_REPAIR_OUTPUT_LIMIT = 12_000;
 const STRUCTURED_FALLBACK_SYSTEM_PROMPT = [
   "Generate a valid Renderify RuntimePlan JSON object only.",
   'Use specVersion="runtime-plan/v1" with top-level id, numeric version, root, and capabilities.',
-  'RuntimeNode must be text={"type":"text","value":"..."}, element={"type":"element","tag":"div","props":{},"children":[]}, or component={"type":"component","module":"...","exportName":"default","props":{},"children":[]}.',
+  'RuntimeNode must be text={"type":"text","value":"..."}, element={"type":"element","tag":"div","props":{},"children":[]}, component={"type":"component","module":"...","exportName":"default","props":{},"children":[]}, each={"type":"each","items":"state.list","children":[]}, or if={"type":"if","when":"state.flag","children":[]}.',
   "Never use an HTML tag as type. Put inline styles under props.style.",
   `Runtime templates use {{state.path}} path lookups only. Never use \${...}, JavaScript expressions, ternaries, operators, arithmetic, negation, or Math.* in declarative fields.`,
-  'state.initial must contain literal JSON. state.transitions maps event names to RuntimeAction arrays using set, increment, toggle, or push; for path copies use {"$from":"event.payload.value"}. Never emit object patch transitions.',
+  'state.initial must contain literal JSON. state.transitions maps event names to RuntimeAction arrays using set, increment, toggle, push, or remove; for path copies use {"$from":"event.payload.value"}. Never emit object patch transitions.',
+  RUNTIME_PLAN_INTERACTION_GUIDANCE,
 ].join(" ");
 
 function createSecurityPolicySystemPrompt(
@@ -145,11 +147,11 @@ function createSecurityPolicySystemPrompt(
   return [
     "The active Renderify security policy rejects every RuntimePlan containing a top-level source module.",
     "Do not include source and do not use a component root that depends on inline source.",
-    "Use declarative element/text RuntimeNodes only.",
+    "Use declarative element, text, each, and if RuntimeNodes only.",
     `For supported interactions, Runtime templates use {{state.path}} path lookups only; never use \${...} or JavaScript expressions.`,
-    'state.initial contains literal JSON and state.transitions maps static event names to RuntimeAction arrays using set, increment, toggle, or push. Use {"$from":"event.payload.value"} only for an event payload supplied by the host.',
-    "Declarative onClick/onInput bindings dispatch static events but do not capture live browser values such as event.target.value or checked.",
-    "If a requested interaction requires live form values, render a compact safe declarative visual UI with no fake handlers, computed placeholders, or manually unrolled dynamic slots.",
+    "state.initial contains literal JSON and state.transitions maps static event names to RuntimeAction arrays.",
+    RUNTIME_PLAN_INTERACTION_GUIDANCE,
+    "Never fake interactions with computed placeholders or manually unrolled list slots.",
   ].join(" ");
 }
 

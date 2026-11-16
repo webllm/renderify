@@ -4,12 +4,13 @@ import {
   createElementNode,
   createTextNode,
   getValueByPath,
-  isRuntimeValueFromPath,
   isSafePath,
   type JsonValue,
   matchesAllowedNetworkUrl,
+  normalizeRuntimeBindPath,
   type ParsedNetworkHostPattern,
   parseNetworkHostPattern,
+  RUNTIME_BIND_EVENT_TYPE,
   type RuntimeAction,
   type RuntimeActionValue,
   type RuntimeDiagnostic,
@@ -22,7 +23,12 @@ import {
   type RuntimePlan,
   type RuntimeSourceModule,
   type RuntimeStateSnapshot,
+  type RuntimeTemplateScope,
+  removeValueByPath,
+  resolveRuntimeEventReferences,
   resolveRuntimePlanSpecVersion,
+  resolveRuntimeStatePath,
+  resolveRuntimeValueReferences,
   setValueByPath,
 } from "@renderify/ir";
 import type { RemoteModuleFetchResult } from "./module-fetch";
@@ -531,6 +537,16 @@ export class DefaultRuntimeManager implements RuntimeManager {
       };
     }
 
+    // {"$from"} references in an event payload read the state as it is when
+    // the event is handled, so values bound earlier in the same interaction
+    // (for example, typed into a bound input) are never stale.
+    const dispatchedEvent = event;
+    event = dispatchedEvent
+      ? resolveRuntimeEventReferences(dispatchedEvent, (path) =>
+          this.resolveValueFromPath(path, state, context, dispatchedEvent),
+        )
+      : undefined;
+
     this.applyEventTransitions({
       plan,
       state,
@@ -718,7 +734,15 @@ export class DefaultRuntimeManager implements RuntimeManager {
     appliedActions: RuntimeAction[];
     diagnostics: RuntimeDiagnostic[];
   }): void {
-    if (!input.event || !input.plan.state?.transitions) {
+    if (!input.event) {
+      return;
+    }
+
+    if (input.event.type === RUNTIME_BIND_EVENT_TYPE) {
+      this.applyBindEvent(input.event, input.state, input);
+    }
+
+    if (!input.plan.state?.transitions) {
       return;
     }
 
@@ -742,6 +766,23 @@ export class DefaultRuntimeManager implements RuntimeManager {
         continue;
       }
 
+      const path = resolveRuntimeStatePath(action.path, (expression) =>
+        this.resolveValueFromPath(
+          expression,
+          input.state,
+          input.context,
+          input.event,
+        ),
+      );
+      if (path === undefined) {
+        input.diagnostics.push({
+          level: "warning",
+          code: "RUNTIME_ACTION_PATH_UNRESOLVED",
+          message: `Action path ${action.path} did not resolve to a state path for ${input.event.type}`,
+        });
+        continue;
+      }
+
       if (action.type === "set") {
         const resolvedValue = this.resolveActionValue(
           action.value,
@@ -749,12 +790,33 @@ export class DefaultRuntimeManager implements RuntimeManager {
           input.context,
           input.event,
         );
-        setValueByPath(input.state, action.path, resolvedValue);
-        input.appliedActions.push({
-          type: "set",
-          path: action.path,
-          value: cloneJsonValue(resolvedValue),
-        });
+        if (
+          this.writeStateValue(
+            input.state,
+            path,
+            resolvedValue,
+            input.diagnostics,
+          )
+        ) {
+          input.appliedActions.push({
+            type: "set",
+            path,
+            value: cloneJsonValue(resolvedValue),
+          });
+        }
+        continue;
+      }
+
+      if (action.type === "remove") {
+        if (removeValueByPath(input.state, path)) {
+          input.appliedActions.push({ type: "remove", path });
+        } else {
+          input.diagnostics.push({
+            level: "warning",
+            code: "RUNTIME_ACTION_TARGET_MISSING",
+            message: `Nothing to remove at ${path} for ${input.event.type}`,
+          });
+        }
         continue;
       }
 
@@ -769,25 +831,29 @@ export class DefaultRuntimeManager implements RuntimeManager {
           continue;
         }
 
-        const current = getValueByPath(input.state, action.path);
+        const current = getValueByPath(input.state, path);
         const numericCurrent =
           typeof current === "number" && Number.isFinite(current) ? current : 0;
-        setValueByPath(input.state, action.path, numericCurrent + by);
-        input.appliedActions.push({
-          type: "increment",
-          path: action.path,
-          by,
-        });
+        if (
+          this.writeStateValue(
+            input.state,
+            path,
+            numericCurrent + by,
+            input.diagnostics,
+          )
+        ) {
+          input.appliedActions.push({ type: "increment", path, by });
+        }
         continue;
       }
 
       if (action.type === "toggle") {
-        const current = getValueByPath(input.state, action.path);
-        setValueByPath(input.state, action.path, !current);
-        input.appliedActions.push({
-          type: "toggle",
-          path: action.path,
-        });
+        const current = getValueByPath(input.state, path);
+        if (
+          this.writeStateValue(input.state, path, !current, input.diagnostics)
+        ) {
+          input.appliedActions.push({ type: "toggle", path });
+        }
         continue;
       }
 
@@ -797,17 +863,70 @@ export class DefaultRuntimeManager implements RuntimeManager {
         input.context,
         input.event,
       );
-      const existing = getValueByPath(input.state, action.path);
+      const existing = getValueByPath(input.state, path);
       const nextArray: JsonValue[] = Array.isArray(existing)
         ? [...(existing as JsonValue[]), resolvedValue]
         : [resolvedValue];
-      setValueByPath(input.state, action.path, nextArray);
+      if (
+        this.writeStateValue(input.state, path, nextArray, input.diagnostics)
+      ) {
+        input.appliedActions.push({
+          type: "push",
+          path,
+          value: cloneJsonValue(resolvedValue),
+        });
+      }
+    }
+  }
+
+  /**
+   * Applies a `renderify:bind` event from a bound form control: the payload's
+   * value is written to the control's state path before any transitions run.
+   */
+  private applyBindEvent(
+    event: RuntimeEvent,
+    state: RuntimeStateSnapshot,
+    input: {
+      appliedActions: RuntimeAction[];
+      diagnostics: RuntimeDiagnostic[];
+    },
+  ): void {
+    const path = normalizeRuntimeBindPath(event.payload?.path);
+    const payload = event.payload;
+    if (!path || !payload || !Object.hasOwn(payload, "value")) {
+      input.diagnostics.push({
+        level: "warning",
+        code: "RUNTIME_BIND_EVENT_INVALID",
+        message: "Bind event requires a state path and a value",
+      });
+      return;
+    }
+    const value = asJsonValue(payload.value);
+    if (this.writeStateValue(state, path, value, input.diagnostics)) {
       input.appliedActions.push({
-        type: "push",
-        path: action.path,
-        value: cloneJsonValue(resolvedValue),
+        type: "set",
+        path,
+        value: cloneJsonValue(value),
       });
     }
+  }
+
+  /** Writes a state value, reporting paths that cannot be written. */
+  private writeStateValue(
+    state: RuntimeStateSnapshot,
+    path: string,
+    value: JsonValue,
+    diagnostics: RuntimeDiagnostic[],
+  ): boolean {
+    if (setValueByPath(state, path, value)) {
+      return true;
+    }
+    diagnostics.push({
+      level: "warning",
+      code: "RUNTIME_ACTION_TARGET_MISSING",
+      message: `Could not write state path ${path}; array items must exist and be addressed by index`,
+    });
+    return false;
   }
 
   private resolveActionValue(
@@ -816,10 +935,9 @@ export class DefaultRuntimeManager implements RuntimeManager {
     context: RuntimeExecutionContext,
     event: RuntimeEvent | undefined,
   ): JsonValue {
-    const resolved = isRuntimeValueFromPath(value)
-      ? this.resolveValueFromPath(value.$from, state, context, event)
-      : value;
-    return asJsonValue(resolved);
+    return resolveRuntimeValueReferences(value, (path) =>
+      this.resolveValueFromPath(path, state, context, event),
+    );
   }
 
   private resolveValueFromPath(
@@ -1266,6 +1384,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
     event: RuntimeEvent | undefined,
     diagnostics: RuntimeDiagnostic[],
     frame: ExecutionFrame,
+    scope?: RuntimeTemplateScope,
   ): Promise<RuntimeNode> {
     throwIfRuntimeAborted(frame.signal);
 
@@ -1288,6 +1407,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
       event,
       diagnostics,
       frame,
+      scope,
       resolver: {
         moduleLoader: this.createIntegrityAwareModuleLoader(
           moduleManifest,
@@ -1314,7 +1434,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
           ),
         withRemainingBudget: (operation, timeoutMessage) =>
           withRuntimeRemainingBudget(operation, frame, timeoutMessage),
-        resolveNode: (nextNode) =>
+        resolveNode: (nextNode, nextScope) =>
           this.resolveNode(
             nextNode,
             moduleManifest,
@@ -1323,6 +1443,7 @@ export class DefaultRuntimeManager implements RuntimeManager {
             event,
             diagnostics,
             frame,
+            nextScope,
           ),
         errorToMessage: (error) => this.errorToMessage(error),
       },

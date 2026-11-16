@@ -71,7 +71,7 @@ function createInteractivePlan(): RuntimePlan {
     version: 1,
     capabilities: { domWrite: true },
     state: {
-      initial: { count: 0 },
+      initial: { count: 0, query: "" },
       transitions: {
         increment: [{ type: "increment", path: "count", by: 1 }],
       },
@@ -99,13 +99,18 @@ function createInteractivePlan(): RuntimePlan {
         },
         {
           type: "element",
+          tag: "input",
+          props: { id: "query", bind: "query", placeholder: "Filter" },
+        },
+        {
+          type: "element",
           tag: "button",
           props: {
             id: "refresh",
             type: "button",
             onClick: {
               type: "tool:refresh_dashboard",
-              payload: { source: "mcp-app" },
+              payload: { source: "mcp-app", query: { $from: "state.query" } },
             },
           },
           children: [{ type: "text", value: "Refresh" }],
@@ -530,12 +535,27 @@ test("e2e: official AppBridge drives the offline Renderify MCP App lifecycle", a
       "disallowed",
     );
 
+    // Typing into a bound input reaches the model context once typing pauses,
+    // and tool arguments read the bound value when the click is handled.
+    await app.locator("#query").fill("Q3 revenue");
+    await page.waitForFunction(() => {
+      const hostState = (
+        globalThis as unknown as { __mcpHostState?: BrowserHostState }
+      ).__mcpHostState;
+      return hostState?.modelContexts.some((entry) =>
+        JSON.stringify(entry).includes('"query":"Q3 revenue"'),
+      );
+    });
+
     await app.locator("#refresh").click();
     await app.getByText("Refreshed safely").waitFor({ state: "visible" });
     state = await readHostState(page);
     assert.equal(state.toolCalls.length, 1);
     assert.equal(state.toolCalls[0]?.name, "refresh_dashboard");
-    assert.deepEqual(state.toolCalls[0]?.arguments, { source: "mcp-app" });
+    assert.deepEqual(state.toolCalls[0]?.arguments, {
+      source: "mcp-app",
+      query: "Q3 revenue",
+    });
     listenerStats = await readListenerStats(app);
     assert.equal(listenerStats.added.click, 1);
     assert.equal(listenerStats.removed.click ?? 0, 0);

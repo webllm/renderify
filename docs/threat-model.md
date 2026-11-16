@@ -111,15 +111,24 @@ and imports if the caller incorrectly treats model output as reviewed code.
   action lists.
 - Model-context updates contain attacker-influenced state/event data. Hosts and
   models MUST treat it as untrusted context, not instructions with authority.
-- Tool arguments originate in the plan. Servers MUST validate them and require
-  confirmation for destructive or sensitive effects.
+- Tool arguments originate in the plan and, through bound inputs, form fields,
+  and `{"$from"}` payload references, in what the user typed. Servers MUST
+  validate them and require confirmation for destructive or sensitive effects.
+- Forms render as inert containers whose submit is emulated, so plan content
+  cannot navigate the frame or post fields to another origin. Password and
+  file inputs are never read into state, payloads, or model context, which
+  limits (but does not prevent) credential phishing through generated forms.
+- `each` expansion is capped at 10,000 rendered nodes per render, and
+  templated action paths must resolve to single safe segments before any
+  state write.
 - The registration helper forwards the official request context so handlers can
   inspect transport-provided authentication, cancellation, session, and request
   metadata instead of relying only on attacker-controlled tool arguments.
 
 ## Residual risks
 
-- Declarative text and layout can still phish or mislead a user.
+- Declarative text and layout can still phish or mislead a user, and a
+  generated form can ask for sensitive data in a plain text field.
 - Repeated local transitions can grow state or consume browser resources until
   the host tears down the iframe.
 - A weak or non-conforming host sandbox reduces containment; the inner CSP does

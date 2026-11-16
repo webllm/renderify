@@ -885,6 +885,8 @@ test("openai codex normalizes DOM-like plans and uses low reasoning for Spark", 
     "text",
     "element",
     "component",
+    "each",
+    "if",
   ]);
   assert.equal(
     schema?.properties?.root?.properties?.children?.items?.additionalProperties,
@@ -893,7 +895,7 @@ test("openai codex normalizes DOM-like plans and uses low reasoning for Spark", 
   assert.deepEqual(
     schema?.properties?.root?.properties?.children?.items?.properties?.type
       ?.enum,
-    ["text", "element", "component"],
+    ["text", "element", "component", "each", "if"],
   );
   assert.deepEqual(schema?.properties?.state?.required, ["initial"]);
   const stateSchema = schema?.properties?.state as
@@ -1868,7 +1870,13 @@ test("google interpreter validates structured runtime plan response", async () =
   assert.deepEqual(rootSchema.required, ["type"]);
   const rootProperties = rootSchema.properties as Record<string, unknown>;
   const rootType = rootProperties.type as Record<string, unknown>;
-  assert.deepEqual(rootType.enum, ["text", "element", "component"]);
+  assert.deepEqual(rootType.enum, [
+    "text",
+    "element",
+    "component",
+    "each",
+    "if",
+  ]);
 });
 
 test("google interpreter retries structured request without schema when unsupported", async () => {

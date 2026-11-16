@@ -149,7 +149,7 @@ test("ui renderer sanitizes blocked tag names at render time", () => {
   assert.doesNotMatch(html, /bad/);
 });
 
-test("ui renderer blocks style/base/form tags at render time", () => {
+test("ui renderer blocks style/base tags and renders forms inert", () => {
   const renderer = new DefaultUIRenderer();
   const styleHtml = renderer.renderNode(
     createElementNode("style", undefined, [
@@ -170,9 +170,24 @@ test("ui renderer blocks style/base/form tags at render time", () => {
   assert.doesNotMatch(styleHtml, /display:none/);
   assert.match(baseHtml, /data-renderify-sanitized-tag="base"/);
   assert.doesNotMatch(baseHtml, /<base/);
-  assert.match(formHtml, /data-renderify-sanitized-tag="form"/);
-  assert.doesNotMatch(formHtml, /<form/);
-  assert.doesNotMatch(formHtml, />x</);
+  assert.equal(formHtml, "<div data-renderify-form>x</div>");
+
+  const boundForm = renderer.renderNode(
+    createElementNode(
+      "form",
+      {
+        class: "search",
+        method: "post",
+        target: "_top",
+        onSubmit: "tool:search",
+      },
+      [createElementNode("input", { name: "q" })],
+    ),
+  );
+  assert.equal(
+    boundForm,
+    '<div data-renderify-form class="search" data-renderify-event-submit="evt_1"><input name="q"></input></div>',
+  );
 });
 
 test("ui renderer blocks generic SVG attribute mutation elements", () => {

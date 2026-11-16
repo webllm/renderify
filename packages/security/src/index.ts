@@ -1,10 +1,12 @@
 import {
   collectRuntimeSourceImports,
+  collectRuntimeValueReferences,
   DEFAULT_RUNTIME_PLAN_SPEC_VERSION,
   isAllowedNetworkUrl,
   isAllowedRequestedNetworkHost,
+  isRuntimeBindPathTemplate,
   isRuntimePlan,
-  isRuntimeValueFromPath,
+  isRuntimeStatePathTemplate,
   isSafePath,
   parseRuntimeEventBinding,
   type RuntimeAction,
@@ -543,6 +545,23 @@ export class DefaultSecurityChecker implements SecurityChecker {
                 !parseRuntimeEventBinding(key, value)
               ) {
                 issues.push(`Inline event handler is not allowed: ${key}`);
+              }
+
+              if (key === "bind" && !isRuntimeBindPathTemplate(value)) {
+                issues.push(
+                  `Invalid bind path on <${normalizedTag}>: ${String(value)}`,
+                );
+              }
+
+              const eventBinding = parseRuntimeEventBinding(key, value);
+              if (eventBinding?.runtimeEvent.payload) {
+                for (const source of collectRuntimeValueReferences(
+                  eventBinding.runtimeEvent.payload,
+                )) {
+                  issues.push(
+                    ...this.checkValueSource(`${key} payload`, source),
+                  );
+                }
               }
 
               if (!isRuntimeUrlAttribute(key) || typeof value !== "string") {
@@ -1139,7 +1158,10 @@ export class DefaultSecurityChecker implements SecurityChecker {
   private checkAction(eventType: string, action: RuntimeAction): string[] {
     const issues: string[] = [];
 
-    if (!isSafePath(action.path)) {
+    if (
+      !isSafePath(action.path) ||
+      (action.path.includes("{{") && !isRuntimeStatePathTemplate(action.path))
+    ) {
       issues.push(`Unsafe action path in ${eventType}: ${action.path}`);
     }
 
@@ -1152,25 +1174,30 @@ export class DefaultSecurityChecker implements SecurityChecker {
     }
 
     if (action.type === "set" || action.type === "push") {
-      const value = action.value;
-      if (isRuntimeValueFromPath(value)) {
-        const source = value.$from;
-        const allowedPrefix =
-          source.startsWith("state.") ||
-          source.startsWith("event.") ||
-          source.startsWith("context.") ||
-          source.startsWith("vars.");
-
-        if (!allowedPrefix) {
-          issues.push(`Unsupported value source in ${eventType}: ${source}`);
-        }
-
-        if (!isSafePath(source.replace(/^(state|event|context|vars)\./, ""))) {
-          issues.push(`Unsafe value source path in ${eventType}: ${source}`);
-        }
+      for (const source of collectRuntimeValueReferences(action.value)) {
+        issues.push(...this.checkValueSource(eventType, source));
       }
     }
 
+    return issues;
+  }
+
+  /** Validates a `{"$from"}` reference in an action value or event payload. */
+  private checkValueSource(label: string, source: string): string[] {
+    const issues: string[] = [];
+    const allowedPrefix =
+      source.startsWith("state.") ||
+      source.startsWith("event.") ||
+      source.startsWith("context.") ||
+      source.startsWith("vars.");
+
+    if (!allowedPrefix) {
+      issues.push(`Unsupported value source in ${label}: ${source}`);
+    }
+
+    if (!isSafePath(source.replace(/^(state|event|context|vars)\./, ""))) {
+      issues.push(`Unsafe value source path in ${label}: ${source}`);
+    }
     return issues;
   }
 

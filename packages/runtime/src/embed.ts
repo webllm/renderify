@@ -188,7 +188,10 @@ export async function createInteractiveSession(
         const html = await ui.render(
           execution,
           toInteractiveSessionTarget(options.target, async (request) => {
-            await enqueueRender(() => executeAndRender(request.event));
+            const dispatched = await enqueueRender(() =>
+              executeAndRender(request.event),
+            );
+            return dispatched.execution.handledEvent ?? request.event;
           }),
         );
 
@@ -489,9 +492,16 @@ function isInteractiveRenderTargetValue(target: RenderTarget): target is {
   );
 }
 
+/**
+ * Routes DOM events into the session. The host's `onRuntimeEvent` runs after
+ * the event's transitions and receives the event as the runtime handled it,
+ * with `{"$from"}` payload references resolved against current state.
+ */
 function toInteractiveSessionTarget(
   target: RenderTarget | undefined,
-  dispatchEvent: (request: RuntimeEventDispatchRequest) => Promise<void>,
+  dispatchEvent: (
+    request: RuntimeEventDispatchRequest,
+  ) => Promise<RuntimeEvent>,
 ): RenderTarget | undefined {
   if (!target) {
     return target;
@@ -501,9 +511,9 @@ function toInteractiveSessionTarget(
     return {
       element: target.element,
       onRuntimeEvent: async (request) => {
-        await dispatchEvent(request);
+        const event = await dispatchEvent(request);
         if (target.onRuntimeEvent) {
-          await target.onRuntimeEvent(request);
+          await target.onRuntimeEvent({ ...request, event });
         }
       },
     };
@@ -511,6 +521,8 @@ function toInteractiveSessionTarget(
 
   return {
     element: target,
-    onRuntimeEvent: dispatchEvent,
+    onRuntimeEvent: async (request) => {
+      await dispatchEvent(request);
+    },
   };
 }
