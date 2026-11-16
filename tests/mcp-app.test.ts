@@ -1,15 +1,17 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
+import { Client } from "@modelcontextprotocol/client";
 import {
   McpUiResourceMetaSchema,
   McpUiToolMetaSchema,
   RESOURCE_MIME_TYPE,
 } from "@modelcontextprotocol/ext-apps";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import {
+  type CallToolResult,
+  InMemoryTransport,
+  McpServer,
+} from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type { RuntimePlan } from "../packages/ir/src/index";
 import {
@@ -580,9 +582,9 @@ test("mcp-app registers interoperable tools and resources with the official SDK"
     });
     assert.deepEqual(observedArgs, { label: "Quarterly" });
     assert.ok(observedExtra);
-    assert.ok(observedExtra.signal instanceof AbortSignal);
-    assert.notEqual(observedExtra.requestId, undefined);
-    assert.equal(typeof observedExtra.sendNotification, "function");
+    assert.ok(observedExtra.mcpReq.signal instanceof AbortSignal);
+    assert.notEqual(observedExtra.mcpReq.id, undefined);
+    assert.equal(typeof observedExtra.mcpReq.notify, "function");
     assert.equal(extractRenderifyPlan(called)?.metadata?.label, "Quarterly");
 
     const calledWithoutSchema = await client.callTool({
@@ -590,9 +592,9 @@ test("mcp-app registers interoperable tools and resources with the official SDK"
     });
     assert.deepEqual(observedNoSchemaArgs, {});
     assert.ok(observedNoSchemaExtra);
-    assert.ok(observedNoSchemaExtra.signal instanceof AbortSignal);
-    assert.notEqual(observedNoSchemaExtra.requestId, undefined);
-    assert.equal(typeof observedNoSchemaExtra.sendNotification, "function");
+    assert.ok(observedNoSchemaExtra.mcpReq.signal instanceof AbortSignal);
+    assert.notEqual(observedNoSchemaExtra.mcpReq.id, undefined);
+    assert.equal(typeof observedNoSchemaExtra.mcpReq.notify, "function");
     assert.equal(
       extractRenderifyPlan(calledWithoutSchema)?.id,
       "mcp_unit_plan",

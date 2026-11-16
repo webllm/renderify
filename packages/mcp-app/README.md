@@ -24,13 +24,13 @@ tool calls, model-context updates, sizing, and teardown.
 ## Install
 
 ```bash
-pnpm add @renderify/mcp-app @modelcontextprotocol/sdk zod
+pnpm add @renderify/mcp-app @modelcontextprotocol/server zod
 ```
 
 ## Quick start
 
 ```ts
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { registerRenderifyApp } from "@renderify/mcp-app";
 import { z } from "zod";
 
@@ -69,9 +69,9 @@ model-only by default.
 - `registerRenderifyApp` composes one tool and one resource.
 - Registration is atomic from the helper's perspective: if tool registration
   fails, its resource registration is removed before the error is rethrown.
-- Its handler receives the parsed arguments plus the official MCP
-  `RequestHandlerExtra`, including request cancellation, authentication,
-  session, and transport context.
+- Its handler receives the parsed arguments plus the official MCP SDK v2
+  `ServerContext`: `mcpReq.signal` for cancellation, `mcpReq.id`, `sessionId`,
+  and `http?.authInfo` for transport authentication.
 - `MCP_UI_EXTENSION_ID`, `RESOURCE_MIME_TYPE`, and `getUiCapability` re-export
   the official capability-negotiation helpers.
 - `createRenderifyUiResource`, `createRenderifyShell`, `renderifyToolMeta`, and

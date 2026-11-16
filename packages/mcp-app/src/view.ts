@@ -1,3 +1,4 @@
+import type { CallToolResult, Transport } from "@modelcontextprotocol/client";
 import {
   App,
   applyDocumentTheme,
@@ -5,8 +6,6 @@ import {
   type McpUiHostContext,
   PostMessageTransport,
 } from "@modelcontextprotocol/ext-apps";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type {
   RuntimeEvent,
   RuntimePlan,

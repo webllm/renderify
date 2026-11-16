@@ -423,7 +423,7 @@ view. This path intentionally accepts a narrower contract than the general
 runtime: element/text RuntimePlans and local state transitions only.
 
 ```ts
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { registerRenderifyApp } from "@renderify/mcp-app";
 
 const server = new McpServer({ name: "dashboard", version: "1.0.0" });
@@ -441,9 +441,9 @@ await registerRenderifyApp(server, {
 });
 ```
 
-The handler's second argument is the official MCP request context, including
-`authInfo`, cancellation signal, session ID, and request metadata when supplied
-by the transport.
+The handler's second argument is the official MCP SDK v2 `ServerContext`:
+`mcpReq.signal` for cancellation, `mcpReq.id`, `sessionId`, and
+`http?.authInfo` when the transport supplies authentication.
 
 Runtime source, imports, component modules, network access, timers, persistent
 storage, and undeclared UI-to-tool calls fail closed. See the

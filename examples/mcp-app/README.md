@@ -1,8 +1,10 @@
 # Renderify MCP App example
 
 This example registers one `show_dashboard` tool and one
-`ui://renderify-example/dashboard` resource with the official MCP SDK. The view
-is bundled into the resource at server startup and performs no network requests.
+`ui://renderify-example/dashboard` resource with the official MCP SDK v2
+(`@modelcontextprotocol/server`) and `@modelcontextprotocol/ext-apps` 2.x. The
+view is bundled into the resource at server startup and performs no network
+requests.
 
 ## Run
 

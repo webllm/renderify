@@ -13,16 +13,12 @@ export {
 } from "@modelcontextprotocol/ext-apps/server";
 
 import type {
+  CallToolResult,
   McpServer,
   RegisteredResource,
   RegisteredTool,
-} from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
-import type {
-  CallToolResult,
-  ServerNotification,
-  ServerRequest,
-} from "@modelcontextprotocol/sdk/types.js";
+  ServerContext,
+} from "@modelcontextprotocol/server";
 import { isRuntimePlan, type RuntimePlan } from "@renderify/ir";
 import {
   type ParseDeclarativeMcpPlanOptions,
@@ -91,10 +87,12 @@ export function extractRenderifyPlan(
 
 export type RenderifyToolVisibility = "model" | "app";
 
-export type RenderifyToolHandlerExtra = RequestHandlerExtra<
-  ServerRequest,
-  ServerNotification
->;
+/**
+ * The official MCP server request context passed to tool handlers. It carries
+ * cancellation (`mcpReq.signal`), request identity (`mcpReq.id`), session, and
+ * HTTP authentication (`http?.authInfo`) details.
+ */
+export type RenderifyToolHandlerExtra = ServerContext;
 
 export function renderifyToolMeta(
   resourceUri: string,
