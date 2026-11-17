@@ -102,20 +102,31 @@ flowchart LR
 
 ### Highlights
 
+**Render**
+
 - **Interactive declarative plans**: lists (`each`), conditions (`if`), two-way `bind` for form fields, form submit, and state transitions, with no code execution. See the [RuntimePlan IR reference](docs/runtime-plan-ir.md).
-- **Sandboxed source lane**: `@renderify/frame` runs model-written JSX/TSX in an opaque-origin iframe with a strict CSP, an action allowlist, loop guards, and a watchdog. See [ADR-0002](docs/adr/0002-sandboxed-source-frame.md).
-- **React bindings**: `@renderify/react` provides `<RenderifyView>`, `<RenderifyFrame>`, and `useRenderifySession`, with a [Next.js chat template](templates/nextjs-chat) and an [MCP server template](templates/mcp-server).
-- **One contract for every model**: the same JSON Schema, validation, and repair diagnostics for OpenAI, Anthropic, Google, Ollama, LM Studio, and Codex, measured by nightly [generation evals](docs/generation-evals.md).
 - **Zero-build rendering**: LLM-generated JSX/TSX runs directly in the browser via `@babel/standalone` + JSPM CDN. No backend build server, no deploy step, no server round-trip.
 - **JSPM package support (tiered contract)**: Compatibility aliases (`preact`/`react` bridge, `recharts`) are guaranteed; pure browser ESM packages (for example `lodash-es`, `date-fns`, `@mui/material`) are best-effort. Node.js builtins and unsupported schemes are rejected deterministically. This is the concrete scope of the [bundleless contract](#bundleless-contract).
 - **Default auto-pin-latest for bare imports**: `renderPlanInBrowser` automatically resolves bare source imports (for example `import { format } from "date-fns"`) through JSPM latest and injects pinned `moduleManifest` entries before policy check and execution.
+
+**Secure**
+
+- **Sandboxed source lane**: `@renderify/frame` runs model-written JSX/TSX in an opaque-origin iframe with a strict CSP, an action allowlist, loop guards, and a watchdog. See [ADR-0002](docs/adr/0002-sandboxed-source-frame.md).
 - **Security-first execution**: Every plan passes through a policy checker (blocked tags, module allowlists, tree depth limits, execution budgets) _before_ any code runs. Four built-in profiles: `strict`, `balanced`, `trusted`, `relaxed`; strict and balanced reject runtime source modules.
 - **JSPM-only strict preset**: Set `RENDERIFY_RUNTIME_JSPM_ONLY_STRICT_MODE=true` to force strict profile + manifest/integrity enforcement + preflight fail-fast + no fallback CDNs.
+
+**Integrate**
+
+- **React bindings**: `@renderify/react` provides `<RenderifyView>`, `<RenderifyFrame>`, and `useRenderifySession`, with a [Next.js chat template](templates/nextjs-chat) and an [MCP server template](templates/mcp-server).
+- **Official MCP Apps adapter**: `@renderify/mcp-app` serves a self-contained `ui://` resource for offline declarative RuntimePlans, with official protocol lifecycle handling and a strict no-source/no-network boundary by default; an opt-in source mode renders model-written JSX in a nested sandboxed frame.
+- **Pluggable at every stage**: 10 hook points (`beforeLLM`, `afterCodeGen`, `beforeRender`, etc.) let you inject custom logic without forking the core.
+
+**Generate**
+
+- **One contract for every model**: the same JSON Schema, validation, and repair diagnostics for OpenAI, Anthropic, Google, Ollama, LM Studio, and Codex, measured by nightly [generation evals](docs/generation-evals.md).
 - **Dual input paths**: Accepts both structured JSON RuntimePlans (for precise LLM structured output) and raw TSX/JSX code blocks (for natural LLM text generation).
 - **LLM is optional**: You can use Renderify as a renderer-only runtime by supplying RuntimePlan/source from your own backend or model pipeline.
-- **Official MCP Apps adapter**: `@renderify/mcp-app` serves a self-contained `ui://` resource for offline declarative RuntimePlans, with official protocol lifecycle handling and a strict no-source/no-network boundary.
 - **Streaming-first rendering**: `renderPromptStream` emits `llm-delta` / `preview` / `final` chunks so chat UIs can progressively render.
-- **Pluggable at every stage**: 10 hook points (`beforeLLM`, `afterCodeGen`, `beforeRender`, etc.) let you inject custom logic without forking the core.
 
 ## Who This Is For
 
