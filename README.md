@@ -36,6 +36,34 @@ with the browser runtime in any page, or inside an MCP Apps host. Plans are
 validated and policy-checked before they render, and only the actions you allow
 reach your app.
 
+<details>
+<summary><strong>Table of contents</strong></summary>
+
+- [30-Second Example](#30-second-example)
+- [Where Renderify Fits](#where-renderify-fits)
+- [What Renderify Does](#what-renderify-does)
+  - [Highlights](#highlights)
+- [Who This Is For](#who-this-is-for)
+- [Runtime Pipeline](#runtime-pipeline)
+- [Implemented Capabilities](#implemented-capabilities)
+- [SDK Quick Start (Non-CLI)](#sdk-quick-start-non-cli)
+- [CLI Quick Start](#cli-quick-start)
+  - [Playground Hash Deep-Link](#playground-hash-deep-link)
+- [Killer Demo](#killer-demo)
+- [Programmatic Example](#programmatic-example)
+- [Renderer-only Usage (No Built-in LLM)](#renderer-only-usage-no-built-in-llm)
+  - [Renderer-only TSX + Dependency Package (JSPM)](#renderer-only-tsx--dependency-package-jspm)
+  - [Bundleless Contract](#bundleless-contract)
+- [MCP Apps (Offline Declarative)](#mcp-apps-offline-declarative)
+- [Package Topology](#package-topology)
+- [Documentation](#documentation)
+- [Examples and Templates](#examples-and-templates)
+- [Technical Highlights](#technical-highlights)
+- [Contributing](#contributing)
+- [License](#license)
+
+</details>
+
 ## 30-Second Example
 
 ```bash
