@@ -1,14 +1,34 @@
-<img src="./logo.png" alt="Renderify logo" width="128">
+<p align="center">
+  <img src="./logo.png" alt="Renderify logo" width="120">
+</p>
 
-# Renderify
+<h1 align="center">Renderify</h1>
 
-![Node CI](https://github.com/webllm/renderify/workflows/CI/badge.svg)
-![npm](https://img.shields.io/npm/v/renderify.svg)
-![license](https://img.shields.io/npm/l/renderify)
+<p align="center">
+  <strong>Renderify renders the UI your model describes.</strong><br>
+  Validated RuntimePlans (JSON with state, lists, forms, and events) render by default;
+  model-written JSX runs in a sandboxed iframe when a plan is not enough.
+  No build server, no deploy step.
+</p>
 
-[Documentation](https://webllm.github.io/renderify/docs/) · [Renderer-only Playground](https://webllm.github.io/renderify/playground/)
+<p align="center">
+  <a href="https://github.com/webllm/renderify/actions/workflows/ci.yml"><img src="https://github.com/webllm/renderify/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+  <a href="https://www.npmjs.com/package/renderify"><img src="https://img.shields.io/npm/v/renderify.svg" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/renderify"><img src="https://img.shields.io/npm/types/renderify.svg" alt="TypeScript types included"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/npm/l/renderify.svg" alt="MIT license"></a>
+</p>
 
-> Renderify renders the UI your model describes. Validated RuntimePlans (JSON with state, lists, forms, and events) render by default; model-written JSX runs in a sandboxed iframe when a plan is not enough. No build server, no deploy step.
+<p align="center">
+  <a href="https://webllm.github.io/renderify/docs/"><strong>Documentation</strong></a> ·
+  <a href="https://webllm.github.io/renderify/playground/"><strong>Playground</strong></a> ·
+  <a href="docs/getting-started.md"><strong>Getting Started</strong></a> ·
+  <a href="docs/integrations.md"><strong>Integrations</strong></a> ·
+  <a href="#browser-examples"><strong>Examples</strong></a>
+</p>
+
+<p align="center">
+  <img src="docs/assets/renderify-demo.gif" alt="Renderify demo" width="820">
+</p>
 
 Renderify is the rendering layer for generative UI. Return a RuntimePlan from a
 Vercel AI SDK, AG-UI, or MCP tool and render it with `<RenderifyView>` in React,
@@ -19,8 +39,6 @@ reach your app.
 <a id="bundleless-contract"></a>
 Renderify is **bundleless by design**: it does not rely on a traditional bundling pipeline to run generated UI. Instead, it resolves and rewrites module imports at runtime (JSPM/CDN + `moduleManifest` pinning) and executes under explicit security policy and sandbox controls.
 In other words, bundleless runtime execution does **not** mean full npm bundler compatibility; Renderify intentionally targets a browser-ESM-compatible subset with explicit guarantees. See [JSPM package support (tiered contract)](#what-renderify-does) for the exact compatibility boundary.
-
-![Renderify demo](docs/assets/renderify-demo.gif)
 
 ## 30-Second Example
 
