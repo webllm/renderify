@@ -56,4 +56,4 @@ pnpm --filter @renderify/website brand:assets -- --chromium /path/to/chrome
 
 See [`docs/website-playground.md`](../../docs/website-playground.md) for the
 runtime boundary and [`docs/website-deployment.md`](../../docs/website-deployment.md)
-for the Pages workflow.
+for first-time Pages setup and the root `pnpm run deploy` command.

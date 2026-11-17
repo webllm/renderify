@@ -278,7 +278,7 @@ pnpm format           # Auto-format code
 - [Plugin System](./plugin-system.md) — extensibility hooks
 - [CLI & Playground](./cli-playground.md) — CLI commands and playground features
 - [Renderer-only website Playground](./website-playground.md) — static code editor with no LLM request
-- [Website deployment](./website-deployment.md) — Fumadocs and GitHub Pages workflow
+- [Website deployment](./website-deployment.md) — Publish the Fumadocs site from your local checkout
 - [Browser Integration](./browser-integration.md) — embedding in web applications
 - [API Reference](./api-reference.md) — complete type and function reference
 - [Troubleshooting & FAQ](./troubleshooting-faq.md) — failure diagnostics and recovery checklist

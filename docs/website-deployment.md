@@ -12,7 +12,7 @@ Node.js server in production.
 
 ## Local validation
 
-Run the same gates used by CI and deployment:
+To run the website CI checks locally:
 
 ```bash
 pnpm install --frozen-lockfile
@@ -38,26 +38,23 @@ pnpm website:build
 pnpm website:preview
 ```
 
-## GitHub Pages setup
+## Deploy from your local checkout
 
-The repository administrator performs one one-time setting:
+From the repository root, with dependencies installed and Git write access to
+`origin`, run:
 
-1. Open **Settings → Pages**.
-2. Under **Build and deployment**, choose **GitHub Actions** as the source.
+```bash
+pnpm run deploy
+```
 
-After that, pushes that change website, documentation, workflow, or relevant
-runtime files trigger `.github/workflows/pages.yml`. The workflow builds with
-the repository base path, uploads `apps/website/out`, and deploys through the
-protected `github-pages` environment.
+The command type-checks the website, builds the current working tree for
+`/renderify/`, and publishes `apps/website/out` to the `gh-pages` branch on
+`origin`. Local edits are included in the build. Only the static export is
+committed to the publishing branch.
 
-The workflow requests only the permissions required by GitHub Pages:
-
-- `contents: read`;
-- `pages: write`;
-- `id-token: write`.
-
-GitHub serializes deployments through the workflow concurrency group so a newer
-push can replace an older in-progress site build.
+The first run creates `gh-pages`. In **Settings → Pages → Build and deployment**,
+choose **Deploy from a branch**, select **gh-pages** and **/(root)**, then save.
+Subsequent releases only need `pnpm run deploy`.
 
 ## Verify a deployment
 
@@ -81,4 +78,5 @@ For the Playground, run both bundled examples and verify more than visible HTML:
 
 If the site moves to a root custom domain, build with an empty base path and add
 the domain to the Pages configuration. Keep `siteConfig.productionUrl`, sitemap,
-Open Graph metadata, and the workflow build variable aligned with that domain.
+Open Graph metadata, and the base path in the root `deploy` script aligned with
+that domain.
