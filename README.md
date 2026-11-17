@@ -78,13 +78,29 @@ sandboxed lane for open-ended code.
 
 ## What Renderify Does
 
+Renderify has two lanes. Plans are the default; the sandboxed lane is there for
+UIs a plan cannot express.
+
+```mermaid
+flowchart LR
+    Model["Model or agent tool"]
+    Model -->|"RuntimePlan JSON"| Check["Validate and policy-check"]
+    Check --> View["Declarative renderer<br/>state, lists, forms, events"]
+    Model -->|"JSX or TSX"| Frame["Sandboxed iframe<br/>opaque origin, strict CSP"]
+    View -->|"events"| App["Your app or MCP tools"]
+    Frame -->|"allowlisted actions"| App
 ```
-LLM output (JSX/TSX or structured plan)
-  → CodeGen (parse + normalize)
-    → Security policy check (before any execution)
-      → Runtime execution (Babel transpile + JSPM module resolution)
-        → Rendered UI in the browser
-```
+
+|                   | Validated plans (default)                                                    | Sandboxed JSX                                                        |
+| ----------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| **Input**         | RuntimePlan JSON                                                             | JSX or TSX source                                                    |
+| **What runs**     | No model code: the plan is validated, then rendered                          | Model code, inside an opaque-origin `sandbox="allow-scripts"` iframe |
+| **Interactivity** | State, lists, conditions, forms, and bound inputs, without another model call | Anything Preact- or React-compatible, with npm packages from JSPM    |
+| **React**         | `<RenderifyView plan={plan} />`                                              | `<RenderifyFrame source={code} />`                                   |
+| **Without React** | `renderPlanInBrowser(plan, { target })`                                      | `createRenderifyFrame({ container })`                                |
+| **Good for**      | Forms, dashboards, cards, MCP Apps                                           | Charts with npm libraries, custom components                         |
+
+### Highlights
 
 - **Interactive declarative plans**: lists (`each`), conditions (`if`), two-way `bind` for form fields, form submit, and state transitions, with no code execution. See the [RuntimePlan IR reference](docs/runtime-plan-ir.md).
 - **Sandboxed source lane**: `@renderify/frame` runs model-written JSX/TSX in an opaque-origin iframe with a strict CSP, an action allowlist, loop guards, and a watchdog. See [ADR-0002](docs/adr/0002-sandboxed-source-frame.md).
