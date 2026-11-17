@@ -560,6 +560,13 @@ Beyond the end-to-end pipeline, several components have standalone value:
 - **Security policy framework** — a systematic approach to validating untrusted declarative plans and governing reviewed dynamic source: blocked tags, module allowlists, execution budgets, and source pattern analysis. Source scanning and browser sandbox adapters are defense-in-depth controls, not a guarantee that arbitrary hostile JavaScript is safe.
 - **Browser ESM module graph materialization** — the `fetch → rewrite imports → blob URL` pipeline solves a problem browser standards have not natively addressed (bare specifiers are not usable in browsers). This module loading strategy can be extracted as an independent utility.
 
+## Contributing
+
+Issues and pull requests are welcome. The [contributing guide](docs/contributing.md)
+covers setup, development commands, testing, and the changeset-based release
+process. Report security vulnerabilities privately as described in
+[SECURITY.md](SECURITY.md).
+
 ## License
 
-MIT
+[MIT](LICENSE)
