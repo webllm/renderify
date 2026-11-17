@@ -317,6 +317,37 @@ workflow validates both values, runs formatting, lint, type, unit and
 compatibility checks, then validates package metadata and built entry points
 before publishing to npm with provenance.
 
+### First release of a package
+
+The tag workflow uses npm trusted publishing. Each new package needs its own
+registry entry and trust relationship. An npm `E404` on the publish `PUT` for
+a new scoped package can mean the workflow lacks permission to create it.
+
+Before tagging, sign in with `npm login` as a maintainer who can create packages
+in the scope. For each missing name, stage a bootstrap manifest from a temporary
+directory and authorize the workflow. For the two new packages in v0.11.0:
+
+```sh
+(
+  set -e
+  cd "$(mktemp -d)"
+  for pkg in @renderify/frame @renderify/react; do
+    printf '{"name":"%s","version":"0.0.0-bootstrap.0"}\n' "$pkg" > package.json
+    npm stage publish --access public --tag bootstrap
+    npm trust github "$pkg" --repo webllm/renderify --file release.yml --allow-publish
+  done
+)
+```
+
+Staging creates the npm package entry so its publisher can be configured.
+Leave the bootstrap version unapproved. Push the release tag within two days
+to validate each new trust relationship with the first CI publish. Changesets
+skips versions already present on npm and publishes the missing versions with
+provenance. Afterward, discard the staged bootstrap entries.
+
+[npm staged publishing](https://docs.npmjs.com/staged-publishing/) ·
+[npm trusted publishing](https://docs.npmjs.com/trusted-publishers/)
+
 ## CI Pipeline
 
 The CI workflow (`.github/workflows/ci.yml`) runs on every push and PR:
