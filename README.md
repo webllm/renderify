@@ -525,30 +525,18 @@ in a sandboxed frame nested inside it
 |                       | [`@renderify/core`](packages/core)         | Legacy orchestration facade (optional compatibility layer)                                 |
 | **Tooling**           | [`@renderify/cli`](packages/cli)           | CLI + browser playground                                                                   |
 
-## Integration Docs
+## Documentation
 
 The same documents are published as a searchable
 [Fumadocs website](https://webllm.github.io/renderify/docs/).
 
-- Getting started: [`docs/getting-started.md`](docs/getting-started.md)
-- Agent framework integrations (AI SDK, CopilotKit, assistant-ui, AG-UI, MCP Apps): [`docs/integrations.md`](docs/integrations.md)
-- Sandboxed frame for model-written source: [`docs/sandboxed-frame.md`](docs/sandboxed-frame.md)
-- Generation evals: [`docs/generation-evals.md`](docs/generation-evals.md)
-- Renderer-only website Playground: [`docs/website-playground.md`](docs/website-playground.md)
-- Website deployment: [`docs/website-deployment.md`](docs/website-deployment.md)
-- Architecture overview: [`docs/architecture/index.md`](docs/architecture/index.md)
-- Visual architecture diagrams (Mermaid): [`docs/architecture-visual.md`](docs/architecture-visual.md)
-- RuntimePlan IR reference: [`docs/runtime-plan-ir.md`](docs/runtime-plan-ir.md)
-- Runtime execution engine: [`docs/runtime-execution.md`](docs/runtime-execution.md)
-- Dependency verification model: [`docs/runtime-execution.md#verification-model`](docs/runtime-execution.md#verification-model)
-- Browser embedding: [`docs/browser-integration.md`](docs/browser-integration.md)
-- Security guide: [`docs/security.md`](docs/security.md)
-- Threat model: [`docs/threat-model.md`](docs/threat-model.md)
-- MCP Apps: [`docs/architecture/mcp-app-runtime-modules.md`](docs/architecture/mcp-app-runtime-modules.md)
-- Plugin system: [`docs/plugin-system.md`](docs/plugin-system.md)
-- Troubleshooting & FAQ: [`docs/troubleshooting-faq.md`](docs/troubleshooting-faq.md)
-- Cookbook / common integration patterns: [`docs/cookbook.md`](docs/cookbook.md)
-- Performance tuning guide: [`docs/performance-tuning.md`](docs/performance-tuning.md)
+| Topic | Guides |
+| --- | --- |
+| **Start here** | [Getting started](docs/getting-started.md) · [Renderer-only website Playground](docs/website-playground.md) · [Cookbook / common integration patterns](docs/cookbook.md) · [Troubleshooting & FAQ](docs/troubleshooting-faq.md) |
+| **Integrate** | [Agent framework integrations](docs/integrations.md) (AI SDK, CopilotKit, assistant-ui, AG-UI, MCP Apps) · [Browser embedding](docs/browser-integration.md) · [MCP Apps](docs/architecture/mcp-app-runtime-modules.md) · [Plugin system](docs/plugin-system.md) |
+| **Sandbox & security** | [Sandboxed frame for model-written source](docs/sandboxed-frame.md) · [Security guide](docs/security.md) · [Threat model](docs/threat-model.md) · [Dependency verification model](docs/runtime-execution.md#verification-model) |
+| **Reference** | [RuntimePlan IR reference](docs/runtime-plan-ir.md) · [Runtime execution engine](docs/runtime-execution.md) · [Architecture overview](docs/architecture/index.md) · [Visual architecture diagrams](docs/architecture-visual.md) · [Performance tuning guide](docs/performance-tuning.md) |
+| **Project** | [Generation evals](docs/generation-evals.md) · [Website deployment](docs/website-deployment.md) |
 
 ## Browser Examples
 
