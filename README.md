@@ -36,10 +36,6 @@ with the browser runtime in any page, or inside an MCP Apps host. Plans are
 validated and policy-checked before they render, and only the actions you allow
 reach your app.
 
-<a id="bundleless-contract"></a>
-Renderify is **bundleless by design**: it does not rely on a traditional bundling pipeline to run generated UI. Instead, it resolves and rewrites module imports at runtime (JSPM/CDN + `moduleManifest` pinning) and executes under explicit security policy and sandbox controls.
-In other words, bundleless runtime execution does **not** mean full npm bundler compatibility; Renderify intentionally targets a browser-ESM-compatible subset with explicit guarantees. See [JSPM package support (tiered contract)](#what-renderify-does) for the exact compatibility boundary.
-
 ## 30-Second Example
 
 ```bash
@@ -429,6 +425,12 @@ Auto-pin-latest workflow (`renderTrustedPlanInBrowser` default for reviewed sour
 3. Renderify immediately pins and injects the exact resolved URL/version into `moduleManifest`, then executes with pinned resolution.
 
 Use `manifest-only` in production (`autoPinLatestModuleManifest: false`) when you want fully pre-pinned, reviewable dependency mappings.
+
+### Bundleless Contract
+
+Renderify is **bundleless by design**: it does not rely on a traditional bundling pipeline to run generated UI. Instead, it resolves and rewrites module imports at runtime (JSPM/CDN + `moduleManifest` pinning) and executes under explicit security policy and sandbox controls.
+
+In other words, bundleless runtime execution does **not** mean full npm bundler compatibility; Renderify intentionally targets a browser-ESM-compatible subset with explicit guarantees. See [JSPM package support (tiered contract)](#what-renderify-does) for the exact compatibility boundary.
 
 ## MCP Apps (Offline Declarative)
 
