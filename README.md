@@ -512,18 +512,18 @@ in a sandboxed frame nested inside it
 
 ## Package Topology
 
-| Package               | Responsibility                                                   |
-| --------------------- | ---------------------------------------------------------------- |
-| `renderify`           | Official top-level SDK facade (recommended app entry)            |
-| `@renderify/ir`       | Runtime IR contracts (plan/node/state/action/event/capabilities) |
-| `@renderify/react`    | React components and hooks: `RenderifyView`, `RenderifyFrame`    |
-| `@renderify/runtime`  | Runtime execution engine + JSPM loader + one-line embed API      |
-| `@renderify/frame`    | Sandboxed iframe for model-written JSX/TSX and plans             |
-| `@renderify/security` | Policy profiles + plan/module/source static checks               |
-| `@renderify/mcp-app`  | Official MCP Apps adapter for offline declarative RuntimePlans   |
-| `@renderify/core`     | Legacy orchestration facade (optional compatibility layer)       |
-| `@renderify/llm`      | LLM provider package (OpenAI + OpenAI Codex + Anthropic + Google + local providers) |
-| `@renderify/cli`      | CLI + browser playground                                         |
+| Layer                 | Package                                    | Responsibility                                                                             |
+| --------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| **App entry**         | [`renderify`](packages/renderify)          | Official top-level SDK facade (recommended app entry)                                      |
+| **Render**            | [`@renderify/react`](packages/react)       | React components and hooks: `RenderifyView`, `RenderifyFrame`                              |
+|                       | [`@renderify/runtime`](packages/runtime)   | Runtime execution engine + JSPM loader + one-line embed API                                |
+|                       | [`@renderify/frame`](packages/frame)       | Sandboxed iframe for model-written JSX/TSX and plans                                       |
+| **Contract & policy** | [`@renderify/ir`](packages/ir)             | Runtime IR contracts (plan/node/state/action/event/capabilities)                           |
+|                       | [`@renderify/security`](packages/security) | Policy profiles + plan/module/source static checks                                         |
+| **Hosts**             | [`@renderify/mcp-app`](packages/mcp-app)   | Official MCP Apps adapter: offline declarative plans, plus an opt-in sandboxed source mode |
+| **Generation**        | [`@renderify/llm`](packages/llm)           | LLM provider package (OpenAI + OpenAI Codex + Anthropic + Google + local providers)        |
+|                       | [`@renderify/core`](packages/core)         | Legacy orchestration facade (optional compatibility layer)                                 |
+| **Tooling**           | [`@renderify/cli`](packages/cli)           | CLI + browser playground                                                                   |
 
 ## Integration Docs
 
