@@ -1,0 +1,4 @@
+User-Agent: *
+Allow: /
+
+Sitemap: https://webllm.github.io/renderify/sitemap.xml
