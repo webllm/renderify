@@ -23,7 +23,7 @@
   <a href="https://webllm.github.io/renderify/playground/"><strong>Playground</strong></a> ·
   <a href="docs/getting-started.md"><strong>Getting Started</strong></a> ·
   <a href="docs/integrations.md"><strong>Integrations</strong></a> ·
-  <a href="#browser-examples"><strong>Examples</strong></a>
+  <a href="#examples-and-templates"><strong>Examples</strong></a>
 </p>
 
 <p align="center">
@@ -538,17 +538,19 @@ The same documents are published as a searchable
 | **Reference** | [RuntimePlan IR reference](docs/runtime-plan-ir.md) · [Runtime execution engine](docs/runtime-execution.md) · [Architecture overview](docs/architecture/index.md) · [Visual architecture diagrams](docs/architecture-visual.md) · [Performance tuning guide](docs/performance-tuning.md) |
 | **Project** | [Generation evals](docs/generation-evals.md) · [Website deployment](docs/website-deployment.md) |
 
-## Browser Examples
+## Examples and Templates
 
-- Runtime plan flow: [`examples/runtime/browser-runtime-example.html`](examples/runtime/browser-runtime-example.html)
-- TSX runtime flow (Babel + JSPM): [`examples/runtime/browser-tsx-jspm-example.html`](examples/runtime/browser-tsx-jspm-example.html)
-- Recharts + Preact RuntimePlan: [`examples/runtime/recharts-dashboard-plan.json`](examples/runtime/recharts-dashboard-plan.json)
-- MCP Apps stdio server: [`examples/mcp-app/README.md`](examples/mcp-app/README.md)
-- Next.js chat with the Vercel AI SDK: [`templates/nextjs-chat`](templates/nextjs-chat)
-- MCP Apps task board server: [`templates/mcp-server`](templates/mcp-server)
-- Killer demo: one-line chat dashboard embed: [`examples/killer/one-line-chat-dashboard.html`](examples/killer/one-line-chat-dashboard.html)
-- Killer demo: one-line form/state/date-fns embed: [`examples/killer/one-line-chat-form.html`](examples/killer/one-line-chat-form.html)
-- Killer demo: one-line worker-sandbox source embed: [`examples/killer/one-line-sandbox-worker.html`](examples/killer/one-line-sandbox-worker.html)
+| Kind                | Example                              | Source                                                                                             |
+| ------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| **Templates**       | Next.js chat with the Vercel AI SDK  | [`templates/nextjs-chat`](templates/nextjs-chat)                                                   |
+|                     | MCP Apps task board server           | [`templates/mcp-server`](templates/mcp-server)                                                     |
+| **MCP Apps**        | MCP Apps stdio server                | [`examples/mcp-app/README.md`](examples/mcp-app/README.md)                                         |
+| **Browser runtime** | Runtime plan flow                    | [`examples/runtime/browser-runtime-example.html`](examples/runtime/browser-runtime-example.html)   |
+|                     | TSX runtime flow (Babel + JSPM)      | [`examples/runtime/browser-tsx-jspm-example.html`](examples/runtime/browser-tsx-jspm-example.html) |
+|                     | Recharts + Preact RuntimePlan        | [`examples/runtime/recharts-dashboard-plan.json`](examples/runtime/recharts-dashboard-plan.json)   |
+| **Killer demos**    | One-line chat dashboard embed        | [`examples/killer/one-line-chat-dashboard.html`](examples/killer/one-line-chat-dashboard.html)     |
+|                     | One-line form/state/date-fns embed   | [`examples/killer/one-line-chat-form.html`](examples/killer/one-line-chat-form.html)               |
+|                     | One-line worker-sandbox source embed | [`examples/killer/one-line-sandbox-worker.html`](examples/killer/one-line-sandbox-worker.html)     |
 
 ## Technical Highlights
 
