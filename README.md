@@ -259,6 +259,25 @@ pnpm cli -- render-plan examples/runtime/counter-plan.json
 
 # Local development Playground (includes optional LLM actions)
 pnpm playground
+```
+
+The playground listens only on `127.0.0.1` by default. Remote access requires
+an explicit `--host <host>` option or `RENDERIFY_PLAYGROUND_HOST` override; use
+a non-loopback binding only on a trusted network.
+
+The playground always processes plans through the server's configured
+security/runtime boundary first. Eligible reviewed `source.runtime: "preact"`
+plans are then transpiled and mounted in the browser so hooks, React-compatible
+packages, CSS-in-JS, and event handlers remain interactive. Other source modes
+display the server-rendered result only. Hash payloads cannot bypass the active
+security profile. The optional display iframe is a presentation boundary, not
+a security boundary for arbitrary hostile source.
+
+<details>
+<summary>Playground flags, LLM providers, and runtime environment variables</summary>
+
+```bash
+# Playground flags
 pnpm cli -- playground --host 0.0.0.0 # trusted networks only
 pnpm cli -- playground --debug
 pnpm cli -- playground --no-llm-log
@@ -310,21 +329,11 @@ RENDERIFY_RUNTIME_BROWSER_SANDBOX_FAIL_CLOSED=true pnpm playground
 RENDERIFY_LLM_USE_STRUCTURED_OUTPUT=false pnpm playground
 ```
 
-The playground listens only on `127.0.0.1` by default. Remote access requires
-an explicit `--host <host>` option or `RENDERIFY_PLAYGROUND_HOST` override; use
-a non-loopback binding only on a trusted network.
-
 By default, playground prints outbound LLM request/response payload logs in terminal (`[playground-llm]`) with sensitive fields redacted. Use `--no-llm-log` or `RENDERIFY_PLAYGROUND_LLM_LOG=false` to disable.
 
 When debug mode is enabled, playground logs key inbound/outbound request summaries, exposes `GET /api/debug/stats`, and shows an in-page **Debug Stats** panel with auto-refresh.
 
-The playground always processes plans through the server's configured
-security/runtime boundary first. Eligible reviewed `source.runtime: "preact"`
-plans are then transpiled and mounted in the browser so hooks, React-compatible
-packages, CSS-in-JS, and event handlers remain interactive. Other source modes
-display the server-rendered result only. Hash payloads cannot bypass the active
-security profile. The optional display iframe is a presentation boundary, not
-a security boundary for arbitrary hostile source.
+</details>
 
 ### Playground Hash Deep-Link
 
