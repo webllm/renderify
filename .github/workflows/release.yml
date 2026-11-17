@@ -78,7 +78,9 @@ jobs:
         run: pnpm artifacts:smoke
 
       - name: Publish
-        run: pnpm release
+        run: |
+          node scripts/check-npm-package-names.mjs
+          pnpm release
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
           NPM_CONFIG_PROVENANCE: true

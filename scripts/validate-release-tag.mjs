@@ -84,7 +84,7 @@ function listPendingChangesets() {
     .sort();
 }
 
-function readPublishablePackages() {
+export function readPublishablePackages() {
   return fs
     .readdirSync(PACKAGE_DIR, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
