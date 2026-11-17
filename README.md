@@ -158,6 +158,9 @@ flowchart TD
 
 ## Implemented Capabilities
 
+<details>
+<summary>Runtime protocol, sandbox profiles, source pipeline, dependency preflight, and tooling</summary>
+
 - Runtime plan model with optional `state` (when provided, `state.initial` is required)
 - Runtime quotas and limits:
   - `maxImports`
@@ -206,6 +209,8 @@ flowchart TD
 - CI matrix (`Node 22 + Node 24`) for typecheck/unit + quality gates
 - PR changeset enforcement for release-relevant package changes
 - Benchmark workflow with JSON artifacts uploaded per CI run
+
+</details>
 
 ## SDK Quick Start (Non-CLI)
 
