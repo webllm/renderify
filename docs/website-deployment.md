@@ -44,7 +44,7 @@ From the repository root, with dependencies installed and Git write access to
 `origin`, run:
 
 ```bash
-pnpm run deploy
+pnpm website:deploy
 ```
 
 The command type-checks the website, builds the current working tree for
@@ -54,7 +54,13 @@ committed to the publishing branch.
 
 The first run creates `gh-pages`. In **Settings → Pages → Build and deployment**,
 choose **Deploy from a branch**, select **gh-pages** and **/(root)**, then save.
-Subsequent releases only need `pnpm run deploy`.
+If the `github-pages` environment restricts deployment branches, allow
+`gh-pages` under **Settings → Environments → github-pages**.
+Subsequent releases only need `pnpm website:deploy`.
+
+The command reports `Published` when Git has updated the branch. To confirm
+the site is live, check that **Actions → pages build and deployment** succeeded
+for the latest `gh-pages` commit.
 
 ## Verify a deployment
 
@@ -78,5 +84,5 @@ For the Playground, run both bundled examples and verify more than visible HTML:
 
 If the site moves to a root custom domain, build with an empty base path and add
 the domain to the Pages configuration. Keep `siteConfig.productionUrl`, sitemap,
-Open Graph metadata, and the base path in the root `deploy` script aligned with
+Open Graph metadata, and the base path in the root `website:deploy` script aligned with
 that domain.
